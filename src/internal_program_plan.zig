@@ -25,6 +25,10 @@ pub const ProgramPlan = inner.ProgramPlan;
 pub const program_plan_builder = inner.program_plan_builder;
 /// Re-exported requirement descriptor.
 pub const RequirementPlan = inner.RequirementPlan;
+/// Re-exported requirement lifecycle semantics tag.
+pub const RequirementLifecycleTag = inner.RequirementLifecycleTag;
+/// Re-exported requirement output semantics tag.
+pub const RequirementOutputTag = inner.RequirementOutputTag;
 /// Re-exported terminator descriptor.
 pub const Terminator = inner.Terminator;
 /// Re-exported terminator kind tag.

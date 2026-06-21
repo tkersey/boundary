@@ -1472,14 +1472,30 @@ pub fn program(
         pub const boundary_program_plan_image_format_version: u32 = Evidence.domains.boundary_program_plan_image.format_version.?;
         /// Stable fingerprint version for ProgramPlan images embedded in Boundary modules.
         pub const boundary_program_plan_image_fingerprint_version: u32 = Evidence.domains.boundary_program_plan_image.fingerprint_version;
+        /// Stable format version for executable ProgramPlan images embedded in Boundary modules.
+        pub const boundary_executable_plan_image_format_version: u32 = Evidence.domains.boundary_executable_plan_image.format_version.?;
+        /// Stable fingerprint version for executable ProgramPlan images embedded in Boundary modules.
+        pub const boundary_executable_plan_image_fingerprint_version: u32 = Evidence.domains.boundary_executable_plan_image.fingerprint_version;
         /// Stable format version for ValueSchema images embedded in Boundary modules.
         pub const boundary_value_schema_image_format_version: u32 = Evidence.domains.boundary_value_schema_image.format_version.?;
         /// Stable fingerprint version for ValueSchema images embedded in Boundary modules.
         pub const boundary_value_schema_image_fingerprint_version: u32 = Evidence.domains.boundary_value_schema_image.fingerprint_version;
+        /// Stable format version for loaded value images.
+        pub const boundary_loaded_value_image_format_version: u32 = Evidence.domains.boundary_loaded_value_image.format_version.?;
+        /// Stable fingerprint version for loaded value images.
+        pub const boundary_loaded_value_image_fingerprint_version: u32 = Evidence.domains.boundary_loaded_value_image.fingerprint_version;
         /// Stable fingerprint version for decoded LoadedModule witnesses.
         pub const boundary_loaded_module_fingerprint_version: u32 = Evidence.domains.boundary_loaded_module.fingerprint_version;
         /// Stable fingerprint version for fail-closed loaded session witnesses.
         pub const boundary_loaded_session_fingerprint_version: u32 = Evidence.domains.boundary_loaded_session.fingerprint_version;
+        /// Stable format version for portable loaded session continuation images.
+        pub const boundary_loaded_session_image_format_version: u32 = Evidence.domains.boundary_loaded_session_image.format_version.?;
+        /// Stable fingerprint version for portable loaded session continuation images.
+        pub const boundary_loaded_session_image_fingerprint_version: u32 = Evidence.domains.boundary_loaded_session_image.fingerprint_version;
+        /// Stable format version for loaded execution profiles.
+        pub const boundary_loaded_execution_profile_format_version: u32 = Evidence.domains.boundary_loaded_execution_profile.format_version.?;
+        /// Stable fingerprint version for loaded execution profiles.
+        pub const boundary_loaded_execution_profile_fingerprint_version: u32 = Evidence.domains.boundary_loaded_execution_profile.fingerprint_version;
         /// Stable fingerprint version for Boundary module compatibility reports.
         pub const boundary_module_compatibility_report_fingerprint_version: u32 = Evidence.domains.boundary_module_compatibility_report.fingerprint_version;
         /// Stable fingerprint version for Boundary module validation reports.

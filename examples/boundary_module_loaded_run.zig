@@ -37,15 +37,37 @@ pub fn run(writer: anytype) !void {
     var loaded = try Target.Module.decode(allocator, bytes);
     defer loaded.deinit();
 
-    var loaded_session = Target.Module.LoadedModule.Session.start(&loaded);
-    const loaded_status: []const u8 = if (loaded_session.next()) |_| "unexpected_ready" else |err| switch (err) {
-        error.UnsupportedLoadedExecution => "unsupported_fail_closed",
+    var loaded_session = try Target.Module.LoadedModule.Session.startExecutable(
+        allocator,
+        &loaded,
+        Target.Module.LoadedExecutionProfile.portableV1(),
+    );
+    defer loaded_session.deinit();
+    const loaded_request = switch (loaded_session.next()) {
+        .request => |request| request,
+        .failed => return error.UnexpectedLoadedFailure,
+        .done => return error.UnexpectedLoadedDone,
+    };
+    const loaded_response = try Target.Module.LoadedExecution.encodeLoadedValueImageBytes(
+        allocator,
+        .{},
+        .{ .codec = .i32 },
+        .{ .i32 = 7 },
+        .{},
+    );
+    defer allocator.free(loaded_response);
+    try loaded_session.@"resume"(loaded_request, loaded_response);
+    const loaded_result = switch (loaded_session.next()) {
+        .done => |done| done,
+        .request => return error.UnexpectedLoadedRequest,
+        .failed => return error.UnexpectedLoadedFailure,
     };
     const final = try runLocalGeneratedTarget(allocator);
 
-    try writer.print("loaded_session={s}\n", .{loaded_status});
-    try writer.print("world_port_id={d}\n", .{loaded.imports()[0].world_port_id});
-    try writer.print("request_site_fingerprint={x}\n", .{loaded.imports()[0].residual_site_fingerprint});
+    try writer.print("loaded_session=completed_loaded_request\n", .{});
+    try writer.print("world_port_id={d}\n", .{loaded_request.world_port_id});
+    try writer.print("request_site_fingerprint={x}\n", .{loaded_request.residual_site_fingerprint});
+    try writer.print("loaded_result_fingerprint={x}\n", .{loaded_result.result_fingerprint});
     try writer.print("local_generated_final_result={d}\n", .{final});
 }
 

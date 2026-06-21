@@ -26,6 +26,45 @@ construction or arbitrary runtime code mutation APIs. Value schema image data
 uses schema-local refs and diagnostic labels only; it does not widen
 `ProgramValue` or authorize native Zig type identity.
 
+Executable modules now carry a separate `Target.Module.ExecutablePlanImage`
+section. This section is the portable execution byte witness for later loaded
+sessions: it owns canonical row tables for functions, requirements, operations,
+outputs, schemas, locals, call arguments, blocks, terminators, instructions,
+string literals, stable error identities, nested-call refs, entry function, and
+the execution feature bitmap. It uses format/fingerprint version 1 and is
+validated independently of the summary image. Unsupported executable semantics
+must reject before session creation rather than after partial execution.
+
+`Target.Module.LoadedExecutionProfile` and the loaded value image types are the
+portable substrate consumed by that future session. Profile v1 fixes checked
+arithmetic, architecture-independent word values encoded as `u64`, supported
+instruction/terminator/value-codec feature sets, and explicit execution and
+allocation limits. `LoadedValue.Image` is schema-driven canonical data rather
+than a Zig value: it binds schema identity and bytes, rejects trailing data,
+validates product and sum refs through schema tables, and decodes into
+Boundary-owned arena storage.
+
+`LoadedModule.Session` also has a portable session-image shell and an explicit
+`startExecutable` constructor that decodes the executable-plan rows into owned
+session state. Start binds the module, executable-plan, profile, and
+entry-function identities; `next()` can execute bounded no-argument scalar local
+plans over decoded rows, including `return_unit`, `return_value`, scalar
+constants, checked i32/u64 arithmetic, zero comparisons, jumps, branches, and
+deterministic fuel exhaustion. Completing `call_helper` frames are also executed
+through explicit function and call-argument rows. It also supports the first
+residual request shape (`const_string`, `call_op`, `return_value` with string
+payload and scalar response/result refs). The yielded request carries canonical
+payload image bytes and site/world-port/value identity, and `resume` accepts
+canonical response image bytes, encodes the final result through the module
+result ref, and rejects wrong or duplicate responses without mutating the parked
+request. Helper calls that would park on residual
+requests and other unsupported instruction shapes return stable
+`unsupported_feature` failures until the interpreter and continuation image
+broaden; `freeze` and `thaw` roundtrip canonical loaded-session bytes, including
+parked request identity and payload evidence, and reject substituted module,
+plan, profile, session, or malformed image fingerprints before mutable state is
+reconstructed.
+
 `LoadedModule` projects the ProgramPlan-facing consumption data without turning
 the image into a VM: ProgramPlan hash, normal-form kind, main export result ref,
 argument refs, import projections, validation diagnostics, compatibility, and

@@ -38,8 +38,91 @@ fn unitPlan() boundary.ir.ProgramPlan {
     }) catch unreachable;
 }
 
+fn helperPlan() boundary.ir.ProgramPlan {
+    const helper = boundary.ir.builder.function(0);
+    const root = boundary.ir.builder.function(1);
+    const functions = [_]boundary.ir.plan.Function{
+        .{
+            .symbol_name = "helper",
+            .value_codec = .i32,
+            .result_codec = .i32,
+            .parameter_count = 2,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 3,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        },
+        .{
+            .symbol_name = "run",
+            .value_codec = .i32,
+            .result_codec = .i32,
+            .parameter_count = 0,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 3,
+            .local_count = 3,
+            .first_block = 1,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 2,
+            .instruction_count = 4,
+        },
+    };
+    const locals = [_]boundary.ir.plan.Local{
+        .{ .codec = .i32 },
+        .{ .codec = .i32 },
+        .{ .codec = .i32 },
+        .{ .codec = .i32 },
+        .{ .codec = .i32 },
+        .{ .codec = .i32 },
+    };
+    const call_args = [_]u16{ 0, 1 };
+    const blocks = [_]boundary.ir.plan.Block{
+        .{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 },
+        .{ .first_instruction = 2, .instruction_count = 4, .terminator_index = 1 },
+    };
+    const terminators = [_]boundary.ir.plan.Terminator{
+        .{ .kind = .return_value },
+        .{ .kind = .return_value },
+    };
+    const instructions = [_]boundary.ir.plan.Instruction{
+        .{ .kind = .add_i32, .dst = 2, .operand = 0, .aux = 1 },
+        boundary.ir.builder.returnValue(helper, boundary.ir.builder.local(helper, 2)) catch unreachable,
+        .{ .kind = .const_i32, .dst = 0, .operand = 12 },
+        .{ .kind = .const_i32, .dst = 1, .operand = 30 },
+        boundary.ir.builder.callHelper(root, boundary.ir.builder.local(root, 2), helper, 0) catch unreachable,
+        boundary.ir.builder.returnValue(root, boundary.ir.builder.local(root, 2)) catch unreachable,
+    };
+    return boundary.ir.builder.finish(.{
+        .label = "evidence-loaded-helper-plan",
+        .ir_hash = 2,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &locals,
+        .call_args = &call_args,
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
 const Program = boundary.program("evidence-test", struct {}, struct {
     pub const compiled_plan = unitPlan();
+});
+const loaded_helper_program = boundary.program("evidence-loaded-helper", struct {}, struct {
+    pub const compiled_plan = helperPlan();
 });
 const nested_unit_program = boundary.program("evidence-nested-unit", struct {}, struct {
     pub const compiled_plan = unitPlan();
@@ -89,6 +172,42 @@ const closure_source_program = boundary.program("evidence-closure-source", closu
     pub const compiled_plan = closure_source_compiled.plan;
 });
 const closure_approval_request = closure_source_program.protocol.operationSite("approval", "request", 0);
+const closure_bool_protocol = boundary.ir.schema.Protocol(.{
+    .label = "approval-bool",
+    .ops = .{boundary.ir.schema.transform("request", []const u8, bool)},
+});
+const closure_bool_rows = closure_bool_protocol.Rows(closure_fixture_handlers, .{ .requirement_index = 0, .first_op = 0 });
+const closure_bool_request_op = closure_bool_rows.op("request");
+const closure_bool_source_compiled = closure_fixture_semantic.finish(.{
+    .label = "evidence-closure-bool-source",
+    .ir_hash = 0xC105E50A,
+    .entry = "run",
+    .requirements = &.{closure_bool_rows.requirement},
+    .ops = &closure_bool_rows.ops,
+    .functions = .{.{
+        .symbol_name = "run",
+        .requirements = closure_fixture_semantic.span(0, 1),
+        .params = .{},
+        .locals = .{
+            closure_fixture_semantic.local("payload", []const u8),
+            closure_fixture_semantic.local("decision", bool),
+        },
+        .result = bool,
+        .blocks = .{.{
+            .name = "entry",
+            .instructions = .{
+                closure_fixture_semantic.constString("payload", "deploy-prod"),
+                closure_fixture_semantic.call(closure_bool_request_op, .{ .dst = "decision", .payload = "payload", .label = "approval-bool.request" }),
+            },
+            .terminator = closure_fixture_semantic.returnValue("decision"),
+        }},
+    }},
+}) catch |err| @compileError("invalid bool closure source fixture: " ++ @errorName(err));
+const closure_bool_source_program = boundary.program("evidence-closure-bool-source", closure_fixture_handlers, struct {
+    pub const site_metadata = closure_bool_source_compiled.site_metadata;
+    pub const compiled_plan = closure_bool_source_compiled.plan;
+});
+const closure_bool_request = closure_bool_source_program.protocol.operationSite("approval-bool", "request", 0);
 const closure_dual_protocol = boundary.ir.schema.Protocol(.{
     .label = "approval-dual",
     .ops = .{
@@ -181,6 +300,52 @@ const closure_handler_compiled = closure_fixture_semantic.finish(.{
 }) catch |err| @compileError("invalid closure handler fixture: " ++ @errorName(err));
 const closure_handler_program = boundary.program("evidence-closure-handler", struct {}, struct {
     pub const compiled_plan = closure_handler_compiled.plan;
+});
+const loaded_scalar_compiled = closure_fixture_semantic.finish(.{
+    .label = "evidence-loaded-scalar",
+    .ir_hash = 0xC105E509,
+    .entry = "run",
+    .functions = .{.{
+        .symbol_name = "run",
+        .params = .{},
+        .locals = .{
+            closure_fixture_semantic.local("left", i32),
+            closure_fixture_semantic.local("right", i32),
+            closure_fixture_semantic.local("sum", i32),
+            closure_fixture_semantic.local("is_zero", bool),
+            closure_fixture_semantic.local("answer", i32),
+        },
+        .result = i32,
+        .blocks = .{
+            .{
+                .name = "entry",
+                .instructions = .{
+                    closure_fixture_semantic.constI32("left", 40),
+                    closure_fixture_semantic.constI32("right", 2),
+                    closure_fixture_semantic.addI32("sum", "left", "right"),
+                    closure_fixture_semantic.compareEqZero("is_zero", "sum"),
+                },
+                .terminator = closure_fixture_semantic.branchIf("is_zero", .{ .then = "zero", .@"else" = "nonzero" }),
+            },
+            .{
+                .name = "zero",
+                .instructions = .{
+                    closure_fixture_semantic.constI32("answer", 0),
+                },
+                .terminator = closure_fixture_semantic.returnValue("answer"),
+            },
+            .{
+                .name = "nonzero",
+                .instructions = .{
+                    closure_fixture_semantic.subOne("answer", "sum"),
+                },
+                .terminator = closure_fixture_semantic.returnValue("answer"),
+            },
+        },
+    }},
+}) catch |err| @compileError("invalid loaded scalar fixture: " ++ @errorName(err));
+const loaded_scalar_program = boundary.program("evidence-loaded-scalar", struct {}, struct {
+    pub const compiled_plan = loaded_scalar_compiled.plan;
 });
 const closure_recursive_handler_compiled = closure_fixture_semantic.finish(.{
     .label = "evidence-closure-recursive-handler",
@@ -16472,6 +16637,93 @@ fn ModuleWorldPortTarget(comptime label: []const u8) type {
     });
 }
 
+fn ModuleBoolWorldPortTarget(comptime label: []const u8) type {
+    const Closure = closure_bool_source_program.BoundaryClosure;
+    const Elaboration = Closure.Elaboration;
+    @setEvalBranchQuota(2_000_000);
+    const source_ref = closure_bool_source_program.Evidence.refFor(
+        closure_bool_source_program.Evidence.domains.program_plan,
+        closure_bool_source_program.compiled_plan.hash(),
+        .{ .label = closure_bool_source_program.contract.label },
+    );
+    const source_shape = Closure.EffectShape.init(.{
+        .program_label = closure_bool_source_program.contract.label,
+        .plan_hash = closure_bool_source_program.compiled_plan.hash(),
+        .kind = .operation,
+        .site_index = closure_bool_request.index,
+        .protocol_label = "approval-bool",
+        .protocol_op_fingerprint = closure_bool_request.fingerprint,
+        .semantic_label = "approval-bool.request",
+        .name = "request",
+        .mode = "transform",
+        .value_ref = Evidence.BoundaryValueRef.fromValueRef(closure_bool_request.payload_ref),
+        .expected_resume_ref = Evidence.BoundaryValueRef.fromValueRef(closure_bool_request.resume_ref),
+        .result_ref = Evidence.BoundaryValueRef.fromValueRef(closure_bool_request.result_ref),
+    });
+    const port = Closure.WorldPort.init(.{
+        .label = "module-bool-approval-port",
+        .kind = .test_fixture,
+        .effect_shape_ref = source_shape.evidenceRef(),
+        .effect_shape_witness = source_shape,
+        .supported_protocol_labels = &.{"approval-bool"},
+        .supported_site_indexes = &.{closure_bool_request.index},
+        .supported_protocol_op_fingerprints = &.{closure_bool_request.fingerprint},
+    });
+    const graph = Closure.Graph.init("module-bool-world-port-graph", &.{}, &.{}, &.{});
+    const report = Closure.Report.init(.{
+        .graph_fingerprint = graph.fingerprint,
+        .root_program_refs = &.{source_ref},
+        .effect_shape_count = 1,
+        .world_port_refs = &.{port.evidenceRef()},
+        .open_world_port_count = 1,
+    });
+    const certificate = Closure.Certificate.init(report, graph, Closure.Policy.auditOnly(), &.{});
+    const input = Elaboration.Input{
+        .closure_graph = graph,
+        .closure_report = report,
+        .closure_certificate = certificate,
+        .source_program_ref = source_ref,
+        .world_ports = &.{port},
+        .policy = Elaboration.Policy.auditOnly(),
+    };
+    return Elaboration.Target.compileComptime(.{
+        .label = label,
+        .input = input,
+        .residual_program = closure_bool_source_program,
+        .policy = Elaboration.Target.Policy.auditOnly(),
+    });
+}
+
+fn ModuleUnitTarget(comptime label: []const u8) type {
+    const Closure = Program.BoundaryClosure;
+    const Elaboration = Closure.Elaboration;
+    @setEvalBranchQuota(2_000_000);
+    const source_ref = Program.Evidence.refFor(
+        Program.Evidence.domains.program_plan,
+        Program.compiled_plan.hash(),
+        .{ .label = Program.contract.label },
+    );
+    const graph = Closure.Graph.init("module-unit-graph", &.{}, &.{}, &.{});
+    const report = Closure.Report.init(.{
+        .graph_fingerprint = graph.fingerprint,
+        .root_program_refs = &.{source_ref},
+    });
+    const certificate = Closure.Certificate.init(report, graph, Closure.Policy.auditOnly(), &.{});
+    const input = Elaboration.Input{
+        .closure_graph = graph,
+        .closure_report = report,
+        .closure_certificate = certificate,
+        .source_program_ref = source_ref,
+        .policy = Elaboration.Policy.auditOnly(),
+    };
+    return Elaboration.Target.compileComptime(.{
+        .label = label,
+        .input = input,
+        .residual_program = Program,
+        .policy = Elaboration.Target.Policy.auditOnly(),
+    });
+}
+
 fn ModuleParameterizedTarget(comptime label: []const u8) type {
     const Closure = closure_handler_program.BoundaryClosure;
     const Elaboration = Closure.Elaboration;
@@ -16498,6 +16750,66 @@ fn ModuleParameterizedTarget(comptime label: []const u8) type {
         .label = label,
         .input = input,
         .residual_program = closure_handler_program,
+        .policy = Elaboration.Target.Policy.auditOnly(),
+    });
+}
+
+fn ModuleLoadedScalarTarget(comptime label: []const u8) type {
+    const Closure = loaded_scalar_program.BoundaryClosure;
+    const Elaboration = Closure.Elaboration;
+    @setEvalBranchQuota(2_000_000);
+    const source_ref = loaded_scalar_program.Evidence.refFor(
+        loaded_scalar_program.Evidence.domains.program_plan,
+        loaded_scalar_program.compiled_plan.hash(),
+        .{ .label = loaded_scalar_program.contract.label },
+    );
+    const graph = Closure.Graph.init("module-loaded-scalar-graph", &.{}, &.{}, &.{});
+    const report = Closure.Report.init(.{
+        .graph_fingerprint = graph.fingerprint,
+        .root_program_refs = &.{source_ref},
+    });
+    const certificate = Closure.Certificate.init(report, graph, Closure.Policy.auditOnly(), &.{});
+    const input = Elaboration.Input{
+        .closure_graph = graph,
+        .closure_report = report,
+        .closure_certificate = certificate,
+        .source_program_ref = source_ref,
+        .policy = Elaboration.Policy.auditOnly(),
+    };
+    return Elaboration.Target.compileComptime(.{
+        .label = label,
+        .input = input,
+        .residual_program = loaded_scalar_program,
+        .policy = Elaboration.Target.Policy.auditOnly(),
+    });
+}
+
+fn ModuleLoadedHelperTarget(comptime label: []const u8) type {
+    const Closure = loaded_helper_program.BoundaryClosure;
+    const Elaboration = Closure.Elaboration;
+    @setEvalBranchQuota(2_000_000);
+    const source_ref = loaded_helper_program.Evidence.refFor(
+        loaded_helper_program.Evidence.domains.program_plan,
+        loaded_helper_program.compiled_plan.hash(),
+        .{ .label = loaded_helper_program.contract.label },
+    );
+    const graph = Closure.Graph.init("module-loaded-helper-graph", &.{}, &.{}, &.{});
+    const report = Closure.Report.init(.{
+        .graph_fingerprint = graph.fingerprint,
+        .root_program_refs = &.{source_ref},
+    });
+    const certificate = Closure.Certificate.init(report, graph, Closure.Policy.auditOnly(), &.{});
+    const input = Elaboration.Input{
+        .closure_graph = graph,
+        .closure_report = report,
+        .closure_certificate = certificate,
+        .source_program_ref = source_ref,
+        .policy = Elaboration.Policy.auditOnly(),
+    };
+    return Elaboration.Target.compileComptime(.{
+        .label = label,
+        .input = input,
+        .residual_program = loaded_helper_program,
         .policy = Elaboration.Target.Policy.auditOnly(),
     });
 }
@@ -16680,8 +16992,152 @@ test "certified boundary module reference full image and loaded module projectio
     const wrong_target_compatibility = Target.Module.compatibility(wrong_target_full, .{ .require_full_module = true });
     try std.testing.expect(!wrong_target_compatibility.compatible);
     try std.testing.expectEqual(wrong_target_report.compatibility.report_fingerprint, wrong_target_compatibility.report_fingerprint);
-    var session = Target.Module.LoadedModule.Session.start(&loaded);
-    try std.testing.expectError(error.UnsupportedLoadedExecution, session.next());
+    const supported_profile = Target.Module.LoadedExecutionProfile.portableV1();
+    var required_profile = Target.Module.LoadedExecutionProfile.portableV1();
+    try std.testing.expect(supported_profile.compatibleWith(required_profile));
+    required_profile.limits.maximum_owned_value_bytes = supported_profile.limits.maximum_owned_value_bytes + 1;
+    try std.testing.expect(!supported_profile.compatibleWith(required_profile));
+
+    const encoded_word = try Target.Module.LoadedExecution.encodeLoadedValueImageBytes(
+        allocator,
+        .{},
+        .{ .codec = .usize },
+        .{ .word_u64 = 0x1_0000_0000 },
+        .{},
+    );
+    defer allocator.free(encoded_word);
+    var value_arena = Target.Module.LoadedValueArena.init(allocator);
+    defer value_arena.deinit();
+    const decoded_word = try Target.Module.LoadedExecution.decodeLoadedValueImage(
+        allocator,
+        &value_arena,
+        .{},
+        .{ .codec = .usize },
+        encoded_word,
+        .{},
+    );
+    try std.testing.expectEqual(@as(u64, 0x1_0000_0000), decoded_word.word_u64);
+
+    var session = try Target.Module.LoadedModule.Session.startExecutable(
+        allocator,
+        &loaded,
+        Target.Module.LoadedExecutionProfile.portableV1(),
+    );
+    defer session.deinit();
+    const loaded_request = switch (session.next()) {
+        .request => |request| request,
+        .failed => return error.UnexpectedFailure,
+        .done => return error.UnexpectedDone,
+    };
+    try std.testing.expectEqual(Target.Module.LoadedSessionStatus.request, session.status);
+    try std.testing.expectEqual(@as(u32, 0), loaded_request.world_port_id);
+    try std.testing.expectEqual(loaded.imports()[0].residual_site_index, loaded_request.residual_site_index);
+    try std.testing.expectEqual(loaded.imports()[0].residual_site_fingerprint, loaded_request.residual_site_fingerprint);
+    try std.testing.expect(loaded_request.world_port_ref.?.eql(loaded.imports()[0].world_port_ref));
+    try std.testing.expect(loaded_request.payload_ref.eql(loaded.imports()[0].payload_ref));
+    try std.testing.expect(loaded_request.expected_response_ref.eql(loaded.imports()[0].response_ref));
+    try std.testing.expect(loaded_request.canonical_request_fingerprint != 0);
+    try std.testing.expect(loaded_request.deterministic_continuation_fingerprint != 0);
+
+    var loaded_payload_arena = Target.Module.LoadedValueArena.init(allocator);
+    defer loaded_payload_arena.deinit();
+    const loaded_payload = try Target.Module.LoadedExecution.decodeLoadedValueImage(
+        allocator,
+        &loaded_payload_arena,
+        .{},
+        .{ .codec = .string },
+        loaded_request.canonical_payload_image,
+        .{},
+    );
+    try std.testing.expectEqualStrings("deploy-prod", loaded_payload.bytes);
+
+    const frozen_parked_session = try session.freeze(allocator);
+    defer allocator.free(frozen_parked_session);
+    const corrupted_parked_session = try allocator.dupe(u8, frozen_parked_session);
+    defer allocator.free(corrupted_parked_session);
+    corrupted_parked_session[corrupted_parked_session.len - 1] ^= 0x1;
+    try std.testing.expectError(error.FingerprintMismatch, Target.Module.LoadedModule.Session.thaw(
+        allocator,
+        &loaded,
+        corrupted_parked_session,
+        Target.Module.LoadedExecutionProfile.portableV1(),
+    ));
+    var restored_parked_session = try Target.Module.LoadedModule.Session.thaw(
+        allocator,
+        &loaded,
+        frozen_parked_session,
+        Target.Module.LoadedExecutionProfile.portableV1(),
+    );
+    defer restored_parked_session.deinit();
+    const restored_parked_request = switch (restored_parked_session.next()) {
+        .request => |request| request,
+        .done => return error.UnexpectedDone,
+        .failed => return error.UnexpectedFailure,
+    };
+    try std.testing.expectEqual(loaded_request.canonical_request_fingerprint, restored_parked_request.canonical_request_fingerprint);
+    try std.testing.expectEqual(loaded_request.deterministic_continuation_fingerprint, restored_parked_request.deterministic_continuation_fingerprint);
+    try std.testing.expectEqualStrings(loaded_request.canonical_payload_image, restored_parked_request.canonical_payload_image);
+
+    const encoded_response = try Target.Module.LoadedExecution.encodeLoadedValueImageBytes(
+        allocator,
+        .{},
+        .{ .codec = .i32 },
+        .{ .i32 = 7 },
+        .{},
+    );
+    defer allocator.free(encoded_response);
+    const wrong_response = try Target.Module.LoadedExecution.encodeLoadedValueImageBytes(
+        allocator,
+        .{},
+        .{ .codec = .bool },
+        .{ .boolean = true },
+        .{},
+    );
+    defer allocator.free(wrong_response);
+    try std.testing.expectError(error.InvalidResume, restored_parked_session.@"resume"(restored_parked_request, wrong_response));
+    try std.testing.expectEqual(Target.Module.LoadedSessionStatus.request, restored_parked_session.status);
+    const still_loaded_request = switch (restored_parked_session.next()) {
+        .request => |request| request,
+        .done => return error.UnexpectedDone,
+        .failed => return error.UnexpectedFailure,
+    };
+    try std.testing.expectEqual(restored_parked_request.canonical_request_fingerprint, still_loaded_request.canonical_request_fingerprint);
+    try restored_parked_session.@"resume"(restored_parked_request, encoded_response);
+    try std.testing.expectError(error.InvalidResume, restored_parked_session.@"resume"(restored_parked_request, encoded_response));
+    const loaded_done = switch (restored_parked_session.next()) {
+        .done => |done| done,
+        .request => return error.UnexpectedRequest,
+        .failed => return error.UnexpectedFailure,
+    };
+    try std.testing.expect(loaded_done.result_ref.eql(loaded.resultValueRef()));
+    try std.testing.expect(loaded_done.result_fingerprint != 0);
+    var loaded_result_arena = Target.Module.LoadedValueArena.init(allocator);
+    defer loaded_result_arena.deinit();
+    const loaded_result = try Target.Module.LoadedExecution.decodeLoadedValueImage(
+        allocator,
+        &loaded_result_arena,
+        .{},
+        .{ .codec = .i32 },
+        loaded_done.canonical_result_image,
+        .{},
+    );
+    try std.testing.expectEqual(@as(i32, 7), loaded_result.i32);
+    const frozen_loaded_session = try restored_parked_session.freeze(allocator);
+    defer allocator.free(frozen_loaded_session);
+    var restored_loaded_session = try Target.Module.LoadedModule.Session.thaw(
+        allocator,
+        &loaded,
+        frozen_loaded_session,
+        Target.Module.LoadedExecutionProfile.portableV1(),
+    );
+    defer restored_loaded_session.deinit();
+    const restored_done = switch (restored_loaded_session.next()) {
+        .done => |done| done,
+        .request => return error.UnexpectedRequest,
+        .failed => return error.UnexpectedFailure,
+    };
+    try std.testing.expect(restored_done.result_ref.eql(loaded.resultValueRef()));
+    try std.testing.expectEqual(session.session_fingerprint, restored_loaded_session.session_fingerprint);
 
     var malformed = try allocator.dupe(u8, full);
     defer allocator.free(malformed);
@@ -16823,6 +17279,588 @@ test "certified boundary module reference full image and loaded module projectio
     boundaryModuleRefreshSectionFingerprint(huge_import_count, Target.Module.SectionKind.import_surface);
     try std.testing.expectError(error.MissingRequiredSection, Target.Module.validate(huge_import_count, .{ .require_full_module = true }));
     try std.testing.expectError(error.MissingRequiredSection, Target.Module.decode(allocator, huge_import_count));
+}
+
+test "loaded executable session resumes full module bool residual request" {
+    const allocator = std.testing.allocator;
+    const Target = comptime ModuleBoolWorldPortTarget("module-bool-world-port-target");
+    const full = try Target.Module.fullImage(allocator);
+    defer allocator.free(full);
+    var loaded = try Target.Module.decode(allocator, full);
+    defer loaded.deinit();
+
+    var session = try Target.Module.LoadedModule.Session.startExecutable(
+        allocator,
+        &loaded,
+        Target.Module.LoadedExecutionProfile.portableV1(),
+    );
+    defer session.deinit();
+    const loaded_request = switch (session.next()) {
+        .request => |request| request,
+        .failed => return error.UnexpectedFailure,
+        .done => return error.UnexpectedDone,
+    };
+    try std.testing.expectEqual(@as(u32, 0), loaded_request.world_port_id);
+    try std.testing.expect(loaded_request.expected_response_ref.eql(loaded.resultValueRef()));
+    try std.testing.expect(loaded_request.expected_response_ref.eql(loaded.imports()[0].response_ref));
+
+    var loaded_payload_arena = Target.Module.LoadedValueArena.init(allocator);
+    defer loaded_payload_arena.deinit();
+    const loaded_payload = try Target.Module.LoadedExecution.decodeLoadedValueImage(
+        allocator,
+        &loaded_payload_arena,
+        .{},
+        .{ .codec = .string },
+        loaded_request.canonical_payload_image,
+        .{},
+    );
+    try std.testing.expectEqualStrings("deploy-prod", loaded_payload.bytes);
+
+    const encoded_response = try Target.Module.LoadedExecution.encodeLoadedValueImageBytes(
+        allocator,
+        .{},
+        .{ .codec = .bool },
+        .{ .boolean = true },
+        .{},
+    );
+    defer allocator.free(encoded_response);
+    try session.@"resume"(loaded_request, encoded_response);
+    const loaded_done = switch (session.next()) {
+        .done => |done| done,
+        .request => return error.UnexpectedRequest,
+        .failed => return error.UnexpectedFailure,
+    };
+    try std.testing.expect(loaded_done.result_ref.eql(loaded.resultValueRef()));
+    var loaded_result_arena = Target.Module.LoadedValueArena.init(allocator);
+    defer loaded_result_arena.deinit();
+    const loaded_result = try Target.Module.LoadedExecution.decodeLoadedValueImage(
+        allocator,
+        &loaded_result_arena,
+        .{},
+        .{ .codec = .bool },
+        loaded_done.canonical_result_image,
+        .{},
+    );
+    try std.testing.expect(loaded_result.boolean);
+}
+
+test "loaded executable session decodes full module plan and completes unit entry" {
+    const allocator = std.testing.allocator;
+    const Target = comptime ModuleUnitTarget("module-unit-loaded-target");
+    const full = try Target.Module.fullImage(allocator);
+    defer allocator.free(full);
+    var loaded = try Target.Module.decode(allocator, full);
+    defer loaded.deinit();
+
+    var session = try Target.Module.LoadedModule.Session.startExecutable(
+        allocator,
+        &loaded,
+        Target.Module.LoadedExecutionProfile.portableV1(),
+    );
+    defer session.deinit();
+    const done = switch (session.next()) {
+        .done => |value| value,
+        .request => return error.UnexpectedRequest,
+        .failed => return error.UnexpectedFailure,
+    };
+    try std.testing.expectEqual(Target.Module.LoadedSessionStatus.completed, session.status);
+    try std.testing.expect(done.result_ref.eql(loaded.resultValueRef()));
+
+    const frozen = try session.freeze(allocator);
+    defer allocator.free(frozen);
+    var restored = try Target.Module.LoadedModule.Session.thaw(
+        allocator,
+        &loaded,
+        frozen,
+        Target.Module.LoadedExecutionProfile.portableV1(),
+    );
+    defer restored.deinit();
+    const restored_done = switch (restored.next()) {
+        .done => |value| value,
+        .request => return error.UnexpectedRequest,
+        .failed => return error.UnexpectedFailure,
+    };
+    try std.testing.expectEqual(session.session_fingerprint, restored.session_fingerprint);
+    try std.testing.expect(restored_done.result_ref.eql(loaded.resultValueRef()));
+}
+
+test "loaded executable session interprets scalar locals and branches" {
+    const allocator = std.testing.allocator;
+    const Target = comptime ModuleLoadedScalarTarget("module-loaded-scalar-target");
+    const full = try Target.Module.fullImage(allocator);
+    defer allocator.free(full);
+    var loaded = try Target.Module.decode(allocator, full);
+    defer loaded.deinit();
+
+    var session = try Target.Module.LoadedModule.Session.startExecutable(
+        allocator,
+        &loaded,
+        Target.Module.LoadedExecutionProfile.portableV1(),
+    );
+    defer session.deinit();
+    const done = switch (session.next()) {
+        .done => |value| value,
+        .request => return error.UnexpectedRequest,
+        .failed => return error.UnexpectedFailure,
+    };
+    try std.testing.expect(done.result_ref.eql(loaded.resultValueRef()));
+    try std.testing.expect(done.result_fingerprint != 0);
+    var result_arena = Target.Module.LoadedValueArena.init(allocator);
+    defer result_arena.deinit();
+    const result = try Target.Module.LoadedExecution.decodeLoadedValueImage(
+        allocator,
+        &result_arena,
+        .{},
+        .{ .codec = .i32 },
+        done.canonical_result_image,
+        .{},
+    );
+    try std.testing.expectEqual(@as(i32, 41), result.i32);
+
+    const frozen = try session.freeze(allocator);
+    defer allocator.free(frozen);
+    var restored = try Target.Module.LoadedModule.Session.thaw(
+        allocator,
+        &loaded,
+        frozen,
+        Target.Module.LoadedExecutionProfile.portableV1(),
+    );
+    defer restored.deinit();
+    const restored_done = switch (restored.next()) {
+        .done => |value| value,
+        .request => return error.UnexpectedRequest,
+        .failed => return error.UnexpectedFailure,
+    };
+    try std.testing.expectEqual(done.result_fingerprint, restored_done.result_fingerprint);
+    try std.testing.expectEqualStrings(done.canonical_result_image, restored_done.canonical_result_image);
+
+    var constrained_profile = Target.Module.LoadedExecutionProfile.portableV1();
+    constrained_profile.limits.maximum_instructions_per_advancement = 2;
+    var constrained_session = try Target.Module.LoadedModule.Session.startExecutable(
+        allocator,
+        &loaded,
+        constrained_profile,
+    );
+    defer constrained_session.deinit();
+    const failure = switch (constrained_session.next()) {
+        .failed => |value| value,
+        .done => return error.UnexpectedDone,
+        .request => return error.UnexpectedRequest,
+    };
+    try std.testing.expectEqual(Target.Module.LoadedExecution.ExecutionFailureKind.execution_budget_exceeded, failure.kind);
+}
+
+test "loaded executable session interprets completing helper calls" {
+    const allocator = std.testing.allocator;
+    const Target = comptime ModuleLoadedHelperTarget("module-loaded-helper-target");
+    const full = try Target.Module.fullImage(allocator);
+    defer allocator.free(full);
+    var loaded = try Target.Module.decode(allocator, full);
+    defer loaded.deinit();
+
+    var session = try Target.Module.LoadedModule.Session.startExecutable(
+        allocator,
+        &loaded,
+        Target.Module.LoadedExecutionProfile.portableV1(),
+    );
+    defer session.deinit();
+    const done = switch (session.next()) {
+        .done => |value| value,
+        .request => return error.UnexpectedRequest,
+        .failed => return error.UnexpectedFailure,
+    };
+    try std.testing.expect(done.result_ref.eql(loaded.resultValueRef()));
+    var result_arena = Target.Module.LoadedValueArena.init(allocator);
+    defer result_arena.deinit();
+    const result = try Target.Module.LoadedExecution.decodeLoadedValueImage(
+        allocator,
+        &result_arena,
+        .{},
+        .{ .codec = .i32 },
+        done.canonical_result_image,
+        .{},
+    );
+    try std.testing.expectEqual(@as(i32, 42), result.i32);
+
+    var constrained_profile = Target.Module.LoadedExecutionProfile.portableV1();
+    constrained_profile.limits.maximum_call_depth = 1;
+    var constrained_session = try Target.Module.LoadedModule.Session.startExecutable(
+        allocator,
+        &loaded,
+        constrained_profile,
+    );
+    defer constrained_session.deinit();
+    const failure = switch (constrained_session.next()) {
+        .failed => |value| value,
+        .done => return error.UnexpectedDone,
+        .request => return error.UnexpectedRequest,
+    };
+    try std.testing.expectEqual(Target.Module.LoadedExecution.ExecutionFailureKind.call_depth_exceeded, failure.kind);
+}
+
+test "generated-loaded parity canonical request bytes and i32 result" {
+    const allocator = std.testing.allocator;
+    const Target = comptime ModuleWorldPortTarget("module-world-port-generated-loaded-parity-target");
+    const full = try Target.Module.fullImage(allocator);
+    defer allocator.free(full);
+    var loaded = try Target.Module.decode(allocator, full);
+    defer loaded.deinit();
+
+    var runtime = boundary.Runtime.init(allocator);
+    defer runtime.deinit();
+    var generated_session = try closure_source_program.Session.start(&runtime, .{});
+    defer generated_session.deinit();
+    const generated_request = switch (try generated_session.next()) {
+        .request => |request| request,
+        .after => return error.UnexpectedAfter,
+        .done => return error.UnexpectedDone,
+    };
+    var generated_envelope = try closure_source_program.Exchange.RequestEnvelope.fromRequest(allocator, generated_request, .{});
+    defer generated_envelope.deinit();
+
+    var loaded_session = try Target.Module.LoadedModule.Session.startExecutable(
+        allocator,
+        &loaded,
+        Target.Module.LoadedExecutionProfile.portableV1(),
+    );
+    defer loaded_session.deinit();
+    const loaded_request = switch (loaded_session.next()) {
+        .request => |request| request,
+        .failed => return error.UnexpectedLoadedFailure,
+        .done => return error.UnexpectedLoadedDone,
+    };
+
+    try std.testing.expectEqual(Target.WorldDispatchTable.lookup(generated_request.operation_site_index).?, loaded_request.world_port_id);
+    try std.testing.expectEqual(generated_request.operation_site_fingerprint, loaded_request.residual_site_fingerprint);
+    try std.testing.expect(Evidence.BoundaryValueRef.fromValueRef(generated_request.payload_ref).eql(loaded_request.payload_ref));
+    try std.testing.expect(Evidence.BoundaryValueRef.fromValueRef(generated_request.resume_ref).eql(loaded_request.expected_response_ref));
+    try std.testing.expectEqualStrings("deploy-prod", try generated_request.payload([]const u8));
+    try generated_envelope.validate();
+    var loaded_payload_arena = Target.Module.LoadedValueArena.init(allocator);
+    defer loaded_payload_arena.deinit();
+    const loaded_payload = try Target.Module.LoadedExecution.decodeLoadedValueImage(
+        allocator,
+        &loaded_payload_arena,
+        .{},
+        .{ .codec = .string },
+        loaded_request.canonical_payload_image,
+        .{},
+    );
+    try std.testing.expectEqualStrings(try generated_request.payload([]const u8), loaded_payload.bytes);
+
+    const loaded_response = try Target.Module.LoadedExecution.encodeLoadedValueImageBytes(
+        allocator,
+        .{},
+        .{ .codec = .i32 },
+        .{ .i32 = 7 },
+        .{},
+    );
+    defer allocator.free(loaded_response);
+    try generated_session.@"resume"(generated_request, @as(i32, 7));
+    try loaded_session.@"resume"(loaded_request, loaded_response);
+
+    var generated_done = switch (try generated_session.next()) {
+        .done => |done| done,
+        .request => return error.UnexpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    defer generated_done.deinit();
+    const loaded_done = switch (loaded_session.next()) {
+        .done => |done| done,
+        .request => return error.UnexpectedLoadedRequest,
+        .failed => return error.UnexpectedLoadedFailure,
+    };
+    var loaded_result_arena = Target.Module.LoadedValueArena.init(allocator);
+    defer loaded_result_arena.deinit();
+    const loaded_result = try Target.Module.LoadedExecution.decodeLoadedValueImage(
+        allocator,
+        &loaded_result_arena,
+        .{},
+        .{ .codec = .i32 },
+        loaded_done.canonical_result_image,
+        .{},
+    );
+    try std.testing.expectEqual(generated_done.value, loaded_result.i32);
+}
+
+test "generated-loaded parity bool residual request and result" {
+    const allocator = std.testing.allocator;
+    const Target = comptime ModuleBoolWorldPortTarget("module-bool-world-port-generated-loaded-parity-target");
+    const full = try Target.Module.fullImage(allocator);
+    defer allocator.free(full);
+    var loaded = try Target.Module.decode(allocator, full);
+    defer loaded.deinit();
+
+    var runtime = boundary.Runtime.init(allocator);
+    defer runtime.deinit();
+    var generated_session = try closure_bool_source_program.Session.start(&runtime, .{});
+    defer generated_session.deinit();
+    const generated_request = switch (try generated_session.next()) {
+        .request => |request| request,
+        .after => return error.UnexpectedAfter,
+        .done => return error.UnexpectedDone,
+    };
+    var generated_envelope = try closure_bool_source_program.Exchange.RequestEnvelope.fromRequest(allocator, generated_request, .{});
+    defer generated_envelope.deinit();
+
+    var loaded_session = try Target.Module.LoadedModule.Session.startExecutable(
+        allocator,
+        &loaded,
+        Target.Module.LoadedExecutionProfile.portableV1(),
+    );
+    defer loaded_session.deinit();
+    const loaded_request = switch (loaded_session.next()) {
+        .request => |request| request,
+        .failed => return error.UnexpectedLoadedFailure,
+        .done => return error.UnexpectedLoadedDone,
+    };
+    try std.testing.expectEqual(Target.WorldDispatchTable.lookup(generated_request.operation_site_index).?, loaded_request.world_port_id);
+    try std.testing.expectEqual(generated_request.operation_site_fingerprint, loaded_request.residual_site_fingerprint);
+    try std.testing.expect(Evidence.BoundaryValueRef.fromValueRef(generated_request.payload_ref).eql(loaded_request.payload_ref));
+    try std.testing.expect(Evidence.BoundaryValueRef.fromValueRef(generated_request.resume_ref).eql(loaded_request.expected_response_ref));
+    try generated_envelope.validate();
+    var loaded_payload_arena = Target.Module.LoadedValueArena.init(allocator);
+    defer loaded_payload_arena.deinit();
+    const loaded_payload = try Target.Module.LoadedExecution.decodeLoadedValueImage(
+        allocator,
+        &loaded_payload_arena,
+        .{},
+        .{ .codec = .string },
+        loaded_request.canonical_payload_image,
+        .{},
+    );
+    try std.testing.expectEqualStrings(try generated_request.payload([]const u8), loaded_payload.bytes);
+
+    const loaded_response = try Target.Module.LoadedExecution.encodeLoadedValueImageBytes(
+        allocator,
+        .{},
+        .{ .codec = .bool },
+        .{ .boolean = true },
+        .{},
+    );
+    defer allocator.free(loaded_response);
+    try generated_session.@"resume"(generated_request, true);
+    try loaded_session.@"resume"(loaded_request, loaded_response);
+
+    var generated_done = switch (try generated_session.next()) {
+        .done => |done| done,
+        .request => return error.UnexpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    defer generated_done.deinit();
+    const loaded_done = switch (loaded_session.next()) {
+        .done => |done| done,
+        .request => return error.UnexpectedLoadedRequest,
+        .failed => return error.UnexpectedLoadedFailure,
+    };
+    var loaded_result_arena = Target.Module.LoadedValueArena.init(allocator);
+    defer loaded_result_arena.deinit();
+    const loaded_result = try Target.Module.LoadedExecution.decodeLoadedValueImage(
+        allocator,
+        &loaded_result_arena,
+        .{},
+        .{ .codec = .bool },
+        loaded_done.canonical_result_image,
+        .{},
+    );
+    try std.testing.expectEqual(generated_done.value, loaded_result.boolean);
+}
+
+test "generated-loaded parity scalar branches and helper calls" {
+    const allocator = std.testing.allocator;
+    const ScalarTarget = comptime ModuleLoadedScalarTarget("module-loaded-scalar-generated-loaded-parity-target");
+    const scalar_full = try ScalarTarget.Module.fullImage(allocator);
+    defer allocator.free(scalar_full);
+    var scalar_loaded = try ScalarTarget.Module.decode(allocator, scalar_full);
+    defer scalar_loaded.deinit();
+
+    var scalar_runtime = boundary.Runtime.init(allocator);
+    defer scalar_runtime.deinit();
+    var scalar_generated = try loaded_scalar_program.Session.start(&scalar_runtime, .{});
+    defer scalar_generated.deinit();
+    var scalar_generated_done = switch (try scalar_generated.next()) {
+        .done => |done| done,
+        .request => return error.UnexpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    defer scalar_generated_done.deinit();
+    var scalar_loaded_session = try ScalarTarget.Module.LoadedModule.Session.startExecutable(
+        allocator,
+        &scalar_loaded,
+        ScalarTarget.Module.LoadedExecutionProfile.portableV1(),
+    );
+    defer scalar_loaded_session.deinit();
+    const scalar_loaded_done = switch (scalar_loaded_session.next()) {
+        .done => |done| done,
+        .request => return error.UnexpectedLoadedRequest,
+        .failed => return error.UnexpectedLoadedFailure,
+    };
+    var scalar_arena = ScalarTarget.Module.LoadedValueArena.init(allocator);
+    defer scalar_arena.deinit();
+    const scalar_result = try ScalarTarget.Module.LoadedExecution.decodeLoadedValueImage(
+        allocator,
+        &scalar_arena,
+        .{},
+        .{ .codec = .i32 },
+        scalar_loaded_done.canonical_result_image,
+        .{},
+    );
+    try std.testing.expectEqual(scalar_generated_done.value, scalar_result.i32);
+
+    const HelperTarget = comptime ModuleLoadedHelperTarget("module-loaded-helper-generated-loaded-parity-target");
+    const helper_full = try HelperTarget.Module.fullImage(allocator);
+    defer allocator.free(helper_full);
+    var helper_loaded = try HelperTarget.Module.decode(allocator, helper_full);
+    defer helper_loaded.deinit();
+    var helper_runtime = boundary.Runtime.init(allocator);
+    defer helper_runtime.deinit();
+    var helper_generated = try loaded_helper_program.Session.start(&helper_runtime, .{});
+    defer helper_generated.deinit();
+    var helper_generated_done = switch (try helper_generated.next()) {
+        .done => |done| done,
+        .request => return error.UnexpectedRequest,
+        .after => return error.UnexpectedAfter,
+    };
+    defer helper_generated_done.deinit();
+    var helper_loaded_session = try HelperTarget.Module.LoadedModule.Session.startExecutable(
+        allocator,
+        &helper_loaded,
+        HelperTarget.Module.LoadedExecutionProfile.portableV1(),
+    );
+    defer helper_loaded_session.deinit();
+    const helper_loaded_done = switch (helper_loaded_session.next()) {
+        .done => |done| done,
+        .request => return error.UnexpectedLoadedRequest,
+        .failed => return error.UnexpectedLoadedFailure,
+    };
+    var helper_arena = HelperTarget.Module.LoadedValueArena.init(allocator);
+    defer helper_arena.deinit();
+    const helper_result = try HelperTarget.Module.LoadedExecution.decodeLoadedValueImage(
+        allocator,
+        &helper_arena,
+        .{},
+        .{ .codec = .i32 },
+        helper_loaded_done.canonical_result_image,
+        .{},
+    );
+    try std.testing.expectEqual(helper_generated_done.value, helper_result.i32);
+}
+
+test "loaded malformed rejects module value session and response bytes" {
+    const allocator = std.testing.allocator;
+    const Target = comptime ModuleWorldPortTarget("module-world-port-loaded-malformed-target");
+    const OtherTarget = comptime ModuleWorldPortTarget("module-world-port-loaded-malformed-other-target");
+    const full = try Target.Module.fullImage(allocator);
+    defer allocator.free(full);
+    var loaded = try Target.Module.decode(allocator, full);
+    defer loaded.deinit();
+
+    const value_image = try Target.Module.LoadedExecution.encodeLoadedValueImageBytes(
+        allocator,
+        .{},
+        .{ .codec = .i32 },
+        .{ .i32 = 7 },
+        .{},
+    );
+    defer allocator.free(value_image);
+    var value_with_trailing = try allocator.alloc(u8, value_image.len + 1);
+    defer allocator.free(value_with_trailing);
+    @memcpy(value_with_trailing[0..value_image.len], value_image);
+    value_with_trailing[value_with_trailing.len - 1] = 0;
+    var value_arena = Target.Module.LoadedValueArena.init(allocator);
+    defer value_arena.deinit();
+    try std.testing.expectError(error.TrailingBytes, Target.Module.LoadedExecution.decodeLoadedValueImage(
+        allocator,
+        &value_arena,
+        .{},
+        .{ .codec = .i32 },
+        value_with_trailing,
+        .{},
+    ));
+
+    var malformed = try allocator.dupe(u8, full);
+    defer allocator.free(malformed);
+    malformed[0] = 'X';
+    const malformed_report = Target.Module.validationReport(malformed, .{ .require_full_module = true });
+    try std.testing.expect(!malformed_report.valid);
+
+    var session = try Target.Module.LoadedModule.Session.startExecutable(
+        allocator,
+        &loaded,
+        Target.Module.LoadedExecutionProfile.portableV1(),
+    );
+    defer session.deinit();
+    const request = switch (session.next()) {
+        .request => |loaded_request| loaded_request,
+        .failed => return error.UnexpectedLoadedFailure,
+        .done => return error.UnexpectedLoadedDone,
+    };
+    const wrong_response = try Target.Module.LoadedExecution.encodeLoadedValueImageBytes(
+        allocator,
+        .{},
+        .{ .codec = .bool },
+        .{ .boolean = true },
+        .{},
+    );
+    defer allocator.free(wrong_response);
+    try std.testing.expectError(error.InvalidResume, session.@"resume"(request, wrong_response));
+    try std.testing.expectEqual(Target.Module.LoadedSessionStatus.request, session.status);
+
+    const parked_image = try session.freeze(allocator);
+    defer allocator.free(parked_image);
+    const other_full = try OtherTarget.Module.fullImage(allocator);
+    defer allocator.free(other_full);
+    var other_loaded = try OtherTarget.Module.decode(allocator, other_full);
+    defer other_loaded.deinit();
+    try std.testing.expectError(error.ModuleMismatch, OtherTarget.Module.LoadedModule.Session.thaw(
+        allocator,
+        &other_loaded,
+        parked_image,
+        OtherTarget.Module.LoadedExecutionProfile.portableV1(),
+    ));
+}
+
+test "loaded fuzz seeded malformed module and session bytes reject deterministically" {
+    const allocator = std.testing.allocator;
+    const Target = comptime ModuleWorldPortTarget("module-world-port-loaded-fuzz-target");
+    const full = try Target.Module.fullImage(allocator);
+    defer allocator.free(full);
+    var loaded = try Target.Module.decode(allocator, full);
+    defer loaded.deinit();
+
+    for (0..32) |seed| {
+        var mutated = try allocator.dupe(u8, full);
+        defer allocator.free(mutated);
+        const index = (seed * 131 + 17) % mutated.len;
+        mutated[index] ^= @as(u8, @intCast(seed + 1));
+        const report = Target.Module.validationReport(mutated, .{ .require_full_module = true });
+        try std.testing.expect(!report.valid);
+    }
+
+    var session = try Target.Module.LoadedModule.Session.startExecutable(
+        allocator,
+        &loaded,
+        Target.Module.LoadedExecutionProfile.portableV1(),
+    );
+    defer session.deinit();
+    _ = switch (session.next()) {
+        .request => |request| request,
+        .failed => return error.UnexpectedLoadedFailure,
+        .done => return error.UnexpectedLoadedDone,
+    };
+    const parked_image = try session.freeze(allocator);
+    defer allocator.free(parked_image);
+    for (0..16) |seed| {
+        var mutated = try allocator.dupe(u8, parked_image);
+        defer allocator.free(mutated);
+        const index = (seed * 67 + 5) % mutated.len;
+        mutated[index] ^= @as(u8, @intCast(seed + 3));
+        if (Target.Module.LoadedSessionImage.decode(allocator, mutated)) |decoded_value| {
+            var decoded = decoded_value;
+            decoded.deinit(allocator);
+            return error.ExpectedMalformedSessionImage;
+        } else |_| continue;
+    }
 }
 
 test "certified boundary module generic decode preserves entry argument refs" {
@@ -17003,6 +18041,7 @@ fn boundaryModuleSectionDomain(kind: Evidence.BoundaryTargetModule.SectionKind) 
         .import_surface => Evidence.domains.boundary_module_import_surface,
         .export_surface => Evidence.domains.boundary_module_export_surface,
         .program_plan_image => Evidence.domains.boundary_program_plan_image,
+        .executable_plan_image => Evidence.domains.boundary_executable_plan_image,
         .value_schema_image => Evidence.domains.boundary_value_schema_image,
         .world_surface => Evidence.domains.boundary_world_surface,
         .world_port_table => Evidence.domains.boundary_world_port_table,

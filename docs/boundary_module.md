@@ -76,6 +76,17 @@ ProgramPlan: label, plan hash, IR hash, entry function index, function,
 requirement, op, output, local, block, terminator, instruction, value-schema,
 product-field, and sum-variant row counts. It is not a mutable VM API.
 
+`ExecutablePlanImage` is a separate required full-module section. It is not an
+alias for `ProgramPlanImage`: it carries canonical owned rows for functions,
+requirements, operations, outputs, value schemas, product fields, sum variants,
+locals, call arguments, blocks, terminators, instructions, string literals,
+stable error identity count, nested-call refs, entry function, and execution
+feature bitmap. The v1 image uses
+`boundary_executable_plan_image_format_version = 1` and
+`boundary_executable_plan_image_fingerprint_version = 1`; validation checks the
+body fingerprint, enum tags, table spans, indexes, schema refs, plan hash, row
+limits, and trailing bytes before any loaded session can be created.
+
 `ValueSchemaImage` summarizes schema rows, product fields, sum variants, scalar
 codec refs, and diagnostic labels. It does not widen `ProgramValue`, add codecs,
 or rely on native Zig type pointer identity.
@@ -133,6 +144,25 @@ helpers instead of reading section tables manually.
 - `importForWorldPort`
 - `exportMain`
 
+## Loaded Execution Profile And Values
+
+`Target.Module.LoadedExecutionProfile` describes the portable loaded-execution
+contract before any mutable session exists. V1 enumerates instruction,
+terminator, and value-codec feature sets, checked arithmetic, portable `u64`
+word semantics for former `usize` values, frame/local/fuel/allocation limits,
+recursion policy, host-intrinsic policy, nested-module-call policy, and stable
+error-table policy. A runtime compares its supported profile against the
+module-required profile before session construction.
+
+`Target.Module.LoadedValue`, `LoadedValueImage`, `LoadedValueRef`,
+`LoadedValueArena`, and `LoadedValueSchemaSet` are target-neutral dynamic value
+surfaces. Value images are canonical bytes: they bind the schema fingerprint,
+value ref, body bytes, and image fingerprint; reject trailing bytes; validate
+schema indexes, aggregate counts, nesting depth, string bytes, and owned value
+bytes; and never borrow from the caller's command buffer after decode. Product
+field order comes from the schema table, and sum values use stable variant
+indexes plus optional payload bytes.
+
 ## ImportSurface Projection Helpers
 
 `loaded.imports()` returns the decoded import projection. `requiredImports`,
@@ -160,9 +190,32 @@ directly from the loaded export surface.
 `replayKeyRecipe` project facts already present in the module image. Missing
 facts return absence; Boundary does not fabricate World table rows from a ref.
 
-`LoadedModule.Session` is present but fail-closed in V1. It reports
-`error.UnsupportedLoadedExecution` rather than exposing raw mutable VM internals
-or pretending that arbitrary loaded ProgramPlan execution is supported.
+`LoadedModule.Session` now owns stable loaded-session identity, decoded
+executable-plan state, and a portable `LoadedSessionImage`. The explicit
+`startExecutable` constructor decodes the `ExecutablePlanImage` and executes a
+bounded no-argument entry over decoded plan rows. The first supported surface is
+scalar local execution: `return_unit`, `return_value`, `const_i32`,
+`const_usize`, `const_string`, checked `add_i32`, checked `add_const_i32`,
+checked `sub_one`, `compare_eq_zero`, `jump`, `branch_if`, and completing
+`call_helper` frames with explicit call-argument rows. It also parks the first
+residual request shape whose final continuation is `call_op` plus `return_value`;
+that request carries canonical loaded payload image bytes, residual site
+identity, world port identity, expected response ref, request fingerprint, and
+deterministic continuation fingerprint. `resume` accepts canonical response
+image bytes, encodes the final result through the module result ref, and rejects
+wrong or duplicate responses without consuming the parked request. Helper frames
+that would park on a residual request still fail as `unsupported_feature` until
+loaded session images carry frame stacks.
+Unsupported instruction shapes fail deterministically instead of exposing raw
+mutable VM internals or pretending that arbitrary loaded ProgramPlan execution is
+supported. `freeze` and `thaw` bind the module fingerprint, executable-plan
+fingerprint, execution-profile fingerprint, session fingerprint, entry function,
+status, budget ledger, failure metadata, and dependencies.
+For parked sessions, the image also carries the pending residual site,
+world-port id, value refs, canonical payload image bytes, request fingerprint,
+continuation fingerprint, and local resume/result coordinates; thaw reconstructs
+the same request and rejects malformed or substituted checkpoint bytes before a
+response can mutate the session.
 
 ## ModuleCompatibilityReport
 
@@ -209,13 +262,21 @@ payload/response refs, mode/response-kind hints, and required handling. They do
 not contain handlers, credentials, URLs, file handles, model clients, or ABI
 details.
 
-## Why LoadedModule.Session Remains Fail-Closed
+## Why LoadedModule.Session Still Does Not Interpret
 
-Loaded execution is intentionally not part of this pass. `LoadedModule.Session`
-has no public mutable VM internals and still returns
-`UnsupportedLoadedExecution`. The supported path today is inspect, validate,
-project imports/exports, preflight bindings, then let World run the generated
-target or its chosen ABI/runtime.
+Executable value/profile images are present, and loaded ProgramPlan execution
+has started with the closed `return_unit` entry case plus one residual
+WorldPort request/resume/result shape, plus scalar local execution with
+deterministic fuel and completing helper frames. `LoadedModule.Session` still has
+no public mutable VM internals; unsupported instruction shapes produce
+deterministic failures, and checkpoints thaw only against the exact module,
+executable-plan, and profile identities. The supported path today is inspect,
+validate, project imports/exports, preflight bindings, validate value/profile
+bytes, run the closed unit entry case, scalar local branch/arithmetic/helper
+cases, or first scalar residual request case, checkpoint
+parked/completed/failed loaded-session state, then let World run the generated
+target or its chosen ABI/runtime for unsupported semantics until the
+Boundary-owned loaded interpreter broadens.
 
 ## What Still Belongs To World
 

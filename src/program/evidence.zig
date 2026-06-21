@@ -1,4 +1,6 @@
 // zlinter-disable declaration_naming field_naming field_ordering function_naming max_positional_args no_inferred_error_unions no_literal_args no_undefined require_doc_comment
+const internal_program_plan = @import("internal_program_plan");
+const loaded_execution = @import("loaded_execution");
 const lowering_api = @import("lowering_api");
 const std = @import("std");
 
@@ -109,9 +111,13 @@ pub const Domain = struct {
         boundary_module_export_surface,
         boundary_module_graph,
         boundary_program_plan_image,
+        boundary_executable_plan_image,
         boundary_value_schema_image,
+        boundary_loaded_value_image,
         boundary_loaded_module,
         boundary_loaded_session,
+        boundary_loaded_session_image,
+        boundary_loaded_execution_profile,
         boundary_module_compatibility_report,
         boundary_module_validation_report,
         boundary_module_validation_diagnostic,
@@ -158,6 +164,8 @@ pub const Domain = struct {
         host_owned_metadata,
     };
 };
+
+pub const LoadedExecution = loaded_execution;
 
 pub const domains = struct {
     pub const program_plan = Domain{ .id = .program_plan, .name = "boundary.program.plan", .fingerprint_version = 1, .owner = .program_plan, .kind = .fingerprint, .tests = "program plan" };
@@ -249,9 +257,13 @@ pub const domains = struct {
     pub const boundary_module_export_surface = Domain{ .id = .boundary_module_export_surface, .name = "boundary.evidence.target.module.export_surface", .format_version = 1, .fingerprint_version = 1, .owner = .boundary_target, .kind = .derived_metadata, .stability = .durable_bytes, .bytes_encoded = true, .certificate_referenced = true, .tests = "export surface" };
     pub const boundary_module_graph = Domain{ .id = .boundary_module_graph, .name = "boundary.evidence.target.module.graph", .format_version = 1, .fingerprint_version = 1, .owner = .boundary_target, .kind = .derived_metadata, .stability = .durable_bytes, .bytes_encoded = true, .certificate_referenced = true, .tests = "module graph" };
     pub const boundary_program_plan_image = Domain{ .id = .boundary_program_plan_image, .name = "boundary.evidence.target.module.program_plan_image", .format_version = 3, .fingerprint_version = 3, .owner = .boundary_target, .kind = .image, .stability = .durable_bytes, .bytes_encoded = true, .certificate_referenced = true, .tests = "program plan image" };
+    pub const boundary_executable_plan_image = Domain{ .id = .boundary_executable_plan_image, .name = "boundary.evidence.target.module.executable_plan_image", .format_version = 1, .fingerprint_version = 1, .owner = .boundary_target, .kind = .image, .stability = .durable_bytes, .bytes_encoded = true, .certificate_referenced = true, .tests = "executable plan image" };
     pub const boundary_value_schema_image = Domain{ .id = .boundary_value_schema_image, .name = "boundary.evidence.target.module.value_schema_image", .format_version = 1, .fingerprint_version = 1, .owner = .boundary_target, .kind = .image, .stability = .durable_bytes, .bytes_encoded = true, .certificate_referenced = true, .tests = "value schema image" };
+    pub const boundary_loaded_value_image = Domain{ .id = .boundary_loaded_value_image, .name = "boundary.evidence.target.module.loaded_value_image", .format_version = 1, .fingerprint_version = 1, .owner = .boundary_target, .kind = .image, .stability = .durable_bytes, .bytes_encoded = true, .certificate_referenced = true, .tests = "loaded value image" };
     pub const boundary_loaded_module = Domain{ .id = .boundary_loaded_module, .name = "boundary.evidence.target.module.loaded", .fingerprint_version = 1, .owner = .boundary_target, .kind = .derived_metadata, .certificate_referenced = true, .tests = "loaded module" };
     pub const boundary_loaded_session = Domain{ .id = .boundary_loaded_session, .name = "boundary.evidence.target.module.loaded_session", .fingerprint_version = 1, .owner = .boundary_target, .kind = .derived_metadata, .certificate_referenced = true, .tests = "loaded session" };
+    pub const boundary_loaded_session_image = Domain{ .id = .boundary_loaded_session_image, .name = "boundary.evidence.target.module.loaded_session_image", .format_version = 1, .fingerprint_version = 1, .owner = .boundary_target, .kind = .image, .stability = .durable_bytes, .bytes_encoded = true, .certificate_referenced = true, .tests = "loaded session image" };
+    pub const boundary_loaded_execution_profile = Domain{ .id = .boundary_loaded_execution_profile, .name = "boundary.evidence.target.module.loaded_execution_profile", .format_version = 1, .fingerprint_version = 1, .owner = .boundary_target, .kind = .format, .stability = .durable_bytes, .bytes_encoded = true, .certificate_referenced = true, .tests = "loaded execution profile" };
     pub const boundary_module_compatibility_report = Domain{ .id = .boundary_module_compatibility_report, .name = "boundary.evidence.target.module.compatibility_report", .fingerprint_version = 1, .owner = .boundary_target, .kind = .report, .certificate_referenced = true, .tests = "compatibility report" };
     pub const boundary_module_validation_report = Domain{ .id = .boundary_module_validation_report, .name = "boundary.evidence.target.module.validation_report", .fingerprint_version = 1, .owner = .boundary_target, .kind = .report, .certificate_referenced = true, .tests = "validation report" };
     pub const boundary_module_validation_diagnostic = Domain{ .id = .boundary_module_validation_diagnostic, .name = "boundary.evidence.target.module.validation_diagnostic", .fingerprint_version = 1, .owner = .boundary_target, .kind = .report, .certificate_referenced = true, .tests = "validation diagnostic" };
@@ -349,9 +361,13 @@ pub const all_domains = &[_]Domain{
     domains.boundary_module_export_surface,
     domains.boundary_module_graph,
     domains.boundary_program_plan_image,
+    domains.boundary_executable_plan_image,
     domains.boundary_value_schema_image,
+    domains.boundary_loaded_value_image,
     domains.boundary_loaded_module,
     domains.boundary_loaded_session,
+    domains.boundary_loaded_session_image,
+    domains.boundary_loaded_execution_profile,
     domains.boundary_module_compatibility_report,
     domains.boundary_module_validation_report,
     domains.boundary_module_validation_diagnostic,
@@ -5531,6 +5547,7 @@ pub const BoundaryTargetModule = struct {
     const header_len: usize = 48;
     const section_table_entry_len: usize = 32;
     pub const dense_world_port_cap: usize = 65_536;
+    const max_indexed_table_len = std.math.maxInt(u16) + 1;
 
     pub const Kind = enum(u8) {
         reference_only = 0,
@@ -5559,6 +5576,7 @@ pub const BoundaryTargetModule = struct {
         normalization_certificate = 18,
         metadata = 19,
         replay_key_recipe = 20,
+        executable_plan_image = 21,
     };
 
     pub const SectionRef = struct {
@@ -5659,6 +5677,23 @@ pub const BoundaryTargetModule = struct {
 
         pub fn evidenceRef(self: @This()) Ref {
             return refForBoundaryProgramPlanImage(self);
+        }
+    };
+
+    pub const ExecutablePlanImage = struct {
+        format_version: u32 = domains.boundary_executable_plan_image.format_version.?,
+        fingerprint_version: u32 = domains.boundary_executable_plan_image.fingerprint_version,
+        image_fingerprint: u64,
+        body_bytes: []const u8,
+
+        pub fn computeFingerprint(self: @This()) u64 {
+            return executablePlanBodyFingerprint(self.body_bytes);
+        }
+
+        pub fn evidenceRef(self: @This()) Ref {
+            return refFor(domains.boundary_executable_plan_image, self.image_fingerprint, .{
+                .format_version = domains.boundary_executable_plan_image.format_version,
+            });
         }
     };
 
@@ -6612,19 +6647,816 @@ pub const BoundaryTargetModule = struct {
             return report;
         }
 
+        pub fn requiredSectionFingerprint(self: @This(), section_kind: SectionKind) ?u64 {
+            for (self.manifest_value.required_section_refs) |section_ref| {
+                if (section_ref.kind == section_kind) return section_ref.section_fingerprint;
+            }
+            return null;
+        }
+
+        pub fn executablePlanImagePayload(self: @This()) ?[]const u8 {
+            return sectionPayloadForKind(self.bytes, @intCast(self.validation_report.section_count), .executable_plan_image);
+        }
+
+        pub fn executablePlanFingerprint(self: @This()) ?u64 {
+            const payload = self.executablePlanImagePayload() orelse return null;
+            return loaded_execution.executablePlanImageFingerprint(payload) catch null;
+        }
+
         pub const Session = struct {
+            allocator: ?std.mem.Allocator = null,
             module: *const LoadedModule,
+            profile: LoadedExecutionProfile,
+            executable_plan: ?loaded_execution.DecodedExecutablePlan = null,
+            executable_plan_fingerprint: u64,
+            execution_profile_fingerprint: u64,
+            session_fingerprint: u64,
+            entry_function: u16,
+            status: loaded_execution.LoadedSessionStatus = .initial,
+            budget: loaded_execution.LoadedSessionBudgetLedger = .{},
+            failure: ?loaded_execution.LoadedSessionFailure = null,
+            pending_request: ?PendingRequest = null,
+            payload_image_bytes: []u8 = &.{},
+            result_image_bytes: []u8 = &.{},
+            result_fingerprint: u64 = 0,
+
+            pub const Request = struct {
+                module_fingerprint: u64,
+                entry_function: u16,
+                residual_site_index: usize = 0,
+                residual_site_fingerprint: u64 = 0,
+                world_port_id: u32 = 0,
+                world_port_ref: ?Ref = null,
+                payload_ref: BoundaryValueRef = BoundaryValueRef.init("unit", null),
+                expected_response_ref: BoundaryValueRef = BoundaryValueRef.init("unit", null),
+                canonical_payload_image: []const u8 = &.{},
+                canonical_request_fingerprint: u64 = 0,
+                deterministic_continuation_fingerprint: u64,
+            };
+
+            pub const Done = struct {
+                result_ref: BoundaryValueRef,
+                canonical_result_image: []const u8 = &.{},
+                result_fingerprint: u64 = 0,
+            };
+
+            pub const Next = union(enum) {
+                request: Request,
+                done: Done,
+                failed: loaded_execution.LoadedSessionFailure,
+            };
+
+            const PendingRequest = struct {
+                request: Request,
+                response_local: u16,
+                result_local: u16,
+            };
+
+            const LoadedFunctionResult = union(enum) {
+                unit,
+                value: LoadedValue,
+            };
+
+            const LoadedFunctionControl = error{
+                LoadedExecutionFailed,
+                LoadedExecutionParked,
+            };
 
             pub fn start(module: *const LoadedModule) @This() {
-                return .{ .module = module };
+                return startWithProfile(module, LoadedExecutionProfile.portableV1());
             }
 
-            pub fn next(self: *@This()) error{UnsupportedLoadedExecution}!void {
-                _ = self;
-                return error.UnsupportedLoadedExecution;
+            pub fn startWithProfile(module: *const LoadedModule, profile: LoadedExecutionProfile) @This() {
+                const executable_plan_fingerprint = module.executablePlanFingerprint() orelse module.requiredSectionFingerprint(.executable_plan_image) orelse module.programPlanHash();
+                const execution_profile_fingerprint = profile.computeFingerprint();
+                const entry_function = module.entryFunctionRef();
+                return .{
+                    .module = module,
+                    .profile = profile,
+                    .executable_plan_fingerprint = executable_plan_fingerprint,
+                    .execution_profile_fingerprint = execution_profile_fingerprint,
+                    .session_fingerprint = loaded_execution.loadedSessionFingerprint(module.moduleFingerprint(), executable_plan_fingerprint, execution_profile_fingerprint, entry_function),
+                    .entry_function = entry_function,
+                };
+            }
+
+            pub fn startExecutable(allocator: std.mem.Allocator, module: *const LoadedModule, profile: LoadedExecutionProfile) !@This() {
+                const payload = module.executablePlanImagePayload() orelse return error.MissingExecutablePlanImage;
+                const executable_plan_fingerprint = module.executablePlanFingerprint() orelse return error.MissingExecutablePlanImage;
+                var decoded_plan = try loaded_execution.decodeExecutablePlanImage(
+                    allocator,
+                    payload,
+                    executable_plan_fingerprint,
+                    module.programPlanHash(),
+                    profile.limits,
+                );
+                errdefer decoded_plan.deinit();
+                var session = startWithProfile(module, profile);
+                if (decoded_plan.program_plan.entry_index != session.entry_function) return error.ExecutablePlanMismatch;
+                session.allocator = allocator;
+                session.executable_plan = decoded_plan;
+                return session;
+            }
+
+            pub fn deinit(self: *@This()) void {
+                if (self.allocator) |allocator| {
+                    if (self.payload_image_bytes.len != 0) allocator.free(self.payload_image_bytes);
+                    if (self.result_image_bytes.len != 0) allocator.free(self.result_image_bytes);
+                }
+                if (self.executable_plan) |*decoded_plan| decoded_plan.deinit();
+                self.* = undefined;
+            }
+
+            pub fn next(self: *@This()) Next {
+                switch (self.status) {
+                    .initial => return self.advanceInitial(),
+                    .request => return .{ .request = (self.pending_request orelse return self.fail(.invalid_resume, self.entry_function, 0, 0, "loaded session is parked without request metadata")).request },
+                    .completed => return .{ .done = .{
+                        .result_ref = self.module.resultValueRef(),
+                        .canonical_result_image = self.result_image_bytes,
+                        .result_fingerprint = self.result_fingerprint,
+                    } },
+                    .failed => return .{ .failed = self.failure orelse .{
+                        .kind = .invalid_resume,
+                        .function_index = self.entry_function,
+                        .diagnostic_summary = "loaded session failed without failure metadata",
+                    } },
+                }
+            }
+
+            fn advanceInitial(self: *@This()) Next {
+                self.budget.advancements +|= 1;
+                if (self.executable_plan) |*decoded_plan| {
+                    return self.advanceDecodedInitial(decoded_plan.program_plan);
+                }
+                return self.fail(.unsupported_feature, self.entry_function, 0, 0, "Boundary loaded interpreter is not installed for this executable plan yet");
+            }
+
+            fn advanceDecodedInitial(self: *@This(), program_plan: internal_program_plan.ProgramPlan) Next {
+                if (program_plan.entry_index >= program_plan.functions.len) {
+                    return self.fail(.malformed_plan, self.entry_function, 0, 0, "loaded executable plan entry is out of range");
+                }
+                const function = program_plan.functions[program_plan.entry_index];
+                if (function.parameter_count != 0) {
+                    return self.fail(.unsupported_feature, program_plan.entry_index, function.entry_block, 0, "loaded executable entry arguments are not implemented yet");
+                }
+                if (function.block_count == 0 or function.entry_block >= function.block_count) {
+                    return self.fail(.malformed_plan, program_plan.entry_index, function.entry_block, 0, "loaded executable entry block is invalid");
+                }
+                const block_index = @as(usize, function.first_block) + function.entry_block;
+                if (block_index >= program_plan.blocks.len) {
+                    return self.fail(.malformed_plan, program_plan.entry_index, function.entry_block, 0, "loaded executable entry block is out of range");
+                }
+                const block = program_plan.blocks[block_index];
+                if (block.terminator_index >= program_plan.terminators.len) {
+                    return self.fail(.malformed_plan, program_plan.entry_index, @intCast(block_index), 0, "loaded executable terminator is out of range");
+                }
+                return self.advanceInterpretedEntry(program_plan, function);
+            }
+
+            fn advanceInterpretedEntry(self: *@This(), program_plan: internal_program_plan.ProgramPlan, function: internal_program_plan.FunctionPlan) Next {
+                var steps_remaining = self.profile.limits.maximum_instructions_per_advancement;
+                const result = self.executeLoadedFunction(
+                    program_plan,
+                    program_plan.entry_index,
+                    &.{},
+                    &steps_remaining,
+                    1,
+                    true,
+                ) catch |err| switch (err) {
+                    error.LoadedExecutionParked => return .{ .request = self.pending_request.?.request },
+                    error.LoadedExecutionFailed => return .{ .failed = self.failure.? },
+                };
+                return switch (result) {
+                    .unit => blk: {
+                        self.status = .completed;
+                        self.failure = null;
+                        break :blk .{ .done = .{ .result_ref = self.module.resultValueRef() } };
+                    },
+                    .value => |value| self.completeLoadedValue(program_plan, function, value, function.entry_block, 0),
+                };
+            }
+
+            fn executeLoadedFunction(self: *@This(), program_plan: internal_program_plan.ProgramPlan, function_index: usize, args: []const LoadedValue, steps_remaining: *u32, depth: u32, allow_request: bool) LoadedFunctionControl!LoadedFunctionResult {
+                if (depth > self.profile.limits.maximum_call_depth or depth > self.profile.limits.maximum_frames) {
+                    _ = self.fail(.call_depth_exceeded, function_index, 0, 0, "loaded executable call depth exceeded");
+                    return error.LoadedExecutionFailed;
+                }
+                if (function_index >= program_plan.functions.len) {
+                    _ = self.fail(.malformed_plan, function_index, 0, 0, "loaded executable function index is out of range");
+                    return error.LoadedExecutionFailed;
+                }
+                const function = program_plan.functions[function_index];
+                if (args.len != function.parameter_count) {
+                    _ = self.fail(.malformed_plan, function_index, function.entry_block, 0, "loaded executable function argument count is invalid");
+                    return error.LoadedExecutionFailed;
+                }
+                const allocator = self.allocator orelse {
+                    _ = self.fail(.invalid_resume, function_index, function.entry_block, 0, "loaded executable session has no allocator");
+                    return error.LoadedExecutionFailed;
+                };
+                if (function.local_count > self.profile.limits.maximum_locals_per_frame) {
+                    _ = self.fail(.execution_budget_exceeded, function_index, function.entry_block, 0, "loaded executable local count exceeds profile limit");
+                    return error.LoadedExecutionFailed;
+                }
+                var locals = allocator.alloc(LoadedValue, function.local_count) catch {
+                    _ = self.fail(.execution_budget_exceeded, function_index, function.entry_block, 0, "loaded executable local allocation failed");
+                    return error.LoadedExecutionFailed;
+                };
+                defer allocator.free(locals);
+                @memset(locals, .unit);
+                for (args, 0..) |arg, index| {
+                    locals[index] = arg;
+                }
+                var block_index: usize = @as(usize, function.first_block) + function.entry_block;
+                var last_return: LoadedValue = .unit;
+                var last_condition = false;
+                while (true) {
+                    if (!consumeLoadedStep(steps_remaining)) {
+                        _ = self.fail(.execution_budget_exceeded, function_index, block_index, 0, "loaded executable instruction budget exceeded");
+                        return error.LoadedExecutionFailed;
+                    }
+                    const block_end = @as(usize, function.first_block) + function.block_count;
+                    if (block_index < function.first_block or block_index >= block_end) {
+                        _ = self.fail(.malformed_plan, function_index, block_index, 0, "loaded executable block target is out of range");
+                        return error.LoadedExecutionFailed;
+                    }
+                    const block = program_plan.blocks[block_index];
+                    const instruction_end = @as(usize, block.first_instruction) + block.instruction_count;
+                    for (program_plan.instructions[block.first_instruction..instruction_end], block.first_instruction..) |instruction, instruction_index| {
+                        if (!consumeLoadedStep(steps_remaining)) {
+                            _ = self.fail(.execution_budget_exceeded, function_index, block_index, instruction_index, "loaded executable instruction budget exceeded");
+                            return error.LoadedExecutionFailed;
+                        }
+                        switch (instruction.kind) {
+                            .add_const_i32 => {
+                                const operand = loadedLocalI32(locals, instruction.operand) orelse {
+                                    _ = self.fail(.invalid_value, function_index, block_index, instruction_index, "loaded executable add_const_i32 operand is invalid");
+                                    return error.LoadedExecutionFailed;
+                                };
+                                locals[instruction.dst] = .{ .i32 = std.math.add(i32, operand, @intCast(instruction.aux)) catch {
+                                    _ = self.fail(.integer_overflow, function_index, block_index, instruction_index, "loaded executable add_const_i32 overflowed");
+                                    return error.LoadedExecutionFailed;
+                                } };
+                            },
+                            .add_i32 => {
+                                const lhs = loadedLocalI32(locals, instruction.operand) orelse {
+                                    _ = self.fail(.invalid_value, function_index, block_index, instruction_index, "loaded executable add_i32 lhs is invalid");
+                                    return error.LoadedExecutionFailed;
+                                };
+                                const rhs = loadedLocalI32(locals, instruction.aux) orelse {
+                                    _ = self.fail(.invalid_value, function_index, block_index, instruction_index, "loaded executable add_i32 rhs is invalid");
+                                    return error.LoadedExecutionFailed;
+                                };
+                                locals[instruction.dst] = .{ .i32 = std.math.add(i32, lhs, rhs) catch {
+                                    _ = self.fail(.integer_overflow, function_index, block_index, instruction_index, "loaded executable add_i32 overflowed");
+                                    return error.LoadedExecutionFailed;
+                                } };
+                            },
+                            .call_helper => {
+                                const helper_result = self.executeLoadedHelper(program_plan, function, locals, instruction, steps_remaining, depth, block_index, instruction_index) catch |err| switch (err) {
+                                    error.LoadedExecutionFailed => return error.LoadedExecutionFailed,
+                                    error.LoadedExecutionParked => unreachable,
+                                };
+                                switch (helper_result) {
+                                    .unit => {},
+                                    .value => |value| {
+                                        if (instruction.dst != std.math.maxInt(u16)) locals[instruction.dst] = value;
+                                    },
+                                }
+                            },
+                            .call_op => {
+                                if (!allow_request) {
+                                    _ = self.fail(.unsupported_feature, function_index, block_index, instruction_index, "loaded helper call_op continuation is not implemented yet");
+                                    return error.LoadedExecutionFailed;
+                                }
+                                const parked = self.parkLoadedCall(program_plan, function, locals, block, @intCast(block_index), @intCast(instruction_index), instruction);
+                                return switch (parked) {
+                                    .request => error.LoadedExecutionParked,
+                                    .failed => error.LoadedExecutionFailed,
+                                    .done => unreachable,
+                                };
+                            },
+                            .compare_eq_zero => {
+                                const operand_ref = loadedFunctionLocalRef(program_plan, function, instruction.operand) orelse {
+                                    _ = self.fail(.malformed_plan, function_index, block_index, instruction_index, "loaded executable compare_eq_zero local ref is invalid");
+                                    return error.LoadedExecutionFailed;
+                                };
+                                const is_zero = switch (operand_ref.codec) {
+                                    .bool => !(loadedLocalBool(locals, instruction.operand) orelse {
+                                        _ = self.fail(.invalid_value, function_index, block_index, instruction_index, "loaded executable compare_eq_zero bool operand is invalid");
+                                        return error.LoadedExecutionFailed;
+                                    }),
+                                    .i32 => (loadedLocalI32(locals, instruction.operand) orelse {
+                                        _ = self.fail(.invalid_value, function_index, block_index, instruction_index, "loaded executable compare_eq_zero i32 operand is invalid");
+                                        return error.LoadedExecutionFailed;
+                                    }) == 0,
+                                    .usize => (loadedLocalWord(locals, instruction.operand) orelse {
+                                        _ = self.fail(.invalid_value, function_index, block_index, instruction_index, "loaded executable compare_eq_zero word operand is invalid");
+                                        return error.LoadedExecutionFailed;
+                                    }) == 0,
+                                    else => {
+                                        _ = self.fail(.unsupported_feature, function_index, block_index, instruction_index, "loaded executable compare_eq_zero codec is not implemented yet");
+                                        return error.LoadedExecutionFailed;
+                                    },
+                                };
+                                locals[instruction.dst] = .{ .boolean = is_zero };
+                                last_condition = is_zero;
+                            },
+                            .const_i32 => locals[instruction.dst] = .{ .i32 = loadedConstI32Value(instruction) catch {
+                                _ = self.fail(.invalid_value, function_index, block_index, instruction_index, "loaded executable const_i32 literal is invalid");
+                                return error.LoadedExecutionFailed;
+                            } },
+                            .const_string => locals[instruction.dst] = .{ .bytes = instruction.string_literal },
+                            .const_usize => locals[instruction.dst] = .{ .word_u64 = std.fmt.parseUnsigned(u64, instruction.string_literal, 0) catch {
+                                _ = self.fail(.invalid_value, function_index, block_index, instruction_index, "loaded executable const_usize literal is invalid");
+                                return error.LoadedExecutionFailed;
+                            } },
+                            .return_value => last_return = loadedLocalValue(locals, instruction.operand) orelse {
+                                _ = self.fail(.invalid_value, function_index, block_index, instruction_index, "loaded executable return_value local is invalid");
+                                return error.LoadedExecutionFailed;
+                            },
+                            .sub_one => switch ((loadedFunctionLocalRef(program_plan, function, instruction.operand) orelse {
+                                _ = self.fail(.malformed_plan, function_index, block_index, instruction_index, "loaded executable sub_one local ref is invalid");
+                                return error.LoadedExecutionFailed;
+                            }).codec) {
+                                .i32 => {
+                                    const operand = loadedLocalI32(locals, instruction.operand) orelse {
+                                        _ = self.fail(.invalid_value, function_index, block_index, instruction_index, "loaded executable sub_one i32 operand is invalid");
+                                        return error.LoadedExecutionFailed;
+                                    };
+                                    locals[instruction.dst] = .{ .i32 = std.math.sub(i32, operand, 1) catch {
+                                        _ = self.fail(.integer_overflow, function_index, block_index, instruction_index, "loaded executable sub_one i32 overflowed");
+                                        return error.LoadedExecutionFailed;
+                                    } };
+                                },
+                                .usize => {
+                                    const operand = loadedLocalWord(locals, instruction.operand) orelse {
+                                        _ = self.fail(.invalid_value, function_index, block_index, instruction_index, "loaded executable sub_one word operand is invalid");
+                                        return error.LoadedExecutionFailed;
+                                    };
+                                    locals[instruction.dst] = .{ .word_u64 = std.math.sub(u64, operand, 1) catch {
+                                        _ = self.fail(.integer_overflow, function_index, block_index, instruction_index, "loaded executable sub_one word overflowed");
+                                        return error.LoadedExecutionFailed;
+                                    } };
+                                },
+                                else => {
+                                    _ = self.fail(.unsupported_feature, function_index, block_index, instruction_index, "loaded executable sub_one codec is not implemented yet");
+                                    return error.LoadedExecutionFailed;
+                                },
+                            },
+                            .call_nested_with, .return_error, .sum_extract_payload, .sum_variant_is => {
+                                _ = self.fail(.unsupported_feature, function_index, block_index, instruction_index, "loaded executable instruction is not implemented yet");
+                                return error.LoadedExecutionFailed;
+                            },
+                        }
+                    }
+                    const terminator = program_plan.terminators[block.terminator_index];
+                    switch (terminator.kind) {
+                        .branch_if => block_index = if (last_condition) terminator.primary else terminator.secondary,
+                        .jump => block_index = terminator.primary,
+                        .return_unit => {
+                            if (function.value_codec != .unit) {
+                                _ = self.fail(.malformed_plan, function_index, block_index, 0, "loaded executable return_unit does not match function value codec");
+                                return error.LoadedExecutionFailed;
+                            }
+                            return .unit;
+                        },
+                        .return_value => return .{ .value = last_return },
+                    }
+                }
+            }
+
+            fn executeLoadedHelper(self: *@This(), program_plan: internal_program_plan.ProgramPlan, caller: internal_program_plan.FunctionPlan, locals: []const LoadedValue, instruction: internal_program_plan.Instruction, steps_remaining: *u32, depth: u32, block_index: usize, instruction_index: usize) LoadedFunctionControl!LoadedFunctionResult {
+                if (instruction.operand >= program_plan.functions.len) {
+                    _ = self.fail(.malformed_plan, program_plan.entry_index, block_index, instruction_index, "loaded executable helper target is out of range");
+                    return error.LoadedExecutionFailed;
+                }
+                const callee = program_plan.functions[instruction.operand];
+                const args = if (callee.parameter_count == 0) &[_]LoadedValue{} else blk: {
+                    if (instruction.aux == std.math.maxInt(u16)) {
+                        _ = self.fail(.malformed_plan, program_plan.entry_index, block_index, instruction_index, "loaded executable helper call args are missing");
+                        return error.LoadedExecutionFailed;
+                    }
+                    const arg_end = std.math.add(usize, instruction.aux, callee.parameter_count) catch {
+                        _ = self.fail(.malformed_plan, program_plan.entry_index, block_index, instruction_index, "loaded executable helper call arg span overflowed");
+                        return error.LoadedExecutionFailed;
+                    };
+                    if (arg_end > program_plan.call_args.len) {
+                        _ = self.fail(.malformed_plan, program_plan.entry_index, block_index, instruction_index, "loaded executable helper call arg span is out of range");
+                        return error.LoadedExecutionFailed;
+                    }
+                    const allocator = self.allocator orelse {
+                        _ = self.fail(.invalid_resume, program_plan.entry_index, block_index, instruction_index, "loaded executable session has no allocator");
+                        return error.LoadedExecutionFailed;
+                    };
+                    const buffer = allocator.alloc(LoadedValue, callee.parameter_count) catch {
+                        _ = self.fail(.execution_budget_exceeded, program_plan.entry_index, block_index, instruction_index, "loaded executable helper call arg allocation failed");
+                        return error.LoadedExecutionFailed;
+                    };
+                    errdefer allocator.free(buffer);
+                    for (program_plan.call_args[instruction.aux..arg_end], 0..) |local_id, arg_index| {
+                        const expected_ref = loadedFunctionLocalRef(program_plan, callee, @intCast(arg_index)) orelse {
+                            allocator.free(buffer);
+                            _ = self.fail(.malformed_plan, program_plan.entry_index, block_index, instruction_index, "loaded executable helper parameter ref is invalid");
+                            return error.LoadedExecutionFailed;
+                        };
+                        const caller_ref = loadedFunctionLocalRef(program_plan, caller, local_id) orelse {
+                            allocator.free(buffer);
+                            _ = self.fail(.malformed_plan, program_plan.entry_index, block_index, instruction_index, "loaded executable helper caller arg ref is invalid");
+                            return error.LoadedExecutionFailed;
+                        };
+                        if (!caller_ref.eql(expected_ref)) {
+                            allocator.free(buffer);
+                            _ = self.fail(.malformed_plan, program_plan.entry_index, block_index, instruction_index, "loaded executable helper argument ref mismatch");
+                            return error.LoadedExecutionFailed;
+                        }
+                        buffer[arg_index] = loadedLocalValue(locals, local_id) orelse {
+                            allocator.free(buffer);
+                            _ = self.fail(.invalid_value, program_plan.entry_index, block_index, instruction_index, "loaded executable helper argument value is invalid");
+                            return error.LoadedExecutionFailed;
+                        };
+                    }
+                    break :blk buffer;
+                };
+                defer if (callee.parameter_count != 0) self.allocator.?.free(args);
+                return self.executeLoadedFunction(program_plan, instruction.operand, args, steps_remaining, depth + 1, false);
+            }
+
+            fn parkLoadedCall(self: *@This(), program_plan: internal_program_plan.ProgramPlan, function: internal_program_plan.FunctionPlan, locals: []const LoadedValue, block: internal_program_plan.BlockPlan, block_index: u16, instruction_index: u16, call_instruction: internal_program_plan.Instruction) Next {
+                if (call_instruction.operand >= program_plan.ops.len) {
+                    return self.fail(.malformed_plan, program_plan.entry_index, block_index, instruction_index, "loaded executable call_op target is out of range");
+                }
+                if (block.terminator_index >= program_plan.terminators.len) {
+                    return self.fail(.malformed_plan, program_plan.entry_index, block_index, instruction_index, "loaded executable call_op terminator is out of range");
+                }
+                const terminator = program_plan.terminators[block.terminator_index];
+                if (terminator.kind != .return_value or block.instruction_count == 0) {
+                    return self.fail(.unsupported_feature, program_plan.entry_index, block_index, instruction_index, "loaded executable call_op continuation is not implemented yet");
+                }
+                const return_instruction = program_plan.instructions[@as(usize, block.first_instruction) + block.instruction_count - 1];
+                if (return_instruction.kind != .return_value or return_instruction.operand != call_instruction.dst) {
+                    return self.fail(.unsupported_feature, program_plan.entry_index, block_index, instruction_index, "loaded executable call_op result mapping is not implemented yet");
+                }
+                const op = program_plan.ops[call_instruction.operand];
+                const import = self.module.importForResidualSite(call_instruction.operand) orelse
+                    return self.fail(.malformed_plan, program_plan.entry_index, block_index, instruction_index, "loaded executable call_op has no residual import");
+                if (!import.payload_ref.eql(BoundaryValueRef.fromValueRef(.{ .codec = op.payload_codec, .schema_index = op.payload_schema_index })) or
+                    !import.response_ref.eql(BoundaryValueRef.fromValueRef(.{ .codec = op.resume_codec, .schema_index = op.resume_schema_index })) or
+                    !import.response_ref.eql(BoundaryValueRef.fromValueRef(.{ .codec = function.value_codec, .schema_index = function.value_schema_index })))
+                {
+                    return self.fail(.malformed_plan, program_plan.entry_index, block_index, instruction_index, "loaded executable import value refs do not match call_op");
+                }
+                const payload = loadedLocalValue(locals, call_instruction.aux) orelse
+                    return self.fail(.invalid_value, program_plan.entry_index, block_index, instruction_index, "loaded executable call_op payload local is invalid");
+                const allocator = self.allocator orelse return self.fail(.invalid_resume, program_plan.entry_index, block_index, instruction_index, "loaded executable session has no allocator");
+                const new_payload_image = loaded_execution.encodeLoadedValueImageBytes(
+                    allocator,
+                    loadedSchemaSet(program_plan),
+                    .{ .codec = op.payload_codec, .schema_index = op.payload_schema_index },
+                    payload,
+                    self.profile.limits,
+                ) catch |err| return self.fail(loadedValueErrorKind(err), program_plan.entry_index, block_index, instruction_index, "loaded executable payload image encoding failed");
+                errdefer allocator.free(new_payload_image);
+                const continuation_fingerprint = loadedContinuationFingerprint(self.session_fingerprint, import.residual_site_index, import.residual_site_fingerprint, import.world_port_id);
+                const request_fingerprint = loadedRequestFingerprint(self.module.moduleFingerprint(), continuation_fingerprint, import, new_payload_image);
+                if (self.payload_image_bytes.len != 0) allocator.free(self.payload_image_bytes);
+                self.payload_image_bytes = new_payload_image;
+                self.status = .request;
+                self.pending_request = .{ .request = .{
+                    .module_fingerprint = self.module.moduleFingerprint(),
+                    .entry_function = self.entry_function,
+                    .residual_site_index = import.residual_site_index,
+                    .residual_site_fingerprint = import.residual_site_fingerprint,
+                    .world_port_id = import.world_port_id,
+                    .world_port_ref = import.world_port_ref,
+                    .payload_ref = import.payload_ref,
+                    .expected_response_ref = import.response_ref,
+                    .canonical_payload_image = self.payload_image_bytes,
+                    .canonical_request_fingerprint = request_fingerprint,
+                    .deterministic_continuation_fingerprint = continuation_fingerprint,
+                }, .response_local = call_instruction.dst, .result_local = return_instruction.operand };
+                return .{ .request = self.pending_request.?.request };
+            }
+
+            fn completeLoadedValue(self: *@This(), program_plan: internal_program_plan.ProgramPlan, function: internal_program_plan.FunctionPlan, value: LoadedValue, block_index: u16, instruction_index: u16) Next {
+                const allocator = self.allocator orelse return self.fail(.invalid_resume, program_plan.entry_index, block_index, instruction_index, "loaded executable session has no allocator");
+                const result_ref = self.module.resultValueRef();
+                if (!result_ref.eql(BoundaryValueRef.fromValueRef(.{ .codec = function.value_codec, .schema_index = function.value_schema_index }))) {
+                    return self.fail(.malformed_plan, program_plan.entry_index, block_index, instruction_index, "loaded executable result ref does not match function value ref");
+                }
+                const new_result_image = loaded_execution.encodeLoadedValueImageBytes(
+                    allocator,
+                    loadedSchemaSet(program_plan),
+                    loadedValueRefFromBoundary(result_ref) orelse return self.fail(.unsupported_codec, program_plan.entry_index, block_index, instruction_index, "loaded executable result codec is unsupported"),
+                    value,
+                    self.profile.limits,
+                ) catch |err| return self.fail(loadedValueErrorKind(err), program_plan.entry_index, block_index, instruction_index, "loaded executable result image encoding failed");
+                errdefer allocator.free(new_result_image);
+                const new_result_fingerprint = loadedValueImageFingerprint(new_result_image) orelse return self.fail(.invalid_value, program_plan.entry_index, block_index, instruction_index, "loaded executable result image fingerprint failed");
+                if (self.result_image_bytes.len != 0) allocator.free(self.result_image_bytes);
+                self.result_image_bytes = new_result_image;
+                self.result_fingerprint = new_result_fingerprint;
+                self.status = .completed;
+                self.failure = null;
+                return .{ .done = .{
+                    .result_ref = result_ref,
+                    .canonical_result_image = self.result_image_bytes,
+                    .result_fingerprint = self.result_fingerprint,
+                } };
+            }
+
+            pub fn @"resume"(self: *@This(), request: Request, response_image: []const u8) !void {
+                const pending = self.pending_request orelse return error.InvalidResume;
+                if (self.status != .request) return error.InvalidResume;
+                if (!loadedRequestsEqual(pending.request, request)) return error.InvalidResume;
+                const executable_plan = self.executable_plan orelse return error.InvalidResume;
+                var arena = LoadedValueArena.init(self.allocator orelse return error.InvalidResume);
+                defer arena.deinit();
+                const decoded = loaded_execution.decodeLoadedValueImage(
+                    self.allocator.?,
+                    &arena,
+                    loadedSchemaSet(executable_plan.program_plan),
+                    loadedValueRefFromBoundary(request.expected_response_ref) orelse return error.InvalidResume,
+                    response_image,
+                    self.profile.limits,
+                ) catch return error.InvalidResume;
+                const allocator = self.allocator.?;
+                const result_ref = self.module.resultValueRef();
+                if (!request.expected_response_ref.eql(result_ref)) return error.InvalidResume;
+                const new_result_image = loaded_execution.encodeLoadedValueImageBytes(
+                    allocator,
+                    loadedSchemaSet(executable_plan.program_plan),
+                    loadedValueRefFromBoundary(result_ref) orelse return error.InvalidResume,
+                    decoded,
+                    self.profile.limits,
+                ) catch |err| switch (err) {
+                    error.OutOfMemory => return error.OutOfMemory,
+                    else => return error.InvalidResume,
+                };
+                errdefer allocator.free(new_result_image);
+                const new_result_fingerprint = loadedValueImageFingerprint(new_result_image) orelse return error.InvalidResume;
+                if (self.result_image_bytes.len != 0) allocator.free(self.result_image_bytes);
+                self.result_image_bytes = new_result_image;
+                self.result_fingerprint = new_result_fingerprint;
+                self.pending_request = null;
+                self.status = .completed;
+                self.failure = null;
+                _ = pending.response_local;
+                _ = pending.result_local;
+            }
+
+            fn fail(self: *@This(), failure_kind: loaded_execution.ExecutionFailureKind, function_index: usize, block_index: usize, instruction_index: usize, diagnostic_summary: []const u8) Next {
+                self.status = .failed;
+                self.failure = .{
+                    .kind = failure_kind,
+                    .function_index = @intCast(function_index),
+                    .block_index = @intCast(block_index),
+                    .instruction_index = @intCast(instruction_index),
+                    .diagnostic_summary = diagnostic_summary,
+                };
+                return .{ .failed = self.failure.? };
+            }
+
+            pub fn freeze(self: @This(), allocator: std.mem.Allocator) ![]u8 {
+                return self.image().encode(allocator);
+            }
+
+            pub fn image(self: @This()) loaded_execution.LoadedSessionImage {
+                return .{
+                    .module_fingerprint = self.module.moduleFingerprint(),
+                    .executable_plan_fingerprint = self.executable_plan_fingerprint,
+                    .execution_profile_fingerprint = self.execution_profile_fingerprint,
+                    .session_fingerprint = self.session_fingerprint,
+                    .entry_function = self.entry_function,
+                    .budget = self.budget,
+                    .status = self.status,
+                    .pending_request = if (self.pending_request) |pending_request| .{
+                        .residual_site_index = @intCast(pending_request.request.residual_site_index),
+                        .residual_site_fingerprint = pending_request.request.residual_site_fingerprint,
+                        .world_port_id = pending_request.request.world_port_id,
+                        .payload_ref = loadedValueRefFromBoundary(pending_request.request.payload_ref) orelse .{ .codec = .unit },
+                        .expected_response_ref = loadedValueRefFromBoundary(pending_request.request.expected_response_ref) orelse .{ .codec = .unit },
+                        .canonical_request_fingerprint = pending_request.request.canonical_request_fingerprint,
+                        .deterministic_continuation_fingerprint = pending_request.request.deterministic_continuation_fingerprint,
+                        .response_local = pending_request.response_local,
+                        .result_local = pending_request.result_local,
+                    } else null,
+                    .payload_image_bytes = self.payload_image_bytes,
+                    .result_image_bytes = self.result_image_bytes,
+                    .result_fingerprint = self.result_fingerprint,
+                    .failure = self.failure,
+                    .dependency_fingerprint = self.module.worldSurfaceFingerprint(),
+                };
+            }
+
+            pub fn thaw(allocator: std.mem.Allocator, module: *const LoadedModule, bytes: []const u8, profile: LoadedExecutionProfile) !@This() {
+                var decoded = try loaded_execution.LoadedSessionImage.decode(allocator, bytes);
+                defer decoded.deinit(allocator);
+                const executable_plan_fingerprint = module.executablePlanFingerprint() orelse module.requiredSectionFingerprint(.executable_plan_image) orelse module.programPlanHash();
+                const execution_profile_fingerprint = profile.computeFingerprint();
+                if (decoded.module_fingerprint != module.moduleFingerprint()) return error.ModuleMismatch;
+                if (decoded.executable_plan_fingerprint != executable_plan_fingerprint) return error.ExecutablePlanMismatch;
+                if (decoded.execution_profile_fingerprint != execution_profile_fingerprint) return error.ProfileMismatch;
+                const expected_session_fingerprint = loaded_execution.loadedSessionFingerprint(module.moduleFingerprint(), executable_plan_fingerprint, execution_profile_fingerprint, module.entryFunctionRef());
+                if (decoded.session_fingerprint != expected_session_fingerprint) return error.SessionMismatch;
+                var session = try startExecutable(allocator, module, profile);
+                errdefer session.deinit();
+                session.session_fingerprint = decoded.session_fingerprint;
+                session.entry_function = decoded.entry_function;
+                session.status = decoded.status;
+                session.budget = decoded.budget;
+                session.failure = if (decoded.failure) |failure| .{
+                    .kind = failure.kind,
+                    .declared_error_ref = failure.declared_error_ref,
+                    .function_index = failure.function_index,
+                    .block_index = failure.block_index,
+                    .instruction_index = failure.instruction_index,
+                    .diagnostic_summary = "restored loaded session failure",
+                } else null;
+                if (decoded.payload_image_bytes.len != 0) {
+                    session.payload_image_bytes = try allocator.dupe(u8, decoded.payload_image_bytes);
+                }
+                if (decoded.result_image_bytes.len != 0) {
+                    session.result_image_bytes = try allocator.dupe(u8, decoded.result_image_bytes);
+                    session.result_fingerprint = decoded.result_fingerprint;
+                }
+                if (decoded.pending_request) |pending_request| {
+                    if (pending_request.residual_site_index > std.math.maxInt(usize)) return error.InvalidResume;
+                    const import = module.importForResidualSite(@intCast(pending_request.residual_site_index)) orelse return error.InvalidResume;
+                    const payload_ref = BoundaryValueRef.fromValueRef(pending_request.payload_ref);
+                    const expected_response_ref = BoundaryValueRef.fromValueRef(pending_request.expected_response_ref);
+                    if (!import.payload_ref.eql(payload_ref) or !import.response_ref.eql(expected_response_ref)) return error.InvalidResume;
+                    const request = Request{
+                        .module_fingerprint = module.moduleFingerprint(),
+                        .entry_function = decoded.entry_function,
+                        .residual_site_index = @intCast(pending_request.residual_site_index),
+                        .residual_site_fingerprint = pending_request.residual_site_fingerprint,
+                        .world_port_id = pending_request.world_port_id,
+                        .world_port_ref = import.world_port_ref,
+                        .payload_ref = payload_ref,
+                        .expected_response_ref = expected_response_ref,
+                        .canonical_payload_image = session.payload_image_bytes,
+                        .canonical_request_fingerprint = pending_request.canonical_request_fingerprint,
+                        .deterministic_continuation_fingerprint = pending_request.deterministic_continuation_fingerprint,
+                    };
+                    if (!loadedRequestsEqual(request, .{
+                        .module_fingerprint = module.moduleFingerprint(),
+                        .entry_function = decoded.entry_function,
+                        .residual_site_index = import.residual_site_index,
+                        .residual_site_fingerprint = import.residual_site_fingerprint,
+                        .world_port_id = import.world_port_id,
+                        .world_port_ref = import.world_port_ref,
+                        .payload_ref = import.payload_ref,
+                        .expected_response_ref = import.response_ref,
+                        .canonical_payload_image = session.payload_image_bytes,
+                        .canonical_request_fingerprint = loadedRequestFingerprint(module.moduleFingerprint(), pending_request.deterministic_continuation_fingerprint, import, session.payload_image_bytes),
+                        .deterministic_continuation_fingerprint = loadedContinuationFingerprint(session.session_fingerprint, import.residual_site_index, import.residual_site_fingerprint, import.world_port_id),
+                    })) return error.InvalidResume;
+                    session.pending_request = .{
+                        .request = request,
+                        .response_local = pending_request.response_local,
+                        .result_local = pending_request.result_local,
+                    };
+                }
+                return session;
             }
         };
     };
+
+    pub const LoadedExecutionProfile = loaded_execution.LoadedExecutionProfile;
+    pub const LoadedExecution = loaded_execution;
+    pub const LoadedValue = loaded_execution.LoadedValue;
+    pub const LoadedValueArena = loaded_execution.LoadedValueArena;
+    pub const LoadedValueImage = loaded_execution.LoadedValueImage;
+    pub const LoadedValueRef = loaded_execution.LoadedValueRef;
+    pub const LoadedValueSchemaSet = loaded_execution.SchemaSet;
+    pub const LoadedSessionImage = loaded_execution.LoadedSessionImage;
+    pub const LoadedSessionStatus = loaded_execution.LoadedSessionStatus;
+    pub const LoadedSessionFailure = loaded_execution.LoadedSessionFailure;
+    pub const DecodedExecutablePlan = loaded_execution.DecodedExecutablePlan;
+
+    fn loadedSchemaSet(program_plan: internal_program_plan.ProgramPlan) loaded_execution.SchemaSet {
+        return .{
+            .schemas = program_plan.value_schemas,
+            .fields = program_plan.value_fields,
+            .variants = program_plan.value_variants,
+        };
+    }
+
+    fn consumeLoadedStep(remaining_steps: *u32) bool {
+        if (remaining_steps.* == 0) return false;
+        remaining_steps.* -= 1;
+        return true;
+    }
+
+    fn loadedConstI32Value(instruction: internal_program_plan.Instruction) !i32 {
+        if (instruction.string_literal.len != 0) {
+            return std.fmt.parseInt(i32, instruction.string_literal, 0) catch error.InvalidValue;
+        }
+        return @intCast(instruction.operand);
+    }
+
+    fn loadedFunctionLocalRef(program_plan: internal_program_plan.ProgramPlan, function: internal_program_plan.FunctionPlan, local_id: u16) ?internal_program_plan.ValueRef {
+        if (local_id >= function.local_count) return null;
+        const index = @as(usize, function.first_local) + local_id;
+        if (index >= program_plan.locals.len) return null;
+        const local = program_plan.locals[index];
+        return .{ .codec = local.codec, .schema_index = local.schema_index };
+    }
+
+    fn loadedLocalValue(locals: []const LoadedValue, local_id: u16) ?LoadedValue {
+        if (local_id >= locals.len) return null;
+        return locals[local_id];
+    }
+
+    fn loadedLocalBool(locals: []const LoadedValue, local_id: u16) ?bool {
+        const value = loadedLocalValue(locals, local_id) orelse return null;
+        return switch (value) {
+            .boolean => |actual| actual,
+            else => null,
+        };
+    }
+
+    fn loadedLocalI32(locals: []const LoadedValue, local_id: u16) ?i32 {
+        const value = loadedLocalValue(locals, local_id) orelse return null;
+        return switch (value) {
+            .i32 => |actual| actual,
+            else => null,
+        };
+    }
+
+    fn loadedLocalWord(locals: []const LoadedValue, local_id: u16) ?u64 {
+        const value = loadedLocalValue(locals, local_id) orelse return null;
+        return switch (value) {
+            .word_u64 => |actual| actual,
+            else => null,
+        };
+    }
+
+    fn loadedValueRefFromBoundary(ref: BoundaryValueRef) ?loaded_execution.LoadedValueRef {
+        inline for (std.meta.fields(internal_program_plan.ValueCodec)) |field| {
+            if (std.mem.eql(u8, ref.codec, field.name)) {
+                return .{ .codec = @enumFromInt(field.value), .schema_index = ref.schema_index };
+            }
+        }
+        return null;
+    }
+
+    fn loadedValueImageFingerprint(bytes: []const u8) ?u64 {
+        return loaded_execution.loadedValueImageFingerprint(bytes) catch null;
+    }
+
+    fn loadedValueErrorKind(err: anyerror) loaded_execution.ExecutionFailureKind {
+        return switch (err) {
+            error.IntegerOverflow => .integer_overflow,
+            error.UnsupportedCodec, error.UnsupportedVersion => .unsupported_codec,
+            error.OutOfMemory => .execution_budget_exceeded,
+            else => .invalid_value,
+        };
+    }
+
+    fn loadedContinuationFingerprint(session_fingerprint: u64, residual_site_index: usize, residual_site_fingerprint: u64, world_port_id: u32) u64 {
+        var builder = FingerprintBuilder.init(domains.boundary_loaded_session);
+        builder.fieldU64("session_fingerprint", session_fingerprint);
+        builder.fieldUsize("residual_site_index", residual_site_index);
+        builder.fieldU64("residual_site_fingerprint", residual_site_fingerprint);
+        builder.fieldU64("world_port_id", world_port_id);
+        return builder.finish();
+    }
+
+    fn loadedRequestFingerprint(module_fingerprint: u64, continuation_fingerprint: u64, import: ImportSurface.Import, payload_image_bytes: []const u8) u64 {
+        var builder = FingerprintBuilder.init(domains.boundary_loaded_session);
+        builder.fieldU64("module_fingerprint", module_fingerprint);
+        builder.fieldU64("continuation_fingerprint", continuation_fingerprint);
+        builder.fieldUsize("residual_site_index", import.residual_site_index);
+        builder.fieldU64("residual_site_fingerprint", import.residual_site_fingerprint);
+        builder.fieldU64("world_port_id", import.world_port_id);
+        builder.fieldRef("world_port_ref", import.world_port_ref);
+        builder.fieldValueRef("payload_ref", import.payload_ref);
+        builder.fieldValueRef("response_ref", import.response_ref);
+        builder.fieldBytes("payload_image_bytes", payload_image_bytes);
+        return builder.finish();
+    }
+
+    fn loadedRequestsEqual(left: LoadedModule.Session.Request, right: LoadedModule.Session.Request) bool {
+        return left.module_fingerprint == right.module_fingerprint and
+            left.entry_function == right.entry_function and
+            left.residual_site_index == right.residual_site_index and
+            left.residual_site_fingerprint == right.residual_site_fingerprint and
+            left.world_port_id == right.world_port_id and
+            optionalRefEql(left.world_port_ref, right.world_port_ref) and
+            left.payload_ref.eql(right.payload_ref) and
+            left.expected_response_ref.eql(right.expected_response_ref) and
+            std.mem.eql(u8, left.canonical_payload_image, right.canonical_payload_image) and
+            left.canonical_request_fingerprint == right.canonical_request_fingerprint and
+            left.deterministic_continuation_fingerprint == right.deterministic_continuation_fingerprint;
+    }
+
+    fn optionalRefEql(left: ?Ref, right: ?Ref) bool {
+        if (left == null or right == null) return left == null and right == null;
+        return left.?.eql(right.?);
+    }
 
     fn replayKeySeedForComponents(world_surface_scope_fingerprint: u64, world_port_id: u32, request_fingerprint: u64, response_fingerprint: u64) u64 {
         var builder = FingerprintBuilder.init(domains.boundary_world_replay_key_recipe);
@@ -7180,6 +8012,16 @@ pub const BoundaryTargetModule = struct {
             pub const ExportSurface = BoundaryTargetModule.ExportSurface;
             pub const Graph = BoundaryTargetModule.Graph;
             pub const LoadedModule = BoundaryTargetModule.LoadedModule;
+            pub const LoadedExecution = BoundaryTargetModule.LoadedExecution;
+            pub const LoadedExecutionProfile = BoundaryTargetModule.LoadedExecutionProfile;
+            pub const LoadedValue = BoundaryTargetModule.LoadedValue;
+            pub const LoadedValueArena = BoundaryTargetModule.LoadedValueArena;
+            pub const LoadedValueImage = BoundaryTargetModule.LoadedValueImage;
+            pub const LoadedValueRef = BoundaryTargetModule.LoadedValueRef;
+            pub const LoadedValueSchemaSet = BoundaryTargetModule.LoadedValueSchemaSet;
+            pub const LoadedSessionImage = BoundaryTargetModule.LoadedSessionImage;
+            pub const LoadedSessionStatus = BoundaryTargetModule.LoadedSessionStatus;
+            pub const LoadedSessionFailure = BoundaryTargetModule.LoadedSessionFailure;
             pub const ImportBinding = BoundaryTargetModule.ImportBinding;
             pub const ImportBindingPolicy = BoundaryTargetModule.ImportBindingPolicy;
             pub const ImportBindingError = BoundaryTargetModule.ImportBindingError;
@@ -7192,6 +8034,7 @@ pub const BoundaryTargetModule = struct {
             pub const ValidationDiagnostic = BoundaryTargetModule.ValidationDiagnostic;
             pub const ValidationReport = BoundaryTargetModule.ValidationReport;
             pub const ProgramPlanImage = BoundaryTargetModule.ProgramPlanImage;
+            pub const ExecutablePlanImage = BoundaryTargetModule.ExecutablePlanImage;
             pub const ValueSchemaImage = BoundaryTargetModule.ValueSchemaImage;
             pub const manifest = ManifestValue;
             pub const fingerprint = ManifestValue.module_fingerprint;
@@ -7439,6 +8282,7 @@ pub const BoundaryTargetModule = struct {
             .import_surface => domains.boundary_module_import_surface,
             .export_surface => domains.boundary_module_export_surface,
             .program_plan_image => domains.boundary_program_plan_image,
+            .executable_plan_image => domains.boundary_executable_plan_image,
             .value_schema_image => domains.boundary_value_schema_image,
             .world_surface => domains.boundary_world_surface,
             .world_port_table => domains.boundary_world_port_table,
@@ -7621,6 +8465,72 @@ pub const BoundaryTargetModule = struct {
         return refs;
     }
 
+    fn executablePlanBodyFingerprint(body: []const u8) u64 {
+        var builder = FingerprintBuilder.init(domains.boundary_executable_plan_image);
+        builder.fieldU32("format_version", domains.boundary_executable_plan_image.format_version.?);
+        builder.fieldBytes("body", body);
+        return builder.finish();
+    }
+
+    fn executablePlanStringLiteralCount(comptime plan: lowering_api.ProgramPlan) u64 {
+        var count: u64 = 0;
+        for (plan.instructions) |instruction| {
+            if (instruction.string_literal.len != 0) count += 1;
+        }
+        return count;
+    }
+
+    fn executablePlanNestedRefCount(comptime plan: lowering_api.ProgramPlan) u64 {
+        var count: u64 = 0;
+        for (plan.instructions) |instruction| {
+            if (instruction.kind == .call_nested_with) count += 1;
+        }
+        return count;
+    }
+
+    fn executablePlanFeatureBitmap(comptime plan: lowering_api.ProgramPlan) u64 {
+        var bitmap: u64 = 0;
+        for (plan.instructions) |instruction| {
+            bitmap |= @as(u64, 1) << executableInstructionFeatureBit(instruction.kind);
+        }
+        for (plan.terminators) |terminator| {
+            bitmap |= @as(u64, 1) << (32 + executableTerminatorFeatureBit(terminator.kind));
+        }
+        return bitmap;
+    }
+
+    fn executableInstructionFeatureBit(kind: internal_program_plan.InstructionKind) u6 {
+        return switch (kind) {
+            .add_const_i32 => 0,
+            .add_i32 => 1,
+            .call_helper => 2,
+            .call_nested_with => 3,
+            .call_op => 4,
+            .compare_eq_zero => 5,
+            .const_i32 => 6,
+            .const_string => 7,
+            .const_usize => 8,
+            .return_error => 9,
+            .return_value => 10,
+            .sub_one => 11,
+            .sum_extract_payload => 12,
+            .sum_variant_is => 13,
+        };
+    }
+
+    fn executableTerminatorFeatureBit(kind: internal_program_plan.TerminatorKind) u6 {
+        return switch (kind) {
+            .branch_if => 0,
+            .jump => 1,
+            .return_unit => 2,
+            .return_value => 3,
+        };
+    }
+
+    fn spanWithin(first: u64, count: u64, total: u64) bool {
+        return count <= total and first <= total - count;
+    }
+
     fn boundaryValueRefSlicesEql(left: []const BoundaryValueRef, right: []const BoundaryValueRef) bool {
         if (left.len != right.len) return false;
         for (left, right) |left_ref, right_ref| {
@@ -7654,6 +8564,7 @@ pub const BoundaryTargetModule = struct {
             try appendRefSection(&sections, allocator, .normalization_trace, Target.NormalizationTrace.evidenceRef(), Target.NormalizationTrace.trace_fingerprint);
             try appendRefSection(&sections, allocator, .normalization_certificate, Target.NormalizationCertificate.evidenceRef(), Target.NormalizationCertificate.certificate_fingerprint);
             try appendRefSection(&sections, allocator, .replay_key_recipe, Target.replay_key_recipe.evidenceRef(), Target.replay_key_recipe.fingerprint);
+            try appendSection(&sections, allocator, .executable_plan_image, true, try encodeExecutablePlanImagePayload(Target, allocator));
         }
 
         const provisional_refs = try sectionRefsFromPayloads(allocator, sections.items);
@@ -7848,6 +8759,126 @@ pub const BoundaryTargetModule = struct {
         return writer.toOwnedSlice();
     }
 
+    fn encodeExecutablePlanImagePayload(comptime Target: type, allocator: std.mem.Allocator) ![]u8 {
+        const body = try encodeExecutablePlanImageBody(Target.Program, allocator);
+        defer allocator.free(body);
+        var writer = PayloadWriter.init(allocator);
+        errdefer writer.deinit();
+        try writer.writeU32(domains.boundary_executable_plan_image.format_version.?);
+        try writer.writeU64(executablePlanBodyFingerprint(body));
+        try writer.writeBytes(body);
+        return writer.toOwnedSlice();
+    }
+
+    fn encodeExecutablePlanImageBody(comptime Program: type, allocator: std.mem.Allocator) ![]u8 {
+        const plan = Program.compiled_plan;
+        var writer = PayloadWriter.init(allocator);
+        errdefer writer.deinit();
+        try writer.writeBytes(plan.label);
+        try writer.writeU64(plan.hash());
+        try writer.writeU64(plan.ir_hash);
+        try writer.writeU16(plan.entry_index);
+        try writer.writeU64(executablePlanFeatureBitmap(plan));
+        try writer.writeU64(plan.functions.len);
+        try writer.writeU64(plan.requirements.len);
+        try writer.writeU64(plan.ops.len);
+        try writer.writeU64(plan.outputs.len);
+        try writer.writeU64(plan.value_schemas.len);
+        try writer.writeU64(plan.value_fields.len);
+        try writer.writeU64(plan.value_variants.len);
+        try writer.writeU64(plan.locals.len);
+        try writer.writeU64(plan.call_args.len);
+        try writer.writeU64(plan.blocks.len);
+        try writer.writeU64(plan.terminators.len);
+        try writer.writeU64(plan.instructions.len);
+        try writer.writeU64(executablePlanStringLiteralCount(plan));
+        try writer.writeU64(0);
+        try writer.writeU64(executablePlanNestedRefCount(plan));
+        for (plan.functions) |function| {
+            try writer.writeBytes(function.symbol_name);
+            try writer.writeValueRef(BoundaryValueRef.fromValueRef(.{ .codec = function.value_codec, .schema_index = function.value_schema_index }));
+            try writer.writeOptionalValueRef(if (function.result_codec) |codec| BoundaryValueRef.fromValueRef(.{ .codec = codec, .schema_index = function.result_schema_index }) else null);
+            try writer.writeU16(function.parameter_count);
+            try writer.writeU16(function.first_requirement);
+            try writer.writeU16(function.requirement_count);
+            try writer.writeU16(function.first_output);
+            try writer.writeU16(function.output_count);
+            try writer.writeU16(function.first_local);
+            try writer.writeU16(function.local_count);
+            try writer.writeU16(function.first_block);
+            try writer.writeU16(function.entry_block);
+            try writer.writeU16(function.block_count);
+            try writer.writeU16(function.first_instruction);
+            try writer.writeU16(function.instruction_count);
+        }
+        for (plan.requirements) |requirement| {
+            try writer.writeBytes(requirement.label);
+            try writer.writeU16(requirement.first_op);
+            try writer.writeU16(requirement.op_count);
+            try writer.writeU8(@intFromEnum(requirement.lifecycle_tag));
+            try writer.writeU8(@intFromEnum(requirement.output_tag));
+        }
+        for (plan.ops) |op| {
+            try writer.writeU16(op.requirement_index);
+            try writer.writeBytes(op.op_name);
+            try writer.writeU8(@intFromEnum(op.mode));
+            try writer.writeValueRef(BoundaryValueRef.fromValueRef(.{ .codec = op.payload_codec, .schema_index = op.payload_schema_index }));
+            try writer.writeValueRef(BoundaryValueRef.fromValueRef(.{ .codec = op.resume_codec, .schema_index = op.resume_schema_index }));
+            try writer.writeU8(@intFromBool(op.has_after));
+        }
+        for (plan.outputs) |output| {
+            try writer.writeBytes(output.label);
+            try writer.writeValueRef(BoundaryValueRef.fromValueRef(.{ .codec = output.codec, .schema_index = output.schema_index }));
+        }
+        for (plan.value_schemas) |schema| {
+            try writer.writeBytes(schema.label);
+            try writer.writeU8(@intFromEnum(schema.codec));
+            try writer.writeU16(schema.first_field);
+            try writer.writeU16(schema.field_count);
+            try writer.writeU16(schema.first_variant);
+            try writer.writeU16(schema.variant_count);
+        }
+        for (plan.value_fields) |field| {
+            try writer.writeBytes(field.name);
+            try writer.writeValueRef(BoundaryValueRef.fromValueRef(.{ .codec = field.codec, .schema_index = field.schema_index }));
+        }
+        for (plan.value_variants) |variant| {
+            try writer.writeBytes(variant.name);
+            try writer.writeValueRef(BoundaryValueRef.fromValueRef(.{ .codec = variant.codec, .schema_index = variant.schema_index }));
+        }
+        for (plan.locals) |local| {
+            try writer.writeValueRef(BoundaryValueRef.fromValueRef(.{ .codec = local.codec, .schema_index = local.schema_index }));
+        }
+        for (plan.call_args) |call_arg| try writer.writeU16(call_arg);
+        for (plan.blocks) |block| {
+            try writer.writeU16(block.first_instruction);
+            try writer.writeU16(block.instruction_count);
+            try writer.writeU16(block.terminator_index);
+        }
+        for (plan.terminators) |terminator| {
+            try writer.writeU8(@intFromEnum(terminator.kind));
+            try writer.writeU16(terminator.primary);
+            try writer.writeU16(terminator.secondary);
+        }
+        for (plan.instructions) |instruction| {
+            try writer.writeU8(@intFromEnum(instruction.kind));
+            try writer.writeU16(instruction.dst);
+            try writer.writeU16(instruction.operand);
+            try writer.writeU16(instruction.aux);
+            try writer.writeBytes(instruction.string_literal);
+        }
+        for (plan.instructions) |instruction| {
+            if (instruction.string_literal.len != 0) try writer.writeBytes(instruction.string_literal);
+        }
+        for (plan.instructions) |instruction| {
+            if (instruction.kind == .call_nested_with) {
+                try writer.writeU16(instruction.operand);
+                try writer.writeU16(instruction.aux);
+            }
+        }
+        return writer.toOwnedSlice();
+    }
+
     fn encodeValueSchemaImagePayload(comptime Target: type, allocator: std.mem.Allocator) ![]u8 {
         const image = ValueSchemaImage.fromProgram(Target.Program);
         var writer = PayloadWriter.init(allocator);
@@ -8003,6 +9034,7 @@ pub const BoundaryTargetModule = struct {
                 .normalization_certificate,
                 .metadata,
                 .replay_key_recipe,
+                .executable_plan_image,
                 => {},
             }
         }
@@ -8732,6 +9764,7 @@ pub const BoundaryTargetModule = struct {
             .normalization_trace,
             .normalization_certificate,
             .replay_key_recipe,
+            .executable_plan_image,
         };
         for (required) |kind| {
             if (!sectionTableContainsKind(bytes, section_count, kind)) return error.MissingRequiredSection;
@@ -9000,6 +10033,7 @@ pub const BoundaryTargetModule = struct {
                 };
                 if (image_fingerprint != image.computeFingerprint()) return error.ManifestFingerprintMismatch;
             },
+            .executable_plan_image => try validateExecutablePlanImagePayload(payload, manifest, options),
             .value_schema_image => {
                 var reader = PayloadReader.init(payload);
                 const format_version = try reader.readU32();
@@ -9059,6 +10093,179 @@ pub const BoundaryTargetModule = struct {
             },
             .target_certificate => {},
         }
+    }
+
+    fn validateExecutablePlanImagePayload(payload: []const u8, manifest: Manifest, options: ValidationOptions) ValidationError!void {
+        const limits = options.effectiveLimits();
+        var envelope_reader = PayloadReader.init(payload);
+        const format_version = try envelope_reader.readU32();
+        if (format_version != domains.boundary_executable_plan_image.format_version.?) return error.InvalidVersion;
+        const image_fingerprint = try envelope_reader.readU64();
+        const body = try envelope_reader.readBytes();
+        if (!envelope_reader.done()) return error.MalformedManifest;
+        if (image_fingerprint != executablePlanBodyFingerprint(body)) return error.ManifestFingerprintMismatch;
+
+        var reader = PayloadReader.init(body);
+        _ = try reader.readBytes();
+        const plan_hash = try reader.readU64();
+        _ = try reader.readU64();
+        const entry_index = try reader.readU16();
+        _ = try reader.readU64();
+        const function_count = try reader.readU64();
+        const requirement_count = try reader.readU64();
+        const op_count = try reader.readU64();
+        const output_count = try reader.readU64();
+        const value_schema_count = try reader.readU64();
+        const product_field_count = try reader.readU64();
+        const sum_variant_count = try reader.readU64();
+        const local_count = try reader.readU64();
+        const call_arg_count = try reader.readU64();
+        const block_count = try reader.readU64();
+        const terminator_count = try reader.readU64();
+        const instruction_count = try reader.readU64();
+        const string_literal_count = try reader.readU64();
+        const stable_error_count = try reader.readU64();
+        const nested_ref_count = try reader.readU64();
+
+        if (plan_hash != manifest.program_plan_hash) return error.ManifestFingerprintMismatch;
+        if (function_count == 0 or entry_index >= function_count) return error.MalformedManifest;
+        if (!executablePlanCountWithinLimits(function_count, limits.max_plan_rows) or
+            !executablePlanCountWithinLimits(requirement_count, limits.max_plan_rows) or
+            !executablePlanCountWithinLimits(op_count, limits.max_plan_rows) or
+            !executablePlanCountWithinLimits(output_count, limits.max_plan_rows) or
+            !executablePlanCountWithinLimits(local_count, limits.max_plan_rows) or
+            !executablePlanCountWithinLimits(call_arg_count, limits.max_plan_rows) or
+            !executablePlanCountWithinLimits(block_count, limits.max_plan_rows) or
+            !executablePlanCountWithinLimits(terminator_count, limits.max_plan_rows) or
+            !executablePlanCountWithinLimits(instruction_count, limits.max_plan_rows) or
+            !executablePlanCountWithinLimits(string_literal_count, limits.max_plan_rows) or
+            !executablePlanCountWithinLimits(stable_error_count, limits.max_plan_rows) or
+            !executablePlanCountWithinLimits(nested_ref_count, limits.max_plan_rows) or
+            !executablePlanCountWithinLimits(value_schema_count, limits.max_schema_count) or
+            !executablePlanCountWithinLimits(product_field_count, limits.max_schema_count) or
+            !executablePlanCountWithinLimits(sum_variant_count, limits.max_schema_count))
+        {
+            return error.LimitExceeded;
+        }
+
+        for (0..@intCast(function_count)) |_| {
+            _ = try reader.readBytes();
+            const value_ref = try reader.readValueRef();
+            const result_ref = try reader.readOptionalValueRef();
+            const parameter_count = try reader.readU16();
+            const first_requirement = try reader.readU16();
+            const function_requirement_count = try reader.readU16();
+            const first_output = try reader.readU16();
+            const function_output_count = try reader.readU16();
+            const first_local = try reader.readU16();
+            const function_local_count = try reader.readU16();
+            const first_block = try reader.readU16();
+            const entry_block = try reader.readU16();
+            const function_block_count = try reader.readU16();
+            const first_instruction = try reader.readU16();
+            const function_instruction_count = try reader.readU16();
+            if (!boundaryValueRefWithinSchema(value_ref, value_schema_count)) return error.MalformedManifest;
+            if (!optionalBoundaryValueRefWithinSchema(result_ref, value_schema_count)) return error.MalformedManifest;
+            if (!spanWithin(first_requirement, function_requirement_count, requirement_count) or
+                !spanWithin(first_output, function_output_count, output_count) or
+                !spanWithin(first_local, function_local_count, local_count) or
+                !spanWithin(first_block, function_block_count, block_count) or
+                !spanWithin(first_instruction, function_instruction_count, instruction_count))
+            {
+                return error.MalformedManifest;
+            }
+            if (parameter_count > function_local_count) return error.MalformedManifest;
+            if (function_block_count != 0 and entry_block >= function_block_count) return error.MalformedManifest;
+        }
+        for (0..@intCast(requirement_count)) |_| {
+            _ = try reader.readBytes();
+            const first_op = try reader.readU16();
+            const requirement_op_count = try reader.readU16();
+            if (parseRequirementLifecycleTag(try reader.readU8()) == null) return error.MalformedManifest;
+            if (parseRequirementOutputTag(try reader.readU8()) == null) return error.MalformedManifest;
+            if (!spanWithin(first_op, requirement_op_count, op_count)) return error.MalformedManifest;
+        }
+        for (0..@intCast(op_count)) |_| {
+            const requirement_index = try reader.readU16();
+            _ = try reader.readBytes();
+            if (parseControlMode(try reader.readU8()) == null) return error.MalformedManifest;
+            const payload_ref = try reader.readValueRef();
+            const resume_ref = try reader.readValueRef();
+            const has_after = try reader.readU8();
+            if (requirement_index >= requirement_count or has_after > 1) return error.MalformedManifest;
+            if (!boundaryValueRefWithinSchema(payload_ref, value_schema_count)) return error.MalformedManifest;
+            if (!boundaryValueRefWithinSchema(resume_ref, value_schema_count)) return error.MalformedManifest;
+        }
+        for (0..@intCast(output_count)) |_| {
+            _ = try reader.readBytes();
+            const output_ref = try reader.readValueRef();
+            if (!boundaryValueRefWithinSchema(output_ref, value_schema_count)) return error.MalformedManifest;
+        }
+        for (0..@intCast(value_schema_count)) |_| {
+            _ = try reader.readBytes();
+            const codec = parseValueCodec(try reader.readU8()) orelse return error.MalformedManifest;
+            const first_field = try reader.readU16();
+            const field_count = try reader.readU16();
+            const first_variant = try reader.readU16();
+            const variant_count = try reader.readU16();
+            switch (codec) {
+                .product => if (!spanWithin(first_field, field_count, product_field_count) or variant_count != 0) return error.MalformedManifest,
+                .sum => if (!spanWithin(first_variant, variant_count, sum_variant_count) or field_count != 0) return error.MalformedManifest,
+                else => if (field_count != 0 or variant_count != 0) return error.MalformedManifest,
+            }
+        }
+        for (0..@intCast(product_field_count)) |_| {
+            _ = try reader.readBytes();
+            const field_ref = try reader.readValueRef();
+            if (!boundaryValueRefWithinSchema(field_ref, value_schema_count)) return error.MalformedManifest;
+        }
+        for (0..@intCast(sum_variant_count)) |_| {
+            _ = try reader.readBytes();
+            const variant_ref = try reader.readValueRef();
+            if (!boundaryValueRefWithinSchema(variant_ref, value_schema_count)) return error.MalformedManifest;
+        }
+        for (0..@intCast(local_count)) |_| {
+            const local_ref = try reader.readValueRef();
+            if (!boundaryValueRefWithinSchema(local_ref, value_schema_count)) return error.MalformedManifest;
+        }
+        for (0..@intCast(call_arg_count)) |_| {
+            if (try reader.readU16() >= local_count) return error.MalformedManifest;
+        }
+        for (0..@intCast(block_count)) |_| {
+            const first_instruction = try reader.readU16();
+            const block_instruction_count = try reader.readU16();
+            const terminator_index = try reader.readU16();
+            if (!spanWithin(first_instruction, block_instruction_count, instruction_count)) return error.MalformedManifest;
+            if (terminator_index >= terminator_count) return error.MalformedManifest;
+        }
+        for (0..@intCast(terminator_count)) |_| {
+            if (parseTerminatorKind(try reader.readU8()) == null) return error.MalformedManifest;
+            _ = try reader.readU16();
+            _ = try reader.readU16();
+        }
+        var actual_string_literals: u64 = 0;
+        var actual_nested_refs: u64 = 0;
+        for (0..@intCast(instruction_count)) |_| {
+            const kind = parseInstructionKind(try reader.readU8()) orelse return error.MalformedManifest;
+            const dst = try reader.readU16();
+            _ = try reader.readU16();
+            _ = try reader.readU16();
+            const literal = try reader.readBytes();
+            if (dst >= local_count and local_count != 0) return error.MalformedManifest;
+            if (literal.len != 0) actual_string_literals += 1;
+            if (kind == .call_nested_with) actual_nested_refs += 1;
+        }
+        if (actual_string_literals != string_literal_count or actual_nested_refs != nested_ref_count) return error.MalformedManifest;
+        for (0..@intCast(string_literal_count)) |_| _ = try reader.readBytes();
+        for (0..@intCast(nested_ref_count)) |_| {
+            _ = try reader.readU16();
+            _ = try reader.readU16();
+        }
+        if (!reader.done()) return error.MalformedManifest;
+    }
+
+    fn executablePlanCountWithinLimits(count: u64, limit: usize) bool {
+        return u64FitsUsize(count) and count <= limit and count <= max_indexed_table_len;
     }
 
     fn validateTargetCertificateSectionBindings(bytes: []const u8, section_count: u32, manifest: Manifest, options: ValidationOptions) ValidationError!void {
@@ -9188,6 +10395,7 @@ pub const BoundaryTargetModule = struct {
             .normalization_trace,
             .normalization_certificate,
             .replay_key_recipe,
+            .executable_plan_image,
             => true,
             .manifest,
             .metadata,
@@ -9232,6 +10440,48 @@ pub const BoundaryTargetModule = struct {
 
     fn parseSectionKind(value: u16) ?SectionKind {
         inline for (std.meta.fields(SectionKind)) |field| {
+            if (field.value == value) return @enumFromInt(field.value);
+        }
+        return null;
+    }
+
+    fn parseValueCodec(value: u8) ?lowering_api.ValueCodec {
+        inline for (std.meta.fields(lowering_api.ValueCodec)) |field| {
+            if (field.value == value) return @enumFromInt(field.value);
+        }
+        return null;
+    }
+
+    fn parseControlMode(value: u8) ?internal_program_plan.ControlMode {
+        inline for (std.meta.fields(internal_program_plan.ControlMode)) |field| {
+            if (field.value == value) return @enumFromInt(field.value);
+        }
+        return null;
+    }
+
+    fn parseRequirementLifecycleTag(value: u8) ?internal_program_plan.RequirementLifecycleTag {
+        inline for (std.meta.fields(internal_program_plan.RequirementLifecycleTag)) |field| {
+            if (field.value == value) return @enumFromInt(field.value);
+        }
+        return null;
+    }
+
+    fn parseRequirementOutputTag(value: u8) ?internal_program_plan.RequirementOutputTag {
+        inline for (std.meta.fields(internal_program_plan.RequirementOutputTag)) |field| {
+            if (field.value == value) return @enumFromInt(field.value);
+        }
+        return null;
+    }
+
+    fn parseInstructionKind(value: u8) ?internal_program_plan.InstructionKind {
+        inline for (std.meta.fields(internal_program_plan.InstructionKind)) |field| {
+            if (field.value == value) return @enumFromInt(field.value);
+        }
+        return null;
+    }
+
+    fn parseTerminatorKind(value: u8) ?internal_program_plan.TerminatorKind {
+        inline for (std.meta.fields(internal_program_plan.TerminatorKind)) |field| {
             if (field.value == value) return @enumFromInt(field.value);
         }
         return null;
@@ -9424,6 +10674,69 @@ test "forward optional known section versions are skipped in invalid version dia
     );
     try std.testing.expectEqual(BoundaryTargetModule.SectionKind.replay_key_recipe, detail.section_kind.?);
     try std.testing.expectEqual(@as(usize, 1), detail.section_index.?);
+}
+
+test "executable plan image domains and section requirement are explicit" {
+    try std.testing.expectEqual(@as(u32, 1), domains.boundary_executable_plan_image.format_version.?);
+    try std.testing.expectEqual(@as(u32, 1), domains.boundary_executable_plan_image.fingerprint_version);
+    try std.testing.expectEqual(@as(u32, 1), domains.boundary_loaded_value_image.format_version.?);
+    try std.testing.expectEqual(@as(u32, 1), domains.boundary_loaded_session_image.format_version.?);
+    try std.testing.expectEqual(@as(u32, 1), domains.boundary_loaded_execution_profile.format_version.?);
+    try std.testing.expectEqual(domains.boundary_executable_plan_image, BoundaryTargetModule.sectionDomain(.executable_plan_image));
+    try std.testing.expect(BoundaryTargetModule.sectionKindRequiredForFullModule(.executable_plan_image));
+}
+
+test "executable plan image payload binds canonical body bytes" {
+    const allocator = std.testing.allocator;
+    const TestProgram = struct {
+        pub const compiled_plan = lowering_api.ProgramPlan{
+            .label = "executable-plan-image-payload",
+            .ir_hash = 0xE11E,
+            .entry_index = 0,
+            .functions = &.{.{
+                .symbol_name = "main",
+                .first_requirement = 0,
+                .requirement_count = 0,
+                .first_output = 0,
+                .output_count = 0,
+                .first_block = 0,
+                .entry_block = 0,
+                .block_count = 1,
+                .first_instruction = 0,
+                .instruction_count = 0,
+            }},
+            .requirements = &.{},
+            .ops = &.{},
+            .outputs = &.{},
+            .blocks = &.{.{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 }},
+            .terminators = &.{.{ .kind = .return_unit }},
+            .instructions = &.{},
+        };
+    };
+    const TestTarget = struct {
+        pub const Program = TestProgram;
+    };
+    const manifest = BoundaryTargetModule.Manifest.init(.{
+        .module_fingerprint = 0xABCD,
+        .module_kind = .full_module,
+        .target_label = "executable-plan-image-payload",
+        .program_plan_hash = TestProgram.compiled_plan.hash(),
+        .world_surface_fingerprint = 0,
+        .target_certificate_fingerprint = 0,
+        .import_surface_fingerprint = 0,
+        .export_surface_fingerprint = 0,
+        .world_port_count = 0,
+        .normal_form = .strict_closed,
+    });
+    var payload = try BoundaryTargetModule.encodeExecutablePlanImagePayload(TestTarget, allocator);
+    defer allocator.free(payload);
+    try BoundaryTargetModule.validateExecutablePlanImagePayload(payload, manifest, .{});
+
+    payload[payload.len - 1] ^= 1;
+    try std.testing.expectError(
+        error.ManifestFingerprintMismatch,
+        BoundaryTargetModule.validateExecutablePlanImagePayload(payload, manifest, .{}),
+    );
 }
 
 test "target certificate dependency roles require paired module surfaces" {

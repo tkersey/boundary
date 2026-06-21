@@ -11,6 +11,7 @@ const CoreModules = struct {
     helper_body_ir: *std.Build.Module,
     internal_kernel: *std.Build.Module,
     internal_program_plan: *std.Build.Module,
+    loaded_execution: *std.Build.Module,
     interpreter: *std.Build.Module,
     lowering_api: *std.Build.Module,
     parity_scenarios: *std.Build.Module,
@@ -208,6 +209,13 @@ fn addCoreModules(
     helper_body_ir.addImport("internal_program_plan", internal_program_plan);
     helper_body_ir.addImport("effect_ir", effect_ir);
 
+    const loaded_execution = b.createModule(.{
+        .root_source_file = b.path("src/program/loaded_execution.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    loaded_execution.addImport("internal_program_plan", internal_program_plan);
+
     const internal_kernel = b.createModule(.{
         .root_source_file = b.path("src/private_modules/internal_kernel_build.zig"),
         .target = target,
@@ -265,6 +273,7 @@ fn addCoreModules(
         .helper_body_ir = helper_body_ir,
         .internal_kernel = internal_kernel,
         .internal_program_plan = internal_program_plan,
+        .loaded_execution = loaded_execution,
         .interpreter = interpreter,
         .lowering_api = lowering_api,
         .parity_scenarios = parity_scenarios,
@@ -280,6 +289,7 @@ fn wireBoundaryImports(mod: *std.Build.Module, core: CoreModules) void {
     mod.addImport("helper_body_ir", core.helper_body_ir);
     mod.addImport("internal_kernel", core.internal_kernel);
     mod.addImport("internal_program_plan", core.internal_program_plan);
+    mod.addImport("loaded_execution", core.loaded_execution);
     mod.addImport("interpreter", core.interpreter);
     mod.addImport("lowering_api", core.lowering_api);
 }
@@ -319,8 +329,92 @@ pub fn build(b: *std.Build) void {
     addTestArtifact(b, test_step, core.frontend, test_args);
     addTestArtifact(b, test_step, core.internal_kernel, test_args);
     addTestArtifact(b, test_step, core.internal_program_plan, test_args);
+    addTestArtifact(b, test_step, core.loaded_execution, test_args);
     addTestArtifact(b, test_step, core.lowered_machine, test_args);
     addTestArtifact(b, test_step, core.portable_core, test_args);
+
+    const executable_module_step = b.step("check-boundary-executable-module", "Check executable Certified Boundary Module v2 image foundations.");
+    const executable_module_args = TestArgs{
+        .filters = &.{"executable plan image"},
+        .passthrough = &.{},
+    };
+    addTestArtifact(b, executable_module_step, boundary, executable_module_args);
+    addTestArtifact(b, executable_module_step, boundary_shared, executable_module_args);
+
+    const loaded_value_step = b.step("check-boundary-loaded-value", "Check portable loaded value image encoding and validation.");
+    const loaded_value_args = TestArgs{
+        .filters = &.{"loaded value image"},
+        .passthrough = &.{},
+    };
+    addTestArtifact(b, loaded_value_step, core.loaded_execution, loaded_value_args);
+    addTestArtifact(b, loaded_value_step, boundary_shared, loaded_value_args);
+
+    const loaded_session_step = b.step("check-boundary-loaded-session", "Check loaded module session surface and profile compatibility.");
+    const loaded_session_args = TestArgs{
+        .filters = &.{"loaded"},
+        .passthrough = &.{},
+    };
+    addTestArtifact(b, loaded_session_step, core.loaded_execution, loaded_session_args);
+    addTestArtifact(b, loaded_session_step, boundary_shared, loaded_session_args);
+    const loaded_evidence_mod = b.createModule(.{
+        .root_source_file = b.path("test/evidence_kernel_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    loaded_evidence_mod.addImport("boundary", boundary);
+    const loaded_evidence_tests = b.addTest(.{ .root_module = loaded_evidence_mod, .filters = loaded_session_args.filters });
+    loaded_session_step.dependOn(&addRunArtifactWithArgs(b, loaded_evidence_tests, loaded_session_args.passthrough).step);
+
+    const loaded_continuation_step = b.step("check-boundary-loaded-continuation", "Check portable loaded session continuation images.");
+    const loaded_continuation_args = TestArgs{
+        .filters = &.{"loaded session image"},
+        .passthrough = &.{},
+    };
+    addTestArtifact(b, loaded_continuation_step, core.loaded_execution, loaded_continuation_args);
+    addTestArtifact(b, loaded_continuation_step, boundary_shared, loaded_continuation_args);
+
+    const loaded_parity_step = b.step("check-boundary-generated-loaded-parity", "Check generated Program.Session and LoadedModule.Session canonical parity.");
+    const loaded_parity_args = TestArgs{
+        .filters = &.{"generated-loaded parity"},
+        .passthrough = &.{},
+    };
+    const loaded_parity_mod = b.createModule(.{
+        .root_source_file = b.path("test/evidence_kernel_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    loaded_parity_mod.addImport("boundary", boundary);
+    const loaded_parity_tests = b.addTest(.{ .root_module = loaded_parity_mod, .filters = loaded_parity_args.filters });
+    loaded_parity_step.dependOn(&addRunArtifactWithArgs(b, loaded_parity_tests, loaded_parity_args.passthrough).step);
+
+    const loaded_malformed_step = b.step("check-boundary-loaded-malformed", "Check malformed loaded module/value/session/response rejection.");
+    const loaded_malformed_args = TestArgs{
+        .filters = &.{"loaded malformed"},
+        .passthrough = &.{},
+    };
+    addTestArtifact(b, loaded_malformed_step, core.loaded_execution, loaded_malformed_args);
+    const loaded_malformed_mod = b.createModule(.{
+        .root_source_file = b.path("test/evidence_kernel_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    loaded_malformed_mod.addImport("boundary", boundary);
+    const loaded_malformed_tests = b.addTest(.{ .root_module = loaded_malformed_mod, .filters = loaded_malformed_args.filters });
+    loaded_malformed_step.dependOn(&addRunArtifactWithArgs(b, loaded_malformed_tests, loaded_malformed_args.passthrough).step);
+
+    const loaded_fuzz_step = b.step("check-boundary-loaded-fuzz", "Check deterministic malformed loaded execution fuzz seeds.");
+    const loaded_fuzz_args = TestArgs{
+        .filters = &.{"loaded fuzz"},
+        .passthrough = &.{},
+    };
+    const loaded_fuzz_mod = b.createModule(.{
+        .root_source_file = b.path("test/evidence_kernel_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    loaded_fuzz_mod.addImport("boundary", boundary);
+    const loaded_fuzz_tests = b.addTest(.{ .root_module = loaded_fuzz_mod, .filters = loaded_fuzz_args.filters });
+    loaded_fuzz_step.dependOn(&addRunArtifactWithArgs(b, loaded_fuzz_tests, loaded_fuzz_args.passthrough).step);
 
     const ir_api_tests_mod = b.createModule(.{
         .root_source_file = b.path("src/ir_api.zig"),

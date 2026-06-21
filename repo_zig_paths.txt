@@ -109,6 +109,7 @@ src/private_modules/internal_kernel_build.zig
 src/private_modules/lowered_machine_build.zig
 src/private_modules/program_frontend_build.zig
 src/program/evidence.zig
+src/program/loaded_execution.zig
 src/program_api.zig
 src/program_frontend.zig
 src/prompt_contract.zig
