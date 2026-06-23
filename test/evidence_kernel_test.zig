@@ -20098,6 +20098,12 @@ test "loaded executable portable v2 restores helper frame parked on residual req
     try std.testing.expectEqual(@as(usize, 0), frozen_image.continuation.?.frame_images[1].last_return_image_bytes.len);
     try std.testing.expectEqual(frozen_image.continuation.?.frame_images[0].fingerprint(), frozen_image.continuation.?.frame_images[0].frame_fingerprint);
     try std.testing.expectEqual(frozen_image.continuation.?.frame_images[1].fingerprint(), frozen_image.continuation.?.frame_images[1].frame_fingerprint);
+    try std.testing.expectError(error.ProfileMismatch, Target.Module.LoadedModule.Session.thaw(
+        allocator,
+        &loaded,
+        frozen_request,
+        Target.Module.LoadedExecutionProfile.portableV1(),
+    ));
 
     var forged_response_kind = try Target.Module.LoadedSessionImage.decode(allocator, frozen_request);
     defer forged_response_kind.deinit(allocator);

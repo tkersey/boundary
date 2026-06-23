@@ -23,7 +23,7 @@ pub const executable_plan_image_fingerprint_version: u32 = 1;
 const max_u32_len = std.math.maxInt(u32);
 const max_plan_table_count = std.math.maxInt(u16) + 1;
 const max_session_owned_value_image_bytes = 1 << 20;
-const max_session_diagnostic_summary_bytes = 4096;
+pub const max_session_diagnostic_summary_bytes = 4096;
 const fingerprint_offset: u64 = 14695981039346656037;
 const fingerprint_prime: u64 = 1099511628211;
 const executable_plan_domain_name = "boundary.evidence.target.module.executable_plan_image";
@@ -410,7 +410,7 @@ pub const LoadedSessionImage = struct {
 
     pub fn decodeWithLimits(allocator: std.mem.Allocator, bytes: []const u8, limits: Limits) !@This() {
         var cursor = SessionCursor{ .bytes = bytes };
-        const max_owned_value_image_bytes = limits.maximum_owned_value_bytes;
+        const max_owned_value_image_bytes = sessionOwnedValueImageByteLimit(limits);
         var image = LoadedSessionImage{
             .format_version = try cursor.readU32(),
             .fingerprint_version = try cursor.readU32(),
@@ -585,7 +585,7 @@ pub const LoadedSessionImage = struct {
     fn validateStateWithLimits(self: @This(), limits: Limits) !void {
         if (!supportedLoadedSessionImageVersion(self.format_version, self.fingerprint_version)) return error.MalformedSessionImage;
         validateSessionImageTableCounts(self) catch return error.MalformedSessionImage;
-        validateSessionOwnedValueImageBytes(self, limits.maximum_owned_value_bytes) catch return error.MalformedSessionImage;
+        validateSessionOwnedValueImageBytes(self, sessionOwnedValueImageByteLimit(limits)) catch return error.MalformedSessionImage;
         if (self.status == .failed and self.failure == null) return error.MalformedSessionImage;
         if (self.status != .failed and self.failure != null) return error.MalformedSessionImage;
         if (self.status == .request and self.pending_request == null) return error.MalformedSessionImage;
@@ -640,7 +640,11 @@ pub const LoadedSessionImage = struct {
                     if (pending_request.result_local != std.math.maxInt(u16)) return error.MalformedSessionImage;
                     if (pending_request.deterministic_continuation_fingerprint != continuation.fingerprint()) return error.MalformedSessionImage;
                     const active_frame = continuation.frame_images[continuation.frame_images.len - 1];
-                    if (pending_request.response_local >= active_frame.local_count) return error.MalformedSessionImage;
+                    if (pending_request.expected_response_ref.codec == .unit and pending_request.expected_response_ref.schema_index == null) {
+                        if (pending_request.response_local != std.math.maxInt(u16) and pending_request.response_local >= active_frame.local_count) return error.MalformedSessionImage;
+                    } else if (pending_request.response_local >= active_frame.local_count) {
+                        return error.MalformedSessionImage;
+                    }
                 }
                 for (continuation.frame_images) |frame_image| {
                     if (frame_image.last_return_image_bytes.len == 0 and (frame_image.last_return_ref.codec != .unit or frame_image.last_return_ref.schema_index != null)) return error.MalformedSessionImage;
@@ -717,7 +721,7 @@ fn addLedgerCount(accumulator: *u32, amount: u32) !void {
     accumulator.* = std.math.add(u32, accumulator.*, amount) catch return error.MalformedSessionImage;
 }
 
-fn validateSessionOwnedValueImageBytes(image: LoadedSessionImage, max_owned_value_image_bytes: usize) !void {
+fn validateSessionOwnedValueImageBytes(image: LoadedSessionImage, max_owned_value_image_bytes: u32) !void {
     if (image.payload_image_bytes.len > max_owned_value_image_bytes) return error.InvalidValue;
     if (image.result_image_bytes.len > max_owned_value_image_bytes) return error.InvalidValue;
     if (image.continuation) |continuation| {
@@ -731,6 +735,15 @@ fn validateSessionOwnedValueImageBytes(image: LoadedSessionImage, max_owned_valu
     for (image.entry_argument_images) |entry_argument_image| {
         if (entry_argument_image.value_image_bytes.len > max_owned_value_image_bytes) return error.InvalidValue;
     }
+}
+
+fn sessionOwnedValueImageByteLimit(limits: Limits) u32 {
+    var total: u64 = limits.maximum_owned_value_bytes;
+    total = std.math.add(u64, total, 64) catch return max_u32_len;
+    total = std.math.add(u64, total, std.math.mul(u64, limits.maximum_aggregate_elements, 4) catch return max_u32_len) catch return max_u32_len;
+    const nesting_depth = std.math.add(u64, limits.maximum_value_nesting_depth, 1) catch return max_u32_len;
+    total = std.math.add(u64, total, std.math.mul(u64, nesting_depth, 8) catch return max_u32_len) catch return max_u32_len;
+    return if (total > max_u32_len) max_u32_len else @intCast(total);
 }
 
 fn supportedLoadedSessionImageVersion(format_version: u32, fingerprint_version: u32) bool {
@@ -2675,20 +2688,20 @@ test "loaded session image rejects oversized owned value byte lengths before all
     try writeU64(&encoded, allocator, 0);
     try encoded.append(allocator, @intFromEnum(LoadedSessionStatus.initial));
     try encoded.append(allocator, 0);
-    try writeU32(&encoded, allocator, max_session_owned_value_image_bytes + 1);
+    try writeU32(&encoded, allocator, sessionOwnedValueImageByteLimit(.{}) + 1);
 
     try std.testing.expectError(error.StringBytesLimitExceeded, LoadedSessionImage.decode(allocator, encoded.items));
 }
 
 test "loaded session image honors raised owned value byte limits" {
     const allocator = std.testing.allocator;
-    const large_value = try allocator.alloc(u8, max_session_owned_value_image_bytes + 1);
+    const large_value = try allocator.alloc(u8, max_session_owned_value_image_bytes + 32 * 1024);
     defer allocator.free(large_value);
     @memset(large_value, 'x');
 
     const raised_limits = Limits{
-        .maximum_owned_value_bytes = max_session_owned_value_image_bytes + 4096,
-        .maximum_string_bytes = max_session_owned_value_image_bytes + 4096,
+        .maximum_owned_value_bytes = max_session_owned_value_image_bytes + 64 * 1024,
+        .maximum_string_bytes = max_session_owned_value_image_bytes + 64 * 1024,
     };
     var profile = LoadedExecutionProfile.portableV2();
     profile.limits = raised_limits;
@@ -2724,6 +2737,55 @@ test "loaded session image honors raised owned value byte limits" {
     defer allocator.free(encoded);
     try std.testing.expectError(error.StringBytesLimitExceeded, LoadedSessionImage.decode(allocator, encoded));
     var decoded = try LoadedSessionImage.decodeWithLimits(allocator, encoded, raised_limits);
+    defer decoded.deinit(allocator);
+    try std.testing.expectEqual(image.result_fingerprint, decoded.result_fingerprint);
+    try std.testing.expectEqualStrings(result_image, decoded.result_image_bytes);
+}
+
+test "loaded session image permits canonical aggregate envelope overhead" {
+    const allocator = std.testing.allocator;
+    const item_count = 4096;
+    const item_len = 255;
+    const aggregate_bytes = try allocator.alloc(u8, item_count * item_len);
+    defer allocator.free(aggregate_bytes);
+    @memset(aggregate_bytes, 'x');
+    const items = try allocator.alloc([]const u8, item_count);
+    defer allocator.free(items);
+    for (items, 0..) |*item, index| {
+        item.* = aggregate_bytes[index * item_len ..][0..item_len];
+    }
+
+    const profile = LoadedExecutionProfile.portableV2();
+    const profile_fingerprint = profile.computeFingerprint();
+    const result_image = try encodeLoadedValueImageBytes(
+        allocator,
+        .{},
+        .{ .codec = .string_list },
+        .{ .list = items },
+        .{},
+    );
+    defer allocator.free(result_image);
+    try std.testing.expect(result_image.len > max_session_owned_value_image_bytes);
+    try std.testing.expect(result_image.len <= sessionOwnedValueImageByteLimit(.{}));
+
+    var image = LoadedSessionImage{
+        .format_version = loaded_session_image_format_version_v2,
+        .fingerprint_version = loaded_session_image_fingerprint_version_v2,
+        .module_fingerprint = 11,
+        .executable_plan_fingerprint = 22,
+        .execution_profile_fingerprint = profile_fingerprint,
+        .session_fingerprint = testLoadedSessionFingerprintV2(11, 22, profile_fingerprint, 0),
+        .entry_function = 0,
+        .budget = .{ .advancements = 1 },
+        .status = .completed,
+        .result_image_bytes = result_image,
+        .result_fingerprint = try loadedValueImageFingerprint(result_image),
+        .dependency_fingerprint = 44,
+    };
+    image.allocation = try image.computeAllocationLedger();
+    const encoded = try image.encode(allocator);
+    defer allocator.free(encoded);
+    var decoded = try LoadedSessionImage.decode(allocator, encoded);
     defer decoded.deinit(allocator);
     try std.testing.expectEqual(image.result_fingerprint, decoded.result_fingerprint);
     try std.testing.expectEqualStrings(result_image, decoded.result_image_bytes);
