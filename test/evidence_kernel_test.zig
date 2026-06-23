@@ -369,6 +369,20 @@ fn loadedRequestFingerprintForTest(module_fingerprint: u64, continuation_fingerp
     return builder.finish();
 }
 
+fn loadedRequestFingerprintV1ForTest(module_fingerprint: u64, continuation_fingerprint: u64, import: anytype, payload_image_bytes: []const u8) u64 {
+    var builder = Evidence.FingerprintBuilder.init(Evidence.domains.boundary_loaded_session);
+    builder.fieldU64("module_fingerprint", module_fingerprint);
+    builder.fieldU64("continuation_fingerprint", continuation_fingerprint);
+    builder.fieldUsize("residual_site_index", import.residual_site_index);
+    builder.fieldU64("residual_site_fingerprint", import.residual_site_fingerprint);
+    builder.fieldU64("world_port_id", import.world_port_id);
+    builder.fieldRef("world_port_ref", import.world_port_ref);
+    builder.fieldValueRef("payload_ref", import.payload_ref);
+    builder.fieldValueRef("response_ref", import.response_ref);
+    builder.fieldBytes("payload_image_bytes", payload_image_bytes);
+    return builder.finish();
+}
+
 fn restampPendingContinuationForTest(image: anytype, module_fingerprint: u64, import: anytype) void {
     const continuation_fingerprint = image.continuation.?.fingerprint();
     image.pending_request.?.deterministic_continuation_fingerprint = continuation_fingerprint;
@@ -18760,7 +18774,7 @@ test "certified boundary module reference full image and loaded module projectio
     try std.testing.expect(loaded_request.expected_response_ref.eql(loaded.imports()[0].response_ref));
     try std.testing.expect(loaded_request.canonical_request_fingerprint != 0);
     try std.testing.expect(loaded_request.deterministic_continuation_fingerprint != 0);
-    const expected_request_fingerprint = loadedRequestFingerprintForTest(
+    const expected_request_fingerprint = loadedRequestFingerprintV1ForTest(
         loaded.moduleFingerprint(),
         loaded_request.deterministic_continuation_fingerprint,
         loaded.imports()[0],
@@ -18769,7 +18783,7 @@ test "certified boundary module reference full image and loaded module projectio
     try std.testing.expectEqual(expected_request_fingerprint, loaded_request.canonical_request_fingerprint);
     var forged_mode_import = loaded.imports()[0];
     forged_mode_import.mode = "inspect";
-    try std.testing.expect(expected_request_fingerprint != loadedRequestFingerprintForTest(
+    try std.testing.expectEqual(expected_request_fingerprint, loadedRequestFingerprintV1ForTest(
         loaded.moduleFingerprint(),
         loaded_request.deterministic_continuation_fingerprint,
         forged_mode_import,
@@ -18777,7 +18791,7 @@ test "certified boundary module reference full image and loaded module projectio
     ));
     var forged_response_kind_import = loaded.imports()[0];
     forged_response_kind_import.response_kind = "return_now";
-    try std.testing.expect(expected_request_fingerprint != loadedRequestFingerprintForTest(
+    try std.testing.expectEqual(expected_request_fingerprint, loadedRequestFingerprintV1ForTest(
         loaded.moduleFingerprint(),
         loaded_request.deterministic_continuation_fingerprint,
         forged_response_kind_import,
@@ -18785,7 +18799,7 @@ test "certified boundary module reference full image and loaded module projectio
     ));
     var forged_result_ref_import = loaded.imports()[0];
     forged_result_ref_import.result_ref = Evidence.BoundaryValueRef.init("bool", null);
-    try std.testing.expect(expected_request_fingerprint != loadedRequestFingerprintForTest(
+    try std.testing.expectEqual(expected_request_fingerprint, loadedRequestFingerprintV1ForTest(
         loaded.moduleFingerprint(),
         loaded_request.deterministic_continuation_fingerprint,
         forged_result_ref_import,
@@ -18871,7 +18885,7 @@ test "certified boundary module reference full image and loaded module projectio
     );
     forged_payload_image.owns_payload_image_bytes = true;
     forged_payload_image.pending_request.?.canonical_request_fingerprint = 0;
-    forged_payload_image.pending_request.?.canonical_request_fingerprint = loadedRequestFingerprintForTest(
+    forged_payload_image.pending_request.?.canonical_request_fingerprint = loadedRequestFingerprintV1ForTest(
         loaded.moduleFingerprint(),
         forged_payload_image.pending_request.?.deterministic_continuation_fingerprint,
         loaded.imports()[0],
@@ -19743,6 +19757,12 @@ test "loaded executable portable v2 executes two sequential residual requests" {
     var loaded = try Target.Module.decode(allocator, full);
     defer loaded.deinit();
 
+    try std.testing.expectError(error.UnsupportedLoadedExecutionProfile, Target.Module.LoadedModule.Session.startExecutable(
+        allocator,
+        &loaded,
+        Target.Module.LoadedExecutionProfile.portableV1(),
+    ));
+
     var session = try Target.Module.LoadedModule.Session.startExecutable(
         allocator,
         &loaded,
@@ -19758,6 +19778,37 @@ test "loaded executable portable v2 executes two sequential residual requests" {
     try std.testing.expectEqual(closure_dual_first.index, first_request.residual_site_index);
     try std.testing.expectEqual(loaded.imports()[0].world_port_id, first_request.world_port_id);
     try std.testing.expect(first_request.expected_response_ref.eql(Evidence.BoundaryValueRef.fromValueRef(closure_dual_first.resume_ref)));
+    const first_request_fp = loadedRequestFingerprintForTest(
+        loaded.moduleFingerprint(),
+        first_request.deterministic_continuation_fingerprint,
+        loaded.imports()[0],
+        first_request.canonical_payload_image,
+    );
+    try std.testing.expectEqual(first_request_fp, first_request.canonical_request_fingerprint);
+    var forged_mode_import = loaded.imports()[0];
+    forged_mode_import.mode = "inspect";
+    try std.testing.expect(first_request_fp != loadedRequestFingerprintForTest(
+        loaded.moduleFingerprint(),
+        first_request.deterministic_continuation_fingerprint,
+        forged_mode_import,
+        first_request.canonical_payload_image,
+    ));
+    var forged_response_kind_import = loaded.imports()[0];
+    forged_response_kind_import.response_kind = "return_now";
+    try std.testing.expect(first_request_fp != loadedRequestFingerprintForTest(
+        loaded.moduleFingerprint(),
+        first_request.deterministic_continuation_fingerprint,
+        forged_response_kind_import,
+        first_request.canonical_payload_image,
+    ));
+    var forged_result_ref_import = loaded.imports()[0];
+    forged_result_ref_import.result_ref = Evidence.BoundaryValueRef.init("bool", null);
+    try std.testing.expect(first_request_fp != loadedRequestFingerprintForTest(
+        loaded.moduleFingerprint(),
+        first_request.deterministic_continuation_fingerprint,
+        forged_result_ref_import,
+        first_request.canonical_payload_image,
+    ));
 
     const frozen_first_request = try session.freeze(allocator);
     defer allocator.free(frozen_first_request);
@@ -20324,6 +20375,11 @@ test "loaded executable session interprets completing helper calls" {
         allocator,
         &loaded,
         call_helper_disabled_profile,
+    ));
+    try std.testing.expectError(error.UnsupportedLoadedExecutionProfile, Target.Module.LoadedModule.Session.startExecutable(
+        allocator,
+        &loaded,
+        Target.Module.LoadedExecutionProfile.portableV1(),
     ));
 }
 

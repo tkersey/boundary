@@ -7459,7 +7459,7 @@ pub const BoundaryTargetModule = struct {
                     defer continuation_image.deinit(allocator);
                     break :blk continuation_image.fingerprint();
                 } else loadedContinuationFingerprint(self.session_fingerprint, import.residual_site_index, import.residual_site_fingerprint, import.world_port_id);
-                const request_fingerprint = loadedRequestFingerprint(self.module.moduleFingerprint(), continuation_fingerprint, import, new_payload_image);
+                const request_fingerprint = loadedRequestFingerprintForProfile(self.profile, self.module.moduleFingerprint(), continuation_fingerprint, import, new_payload_image);
                 if (self.payload_image_bytes.len != 0) allocator.free(self.payload_image_bytes);
                 self.clearPendingRequest(allocator);
                 self.payload_image_bytes = new_payload_image;
@@ -8293,7 +8293,7 @@ pub const BoundaryTargetModule = struct {
                         .expected_response_ref = import.response_ref,
                         .response_kind = loadedSessionResponseKind(import.response_kind) orelse return error.InvalidResume,
                         .canonical_payload_image = decoded.payload_image_bytes,
-                        .canonical_request_fingerprint = loadedRequestFingerprint(module.moduleFingerprint(), expected_continuation_fingerprint, import, decoded.payload_image_bytes),
+                        .canonical_request_fingerprint = loadedRequestFingerprintForSessionImage(decoded, module.moduleFingerprint(), expected_continuation_fingerprint, import, decoded.payload_image_bytes),
                         .deterministic_continuation_fingerprint = expected_continuation_fingerprint,
                     })) return error.InvalidResume;
                     if (decoded.continuation) |continuation_image| {
@@ -8518,7 +8518,7 @@ pub const BoundaryTargetModule = struct {
         {
             return false;
         }
-        if (!loadedProgramPlanUsesSupportedSessionShape(program_plan, reachability)) return false;
+        if (!loadedProgramPlanUsesSupportedSessionShape(profile, program_plan, reachability)) return false;
         if (!loadedProfileSupportsReachableValues(profile, program_plan, reachability)) return false;
         if (!loadedProfileSupportsReachableInstructions(profile, program_plan, reachability)) return false;
         if (!loadedProfileSupportsReachableTerminators(profile, program_plan, reachability)) return false;
@@ -8783,8 +8783,9 @@ pub const BoundaryTargetModule = struct {
         return null;
     }
 
-    fn loadedProgramPlanUsesSupportedSessionShape(program_plan: internal_program_plan.ProgramPlan, reachability: LoadedProgramReachability) bool {
+    fn loadedProgramPlanUsesSupportedSessionShape(profile: LoadedExecutionProfile, program_plan: internal_program_plan.ProgramPlan, reachability: LoadedProgramReachability) bool {
         if (program_plan.entry_index >= program_plan.functions.len) return false;
+        const supports_v2_frames = profile.format_version == loaded_execution.loaded_execution_profile_format_version_v2;
         shape_function_loop: for (program_plan.functions, 0..) |function, function_index| {
             if (!reachability.functions[function_index]) continue :shape_function_loop;
             if (function.parameter_count > function.local_count) return false;
@@ -8799,7 +8800,13 @@ pub const BoundaryTargetModule = struct {
                 for (program_plan.instructions[block.first_instruction..instruction_end], block.first_instruction..) |instruction, instruction_index| {
                     switch (instruction.kind) {
                         .call_op => {
-                            if (!loadedCallOpUsesSupportedContinuationShape(program_plan, function, instruction, instruction_index)) return false;
+                            if (supports_v2_frames) {
+                                if (!loadedCallOpUsesSupportedContinuationShape(program_plan, function, instruction, instruction_index)) return false;
+                            } else {
+                                const terminator = program_plan.terminators[block.terminator_index];
+                                if (function_index != program_plan.entry_index) return false;
+                                if (!loadedCallOpUsesLegacyContinuationShape(program_plan, function, block, terminator, instruction, instruction_index)) return false;
+                            }
                         },
                         .compare_eq_zero => switch ((loadedFunctionLocalRef(program_plan, function, instruction.operand) orelse return false).codec) {
                             .bool, .i32, .usize => {},
@@ -8815,6 +8822,22 @@ pub const BoundaryTargetModule = struct {
             }
         }
         return true;
+    }
+
+    fn loadedCallOpUsesLegacyContinuationShape(
+        program_plan: internal_program_plan.ProgramPlan,
+        function: internal_program_plan.FunctionPlan,
+        block: internal_program_plan.BlockPlan,
+        terminator: internal_program_plan.Terminator,
+        call_instruction: internal_program_plan.Instruction,
+        instruction_index: usize,
+    ) bool {
+        if (!loadedCallOpUsesSupportedContinuationShape(program_plan, function, call_instruction, instruction_index)) return false;
+        if (terminator.kind != .return_value or block.instruction_count == 0) return false;
+        const return_instruction_index = @as(usize, block.first_instruction) + block.instruction_count - 1;
+        if (instruction_index + 1 != return_instruction_index) return false;
+        const return_instruction = program_plan.instructions[return_instruction_index];
+        return return_instruction.kind == .return_value and return_instruction.operand == call_instruction.dst;
     }
 
     fn loadedCallOpUsesSupportedContinuationShape(
@@ -9031,7 +9054,35 @@ pub const BoundaryTargetModule = struct {
         return loaded_execution.loadedDeclaredErrorRef(literal);
     }
 
-    fn loadedRequestFingerprint(module_fingerprint: u64, continuation_fingerprint: u64, import: ImportSurface.Import, payload_image_bytes: []const u8) u64 {
+    fn loadedRequestFingerprintForProfile(profile: LoadedExecutionProfile, module_fingerprint: u64, continuation_fingerprint: u64, import: ImportSurface.Import, payload_image_bytes: []const u8) u64 {
+        return if (profile.format_version == loaded_execution.loaded_execution_profile_format_version_v2)
+            loadedRequestFingerprintV2(module_fingerprint, continuation_fingerprint, import, payload_image_bytes)
+        else
+            loadedRequestFingerprintV1(module_fingerprint, continuation_fingerprint, import, payload_image_bytes);
+    }
+
+    fn loadedRequestFingerprintForSessionImage(image: loaded_execution.LoadedSessionImage, module_fingerprint: u64, continuation_fingerprint: u64, import: ImportSurface.Import, payload_image_bytes: []const u8) u64 {
+        return if (image.fingerprint_version == loaded_execution.loaded_session_image_fingerprint_version_v2)
+            loadedRequestFingerprintV2(module_fingerprint, continuation_fingerprint, import, payload_image_bytes)
+        else
+            loadedRequestFingerprintV1(module_fingerprint, continuation_fingerprint, import, payload_image_bytes);
+    }
+
+    fn loadedRequestFingerprintV1(module_fingerprint: u64, continuation_fingerprint: u64, import: ImportSurface.Import, payload_image_bytes: []const u8) u64 {
+        var builder = FingerprintBuilder.init(domains.boundary_loaded_session);
+        builder.fieldU64("module_fingerprint", module_fingerprint);
+        builder.fieldU64("continuation_fingerprint", continuation_fingerprint);
+        builder.fieldUsize("residual_site_index", import.residual_site_index);
+        builder.fieldU64("residual_site_fingerprint", import.residual_site_fingerprint);
+        builder.fieldU64("world_port_id", import.world_port_id);
+        builder.fieldRef("world_port_ref", import.world_port_ref);
+        builder.fieldValueRef("payload_ref", import.payload_ref);
+        builder.fieldValueRef("response_ref", import.response_ref);
+        builder.fieldBytes("payload_image_bytes", payload_image_bytes);
+        return builder.finish();
+    }
+
+    fn loadedRequestFingerprintV2(module_fingerprint: u64, continuation_fingerprint: u64, import: ImportSurface.Import, payload_image_bytes: []const u8) u64 {
         var builder = FingerprintBuilder.init(domains.boundary_loaded_session);
         builder.fieldU64("module_fingerprint", module_fingerprint);
         builder.fieldU64("continuation_fingerprint", continuation_fingerprint);
