@@ -514,10 +514,11 @@ pub const LoadedSessionImage = struct {
                     if (local_image_count > max_plan_table_count) return error.MalformedSessionImage;
                     const local_images = try allocator.alloc(LoadedSessionLocalImage, local_image_count);
                     var initialized_local_images: usize = 0;
-                    errdefer {
+                    var local_images_transferred = false;
+                    errdefer if (!local_images_transferred) {
                         for (local_images[0..initialized_local_images]) |*local_image| local_image.deinit(allocator);
                         allocator.free(local_images);
-                    }
+                    };
                     @memset(local_images, .{ .local_index = 0, .value_ref = .{ .codec = .unit } });
                     for (local_images) |*local_image| {
                         local_image.* = .{
@@ -530,6 +531,7 @@ pub const LoadedSessionImage = struct {
                     }
                     frame_image.local_images = local_images;
                     frame_image.owns_local_images = true;
+                    local_images_transferred = true;
                     frame_image.frame_fingerprint = try cursor.readU64();
                     if (frame_image.frame_fingerprint != frame_image.fingerprint()) return error.MalformedSessionImage;
                     initialized_frame_images += 1;
@@ -3142,6 +3144,38 @@ test "loaded session image rejects malformed embedded value images" {
     };
     malformed_continuation_local.allocation = try malformed_continuation_local.computeAllocationLedger();
     try std.testing.expectError(error.MalformedSessionImage, malformed_continuation_local.validateState());
+
+    var valid_decoded_local_images = [_]LoadedSessionLocalImage{.{
+        .local_index = 0,
+        .value_ref = .{ .codec = .i32 },
+        .value_image_bytes = valid_local_image,
+    }};
+    var valid_decoded_frame = LoadedSessionFrameImage{
+        .function_index = 0,
+        .block_index = 0,
+        .next_instruction_index = 1,
+        .local_count = 1,
+        .local_images = valid_decoded_local_images[0..],
+    };
+    valid_decoded_frame.frame_fingerprint = valid_decoded_frame.fingerprint();
+    var valid_decoded_frames = [_]LoadedSessionFrameImage{valid_decoded_frame};
+    const valid_decoded_continuation = LoadedSessionContinuationImage{ .frame_images = valid_decoded_frames[0..] };
+    var valid_decoded_image = malformed_continuation_local;
+    valid_decoded_image.continuation = valid_decoded_continuation;
+    valid_decoded_image.pending_request.?.deterministic_continuation_fingerprint = valid_decoded_continuation.fingerprint();
+    valid_decoded_image.allocation = try valid_decoded_image.computeAllocationLedger();
+    const valid_decoded_bytes = try valid_decoded_image.encode(allocator);
+    defer allocator.free(valid_decoded_bytes);
+    var forged_frame_fingerprint_bytes = try allocator.dupe(u8, valid_decoded_bytes);
+    defer allocator.free(forged_frame_fingerprint_bytes);
+    var encoded_frame_fingerprint: [8]u8 = undefined;
+    std.mem.writeInt(u64, &encoded_frame_fingerprint, valid_decoded_frame.frame_fingerprint, .little);
+    const frame_fingerprint_offset = std.mem.find(u8, forged_frame_fingerprint_bytes, &encoded_frame_fingerprint) orelse return error.MissingFrameFingerprint;
+    forged_frame_fingerprint_bytes[frame_fingerprint_offset] ^= 0x1;
+    try std.testing.expectError(error.MalformedSessionImage, LoadedSessionImage.decode(
+        allocator,
+        forged_frame_fingerprint_bytes,
+    ));
 }
 
 test "loaded session image rejects embedded value ref mismatch" {
