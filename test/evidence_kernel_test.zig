@@ -19167,6 +19167,41 @@ test "loaded executable session interprets scalar locals and branches" {
     };
     try std.testing.expectEqual(failure.kind, restored_failure.kind);
     try std.testing.expectEqualStrings(failure.diagnostic_summary, restored_failure.diagnostic_summary);
+
+    var branch_boundary_profile = Target.Module.LoadedExecutionProfile.portableV1();
+    branch_boundary_profile.limits.maximum_instructions_per_advancement = 5;
+    var branch_boundary_session = try Target.Module.LoadedModule.Session.startExecutable(
+        allocator,
+        &loaded,
+        branch_boundary_profile,
+    );
+    defer branch_boundary_session.deinit();
+    const branch_boundary_failure = switch (branch_boundary_session.next()) {
+        .failed => |value| value,
+        .done => return error.UnexpectedDone,
+        .request => return error.UnexpectedRequest,
+    };
+    try std.testing.expectEqual(Target.Module.LoadedExecution.ExecutionFailureKind.execution_budget_exceeded, branch_boundary_failure.kind);
+    const frozen_branch_boundary_failure = try branch_boundary_session.freeze(allocator);
+    defer allocator.free(frozen_branch_boundary_failure);
+    var branch_boundary_image = try Target.Module.LoadedSessionImage.decode(allocator, frozen_branch_boundary_failure);
+    defer branch_boundary_image.deinit(allocator);
+    try std.testing.expectEqual(Target.Module.LoadedSessionStatus.failed, branch_boundary_image.status);
+    try std.testing.expect(branch_boundary_image.failure.?.instruction_index != 0);
+    var restored_branch_boundary_session = try Target.Module.LoadedModule.Session.thaw(
+        allocator,
+        &loaded,
+        frozen_branch_boundary_failure,
+        branch_boundary_profile,
+    );
+    defer restored_branch_boundary_session.deinit();
+    const restored_branch_failure = switch (restored_branch_boundary_session.next()) {
+        .failed => |value| value,
+        .done => return error.UnexpectedDone,
+        .request => return error.UnexpectedRequest,
+    };
+    try std.testing.expectEqual(branch_boundary_failure.kind, restored_branch_failure.kind);
+    try std.testing.expectEqualStrings(branch_boundary_failure.diagnostic_summary, restored_branch_failure.diagnostic_summary);
 }
 
 test "loaded executable portable v2 gates reachable arithmetic before session construction" {

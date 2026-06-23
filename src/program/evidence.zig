@@ -7079,10 +7079,6 @@ pub const BoundaryTargetModule = struct {
                 var last_condition = initial_last_condition;
                 var first_resumed_block = true;
                 while (true) {
-                    if (!consumeLoadedStep(steps_remaining)) {
-                        _ = self.fail(.execution_budget_exceeded, function_index, block_index, 0, "loaded executable instruction budget exceeded");
-                        return error.LoadedExecutionFailed;
-                    }
                     const block_end = @as(usize, function.first_block) + function.block_count;
                     if (block_index < function.first_block or block_index >= block_end) {
                         _ = self.fail(.malformed_plan, function_index, block_index, 0, "loaded executable block target is out of range");
@@ -7094,6 +7090,10 @@ pub const BoundaryTargetModule = struct {
                     first_resumed_block = false;
                     if (first_instruction < block.first_instruction or first_instruction > instruction_end) {
                         _ = self.fail(.malformed_plan, function_index, block_index, first_instruction, "loaded executable continuation instruction is out of range");
+                        return error.LoadedExecutionFailed;
+                    }
+                    if (!consumeLoadedStep(steps_remaining)) {
+                        _ = self.fail(.execution_budget_exceeded, function_index, block_index, first_instruction, "loaded executable instruction budget exceeded");
                         return error.LoadedExecutionFailed;
                     }
                     for (program_plan.instructions[first_instruction..instruction_end], first_instruction..) |instruction, instruction_index| {
