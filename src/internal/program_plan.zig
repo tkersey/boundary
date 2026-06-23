@@ -521,7 +521,7 @@ pub const ProgramPlan = struct {
                     },
                     .const_usize => {
                         if (!functionLocalHasCodec(self, function, instruction.dst, .usize)) return error.InvalidInstructionLocalIndex;
-                        _ = std.fmt.parseUnsigned(usize, instruction.string_literal, 0) catch
+                        _ = std.fmt.parseUnsigned(u64, instruction.string_literal, 0) catch
                             return error.InvalidInstructionLocalIndex;
                     },
                     .return_error => {
@@ -6682,6 +6682,78 @@ test "ProgramPlan.validate accepts hexadecimal const_usize literals" {
     });
 
     try plan.validate();
+}
+
+test "ProgramPlan.validate uses portable u64 const_usize bounds" {
+    const max_plan = ProgramPlan{
+        .label = "valid.const_usize_max_u64",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = &.{.{
+            .symbol_name = "root",
+            .value_codec = .usize,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 2,
+        }},
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .usize }},
+        .call_args = &.{},
+        .blocks = &.{.{
+            .first_instruction = 0,
+            .instruction_count = 2,
+            .terminator_index = 0,
+        }},
+        .terminators = &.{.{ .kind = .return_value }},
+        .instructions = &.{
+            .{
+                .kind = .const_usize,
+                .dst = 0,
+                .string_literal = "18446744073709551615",
+            },
+            .{
+                .kind = .return_value,
+                .operand = 0,
+            },
+        },
+    };
+    try max_plan.validate();
+
+    const overflow_plan = ProgramPlan{
+        .label = "invalid.const_usize_overflow_u64",
+        .ir_hash = 1,
+        .entry_index = 0,
+        .functions = max_plan.functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = max_plan.locals,
+        .call_args = &.{},
+        .blocks = max_plan.blocks,
+        .terminators = max_plan.terminators,
+        .instructions = &.{
+            .{
+                .kind = .const_usize,
+                .dst = 0,
+                .string_literal = "18446744073709551616",
+            },
+            .{
+                .kind = .return_value,
+                .operand = 0,
+            },
+        },
+    };
+    try std.testing.expectError(error.InvalidInstructionLocalIndex, overflow_plan.validate());
 }
 
 test "ProgramPlan.validate rejects const_i32 instructions targeting usize locals" {
