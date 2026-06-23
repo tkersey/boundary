@@ -8088,7 +8088,7 @@ pub const BoundaryTargetModule = struct {
             pub fn freeze(self: @This(), allocator: std.mem.Allocator) ![]u8 {
                 var session_image = try self.image(allocator);
                 defer session_image.deinit(allocator);
-                return session_image.encode(allocator);
+                return session_image.encodeWithLimits(allocator, self.profile.limits);
             }
 
             fn baseImage(self: @This()) loaded_execution.LoadedSessionImage {
@@ -8158,7 +8158,7 @@ pub const BoundaryTargetModule = struct {
             }
 
             pub fn thaw(allocator: std.mem.Allocator, module: *const LoadedModule, bytes: []const u8, profile: LoadedExecutionProfile) !@This() {
-                var decoded = try loaded_execution.LoadedSessionImage.decode(allocator, bytes);
+                var decoded = try loaded_execution.LoadedSessionImage.decodeWithLimits(allocator, bytes, profile.limits);
                 defer decoded.deinit(allocator);
                 const executable_plan_fingerprint = module.executablePlanFingerprint() orelse module.requiredSectionFingerprint(.executable_plan_image) orelse module.programPlanHash();
                 const execution_profile_fingerprint = profile.computeFingerprint();
