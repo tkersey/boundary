@@ -1,6 +1,6 @@
 .{
     .name = .boundary,
-    .version = "0.4.1",
+    .version = "0.5.0",
     .dependencies = .{
         .zlinter = .{
             .url = "git+https://github.com/KurtWagner/zlinter?ref=0.16.x#9b4d67b9725e7137ac876cc628fe5dd2ca5a2681",
