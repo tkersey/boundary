@@ -341,6 +341,22 @@ pub fn build(b: *std.Build) void {
     addTestArtifact(b, executable_module_step, boundary, executable_module_args);
     addTestArtifact(b, executable_module_step, boundary_shared, executable_module_args);
 
+    const executable_plan_step = b.step("check-boundary-executable-plan-validation", "Check executable-plan image payload and full-module validation.");
+    addTestArtifact(b, executable_plan_step, boundary, executable_module_args);
+    addTestArtifact(b, executable_plan_step, boundary_shared, executable_module_args);
+    const executable_plan_args = TestArgs{
+        .filters = &.{"certified boundary module reference full image and loaded module projections validate"},
+        .passthrough = &.{},
+    };
+    const executable_plan_validation_mod = b.createModule(.{
+        .root_source_file = b.path("test/evidence_kernel_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    executable_plan_validation_mod.addImport("boundary", boundary);
+    const executable_plan_tests = b.addTest(.{ .root_module = executable_plan_validation_mod, .filters = executable_plan_args.filters });
+    executable_plan_step.dependOn(&addRunArtifactWithArgs(b, executable_plan_tests, executable_plan_args.passthrough).step);
+
     const loaded_value_step = b.step("check-boundary-loaded-value", "Check portable loaded value image encoding and validation.");
     const loaded_value_args = TestArgs{
         .filters = &.{"loaded value image"},
@@ -365,6 +381,89 @@ pub fn build(b: *std.Build) void {
     const loaded_evidence_tests = b.addTest(.{ .root_module = loaded_evidence_mod, .filters = loaded_session_args.filters });
     loaded_session_step.dependOn(&addRunArtifactWithArgs(b, loaded_evidence_tests, loaded_session_args.passthrough).step);
 
+    const loaded_v2_step = b.step("check-boundary-loaded-v2", "Check Boundary portable_v2 loaded execution profile gates.");
+    const loaded_v2_args = TestArgs{
+        .filters = &.{"portable v2"},
+        .passthrough = &.{},
+    };
+    addTestArtifact(b, loaded_v2_step, core.loaded_execution, loaded_v2_args);
+    const loaded_v2_core_evidence_mod = b.createModule(.{
+        .root_source_file = b.path("src/program/evidence.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    wireBoundaryImports(loaded_v2_core_evidence_mod, core);
+    const loaded_v2_core_evidence_tests = b.addTest(.{ .root_module = loaded_v2_core_evidence_mod, .filters = loaded_v2_args.filters });
+    loaded_v2_step.dependOn(&addRunArtifactWithArgs(b, loaded_v2_core_evidence_tests, loaded_v2_args.passthrough).step);
+    const loaded_v2_evidence_mod = b.createModule(.{
+        .root_source_file = b.path("test/evidence_kernel_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    loaded_v2_evidence_mod.addImport("boundary", boundary);
+    const loaded_v2_evidence_tests = b.addTest(.{ .root_module = loaded_v2_evidence_mod, .filters = loaded_v2_args.filters });
+    loaded_v2_step.dependOn(&addRunArtifactWithArgs(b, loaded_v2_evidence_tests, loaded_v2_args.passthrough).step);
+
+    const loaded_profile_codecs_step = b.step("check-boundary-loaded-profile-codecs", "Check loaded profile instruction and value codec gates.");
+    const profile_codec_core_args = TestArgs{
+        .filters = &.{
+            "loaded execution profile",
+            "loaded value image",
+        },
+        .passthrough = &.{},
+    };
+    addTestArtifact(b, loaded_profile_codecs_step, core.loaded_execution, profile_codec_core_args);
+    const loaded_profile_codecs_args = TestArgs{
+        .filters = &.{
+            "certified boundary module reference full image and loaded module projections validate",
+            "loaded executable portable v2 gates reachable arithmetic before session construction",
+            "loaded executable portable v2 uses portable word semantics",
+        },
+        .passthrough = &.{},
+    };
+    const loaded_profile_codecs_mod = b.createModule(.{
+        .root_source_file = b.path("test/evidence_kernel_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    loaded_profile_codecs_mod.addImport("boundary", boundary);
+    const loaded_profile_codecs_tests = b.addTest(.{ .root_module = loaded_profile_codecs_mod, .filters = loaded_profile_codecs_args.filters });
+    loaded_profile_codecs_step.dependOn(&addRunArtifactWithArgs(b, loaded_profile_codecs_tests, loaded_profile_codecs_args.passthrough).step);
+
+    const loaded_reachability_step = b.step("check-boundary-loaded-reachability", "Check reachability-scoped loaded execution compatibility gates.");
+    const loaded_reachability_core_args = TestArgs{
+        .filters = &.{
+            "loaded reachability ignores unsupported dead helper semantics and codecs",
+            "loaded portable v2 rejects unsupported helper parking shape before mutable session construction",
+        },
+        .passthrough = &.{},
+    };
+    const loaded_reachability_core_mod = b.createModule(.{
+        .root_source_file = b.path("src/program/evidence.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    wireBoundaryImports(loaded_reachability_core_mod, core);
+    const loaded_reachability_core_tests = b.addTest(.{ .root_module = loaded_reachability_core_mod, .filters = loaded_reachability_core_args.filters });
+    loaded_reachability_step.dependOn(&addRunArtifactWithArgs(b, loaded_reachability_core_tests, loaded_reachability_core_args.passthrough).step);
+    const loaded_reachability_args = TestArgs{
+        .filters = &.{
+            "certified boundary module reference full image and loaded module projections validate",
+            "loaded executable portable v2 gates reachable arithmetic before session construction",
+            "loaded executable ignores dead helper call sites for residual imports",
+            "loaded executable rejects choice operation mode",
+        },
+        .passthrough = &.{},
+    };
+    const loaded_reachability_mod = b.createModule(.{
+        .root_source_file = b.path("test/evidence_kernel_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    loaded_reachability_mod.addImport("boundary", boundary);
+    const loaded_reachability_tests = b.addTest(.{ .root_module = loaded_reachability_mod, .filters = loaded_reachability_args.filters });
+    loaded_reachability_step.dependOn(&addRunArtifactWithArgs(b, loaded_reachability_tests, loaded_reachability_args.passthrough).step);
+
     const loaded_continuation_step = b.step("check-boundary-loaded-continuation", "Check portable loaded session continuation images.");
     const loaded_continuation_args = TestArgs{
         .filters = &.{"loaded session image"},
@@ -373,7 +472,94 @@ pub fn build(b: *std.Build) void {
     addTestArtifact(b, loaded_continuation_step, core.loaded_execution, loaded_continuation_args);
     addTestArtifact(b, loaded_continuation_step, boundary_shared, loaded_continuation_args);
 
+    const loaded_session_image_step = b.step("check-boundary-loaded-session-image", "Check loaded session image validation regressions.");
+    const loaded_session_image_args = TestArgs{
+        .filters = &.{
+            "loaded session image roundtrips failure state and rejects trailing bytes",
+            "loaded session image binds declared failure ref to diagnostic summary",
+            "loaded session image rejects status-inconsistent fuel ledger",
+            "loaded session image v2 rejects present continuation with zero frames",
+            "loaded session image binds fingerprinted identity fields",
+        },
+        .passthrough = &.{},
+    };
+    addTestArtifact(b, loaded_session_image_step, core.loaded_execution, loaded_session_image_args);
+
+    const loaded_forged_session_step = b.step("check-boundary-loaded-forged-session-image", "Check forged loaded session image rejection regressions.");
+    const loaded_forged_session_args = TestArgs{
+        .filters = &.{
+            "loaded session image rejects forged session fingerprint",
+            "loaded session image rejects forged result fingerprint",
+            "loaded session image v2 binds pending continuation fingerprint to continuation image",
+            "loaded session image rejects malformed embedded value images",
+            "loaded session image rejects embedded value ref mismatch",
+        },
+        .passthrough = &.{},
+    };
+    addTestArtifact(b, loaded_forged_session_step, core.loaded_execution, loaded_forged_session_args);
+    const forged_session_evidence_args = TestArgs{
+        .filters = &.{
+            "loaded executable portable v2 restores helper frame parked on residual request",
+            "loaded malformed rejects forged v2 continuation frame topology",
+        },
+        .passthrough = &.{},
+    };
+    const loaded_forged_session_mod = b.createModule(.{
+        .root_source_file = b.path("test/evidence_kernel_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    loaded_forged_session_mod.addImport("boundary", boundary);
+    const loaded_forged_session_tests = b.addTest(.{ .root_module = loaded_forged_session_mod, .filters = forged_session_evidence_args.filters });
+    loaded_forged_session_step.dependOn(&addRunArtifactWithArgs(b, loaded_forged_session_tests, forged_session_evidence_args.passthrough).step);
+
+    const loaded_resource_ledger_step = b.step("check-boundary-loaded-resource-ledger", "Check loaded session fuel and allocation ledger regressions.");
+    const loaded_resource_ledger_args = TestArgs{
+        .filters = &.{
+            "loaded session image rejects status-inconsistent fuel ledger",
+            "loaded session image rejects oversized owned value byte lengths before allocation",
+            "loaded session allocation ledger uses checked arithmetic",
+            "loaded session image rejects v2-only state hidden inside v1 image",
+        },
+        .passthrough = &.{},
+    };
+    addTestArtifact(b, loaded_resource_ledger_step, core.loaded_execution, loaded_resource_ledger_args);
+    const ledger_evidence_args = TestArgs{
+        .filters = &.{
+            "loaded executable portable v2 gates reachable arithmetic before session construction",
+            "loaded executable portable v2 accepts canonical entry arguments",
+        },
+        .passthrough = &.{},
+    };
+    const loaded_resource_ledger_mod = b.createModule(.{
+        .root_source_file = b.path("test/evidence_kernel_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    loaded_resource_ledger_mod.addImport("boundary", boundary);
+    const loaded_resource_ledger_tests = b.addTest(.{ .root_module = loaded_resource_ledger_mod, .filters = ledger_evidence_args.filters });
+    loaded_resource_ledger_step.dependOn(&addRunArtifactWithArgs(b, loaded_resource_ledger_tests, ledger_evidence_args.passthrough).step);
+
+    const loaded_frame_stack_step = b.step("check-boundary-loaded-frame-stack", "Check portable loaded helper frame stack parking and restoration.");
+    const loaded_frame_stack_args = TestArgs{
+        .filters = &.{
+            "frame stack",
+            "nested helper parking restores canonical result",
+            "continuation frame topology",
+        },
+        .passthrough = &.{},
+    };
+    const loaded_frame_stack_mod = b.createModule(.{
+        .root_source_file = b.path("test/evidence_kernel_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    loaded_frame_stack_mod.addImport("boundary", boundary);
+    const loaded_frame_stack_tests = b.addTest(.{ .root_module = loaded_frame_stack_mod, .filters = loaded_frame_stack_args.filters });
+    loaded_frame_stack_step.dependOn(&addRunArtifactWithArgs(b, loaded_frame_stack_tests, loaded_frame_stack_args.passthrough).step);
+
     const loaded_parity_step = b.step("check-boundary-generated-loaded-parity", "Check generated Program.Session and LoadedModule.Session canonical parity.");
+    const loaded_parity_required_step = b.step("check-boundary-loaded-parity", "Check generated Program.Session and LoadedModule.Session canonical parity.");
     const loaded_parity_args = TestArgs{
         .filters = &.{"generated-loaded parity"},
         .passthrough = &.{},
@@ -385,11 +571,56 @@ pub fn build(b: *std.Build) void {
     });
     loaded_parity_mod.addImport("boundary", boundary);
     const loaded_parity_tests = b.addTest(.{ .root_module = loaded_parity_mod, .filters = loaded_parity_args.filters });
-    loaded_parity_step.dependOn(&addRunArtifactWithArgs(b, loaded_parity_tests, loaded_parity_args.passthrough).step);
+    const loaded_parity_run = addRunArtifactWithArgs(b, loaded_parity_tests, loaded_parity_args.passthrough);
+    loaded_parity_step.dependOn(&loaded_parity_run.step);
+    loaded_parity_required_step.dependOn(&loaded_parity_run.step);
+
+    const loaded_import_bindings_step = b.step("check-boundary-loaded-import-bindings", "Check exact loaded residual import/site binding regressions.");
+    const loaded_import_bindings_args = TestArgs{
+        .filters = &.{
+            "loaded executable binds residual imports by site index",
+            "loaded executable ignores dead helper call sites for residual imports",
+            "loaded executable portable v2 executes two sequential residual requests",
+            "generated-loaded parity canonical request bytes and i32 result",
+        },
+        .passthrough = &.{},
+    };
+    const loaded_import_bindings_mod = b.createModule(.{
+        .root_source_file = b.path("test/evidence_kernel_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    loaded_import_bindings_mod.addImport("boundary", boundary);
+    const loaded_import_bindings_tests = b.addTest(.{ .root_module = loaded_import_bindings_mod, .filters = loaded_import_bindings_args.filters });
+    loaded_import_bindings_step.dependOn(&addRunArtifactWithArgs(b, loaded_import_bindings_tests, loaded_import_bindings_args.passthrough).step);
+
+    const loaded_response_safety_step = b.step("check-boundary-loaded-response-safety", "Check loaded response rejection preserves parked session state.");
+    const loaded_response_safety_args = TestArgs{
+        .filters = &.{
+            "loaded executable portable v2 executes two sequential residual requests",
+            "loaded executable portable v2 restores helper frame parked on residual request",
+            "generated-loaded parity structured sum response extracts product result",
+        },
+        .passthrough = &.{},
+    };
+    const loaded_response_safety_mod = b.createModule(.{
+        .root_source_file = b.path("test/evidence_kernel_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    loaded_response_safety_mod.addImport("boundary", boundary);
+    const loaded_response_safety_tests = b.addTest(.{ .root_module = loaded_response_safety_mod, .filters = loaded_response_safety_args.filters });
+    loaded_response_safety_step.dependOn(&addRunArtifactWithArgs(b, loaded_response_safety_tests, loaded_response_safety_args.passthrough).step);
 
     const loaded_malformed_step = b.step("check-boundary-loaded-malformed", "Check malformed loaded module/value/session/response rejection.");
     const loaded_malformed_args = TestArgs{
-        .filters = &.{"loaded malformed"},
+        .filters = &.{
+            "loaded value image rejects",
+            "loaded session image rejects",
+            "loaded session image v2 rejects",
+            "loaded session image roundtrips failure state and rejects trailing bytes",
+            "loaded malformed",
+        },
         .passthrough = &.{},
     };
     addTestArtifact(b, loaded_malformed_step, core.loaded_execution, loaded_malformed_args);
@@ -401,6 +632,25 @@ pub fn build(b: *std.Build) void {
     loaded_malformed_mod.addImport("boundary", boundary);
     const loaded_malformed_tests = b.addTest(.{ .root_module = loaded_malformed_mod, .filters = loaded_malformed_args.filters });
     loaded_malformed_step.dependOn(&addRunArtifactWithArgs(b, loaded_malformed_tests, loaded_malformed_args.passthrough).step);
+
+    const loaded_payload_result_step = b.step("check-boundary-loaded-payload-result-images", "Check loaded payload and result image binding regressions.");
+    const loaded_payload_result_args = TestArgs{
+        .filters = &.{
+            "loaded session image rejects forged result fingerprint",
+            "certified boundary module reference full image and loaded module projections validate",
+            "loaded executable session parks unit payload residual request",
+        },
+        .passthrough = &.{},
+    };
+    addTestArtifact(b, loaded_payload_result_step, core.loaded_execution, loaded_payload_result_args);
+    const loaded_payload_result_mod = b.createModule(.{
+        .root_source_file = b.path("test/evidence_kernel_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    loaded_payload_result_mod.addImport("boundary", boundary);
+    const loaded_payload_result_tests = b.addTest(.{ .root_module = loaded_payload_result_mod, .filters = loaded_payload_result_args.filters });
+    loaded_payload_result_step.dependOn(&addRunArtifactWithArgs(b, loaded_payload_result_tests, loaded_payload_result_args.passthrough).step);
 
     const loaded_fuzz_step = b.step("check-boundary-loaded-fuzz", "Check deterministic malformed loaded execution fuzz seeds.");
     const loaded_fuzz_args = TestArgs{

@@ -262,8 +262,8 @@ pub const domains = struct {
     pub const boundary_loaded_value_image = Domain{ .id = .boundary_loaded_value_image, .name = "boundary.evidence.target.module.loaded_value_image", .format_version = 1, .fingerprint_version = 1, .owner = .boundary_target, .kind = .image, .stability = .durable_bytes, .bytes_encoded = true, .certificate_referenced = true, .tests = "loaded value image" };
     pub const boundary_loaded_module = Domain{ .id = .boundary_loaded_module, .name = "boundary.evidence.target.module.loaded", .fingerprint_version = 1, .owner = .boundary_target, .kind = .derived_metadata, .certificate_referenced = true, .tests = "loaded module" };
     pub const boundary_loaded_session = Domain{ .id = .boundary_loaded_session, .name = "boundary.evidence.target.module.loaded_session", .fingerprint_version = 1, .owner = .boundary_target, .kind = .derived_metadata, .certificate_referenced = true, .tests = "loaded session" };
-    pub const boundary_loaded_session_image = Domain{ .id = .boundary_loaded_session_image, .name = "boundary.evidence.target.module.loaded_session_image", .format_version = 1, .fingerprint_version = 1, .owner = .boundary_target, .kind = .image, .stability = .durable_bytes, .bytes_encoded = true, .certificate_referenced = true, .tests = "loaded session image" };
-    pub const boundary_loaded_execution_profile = Domain{ .id = .boundary_loaded_execution_profile, .name = "boundary.evidence.target.module.loaded_execution_profile", .format_version = 1, .fingerprint_version = 1, .owner = .boundary_target, .kind = .format, .stability = .durable_bytes, .bytes_encoded = true, .certificate_referenced = true, .tests = "loaded execution profile" };
+    pub const boundary_loaded_session_image = Domain{ .id = .boundary_loaded_session_image, .name = "boundary.evidence.target.module.loaded_session_image", .format_version = 2, .fingerprint_version = 2, .owner = .boundary_target, .kind = .image, .stability = .durable_bytes, .bytes_encoded = true, .certificate_referenced = true, .tests = "loaded session image" };
+    pub const boundary_loaded_execution_profile = Domain{ .id = .boundary_loaded_execution_profile, .name = "boundary.evidence.target.module.loaded_execution_profile", .format_version = 2, .fingerprint_version = 2, .owner = .boundary_target, .kind = .format, .stability = .durable_bytes, .bytes_encoded = true, .certificate_referenced = true, .tests = "loaded execution profile" };
     pub const boundary_module_compatibility_report = Domain{ .id = .boundary_module_compatibility_report, .name = "boundary.evidence.target.module.compatibility_report", .fingerprint_version = 1, .owner = .boundary_target, .kind = .report, .certificate_referenced = true, .tests = "compatibility report" };
     pub const boundary_module_validation_report = Domain{ .id = .boundary_module_validation_report, .name = "boundary.evidence.target.module.validation_report", .fingerprint_version = 1, .owner = .boundary_target, .kind = .report, .certificate_referenced = true, .tests = "validation report" };
     pub const boundary_module_validation_diagnostic = Domain{ .id = .boundary_module_validation_diagnostic, .name = "boundary.evidence.target.module.validation_diagnostic", .fingerprint_version = 1, .owner = .boundary_target, .kind = .report, .certificate_referenced = true, .tests = "validation diagnostic" };
@@ -6177,6 +6177,7 @@ pub const BoundaryTargetModule = struct {
         max_dependency_count: usize = 256,
         max_world_ports: usize = dense_world_port_cap,
         max_schema_count: usize = 65_536,
+        loaded_execution_profile: ?loaded_execution.LoadedExecutionProfile = null,
 
         pub fn effectiveLimits(self: @This()) ValidationLimits {
             if (self.limits) |limits| return limits;
@@ -6188,6 +6189,10 @@ pub const BoundaryTargetModule = struct {
             limits.max_world_ports = self.max_world_ports;
             limits.max_schema_count = self.max_schema_count;
             return limits;
+        }
+
+        pub fn effectiveLoadedExecutionProfile(self: @This()) loaded_execution.LoadedExecutionProfile {
+            return self.loaded_execution_profile orelse loaded_execution.LoadedExecutionProfile.portableV1();
         }
     };
 
@@ -6674,9 +6679,12 @@ pub const BoundaryTargetModule = struct {
             entry_function: u16,
             status: loaded_execution.LoadedSessionStatus = .initial,
             budget: loaded_execution.LoadedSessionBudgetLedger = .{},
+            allocation: loaded_execution.LoadedSessionAllocationLedger = .{},
             failure: ?loaded_execution.LoadedSessionFailure = null,
             owns_failure_summary: bool = false,
+            entry_arguments: EntryArguments = .{},
             pending_request: ?PendingRequest = null,
+            continuation: ?Continuation = null,
             payload_image_bytes: []u8 = &.{},
             result_image_bytes: []u8 = &.{},
             result_fingerprint: u64 = 0,
@@ -6690,6 +6698,7 @@ pub const BoundaryTargetModule = struct {
                 world_port_ref: ?Ref = null,
                 payload_ref: BoundaryValueRef = BoundaryValueRef.init("unit", null),
                 expected_response_ref: BoundaryValueRef = BoundaryValueRef.init("unit", null),
+                response_kind: loaded_execution.LoadedSessionResponseKind = .@"resume",
                 canonical_payload_image: []const u8 = &.{},
                 canonical_request_fingerprint: u64 = 0,
                 deterministic_continuation_fingerprint: u64,
@@ -6711,6 +6720,55 @@ pub const BoundaryTargetModule = struct {
                 request: Request,
                 response_local: u16,
                 result_local: u16,
+                continuation: ?Continuation = null,
+            };
+
+            const EntryArguments = struct {
+                values: []LoadedValue = &.{},
+                value_arena: ?LoadedValueArena = null,
+
+                fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+                    if (self.value_arena) |*arena| arena.deinit();
+                    if (self.values.len != 0) allocator.free(self.values);
+                    self.* = .{};
+                }
+            };
+
+            const ExecutionFrameView = struct {
+                function_index: u16,
+                block_index: u16,
+                next_instruction_index: u16,
+                locals: []const LoadedValue,
+                return_destination: ?u16 = null,
+                last_return: LoadedValue = .unit,
+                last_condition: bool = false,
+            };
+
+            const ContinuationFrame = struct {
+                function_index: u16,
+                block_index: u16,
+                next_instruction_index: u16,
+                locals: []LoadedValue,
+                value_arena: ?*LoadedValueArena = null,
+                return_destination: ?u16 = null,
+                last_return: LoadedValue = .unit,
+                last_condition: bool = false,
+
+                fn view(self: @This()) ExecutionFrameView {
+                    return .{
+                        .function_index = self.function_index,
+                        .block_index = self.block_index,
+                        .next_instruction_index = self.next_instruction_index,
+                        .locals = self.locals,
+                        .return_destination = self.return_destination,
+                        .last_return = self.last_return,
+                        .last_condition = self.last_condition,
+                    };
+                }
+            };
+
+            const Continuation = struct {
+                frames: []ContinuationFrame,
             };
 
             const LoadedFunctionResult = union(enum) {
@@ -6736,12 +6794,22 @@ pub const BoundaryTargetModule = struct {
                     .profile = profile,
                     .executable_plan_fingerprint = executable_plan_fingerprint,
                     .execution_profile_fingerprint = execution_profile_fingerprint,
-                    .session_fingerprint = loaded_execution.loadedSessionFingerprint(module.moduleFingerprint(), executable_plan_fingerprint, execution_profile_fingerprint, entry_function),
+                    .session_fingerprint = loaded_execution.loadedSessionFingerprintForVersion(
+                        loadedSessionImageFingerprintVersionForProfile(profile),
+                        module.moduleFingerprint(),
+                        executable_plan_fingerprint,
+                        execution_profile_fingerprint,
+                        entry_function,
+                    ),
                     .entry_function = entry_function,
                 };
             }
 
             pub fn startExecutable(allocator: std.mem.Allocator, module: *const LoadedModule, profile: LoadedExecutionProfile) !@This() {
+                return startExecutableWithArgs(allocator, module, profile, &.{});
+            }
+
+            pub fn startExecutableWithArgs(allocator: std.mem.Allocator, module: *const LoadedModule, profile: LoadedExecutionProfile, entry_args: []const LoadedValue) !@This() {
                 const payload = module.executablePlanImagePayload() orelse return error.MissingExecutablePlanImage;
                 const executable_plan_fingerprint = module.executablePlanFingerprint() orelse return error.MissingExecutablePlanImage;
                 var decoded_plan = try loaded_execution.decodeExecutablePlanImage(
@@ -6755,6 +6823,14 @@ pub const BoundaryTargetModule = struct {
                 var session = startWithProfile(module, profile);
                 if (decoded_plan.program_plan.entry_index != session.entry_function) return error.ExecutablePlanMismatch;
                 if (!loadedModuleSupportsProgramPlan(module.imports(), profile, decoded_plan.program_plan)) return error.UnsupportedLoadedExecutionProfile;
+                session.entry_arguments = try cloneEntryArguments(
+                    allocator,
+                    decoded_plan.program_plan,
+                    decoded_plan.program_plan.functions[decoded_plan.program_plan.entry_index],
+                    entry_args,
+                    profile.limits,
+                );
+                errdefer session.entry_arguments.deinit(allocator);
                 session.allocator = allocator;
                 session.executable_plan = decoded_plan;
                 return session;
@@ -6762,6 +6838,9 @@ pub const BoundaryTargetModule = struct {
 
             pub fn deinit(self: *@This()) void {
                 if (self.allocator) |allocator| {
+                    self.entry_arguments.deinit(allocator);
+                    self.clearPendingRequest(allocator);
+                    self.clearContinuation(allocator);
                     if (self.payload_image_bytes.len != 0) allocator.free(self.payload_image_bytes);
                     if (self.result_image_bytes.len != 0) allocator.free(self.result_image_bytes);
                     if (self.owns_failure_summary) {
@@ -6792,6 +6871,7 @@ pub const BoundaryTargetModule = struct {
             fn advanceInitial(self: *@This()) Next {
                 self.budget.advancements +|= 1;
                 if (self.executable_plan) |*decoded_plan| {
+                    if (self.continuation != null) return self.advanceContinuation(decoded_plan.program_plan);
                     return self.advanceDecodedInitial(decoded_plan.program_plan);
                 }
                 return self.fail(.unsupported_feature, self.entry_function, 0, 0, "Boundary loaded interpreter is not installed for this executable plan yet");
@@ -6802,9 +6882,6 @@ pub const BoundaryTargetModule = struct {
                     return self.fail(.malformed_plan, self.entry_function, 0, 0, "loaded executable plan entry is out of range");
                 }
                 const function = program_plan.functions[program_plan.entry_index];
-                if (function.parameter_count != 0) {
-                    return self.fail(.unsupported_feature, program_plan.entry_index, function.entry_block, 0, "loaded executable entry arguments are not implemented yet");
-                }
                 if (function.block_count == 0 or function.entry_block >= function.block_count) {
                     return self.fail(.malformed_plan, program_plan.entry_index, function.entry_block, 0, "loaded executable entry block is invalid");
                 }
@@ -6820,14 +6897,17 @@ pub const BoundaryTargetModule = struct {
             }
 
             fn advanceInterpretedEntry(self: *@This(), program_plan: internal_program_plan.ProgramPlan, function: internal_program_plan.FunctionPlan) Next {
-                var steps_remaining = self.profile.limits.maximum_instructions_per_advancement;
+                const step_limit = self.profile.limits.maximum_instructions_per_advancement;
+                var steps_remaining = step_limit;
+                defer self.recordLoadedSteps(step_limit, steps_remaining);
                 const result = self.executeLoadedFunction(
                     program_plan,
                     program_plan.entry_index,
-                    &.{},
+                    self.entry_arguments.values,
                     &steps_remaining,
                     1,
-                    true,
+                    &.{},
+                    null,
                 ) catch |err| switch (err) {
                     error.LoadedExecutionParked => return .{ .request = self.pending_request.?.request },
                     error.LoadedExecutionFailed => return .{ .failed = self.failure.? },
@@ -6842,7 +6922,85 @@ pub const BoundaryTargetModule = struct {
                 };
             }
 
-            fn executeLoadedFunction(self: *@This(), program_plan: internal_program_plan.ProgramPlan, function_index: usize, args: []const LoadedValue, steps_remaining: *u32, depth: u32, allow_request: bool) LoadedFunctionControl!LoadedFunctionResult {
+            fn advanceContinuation(self: *@This(), program_plan: internal_program_plan.ProgramPlan) Next {
+                const allocator = self.allocator orelse return self.fail(.invalid_resume, self.entry_function, 0, 0, "loaded executable session has no allocator");
+                var continuation = self.continuation orelse return self.fail(.invalid_resume, self.entry_function, 0, 0, "loaded executable session has no continuation");
+                self.continuation = null;
+                defer deinitContinuation(allocator, continuation);
+                const step_limit = self.profile.limits.maximum_instructions_per_advancement;
+                var steps_remaining = step_limit;
+                defer self.recordLoadedSteps(step_limit, steps_remaining);
+                if (continuation.frames.len == 0) return self.fail(.invalid_resume, self.entry_function, 0, 0, "loaded executable session has empty continuation");
+                var frame_count = continuation.frames.len;
+                while (frame_count != 0) {
+                    const active_frame = &continuation.frames[frame_count - 1];
+                    var caller_frame_views = allocator.alloc(ExecutionFrameView, frame_count - 1) catch {
+                        return self.fail(.execution_budget_exceeded, active_frame.function_index, active_frame.block_index, active_frame.next_instruction_index, "loaded executable caller frame allocation failed");
+                    };
+                    defer allocator.free(caller_frame_views);
+                    for (continuation.frames[0 .. frame_count - 1], 0..) |frame, index| caller_frame_views[index] = frame.view();
+                    const result = self.executeLoadedFunctionFrom(
+                        program_plan,
+                        active_frame.function_index,
+                        active_frame.locals,
+                        &steps_remaining,
+                        @intCast(frame_count),
+                        caller_frame_views,
+                        active_frame.return_destination,
+                        active_frame.block_index,
+                        active_frame.next_instruction_index,
+                        active_frame.last_return,
+                        active_frame.last_condition,
+                    ) catch |err| switch (err) {
+                        error.LoadedExecutionParked => return .{ .request = self.pending_request.?.request },
+                        error.LoadedExecutionFailed => return .{ .failed = self.failure.? },
+                    };
+                    const active_function = if (active_frame.function_index < program_plan.functions.len)
+                        program_plan.functions[active_frame.function_index]
+                    else
+                        return self.fail(.malformed_plan, active_frame.function_index, active_frame.block_index, active_frame.next_instruction_index, "loaded executable continuation function is out of range");
+                    if (frame_count == 1) {
+                        return switch (result) {
+                            .unit => blk: {
+                                self.status = .completed;
+                                self.failure = null;
+                                break :blk .{ .done = .{ .result_ref = self.module.resultValueRef() } };
+                            },
+                            .value => |value| self.completeLoadedValue(program_plan, active_function, value, active_frame.block_index, active_frame.next_instruction_index),
+                        };
+                    }
+                    tryAssignHelperResultToCaller(
+                        allocator,
+                        program_plan,
+                        active_function,
+                        active_frame.*,
+                        &continuation.frames[frame_count - 2],
+                        result,
+                        self.profile.limits,
+                    ) catch |err| return self.fail(loadedValueErrorKind(err), active_frame.function_index, active_frame.block_index, active_frame.next_instruction_index, "loaded executable helper result assignment failed");
+                    deinitContinuationFrame(allocator, active_frame.*);
+                    active_frame.locals = &.{};
+                    active_frame.value_arena = null;
+                    frame_count -= 1;
+                }
+                return self.fail(.invalid_resume, self.entry_function, 0, 0, "loaded executable continuation exhausted without result");
+            }
+
+            fn recordLoadedSteps(self: *@This(), step_limit: u32, steps_remaining: u32) void {
+                if (steps_remaining > step_limit) return;
+                self.budget.instructions_consumed +|= step_limit - steps_remaining;
+            }
+
+            fn executeLoadedFunction(
+                self: *@This(),
+                program_plan: internal_program_plan.ProgramPlan,
+                function_index: usize,
+                args: []const LoadedValue,
+                steps_remaining: *u32,
+                depth: u32,
+                caller_frames: []const ExecutionFrameView,
+                return_destination: ?u16,
+            ) LoadedFunctionControl!LoadedFunctionResult {
                 if (depth > self.profile.limits.maximum_call_depth or depth > self.profile.limits.maximum_frames) {
                     _ = self.fail(.call_depth_exceeded, function_index, 0, 0, "loaded executable call depth exceeded");
                     return error.LoadedExecutionFailed;
@@ -6873,14 +7031,56 @@ pub const BoundaryTargetModule = struct {
                 for (args, 0..) |arg, index| {
                     locals[index] = arg;
                 }
-                var block_index: usize = @as(usize, function.first_block) + function.entry_block;
-                var last_return: LoadedValue = .unit;
-                var last_condition = false;
+                return self.executeLoadedFunctionFrom(
+                    program_plan,
+                    function_index,
+                    locals,
+                    steps_remaining,
+                    depth,
+                    caller_frames,
+                    return_destination,
+                    @as(usize, function.first_block) + function.entry_block,
+                    @as(usize, program_plan.blocks[@as(usize, function.first_block) + function.entry_block].first_instruction),
+                    .unit,
+                    false,
+                );
+            }
+
+            fn executeLoadedFunctionFrom(
+                self: *@This(),
+                program_plan: internal_program_plan.ProgramPlan,
+                function_index: usize,
+                locals: []LoadedValue,
+                steps_remaining: *u32,
+                depth: u32,
+                caller_frames: []const ExecutionFrameView,
+                return_destination: ?u16,
+                start_block_index: usize,
+                start_instruction_index: usize,
+                initial_last_return: LoadedValue,
+                initial_last_condition: bool,
+            ) LoadedFunctionControl!LoadedFunctionResult {
+                if (function_index >= program_plan.functions.len) {
+                    _ = self.fail(.malformed_plan, function_index, 0, 0, "loaded executable function index is out of range");
+                    return error.LoadedExecutionFailed;
+                }
+                const function = program_plan.functions[function_index];
+                const entry_block_index = @as(usize, function.first_block) + function.entry_block;
+                const entry_instruction_index = if (entry_block_index < program_plan.blocks.len) program_plan.blocks[entry_block_index].first_instruction else 0;
+                if (depth > self.profile.limits.maximum_call_depth or depth > self.profile.limits.maximum_frames) {
+                    _ = self.fail(.call_depth_exceeded, function_index, entry_block_index, entry_instruction_index, "loaded executable call depth exceeded");
+                    return error.LoadedExecutionFailed;
+                }
+                if (locals.len != function.local_count) {
+                    _ = self.fail(.malformed_plan, function_index, entry_block_index, entry_instruction_index, "loaded executable function local count is invalid");
+                    return error.LoadedExecutionFailed;
+                }
+                var block_index: usize = entry_block_index;
+                if (start_block_index != block_index) block_index = start_block_index;
+                var last_return: LoadedValue = initial_last_return;
+                var last_condition = initial_last_condition;
+                var first_resumed_block = true;
                 while (true) {
-                    if (!consumeLoadedStep(steps_remaining)) {
-                        _ = self.fail(.execution_budget_exceeded, function_index, block_index, 0, "loaded executable instruction budget exceeded");
-                        return error.LoadedExecutionFailed;
-                    }
                     const block_end = @as(usize, function.first_block) + function.block_count;
                     if (block_index < function.first_block or block_index >= block_end) {
                         _ = self.fail(.malformed_plan, function_index, block_index, 0, "loaded executable block target is out of range");
@@ -6888,7 +7088,17 @@ pub const BoundaryTargetModule = struct {
                     }
                     const block = program_plan.blocks[block_index];
                     const instruction_end = @as(usize, block.first_instruction) + block.instruction_count;
-                    for (program_plan.instructions[block.first_instruction..instruction_end], block.first_instruction..) |instruction, instruction_index| {
+                    const first_instruction = if (first_resumed_block and block_index == start_block_index) start_instruction_index else block.first_instruction;
+                    first_resumed_block = false;
+                    if (first_instruction < block.first_instruction or first_instruction > instruction_end) {
+                        _ = self.fail(.malformed_plan, function_index, block_index, first_instruction, "loaded executable continuation instruction is out of range");
+                        return error.LoadedExecutionFailed;
+                    }
+                    if (!consumeLoadedStep(steps_remaining)) {
+                        _ = self.fail(.execution_budget_exceeded, function_index, block_index, first_instruction, "loaded executable instruction budget exceeded");
+                        return error.LoadedExecutionFailed;
+                    }
+                    for (program_plan.instructions[first_instruction..instruction_end], first_instruction..) |instruction, instruction_index| {
                         if (!consumeLoadedStep(steps_remaining)) {
                             _ = self.fail(.execution_budget_exceeded, function_index, block_index, instruction_index, "loaded executable instruction budget exceeded");
                             return error.LoadedExecutionFailed;
@@ -6919,9 +7129,9 @@ pub const BoundaryTargetModule = struct {
                                 } };
                             },
                             .call_helper => {
-                                const helper_result = self.executeLoadedHelper(program_plan, function, locals, instruction, steps_remaining, depth, block_index, instruction_index) catch |err| switch (err) {
+                                const helper_result = self.executeLoadedHelper(program_plan, function, function_index, locals, instruction, steps_remaining, depth, caller_frames, return_destination, block_index, instruction_index, last_return, last_condition) catch |err| switch (err) {
                                     error.LoadedExecutionFailed => return error.LoadedExecutionFailed,
-                                    error.LoadedExecutionParked => unreachable,
+                                    error.LoadedExecutionParked => return error.LoadedExecutionParked,
                                 };
                                 switch (helper_result) {
                                     .unit => {},
@@ -6931,11 +7141,7 @@ pub const BoundaryTargetModule = struct {
                                 }
                             },
                             .call_op => {
-                                if (!allow_request) {
-                                    _ = self.fail(.unsupported_feature, function_index, block_index, instruction_index, "loaded helper call_op continuation is not implemented yet");
-                                    return error.LoadedExecutionFailed;
-                                }
-                                const parked = self.parkLoadedCall(program_plan, function, function_index, locals, block, @intCast(block_index), @intCast(instruction_index), instruction);
+                                const parked = self.parkLoadedCall(program_plan, caller_frames, return_destination, function, function_index, locals, @intCast(block_index), @intCast(instruction_index), instruction, last_return, last_condition);
                                 return switch (parked) {
                                     .request => error.LoadedExecutionParked,
                                     .failed => error.LoadedExecutionFailed,
@@ -6973,8 +7179,11 @@ pub const BoundaryTargetModule = struct {
                                 return error.LoadedExecutionFailed;
                             } },
                             .const_string => locals[instruction.dst] = .{ .bytes = instruction.string_literal },
-                            .const_usize => locals[instruction.dst] = .{ .word_u64 = std.fmt.parseUnsigned(u64, instruction.string_literal, 0) catch {
-                                _ = self.fail(.invalid_value, function_index, block_index, instruction_index, "loaded executable const_usize literal is invalid");
+                            .const_usize => locals[instruction.dst] = .{ .word_u64 = std.fmt.parseUnsigned(u64, instruction.string_literal, 0) catch |err| {
+                                switch (err) {
+                                    error.Overflow => _ = self.fail(.integer_overflow, function_index, block_index, instruction_index, "loaded executable const_usize literal overflowed"),
+                                    else => _ = self.fail(.invalid_value, function_index, block_index, instruction_index, "loaded executable const_usize literal is invalid"),
+                                }
                                 return error.LoadedExecutionFailed;
                             } },
                             .return_value => last_return = loadedLocalValue(locals, instruction.operand) orelse {
@@ -7010,7 +7219,63 @@ pub const BoundaryTargetModule = struct {
                                     return error.LoadedExecutionFailed;
                                 },
                             },
-                            .call_nested_with, .return_error, .sum_extract_payload, .sum_variant_is => {
+                            .sum_variant_is => {
+                                const source_ref = loadedFunctionLocalRef(program_plan, function, instruction.operand) orelse {
+                                    _ = self.fail(.malformed_plan, function_index, block_index, instruction_index, "loaded executable sum_variant_is source ref is invalid");
+                                    return error.LoadedExecutionFailed;
+                                };
+                                if (source_ref.codec != .sum) {
+                                    _ = self.fail(.invalid_value, function_index, block_index, instruction_index, "loaded executable sum_variant_is source is not a sum");
+                                    return error.LoadedExecutionFailed;
+                                }
+                                if (loadedSumVariantRef(program_plan, source_ref, instruction.aux) == null) {
+                                    _ = self.fail(.malformed_plan, function_index, block_index, instruction_index, "loaded executable sum_variant_is variant is invalid");
+                                    return error.LoadedExecutionFailed;
+                                }
+                                const sum = loadedLocalSum(locals, instruction.operand) orelse {
+                                    _ = self.fail(.invalid_value, function_index, block_index, instruction_index, "loaded executable sum_variant_is local is invalid");
+                                    return error.LoadedExecutionFailed;
+                                };
+                                const is_variant = sum.variant_index == instruction.aux;
+                                locals[instruction.dst] = .{ .boolean = is_variant };
+                                last_condition = is_variant;
+                            },
+                            .sum_extract_payload => {
+                                const source_ref = loadedFunctionLocalRef(program_plan, function, instruction.operand) orelse {
+                                    _ = self.fail(.malformed_plan, function_index, block_index, instruction_index, "loaded executable sum_extract_payload source ref is invalid");
+                                    return error.LoadedExecutionFailed;
+                                };
+                                const payload_ref = loadedSumVariantRef(program_plan, source_ref, instruction.aux) orelse {
+                                    _ = self.fail(.malformed_plan, function_index, block_index, instruction_index, "loaded executable sum_extract_payload variant is invalid");
+                                    return error.LoadedExecutionFailed;
+                                };
+                                const destination_ref = loadedFunctionLocalRef(program_plan, function, instruction.dst) orelse {
+                                    _ = self.fail(.malformed_plan, function_index, block_index, instruction_index, "loaded executable sum_extract_payload destination ref is invalid");
+                                    return error.LoadedExecutionFailed;
+                                };
+                                if (destination_ref.codec != payload_ref.codec or destination_ref.schema_index != payload_ref.schema_index or payload_ref.codec == .unit) {
+                                    _ = self.fail(.malformed_plan, function_index, block_index, instruction_index, "loaded executable sum_extract_payload destination does not match payload");
+                                    return error.LoadedExecutionFailed;
+                                }
+                                const sum = loadedLocalSum(locals, instruction.operand) orelse {
+                                    _ = self.fail(.invalid_value, function_index, block_index, instruction_index, "loaded executable sum_extract_payload local is invalid");
+                                    return error.LoadedExecutionFailed;
+                                };
+                                if (sum.variant_index != instruction.aux) {
+                                    _ = self.fail(.invalid_value, function_index, block_index, instruction_index, "loaded executable sum_extract_payload variant is not active");
+                                    return error.LoadedExecutionFailed;
+                                }
+                                const payload = sum.payload orelse {
+                                    _ = self.fail(.invalid_value, function_index, block_index, instruction_index, "loaded executable sum_extract_payload payload is missing");
+                                    return error.LoadedExecutionFailed;
+                                };
+                                locals[instruction.dst] = payload.*;
+                            },
+                            .return_error => {
+                                _ = self.failDeclaredError(function_index, block_index, instruction_index, instruction.string_literal);
+                                return error.LoadedExecutionFailed;
+                            },
+                            .call_nested_with => {
                                 _ = self.fail(.unsupported_feature, function_index, block_index, instruction_index, "loaded executable instruction is not implemented yet");
                                 return error.LoadedExecutionFailed;
                             },
@@ -7032,7 +7297,22 @@ pub const BoundaryTargetModule = struct {
                 }
             }
 
-            fn executeLoadedHelper(self: *@This(), program_plan: internal_program_plan.ProgramPlan, caller: internal_program_plan.FunctionPlan, locals: []const LoadedValue, instruction: internal_program_plan.Instruction, steps_remaining: *u32, depth: u32, block_index: usize, instruction_index: usize) LoadedFunctionControl!LoadedFunctionResult {
+            fn executeLoadedHelper(
+                self: *@This(),
+                program_plan: internal_program_plan.ProgramPlan,
+                caller: internal_program_plan.FunctionPlan,
+                caller_function_index: usize,
+                locals: []const LoadedValue,
+                instruction: internal_program_plan.Instruction,
+                steps_remaining: *u32,
+                depth: u32,
+                caller_frames: []const ExecutionFrameView,
+                return_destination: ?u16,
+                block_index: usize,
+                instruction_index: usize,
+                last_return: LoadedValue,
+                last_condition: bool,
+            ) LoadedFunctionControl!LoadedFunctionResult {
                 if (instruction.operand >= program_plan.functions.len) {
                     _ = self.fail(.malformed_plan, program_plan.entry_index, block_index, instruction_index, "loaded executable helper target is out of range");
                     return error.LoadedExecutionFailed;
@@ -7085,32 +7365,70 @@ pub const BoundaryTargetModule = struct {
                     break :blk buffer;
                 };
                 defer if (callee.parameter_count != 0) self.allocator.?.free(args);
-                return self.executeLoadedFunction(program_plan, instruction.operand, args, steps_remaining, depth + 1, false);
+                const allocator = self.allocator.?;
+                var helper_caller_frames = allocator.alloc(ExecutionFrameView, caller_frames.len + 1) catch {
+                    _ = self.fail(.execution_budget_exceeded, program_plan.entry_index, block_index, instruction_index, "loaded executable helper frame allocation failed");
+                    return error.LoadedExecutionFailed;
+                };
+                defer allocator.free(helper_caller_frames);
+                @memcpy(helper_caller_frames[0..caller_frames.len], caller_frames);
+                if (instruction_index >= std.math.maxInt(u16)) {
+                    _ = self.fail(.malformed_plan, program_plan.entry_index, block_index, instruction_index, "loaded executable helper continuation cursor is out of range");
+                    return error.LoadedExecutionFailed;
+                }
+                const helper_return_destination: ?u16 = if (callee.value_codec == .unit or instruction.dst == std.math.maxInt(u16)) null else instruction.dst;
+                helper_caller_frames[caller_frames.len] = .{
+                    .function_index = @intCast(caller_function_index),
+                    .block_index = @intCast(block_index),
+                    .next_instruction_index = @intCast(instruction_index + 1),
+                    .locals = locals,
+                    .return_destination = return_destination,
+                    .last_return = last_return,
+                    .last_condition = last_condition,
+                };
+                return self.executeLoadedFunction(
+                    program_plan,
+                    instruction.operand,
+                    args,
+                    steps_remaining,
+                    depth + 1,
+                    helper_caller_frames,
+                    helper_return_destination,
+                );
             }
 
-            fn parkLoadedCall(self: *@This(), program_plan: internal_program_plan.ProgramPlan, function: internal_program_plan.FunctionPlan, function_index: usize, locals: []const LoadedValue, block: internal_program_plan.BlockPlan, block_index: u16, instruction_index: u16, call_instruction: internal_program_plan.Instruction) Next {
+            fn parkLoadedCall(
+                self: *@This(),
+                program_plan: internal_program_plan.ProgramPlan,
+                caller_frames: []const ExecutionFrameView,
+                return_destination: ?u16,
+                function: internal_program_plan.FunctionPlan,
+                function_index: usize,
+                locals: []const LoadedValue,
+                block_index: u16,
+                instruction_index: u16,
+                call_instruction: internal_program_plan.Instruction,
+                last_return: LoadedValue,
+                last_condition: bool,
+            ) Next {
                 if (call_instruction.operand >= program_plan.ops.len) {
                     return self.fail(.malformed_plan, program_plan.entry_index, block_index, instruction_index, "loaded executable call_op target is out of range");
-                }
-                if (block.terminator_index >= program_plan.terminators.len) {
-                    return self.fail(.malformed_plan, program_plan.entry_index, block_index, instruction_index, "loaded executable call_op terminator is out of range");
-                }
-                const terminator = program_plan.terminators[block.terminator_index];
-                if (terminator.kind != .return_value or block.instruction_count == 0) {
-                    return self.fail(.unsupported_feature, program_plan.entry_index, block_index, instruction_index, "loaded executable call_op continuation is not implemented yet");
-                }
-                const return_instruction = program_plan.instructions[@as(usize, block.first_instruction) + block.instruction_count - 1];
-                if (return_instruction.kind != .return_value or return_instruction.operand != call_instruction.dst) {
-                    return self.fail(.unsupported_feature, program_plan.entry_index, block_index, instruction_index, "loaded executable call_op result mapping is not implemented yet");
                 }
                 const op = program_plan.ops[call_instruction.operand];
                 const residual_site_index = loadedCallResidualSiteIndex(program_plan, function_index, block_index, instruction_index) orelse
                     return self.fail(.malformed_plan, program_plan.entry_index, block_index, instruction_index, "loaded executable call_op has no residual site");
                 const import = self.module.importForResidualSite(residual_site_index) orelse
                     return self.fail(.malformed_plan, program_plan.entry_index, block_index, instruction_index, "loaded executable call_op has no residual import");
+                if (instruction_index >= std.math.maxInt(u16))
+                    return self.fail(.malformed_plan, program_plan.entry_index, block_index, instruction_index, "loaded executable call_op continuation cursor is out of range");
+                const response_ref = if (op.resume_codec == .unit and call_instruction.dst == std.math.maxInt(u16))
+                    internal_program_plan.ValueRef{ .codec = .unit }
+                else
+                    loadedFunctionLocalRef(program_plan, function, call_instruction.dst) orelse
+                        return self.fail(.malformed_plan, program_plan.entry_index, block_index, instruction_index, "loaded executable call_op response local is invalid");
                 if (!import.payload_ref.eql(BoundaryValueRef.fromValueRef(.{ .codec = op.payload_codec, .schema_index = op.payload_schema_index })) or
                     !import.response_ref.eql(BoundaryValueRef.fromValueRef(.{ .codec = op.resume_codec, .schema_index = op.resume_schema_index })) or
-                    !import.response_ref.eql(BoundaryValueRef.fromValueRef(.{ .codec = function.value_codec, .schema_index = function.value_schema_index })) or
+                    !import.response_ref.eql(BoundaryValueRef.fromValueRef(response_ref)) or
                     !import.result_ref.eql(BoundaryValueRef.fromValueRef(.{ .codec = function.value_codec, .schema_index = function.value_schema_index })))
                 {
                     return self.fail(.malformed_plan, program_plan.entry_index, block_index, instruction_index, "loaded executable import value refs do not match call_op");
@@ -7126,9 +7444,36 @@ pub const BoundaryTargetModule = struct {
                     self.profile.limits,
                 ) catch |err| return self.fail(loadedValueErrorKind(err), program_plan.entry_index, block_index, instruction_index, "loaded executable payload image encoding failed");
                 errdefer allocator.free(new_payload_image);
-                const continuation_fingerprint = loadedContinuationFingerprint(self.session_fingerprint, import.residual_site_index, import.residual_site_fingerprint, import.world_port_id);
-                const request_fingerprint = loadedRequestFingerprint(self.module.moduleFingerprint(), continuation_fingerprint, import, new_payload_image);
+                var continuation = cloneContinuation(
+                    allocator,
+                    program_plan,
+                    caller_frames,
+                    .{
+                        .function_index = @intCast(function_index),
+                        .block_index = block_index,
+                        .next_instruction_index = @intCast(@as(usize, instruction_index) + 1),
+                        .locals = locals,
+                        .return_destination = return_destination,
+                        .last_return = last_return,
+                        .last_condition = last_condition,
+                    },
+                    function,
+                    self.profile.limits,
+                ) catch |err| return self.fail(loadedValueErrorKind(err), program_plan.entry_index, block_index, instruction_index, "loaded executable continuation local allocation failed");
+                errdefer deinitContinuation(allocator, continuation);
+                const continuation_fingerprint = if (self.profile.format_version == loaded_execution.loaded_execution_profile_format_version_v2) blk: {
+                    var continuation_image = continuationImage(
+                        allocator,
+                        program_plan,
+                        continuation,
+                        self.profile.limits,
+                    ) catch |err| return self.fail(loadedValueErrorKind(err), program_plan.entry_index, block_index, instruction_index, "loaded executable continuation image fingerprint failed");
+                    defer continuation_image.deinit(allocator);
+                    break :blk continuation_image.fingerprint();
+                } else loadedContinuationFingerprint(self.session_fingerprint, import.residual_site_index, import.residual_site_fingerprint, import.world_port_id);
+                const request_fingerprint = loadedRequestFingerprintForProfile(self.profile, self.module.moduleFingerprint(), continuation_fingerprint, import, new_payload_image);
                 if (self.payload_image_bytes.len != 0) allocator.free(self.payload_image_bytes);
+                self.clearPendingRequest(allocator);
                 self.payload_image_bytes = new_payload_image;
                 self.status = .request;
                 self.pending_request = .{ .request = .{
@@ -7140,10 +7485,14 @@ pub const BoundaryTargetModule = struct {
                     .world_port_ref = import.world_port_ref,
                     .payload_ref = import.payload_ref,
                     .expected_response_ref = import.response_ref,
+                    .response_kind = loadedSessionResponseKind(import.response_kind) orelse return self.fail(.malformed_plan, program_plan.entry_index, block_index, instruction_index, "loaded executable import response kind is unsupported"),
                     .canonical_payload_image = self.payload_image_bytes,
                     .canonical_request_fingerprint = request_fingerprint,
                     .deterministic_continuation_fingerprint = continuation_fingerprint,
-                }, .response_local = call_instruction.dst, .result_local = return_instruction.operand };
+                }, .response_local = call_instruction.dst, .result_local = std.math.maxInt(u16), .continuation = .{
+                    .frames = continuation.frames,
+                } };
+                continuation.frames = &.{};
                 return .{ .request = self.pending_request.?.request };
             }
 
@@ -7179,17 +7528,59 @@ pub const BoundaryTargetModule = struct {
                 if (self.status != .request) return error.InvalidResume;
                 if (!loadedRequestsEqual(pending.request, request)) return error.InvalidResume;
                 const executable_plan = self.executable_plan orelse return error.InvalidResume;
-                var arena = LoadedValueArena.init(self.allocator orelse return error.InvalidResume);
+                const allocator = self.allocator.?;
+                if (pending.continuation) |pending_continuation| {
+                    var continuation = pending_continuation;
+                    if (continuation.frames.len == 0) return error.InvalidResume;
+                    var active_frame = &continuation.frames[continuation.frames.len - 1];
+                    const response_ref = loadedValueRefFromBoundary(request.expected_response_ref) orelse return error.InvalidResume;
+                    const schema_set = loadedSchemaSet(executable_plan.program_plan);
+                    var scratch_arena = LoadedValueArena.init(allocator);
+                    defer scratch_arena.deinit();
+                    _ = loaded_execution.decodeLoadedValueImage(
+                        allocator,
+                        &scratch_arena,
+                        schema_set,
+                        response_ref,
+                        response_image,
+                        self.profile.limits,
+                    ) catch return error.InvalidResume;
+                    if (response_ref.codec == .unit and response_ref.schema_index == null) {
+                        if (pending.response_local != std.math.maxInt(u16) and pending.response_local >= active_frame.locals.len) return error.InvalidResume;
+                    } else {
+                        if (pending.response_local >= active_frame.locals.len) return error.InvalidResume;
+                        const active_arena = active_frame.value_arena orelse return error.InvalidResume;
+                        const decoded = loaded_execution.decodeLoadedValueImage(
+                            allocator,
+                            active_arena,
+                            schema_set,
+                            response_ref,
+                            response_image,
+                            self.profile.limits,
+                        ) catch return error.InvalidResume;
+                        active_frame.locals[pending.response_local] = decoded;
+                    }
+                    if (self.payload_image_bytes.len != 0) {
+                        allocator.free(self.payload_image_bytes);
+                        self.payload_image_bytes = &.{};
+                    }
+                    self.pending_request = null;
+                    self.continuation = continuation;
+                    self.status = .initial;
+                    self.failure = null;
+                    _ = pending.result_local;
+                    return;
+                }
+                var arena = LoadedValueArena.init(allocator);
                 defer arena.deinit();
                 const decoded = loaded_execution.decodeLoadedValueImage(
-                    self.allocator.?,
+                    allocator,
                     &arena,
                     loadedSchemaSet(executable_plan.program_plan),
                     loadedValueRefFromBoundary(request.expected_response_ref) orelse return error.InvalidResume,
                     response_image,
                     self.profile.limits,
                 ) catch return error.InvalidResume;
-                const allocator = self.allocator.?;
                 const result_ref = self.module.resultValueRef();
                 if (!request.expected_response_ref.eql(result_ref)) return error.InvalidResume;
                 const new_result_image = loaded_execution.encodeLoadedValueImageBytes(
@@ -7218,6 +7609,471 @@ pub const BoundaryTargetModule = struct {
                 _ = pending.result_local;
             }
 
+            fn clearPendingRequest(self: *@This(), allocator: std.mem.Allocator) void {
+                if (self.pending_request) |pending| {
+                    if (pending.continuation) |continuation| deinitContinuation(allocator, continuation);
+                    self.pending_request = null;
+                }
+            }
+
+            fn clearContinuation(self: *@This(), allocator: std.mem.Allocator) void {
+                if (self.continuation) |continuation| {
+                    deinitContinuation(allocator, continuation);
+                    self.continuation = null;
+                }
+            }
+
+            fn deinitContinuation(allocator: std.mem.Allocator, continuation: Continuation) void {
+                for (continuation.frames) |frame| deinitContinuationFrame(allocator, frame);
+                if (continuation.frames.len != 0) allocator.free(continuation.frames);
+            }
+
+            fn deinitContinuationFrame(allocator: std.mem.Allocator, frame: ContinuationFrame) void {
+                if (frame.locals.len != 0) allocator.free(frame.locals);
+                if (frame.value_arena) |arena| {
+                    arena.deinit();
+                    allocator.destroy(arena);
+                }
+            }
+
+            fn tryAssignHelperResultToCaller(
+                allocator: std.mem.Allocator,
+                program_plan: internal_program_plan.ProgramPlan,
+                child_function: internal_program_plan.FunctionPlan,
+                child_frame: ContinuationFrame,
+                caller_frame: *ContinuationFrame,
+                result: LoadedFunctionResult,
+                limits: loaded_execution.Limits,
+            ) loaded_execution.LoadedValueError!void {
+                const destination = child_frame.return_destination orelse return;
+                if (destination >= caller_frame.locals.len) return error.InvalidValue;
+                const value = switch (result) {
+                    .unit => return error.InvalidValue,
+                    .value => |actual| actual,
+                };
+                const child_ref = loaded_execution.LoadedValueRef{ .codec = child_function.value_codec, .schema_index = child_function.value_schema_index };
+                const caller_function = if (caller_frame.function_index < program_plan.functions.len)
+                    program_plan.functions[caller_frame.function_index]
+                else
+                    return error.InvalidValue;
+                const caller_ref = loadedFunctionLocalRef(program_plan, caller_function, destination) orelse return error.InvalidValue;
+                if (caller_ref.codec != child_ref.codec or caller_ref.schema_index != child_ref.schema_index) return error.InvalidValue;
+                const arena = caller_frame.value_arena orelse return error.InvalidValue;
+                const value_image = try loaded_execution.encodeLoadedValueImageBytes(
+                    allocator,
+                    loadedSchemaSet(program_plan),
+                    child_ref,
+                    value,
+                    limits,
+                );
+                defer allocator.free(value_image);
+                caller_frame.locals[destination] = try loaded_execution.decodeLoadedValueImage(
+                    allocator,
+                    arena,
+                    loadedSchemaSet(program_plan),
+                    caller_ref,
+                    value_image,
+                    limits,
+                );
+            }
+
+            fn cloneContinuation(
+                allocator: std.mem.Allocator,
+                program_plan: internal_program_plan.ProgramPlan,
+                caller_frames: []const ExecutionFrameView,
+                active_frame: ExecutionFrameView,
+                active_function: internal_program_plan.FunctionPlan,
+                limits: loaded_execution.Limits,
+            ) loaded_execution.LoadedValueError!Continuation {
+                if (caller_frames.len + 1 > limits.maximum_frames) return error.InvalidValue;
+                var frames = try allocator.alloc(ContinuationFrame, caller_frames.len + 1);
+                var initialized_frames: usize = 0;
+                errdefer {
+                    for (frames[0..initialized_frames]) |frame| deinitContinuationFrame(allocator, frame);
+                    allocator.free(frames);
+                }
+                for (caller_frames, 0..) |caller_frame, index| {
+                    if (caller_frame.function_index >= program_plan.functions.len) return error.InvalidValue;
+                    frames[index] = try cloneContinuationFrame(
+                        allocator,
+                        program_plan,
+                        program_plan.functions[caller_frame.function_index],
+                        caller_frame,
+                        limits,
+                    );
+                    initialized_frames += 1;
+                }
+                frames[caller_frames.len] = try cloneContinuationFrame(
+                    allocator,
+                    program_plan,
+                    active_function,
+                    active_frame,
+                    limits,
+                );
+                initialized_frames += 1;
+                return .{ .frames = frames };
+            }
+
+            fn cloneContinuationFrame(
+                allocator: std.mem.Allocator,
+                program_plan: internal_program_plan.ProgramPlan,
+                function: internal_program_plan.FunctionPlan,
+                frame: ExecutionFrameView,
+                limits: loaded_execution.Limits,
+            ) loaded_execution.LoadedValueError!ContinuationFrame {
+                if (frame.locals.len != function.local_count) return error.InvalidValue;
+                var cloned_locals = try allocator.alloc(LoadedValue, frame.locals.len);
+                errdefer allocator.free(cloned_locals);
+                @memset(cloned_locals, .unit);
+                const arena = try allocator.create(LoadedValueArena);
+                arena.* = LoadedValueArena.init(allocator);
+                errdefer {
+                    arena.deinit();
+                    allocator.destroy(arena);
+                }
+                const schema_set = loadedSchemaSet(program_plan);
+                for (frame.locals, 0..) |value, index| {
+                    switch (value) {
+                        .unit => continue,
+                        else => {},
+                    }
+                    const local_ref = loadedFunctionLocalRef(program_plan, function, @intCast(index)) orelse return error.InvalidValue;
+                    const value_image = try loaded_execution.encodeLoadedValueImageBytes(
+                        allocator,
+                        schema_set,
+                        local_ref,
+                        value,
+                        limits,
+                    );
+                    defer allocator.free(value_image);
+                    cloned_locals[index] = try loaded_execution.decodeLoadedValueImage(
+                        allocator,
+                        arena,
+                        schema_set,
+                        local_ref,
+                        value_image,
+                        limits,
+                    );
+                }
+                var cloned_last_return: LoadedValue = .unit;
+                switch (frame.last_return) {
+                    .unit => {},
+                    else => {
+                        const last_return_ref = loaded_execution.LoadedValueRef{
+                            .codec = function.value_codec,
+                            .schema_index = function.value_schema_index,
+                        };
+                        const last_return_image = try loaded_execution.encodeLoadedValueImageBytes(
+                            allocator,
+                            schema_set,
+                            last_return_ref,
+                            frame.last_return,
+                            limits,
+                        );
+                        defer allocator.free(last_return_image);
+                        cloned_last_return = try loaded_execution.decodeLoadedValueImage(
+                            allocator,
+                            arena,
+                            schema_set,
+                            last_return_ref,
+                            last_return_image,
+                            limits,
+                        );
+                    },
+                }
+                return .{
+                    .function_index = frame.function_index,
+                    .block_index = frame.block_index,
+                    .next_instruction_index = frame.next_instruction_index,
+                    .locals = cloned_locals,
+                    .value_arena = arena,
+                    .return_destination = frame.return_destination,
+                    .last_return = cloned_last_return,
+                    .last_condition = frame.last_condition,
+                };
+            }
+
+            fn continuationImage(
+                allocator: std.mem.Allocator,
+                program_plan: internal_program_plan.ProgramPlan,
+                continuation: Continuation,
+                limits: loaded_execution.Limits,
+            ) !loaded_execution.LoadedSessionContinuationImage {
+                if (continuation.frames.len > limits.maximum_frames) return error.InvalidResume;
+                var frame_images = std.ArrayList(loaded_execution.LoadedSessionFrameImage).empty;
+                errdefer {
+                    for (frame_images.items) |*frame_image| frame_image.deinit(allocator);
+                    frame_images.deinit(allocator);
+                }
+                for (continuation.frames) |frame| {
+                    if (frame.function_index >= program_plan.functions.len) return error.InvalidResume;
+                    const function = program_plan.functions[frame.function_index];
+                    try frame_images.append(allocator, try continuationFrameImage(
+                        allocator,
+                        program_plan,
+                        function,
+                        frame,
+                        limits,
+                    ));
+                }
+                return .{
+                    .frame_images = try frame_images.toOwnedSlice(allocator),
+                    .owns_frame_images = true,
+                };
+            }
+
+            fn continuationFrameImage(
+                allocator: std.mem.Allocator,
+                program_plan: internal_program_plan.ProgramPlan,
+                function: internal_program_plan.FunctionPlan,
+                frame: ContinuationFrame,
+                limits: loaded_execution.Limits,
+            ) !loaded_execution.LoadedSessionFrameImage {
+                if (frame.locals.len != function.local_count) return error.InvalidResume;
+                var local_images = std.ArrayList(loaded_execution.LoadedSessionLocalImage).empty;
+                errdefer {
+                    for (local_images.items) |*local_image| local_image.deinit(allocator);
+                    local_images.deinit(allocator);
+                }
+                const schema_set = loadedSchemaSet(program_plan);
+                var last_return_image: []u8 = &.{};
+                errdefer if (last_return_image.len != 0) allocator.free(last_return_image);
+                const last_return_ref = loaded_execution.LoadedValueRef{
+                    .codec = function.value_codec,
+                    .schema_index = function.value_schema_index,
+                };
+                switch (frame.last_return) {
+                    .unit => {},
+                    else => {
+                        last_return_image = try loaded_execution.encodeLoadedValueImageBytes(
+                            allocator,
+                            schema_set,
+                            last_return_ref,
+                            frame.last_return,
+                            limits,
+                        );
+                    },
+                }
+                for (frame.locals, 0..) |value, index| {
+                    switch (value) {
+                        .unit => continue,
+                        else => {},
+                    }
+                    const local_ref = loadedFunctionLocalRef(program_plan, function, @intCast(index)) orelse return error.InvalidResume;
+                    var value_image = try loaded_execution.encodeLoadedValueImageBytes(
+                        allocator,
+                        schema_set,
+                        local_ref,
+                        value,
+                        limits,
+                    );
+                    errdefer allocator.free(value_image);
+                    try local_images.append(allocator, .{
+                        .local_index = @intCast(index),
+                        .value_ref = local_ref,
+                        .value_image_bytes = value_image,
+                        .owns_value_image_bytes = true,
+                    });
+                    value_image = &.{};
+                }
+                var owned_local_images = try local_images.toOwnedSlice(allocator);
+                errdefer {
+                    for (owned_local_images) |*local_image| local_image.deinit(allocator);
+                    if (owned_local_images.len != 0) allocator.free(owned_local_images);
+                }
+                var frame_image = loaded_execution.LoadedSessionFrameImage{
+                    .function_index = frame.function_index,
+                    .block_index = frame.block_index,
+                    .next_instruction_index = frame.next_instruction_index,
+                    .return_destination = frame.return_destination,
+                    .local_count = @intCast(frame.locals.len),
+                    .last_return_ref = if (last_return_image.len == 0) .{ .codec = .unit } else last_return_ref,
+                    .last_return_image_bytes = last_return_image,
+                    .owns_last_return_image_bytes = last_return_image.len != 0,
+                    .last_condition = frame.last_condition,
+                    .local_images = owned_local_images,
+                    .owns_local_images = true,
+                };
+                frame_image.frame_fingerprint = frame_image.fingerprint();
+                last_return_image = &.{};
+                owned_local_images = &.{};
+                return frame_image;
+            }
+
+            fn thawContinuation(
+                allocator: std.mem.Allocator,
+                program_plan: internal_program_plan.ProgramPlan,
+                continuation_image: loaded_execution.LoadedSessionContinuationImage,
+                limits: loaded_execution.Limits,
+            ) !Continuation {
+                if (continuation_image.frame_images.len == 0 or continuation_image.frame_images.len > limits.maximum_frames) return error.InvalidResume;
+                var frames = try allocator.alloc(ContinuationFrame, continuation_image.frame_images.len);
+                var initialized_frames: usize = 0;
+                errdefer {
+                    for (frames[0..initialized_frames]) |frame| deinitContinuationFrame(allocator, frame);
+                    allocator.free(frames);
+                }
+                for (continuation_image.frame_images, 0..) |frame_image, index| {
+                    frames[index] = try thawContinuationFrame(allocator, program_plan, frame_image, limits);
+                    initialized_frames += 1;
+                }
+                try validateContinuationTopology(program_plan, frames);
+                return .{ .frames = frames };
+            }
+
+            fn validateContinuationTopology(program_plan: internal_program_plan.ProgramPlan, frames: []const ContinuationFrame) !void {
+                if (frames.len == 0) return error.InvalidResume;
+                const reachability = loadedProgramReachability(program_plan) orelse return error.InvalidResume;
+                if (frames[0].function_index != program_plan.entry_index) return error.InvalidResume;
+                if (frames[0].return_destination != null) return error.InvalidResume;
+                for (frames[0 .. frames.len - 1], 0..) |parent_frame, parent_index| {
+                    const child_frame = frames[parent_index + 1];
+                    if (parent_frame.function_index >= program_plan.functions.len or child_frame.function_index >= program_plan.functions.len) return error.InvalidResume;
+                    if (!reachability.functions[parent_frame.function_index] or !reachability.functions[child_frame.function_index]) return error.InvalidResume;
+                    if (parent_frame.block_index >= program_plan.blocks.len or child_frame.block_index >= program_plan.blocks.len) return error.InvalidResume;
+                    if (!reachability.blocks[parent_frame.block_index] or !reachability.blocks[child_frame.block_index]) return error.InvalidResume;
+                    const parent_function = program_plan.functions[parent_frame.function_index];
+                    const child_function = program_plan.functions[child_frame.function_index];
+                    const parent_block = program_plan.blocks[parent_frame.block_index];
+                    if (parent_frame.next_instruction_index == parent_block.first_instruction) return error.InvalidResume;
+                    const call_instruction_index = @as(usize, parent_frame.next_instruction_index) - 1;
+                    const instruction_end = @as(usize, parent_block.first_instruction) + parent_block.instruction_count;
+                    if (call_instruction_index < parent_block.first_instruction or call_instruction_index >= instruction_end) return error.InvalidResume;
+                    const call_instruction = program_plan.instructions[call_instruction_index];
+                    if (call_instruction.kind != .call_helper) return error.InvalidResume;
+                    if (call_instruction.operand != child_frame.function_index) return error.InvalidResume;
+                    const expected_destination: ?u16 = if (child_function.value_codec == .unit or call_instruction.dst == std.math.maxInt(u16)) null else call_instruction.dst;
+                    if (child_frame.return_destination != expected_destination) return error.InvalidResume;
+                    if (expected_destination) |destination| {
+                        const caller_ref = loadedFunctionLocalRef(program_plan, parent_function, destination) orelse return error.InvalidResume;
+                        if (caller_ref.codec != child_function.value_codec or caller_ref.schema_index != child_function.value_schema_index) return error.InvalidResume;
+                    }
+                }
+                const active_frame = frames[frames.len - 1];
+                if (active_frame.function_index >= program_plan.functions.len) return error.InvalidResume;
+                if (!reachability.functions[active_frame.function_index]) return error.InvalidResume;
+                if (active_frame.block_index >= program_plan.blocks.len or !reachability.blocks[active_frame.block_index]) return error.InvalidResume;
+                const active_block = program_plan.blocks[active_frame.block_index];
+                if (active_frame.next_instruction_index == active_block.first_instruction) return error.InvalidResume;
+                const parked_instruction_index = @as(usize, active_frame.next_instruction_index) - 1;
+                const active_instruction_end = @as(usize, active_block.first_instruction) + active_block.instruction_count;
+                if (parked_instruction_index < active_block.first_instruction or parked_instruction_index >= active_instruction_end) return error.InvalidResume;
+                if (program_plan.instructions[parked_instruction_index].kind != .call_op) return error.InvalidResume;
+            }
+
+            fn validatePendingContinuationSite(program_plan: internal_program_plan.ProgramPlan, module_imports: []const ImportSurface.Import, continuation: Continuation, expected_import: ImportSurface.Import, response_local: u16) !void {
+                if (continuation.frames.len == 0) return error.InvalidResume;
+                const active_frame = continuation.frames[continuation.frames.len - 1];
+                if (active_frame.function_index >= program_plan.functions.len) return error.InvalidResume;
+                const active_function = program_plan.functions[active_frame.function_index];
+                const block_end = @as(usize, active_function.first_block) + active_function.block_count;
+                if (active_frame.block_index < active_function.first_block or active_frame.block_index >= block_end) return error.InvalidResume;
+                const active_block = program_plan.blocks[active_frame.block_index];
+                if (active_frame.next_instruction_index == active_block.first_instruction) return error.InvalidResume;
+                const parked_instruction_index = @as(usize, active_frame.next_instruction_index) - 1;
+                const instruction_end = @as(usize, active_block.first_instruction) + active_block.instruction_count;
+                if (parked_instruction_index < active_block.first_instruction or parked_instruction_index >= instruction_end) return error.InvalidResume;
+                const parked_instruction = program_plan.instructions[parked_instruction_index];
+                if (parked_instruction.kind != .call_op) return error.InvalidResume;
+                const parked_op = if (parked_instruction.operand < program_plan.ops.len) program_plan.ops[parked_instruction.operand] else return error.InvalidResume;
+                if (parked_op.resume_codec == .unit and parked_op.resume_schema_index == null) {
+                    if (response_local == std.math.maxInt(u16)) {
+                        if (parked_instruction.dst != std.math.maxInt(u16)) return error.InvalidResume;
+                    } else if (parked_instruction.dst != response_local) return error.InvalidResume;
+                } else if (parked_instruction.dst != response_local) return error.InvalidResume;
+                const residual_site_index = loadedCallResidualSiteIndex(program_plan, active_frame.function_index, active_frame.block_index, parked_instruction_index) orelse return error.InvalidResume;
+                if (residual_site_index != expected_import.residual_site_index) return error.InvalidResume;
+                const parked_import = loadedImportForResidualSite(module_imports, residual_site_index) orelse return error.InvalidResume;
+                if (parked_import.residual_site_fingerprint != expected_import.residual_site_fingerprint or
+                    parked_import.world_port_id != expected_import.world_port_id or
+                    !parked_import.world_port_ref.eql(expected_import.world_port_ref) or
+                    !parked_import.payload_ref.eql(expected_import.payload_ref) or
+                    !parked_import.response_ref.eql(expected_import.response_ref) or
+                    !parked_import.result_ref.eql(expected_import.result_ref) or
+                    !std.mem.eql(u8, parked_import.mode, expected_import.mode) or
+                    !std.mem.eql(u8, parked_import.response_kind, expected_import.response_kind))
+                {
+                    return error.InvalidResume;
+                }
+            }
+
+            fn thawContinuationFrame(
+                allocator: std.mem.Allocator,
+                program_plan: internal_program_plan.ProgramPlan,
+                frame_image: loaded_execution.LoadedSessionFrameImage,
+                limits: loaded_execution.Limits,
+            ) !ContinuationFrame {
+                if (frame_image.function_index >= program_plan.functions.len) return error.InvalidResume;
+                const function = program_plan.functions[frame_image.function_index];
+                if (frame_image.local_count != function.local_count) return error.InvalidResume;
+                if (frame_image.local_count > limits.maximum_locals_per_frame) return error.InvalidResume;
+                const block_end = @as(usize, function.first_block) + function.block_count;
+                if (frame_image.block_index < function.first_block or frame_image.block_index >= block_end) return error.InvalidResume;
+                const block = program_plan.blocks[frame_image.block_index];
+                const instruction_end = @as(usize, block.first_instruction) + block.instruction_count;
+                if (frame_image.next_instruction_index < block.first_instruction or frame_image.next_instruction_index > instruction_end) return error.InvalidResume;
+                var locals = try allocator.alloc(LoadedValue, frame_image.local_count);
+                errdefer allocator.free(locals);
+                @memset(locals, .unit);
+                const arena = try allocator.create(LoadedValueArena);
+                arena.* = LoadedValueArena.init(allocator);
+                errdefer {
+                    arena.deinit();
+                    allocator.destroy(arena);
+                }
+                const schema_set = loadedSchemaSet(program_plan);
+                var last_return: LoadedValue = .unit;
+                if (frame_image.last_return_image_bytes.len != 0) {
+                    const expected_return_ref = loaded_execution.LoadedValueRef{
+                        .codec = function.value_codec,
+                        .schema_index = function.value_schema_index,
+                    };
+                    if (expected_return_ref.codec != frame_image.last_return_ref.codec or expected_return_ref.schema_index != frame_image.last_return_ref.schema_index) return error.InvalidResume;
+                    last_return = loaded_execution.decodeLoadedValueImage(
+                        allocator,
+                        arena,
+                        schema_set,
+                        expected_return_ref,
+                        frame_image.last_return_image_bytes,
+                        limits,
+                    ) catch |err| switch (err) {
+                        error.OutOfMemory => return error.OutOfMemory,
+                        else => return error.InvalidResume,
+                    };
+                } else if (frame_image.last_return_ref.codec != .unit or frame_image.last_return_ref.schema_index != null) {
+                    return error.InvalidResume;
+                }
+                for (frame_image.local_images, 0..) |local_image, local_image_offset| {
+                    if (local_image.local_index >= frame_image.local_count) return error.InvalidResume;
+                    for (frame_image.local_images[0..local_image_offset]) |prior| {
+                        if (prior.local_index == local_image.local_index) return error.InvalidResume;
+                    }
+                    const expected_ref = loadedFunctionLocalRef(program_plan, function, local_image.local_index) orelse return error.InvalidResume;
+                    if (expected_ref.codec != local_image.value_ref.codec or expected_ref.schema_index != local_image.value_ref.schema_index) return error.InvalidResume;
+                    locals[local_image.local_index] = loaded_execution.decodeLoadedValueImage(
+                        allocator,
+                        arena,
+                        schema_set,
+                        expected_ref,
+                        local_image.value_image_bytes,
+                        limits,
+                    ) catch |err| switch (err) {
+                        error.OutOfMemory => return error.OutOfMemory,
+                        else => return error.InvalidResume,
+                    };
+                }
+                return .{
+                    .function_index = frame_image.function_index,
+                    .block_index = frame_image.block_index,
+                    .next_instruction_index = frame_image.next_instruction_index,
+                    .locals = locals,
+                    .value_arena = arena,
+                    .return_destination = frame_image.return_destination,
+                    .last_return = last_return,
+                    .last_condition = frame_image.last_condition,
+                };
+            }
+
             fn fail(self: *@This(), failure_kind: loaded_execution.ExecutionFailureKind, function_index: usize, block_index: usize, instruction_index: usize, diagnostic_summary: []const u8) Next {
                 if (self.owns_failure_summary) {
                     if (self.allocator) |allocator| {
@@ -7236,11 +8092,34 @@ pub const BoundaryTargetModule = struct {
                 return .{ .failed = self.failure.? };
             }
 
-            pub fn freeze(self: @This(), allocator: std.mem.Allocator) ![]u8 {
-                return self.image().encode(allocator);
+            fn failDeclaredError(self: *@This(), function_index: usize, block_index: usize, instruction_index: usize, literal: []const u8) Next {
+                if (literal.len == 0) return self.fail(.malformed_plan, function_index, block_index, instruction_index, "loaded executable return_error literal is empty");
+                if (literal.len > loaded_execution.max_session_diagnostic_summary_bytes) return self.fail(.malformed_plan, function_index, block_index, instruction_index, "loaded executable return_error literal is too large");
+                if (self.owns_failure_summary) {
+                    if (self.allocator) |allocator| {
+                        if (self.failure) |failure| allocator.free(failure.diagnostic_summary);
+                    }
+                    self.owns_failure_summary = false;
+                }
+                self.status = .failed;
+                self.failure = .{
+                    .kind = .declared_error,
+                    .declared_error_ref = loadedDeclaredErrorRef(literal),
+                    .function_index = @intCast(function_index),
+                    .block_index = @intCast(block_index),
+                    .instruction_index = @intCast(instruction_index),
+                    .diagnostic_summary = literal,
+                };
+                return .{ .failed = self.failure.? };
             }
 
-            pub fn image(self: @This()) loaded_execution.LoadedSessionImage {
+            pub fn freeze(self: @This(), allocator: std.mem.Allocator) ![]u8 {
+                var session_image = try self.image(allocator);
+                defer session_image.deinit(allocator);
+                return session_image.encodeWithLimits(allocator, self.profile.limits);
+            }
+
+            fn baseImage(self: @This()) loaded_execution.LoadedSessionImage {
                 return .{
                     .module_fingerprint = self.module.moduleFingerprint(),
                     .executable_plan_fingerprint = self.executable_plan_fingerprint,
@@ -7248,6 +8127,7 @@ pub const BoundaryTargetModule = struct {
                     .session_fingerprint = self.session_fingerprint,
                     .entry_function = self.entry_function,
                     .budget = self.budget,
+                    .allocation = self.allocation,
                     .status = self.status,
                     .pending_request = if (self.pending_request) |pending_request| .{
                         .residual_site_index = @intCast(pending_request.request.residual_site_index),
@@ -7255,6 +8135,7 @@ pub const BoundaryTargetModule = struct {
                         .world_port_id = pending_request.request.world_port_id,
                         .payload_ref = loadedValueRefFromBoundary(pending_request.request.payload_ref) orelse .{ .codec = .unit },
                         .expected_response_ref = loadedValueRefFromBoundary(pending_request.request.expected_response_ref) orelse .{ .codec = .unit },
+                        .response_kind = pending_request.request.response_kind,
                         .canonical_request_fingerprint = pending_request.request.canonical_request_fingerprint,
                         .deterministic_continuation_fingerprint = pending_request.request.deterministic_continuation_fingerprint,
                         .response_local = pending_request.response_local,
@@ -7268,27 +8149,97 @@ pub const BoundaryTargetModule = struct {
                 };
             }
 
+            pub fn image(self: @This(), allocator: std.mem.Allocator) !loaded_execution.LoadedSessionImage {
+                var session_image = self.baseImage();
+                const freeze_as_v2 = self.profile.format_version == loaded_execution.loaded_execution_profile_format_version_v2;
+                if (freeze_as_v2) {
+                    session_image.format_version = loaded_execution.loaded_session_image_format_version_v2;
+                    session_image.fingerprint_version = loaded_execution.loaded_session_image_fingerprint_version_v2;
+                }
+                if (freeze_as_v2) {
+                    if (self.continuation != null and self.pending_request == null) return error.InvalidResume;
+                    if (self.status == .initial and self.entry_arguments.values.len != 0) {
+                        const executable_plan = self.executable_plan orelse return error.InvalidResume;
+                        session_image.entry_argument_images = try entryArgumentImages(
+                            allocator,
+                            executable_plan.program_plan,
+                            executable_plan.program_plan.functions[executable_plan.program_plan.entry_index],
+                            self.entry_arguments.values,
+                            self.profile.limits,
+                        );
+                        session_image.owns_entry_argument_images = true;
+                    }
+                    if (self.pending_request) |pending_request| {
+                        if (pending_request.continuation) |continuation| {
+                            const executable_plan = self.executable_plan orelse return error.InvalidResume;
+                            session_image.continuation = try continuationImage(
+                                allocator,
+                                executable_plan.program_plan,
+                                continuation,
+                                self.profile.limits,
+                            );
+                        }
+                    }
+                    session_image.allocation = try session_image.computeAllocationLedger();
+                }
+                return session_image;
+            }
+
             pub fn thaw(allocator: std.mem.Allocator, module: *const LoadedModule, bytes: []const u8, profile: LoadedExecutionProfile) !@This() {
-                var decoded = try loaded_execution.LoadedSessionImage.decode(allocator, bytes);
+                var decoded = try loaded_execution.LoadedSessionImage.decodeWithLimits(allocator, bytes, profile.limits);
                 defer decoded.deinit(allocator);
                 const executable_plan_fingerprint = module.executablePlanFingerprint() orelse module.requiredSectionFingerprint(.executable_plan_image) orelse module.programPlanHash();
                 const execution_profile_fingerprint = profile.computeFingerprint();
+                const expected_session_image_format = if (profile.format_version == loaded_execution.loaded_execution_profile_format_version_v2)
+                    loaded_execution.loaded_session_image_format_version_v2
+                else
+                    loaded_execution.loaded_session_image_format_version_v1;
+                const expected_session_image_fingerprint_version = if (profile.fingerprint_version == loaded_execution.loaded_execution_profile_fingerprint_version_v2)
+                    loaded_execution.loaded_session_image_fingerprint_version_v2
+                else
+                    loaded_execution.loaded_session_image_fingerprint_version_v1;
+                if (decoded.format_version != expected_session_image_format or
+                    decoded.fingerprint_version != expected_session_image_fingerprint_version)
+                {
+                    return error.ProfileMismatch;
+                }
                 if (decoded.module_fingerprint != module.moduleFingerprint()) return error.ModuleMismatch;
                 if (decoded.executable_plan_fingerprint != executable_plan_fingerprint) return error.ExecutablePlanMismatch;
                 if (decoded.execution_profile_fingerprint != execution_profile_fingerprint) return error.ProfileMismatch;
-                const expected_session_fingerprint = loaded_execution.loadedSessionFingerprint(module.moduleFingerprint(), executable_plan_fingerprint, execution_profile_fingerprint, module.entryFunctionRef());
+                const expected_session_fingerprint = loaded_execution.loadedSessionFingerprintForVersion(
+                    decoded.fingerprint_version,
+                    module.moduleFingerprint(),
+                    executable_plan_fingerprint,
+                    execution_profile_fingerprint,
+                    module.entryFunctionRef(),
+                );
                 if (decoded.session_fingerprint != expected_session_fingerprint) return error.SessionMismatch;
                 if (decoded.entry_function != module.entryFunctionRef()) return error.SessionMismatch;
                 if (decoded.dependency_fingerprint != module.worldSurfaceFingerprint()) return error.SessionMismatch;
-                var session = try startExecutable(allocator, module, profile);
-                errdefer session.deinit();
-                session.session_fingerprint = decoded.session_fingerprint;
-                session.entry_function = decoded.entry_function;
-                session.status = decoded.status;
-                session.budget = decoded.budget;
+                const executable_plan_payload = module.executablePlanImagePayload() orelse return error.MissingExecutablePlanImage;
+                var executable_plan = try loaded_execution.decodeExecutablePlanImage(
+                    allocator,
+                    executable_plan_payload,
+                    executable_plan_fingerprint,
+                    module.programPlanHash(),
+                    profile.limits,
+                );
+                errdefer executable_plan.deinit();
+                if (executable_plan.program_plan.entry_index != decoded.entry_function) return error.ExecutablePlanMismatch;
+                if (!loadedModuleSupportsProgramPlan(module.imports(), profile, executable_plan.program_plan)) return error.UnsupportedLoadedExecutionProfile;
+                try validateLoadedSessionBudget(decoded.budget, profile.limits, decoded.status);
+                const schema_set = loadedSchemaSet(executable_plan.program_plan);
+
+                var restored_failure: ?loaded_execution.LoadedSessionFailure = null;
+                var owns_restored_failure_summary = false;
+                errdefer if (owns_restored_failure_summary) {
+                    if (restored_failure) |failure| allocator.free(failure.diagnostic_summary);
+                };
                 if (decoded.failure) |failure| {
+                    try validateLoadedSessionFailure(executable_plan.program_plan, failure);
+                    if (failure.kind == .declared_error and failure.declared_error_ref != loadedDeclaredErrorRef(failure.diagnostic_summary)) return error.SessionMismatch;
                     const diagnostic_summary = try allocator.dupe(u8, failure.diagnostic_summary);
-                    session.failure = .{
+                    restored_failure = .{
                         .kind = failure.kind,
                         .declared_error_ref = failure.declared_error_ref,
                         .function_index = failure.function_index,
@@ -7296,14 +8247,19 @@ pub const BoundaryTargetModule = struct {
                         .instruction_index = failure.instruction_index,
                         .diagnostic_summary = diagnostic_summary,
                     };
-                    session.owns_failure_summary = true;
+                    owns_restored_failure_summary = true;
                 }
-                const executable_plan = session.executable_plan orelse return error.InvalidResume;
-                const schema_set = loadedSchemaSet(executable_plan.program_plan);
+
+                var restored_payload_image_bytes: []u8 = &.{};
+                errdefer if (restored_payload_image_bytes.len != 0) allocator.free(restored_payload_image_bytes);
                 if (decoded.payload_image_bytes.len != 0) {
                     if (decoded.pending_request == null) return error.InvalidResume;
-                    session.payload_image_bytes = try allocator.dupe(u8, decoded.payload_image_bytes);
+                    restored_payload_image_bytes = try allocator.dupe(u8, decoded.payload_image_bytes);
                 }
+
+                var restored_result_image_bytes: []u8 = &.{};
+                errdefer if (restored_result_image_bytes.len != 0) allocator.free(restored_result_image_bytes);
+                var restored_result_fingerprint: u64 = 0;
                 if (decoded.result_image_bytes.len != 0) {
                     const result_ref = loadedValueRefFromBoundary(module.resultValueRef()) orelse return error.InvalidResume;
                     try validateLoadedSessionResultImage(
@@ -7314,17 +8270,34 @@ pub const BoundaryTargetModule = struct {
                         decoded.result_fingerprint,
                         profile.limits,
                     );
-                    session.result_image_bytes = try allocator.dupe(u8, decoded.result_image_bytes);
-                    session.result_fingerprint = decoded.result_fingerprint;
+                    restored_result_image_bytes = try allocator.dupe(u8, decoded.result_image_bytes);
+                    restored_result_fingerprint = decoded.result_fingerprint;
                 } else if (decoded.status == .completed and !module.resultValueRef().eql(BoundaryValueRef.init("unit", null))) {
                     return error.InvalidResume;
                 }
+
+                var restored_entry_arguments: EntryArguments = .{};
+                errdefer restored_entry_arguments.deinit(allocator);
+                if (decoded.status == .initial) {
+                    restored_entry_arguments = try thawEntryArguments(
+                        allocator,
+                        executable_plan.program_plan,
+                        executable_plan.program_plan.functions[executable_plan.program_plan.entry_index],
+                        decoded.entry_argument_images,
+                        profile.limits,
+                    );
+                }
+
+                var restored_pending_request: ?PendingRequest = null;
+                var restored_pending_continuation: ?Continuation = null;
+                errdefer if (restored_pending_continuation) |continuation| deinitContinuation(allocator, continuation);
                 if (decoded.pending_request) |pending_request| {
                     if (pending_request.residual_site_index > std.math.maxInt(usize)) return error.InvalidResume;
                     const import = module.importForResidualSite(@intCast(pending_request.residual_site_index)) orelse return error.InvalidResume;
                     const payload_ref = BoundaryValueRef.fromValueRef(pending_request.payload_ref);
                     const expected_response_ref = BoundaryValueRef.fromValueRef(pending_request.expected_response_ref);
                     if (!import.payload_ref.eql(payload_ref) or !import.response_ref.eql(expected_response_ref)) return error.InvalidResume;
+                    if (loadedSessionResponseKind(import.response_kind) != pending_request.response_kind) return error.InvalidResume;
                     try validateLoadedSessionValueImage(
                         allocator,
                         schema_set,
@@ -7332,6 +8305,10 @@ pub const BoundaryTargetModule = struct {
                         decoded.payload_image_bytes,
                         profile.limits,
                     );
+                    const expected_continuation_fingerprint = if (decoded.continuation) |continuation_image|
+                        continuation_image.fingerprint()
+                    else
+                        loadedContinuationFingerprint(decoded.session_fingerprint, import.residual_site_index, import.residual_site_fingerprint, import.world_port_id);
                     const request = Request{
                         .module_fingerprint = module.moduleFingerprint(),
                         .entry_function = decoded.entry_function,
@@ -7341,7 +8318,8 @@ pub const BoundaryTargetModule = struct {
                         .world_port_ref = import.world_port_ref,
                         .payload_ref = payload_ref,
                         .expected_response_ref = expected_response_ref,
-                        .canonical_payload_image = session.payload_image_bytes,
+                        .response_kind = pending_request.response_kind,
+                        .canonical_payload_image = decoded.payload_image_bytes,
                         .canonical_request_fingerprint = pending_request.canonical_request_fingerprint,
                         .deterministic_continuation_fingerprint = pending_request.deterministic_continuation_fingerprint,
                     };
@@ -7354,17 +8332,207 @@ pub const BoundaryTargetModule = struct {
                         .world_port_ref = import.world_port_ref,
                         .payload_ref = import.payload_ref,
                         .expected_response_ref = import.response_ref,
-                        .canonical_payload_image = session.payload_image_bytes,
-                        .canonical_request_fingerprint = loadedRequestFingerprint(module.moduleFingerprint(), pending_request.deterministic_continuation_fingerprint, import, session.payload_image_bytes),
-                        .deterministic_continuation_fingerprint = loadedContinuationFingerprint(session.session_fingerprint, import.residual_site_index, import.residual_site_fingerprint, import.world_port_id),
+                        .response_kind = loadedSessionResponseKind(import.response_kind) orelse return error.InvalidResume,
+                        .canonical_payload_image = decoded.payload_image_bytes,
+                        .canonical_request_fingerprint = loadedRequestFingerprintForSessionImage(decoded, module.moduleFingerprint(), expected_continuation_fingerprint, import, decoded.payload_image_bytes),
+                        .deterministic_continuation_fingerprint = expected_continuation_fingerprint,
                     })) return error.InvalidResume;
-                    session.pending_request = .{
+                    if (decoded.continuation) |continuation_image| {
+                        restored_pending_continuation = try thawContinuation(
+                            allocator,
+                            executable_plan.program_plan,
+                            continuation_image,
+                            profile.limits,
+                        );
+                        if (restored_pending_continuation.?.frames.len == 0) return error.InvalidResume;
+                        try validatePendingContinuationSite(executable_plan.program_plan, module.imports(), restored_pending_continuation.?, import, pending_request.response_local);
+                        if (pending_request.expected_response_ref.codec == .unit and pending_request.expected_response_ref.schema_index == null) {
+                            if (pending_request.response_local != std.math.maxInt(u16) and pending_request.response_local >= restored_pending_continuation.?.frames[restored_pending_continuation.?.frames.len - 1].locals.len) return error.InvalidResume;
+                        } else if (pending_request.response_local >= restored_pending_continuation.?.frames[restored_pending_continuation.?.frames.len - 1].locals.len) {
+                            return error.InvalidResume;
+                        }
+                    }
+                    restored_pending_request = .{
                         .request = request,
                         .response_local = pending_request.response_local,
                         .result_local = pending_request.result_local,
+                        .continuation = restored_pending_continuation,
                     };
+                    restored_pending_continuation = null;
+                } else if (decoded.continuation != null) {
+                    return error.InvalidResume;
+                }
+
+                var session = startWithProfile(module, profile);
+                session.allocator = allocator;
+                session.executable_plan = executable_plan;
+                session.session_fingerprint = decoded.session_fingerprint;
+                session.entry_function = decoded.entry_function;
+                session.status = decoded.status;
+                session.budget = decoded.budget;
+                session.allocation = decoded.allocation;
+                session.failure = restored_failure;
+                session.owns_failure_summary = owns_restored_failure_summary;
+                owns_restored_failure_summary = false;
+                session.entry_arguments = restored_entry_arguments;
+                restored_entry_arguments = .{};
+                session.payload_image_bytes = restored_payload_image_bytes;
+                restored_payload_image_bytes = &.{};
+                session.result_image_bytes = restored_result_image_bytes;
+                restored_result_image_bytes = &.{};
+                session.result_fingerprint = restored_result_fingerprint;
+                session.pending_request = restored_pending_request;
+                if (session.pending_request) |*pending_request| {
+                    pending_request.request.canonical_payload_image = session.payload_image_bytes;
                 }
                 return session;
+            }
+
+            fn entryArgumentImages(
+                allocator: std.mem.Allocator,
+                program_plan: internal_program_plan.ProgramPlan,
+                function: internal_program_plan.FunctionPlan,
+                entry_args: []const LoadedValue,
+                limits: loaded_execution.Limits,
+            ) ![]loaded_execution.LoadedSessionLocalImage {
+                if (entry_args.len != function.parameter_count) return error.InvalidResume;
+                if (entry_args.len == 0) return &.{};
+                var images = try allocator.alloc(loaded_execution.LoadedSessionLocalImage, entry_args.len);
+                var initialized_images: usize = 0;
+                errdefer {
+                    for (images[0..initialized_images]) |*entry_argument_image| entry_argument_image.deinit(allocator);
+                    allocator.free(images);
+                }
+                @memset(images, .{ .local_index = 0, .value_ref = .{ .codec = .unit } });
+                const schema_set = loadedSchemaSet(program_plan);
+                for (entry_args, 0..) |value, index| {
+                    const expected_ref = loadedFunctionLocalRef(program_plan, function, @intCast(index)) orelse return error.InvalidResume;
+                    var value_image = try loaded_execution.encodeLoadedValueImageBytes(
+                        allocator,
+                        schema_set,
+                        expected_ref,
+                        value,
+                        limits,
+                    );
+                    errdefer allocator.free(value_image);
+                    images[index] = .{
+                        .local_index = @intCast(index),
+                        .value_ref = expected_ref,
+                        .value_image_bytes = value_image,
+                        .owns_value_image_bytes = true,
+                    };
+                    value_image = &.{};
+                    initialized_images += 1;
+                }
+                return images;
+            }
+
+            fn thawEntryArguments(
+                allocator: std.mem.Allocator,
+                program_plan: internal_program_plan.ProgramPlan,
+                function: internal_program_plan.FunctionPlan,
+                entry_argument_images: []const loaded_execution.LoadedSessionLocalImage,
+                limits: loaded_execution.Limits,
+            ) !EntryArguments {
+                if (entry_argument_images.len != function.parameter_count) return error.InvalidResume;
+                if (entry_argument_images.len == 0) return .{};
+                if (function.parameter_count > function.local_count) return error.InvalidResume;
+                var values = try allocator.alloc(LoadedValue, entry_argument_images.len);
+                errdefer allocator.free(values);
+                @memset(values, .unit);
+                var value_arena = LoadedValueArena.init(allocator);
+                errdefer value_arena.deinit();
+                const schema_set = loadedSchemaSet(program_plan);
+                for (entry_argument_images, 0..) |entry_argument_image, index| {
+                    if (entry_argument_image.local_index != index) return error.InvalidResume;
+                    const expected_ref = loadedFunctionLocalRef(program_plan, function, @intCast(index)) orelse return error.InvalidResume;
+                    if (expected_ref.codec != entry_argument_image.value_ref.codec or expected_ref.schema_index != entry_argument_image.value_ref.schema_index) return error.InvalidResume;
+                    values[index] = loaded_execution.decodeLoadedValueImage(
+                        allocator,
+                        &value_arena,
+                        schema_set,
+                        expected_ref,
+                        entry_argument_image.value_image_bytes,
+                        limits,
+                    ) catch |err| switch (err) {
+                        error.OutOfMemory => return error.OutOfMemory,
+                        else => return error.InvalidResume,
+                    };
+                }
+                return .{
+                    .values = values,
+                    .value_arena = value_arena,
+                };
+            }
+
+            fn validateLoadedSessionBudget(budget: loaded_execution.LoadedSessionBudgetLedger, limits: loaded_execution.Limits, status: loaded_execution.LoadedSessionStatus) !void {
+                const maximum_consumed = std.math.mul(u64, budget.advancements, limits.maximum_instructions_per_advancement) catch return error.InvalidResume;
+                if (budget.instructions_consumed > maximum_consumed) return error.InvalidResume;
+                if (status != .initial and budget.advancements == 0) return error.InvalidResume;
+            }
+
+            fn validateLoadedSessionFailure(program_plan: internal_program_plan.ProgramPlan, failure: loaded_execution.LoadedSessionFailure) !void {
+                const function_index: usize = @intCast(failure.function_index);
+                const block_index: usize = @intCast(failure.block_index);
+                const instruction_index: usize = @intCast(failure.instruction_index);
+                if (function_index >= program_plan.functions.len) return error.InvalidResume;
+                const function = program_plan.functions[function_index];
+                const block_end = @as(usize, function.first_block) + function.block_count;
+                if (block_end > program_plan.blocks.len) return error.InvalidResume;
+                if (block_index < function.first_block or block_index >= block_end) return error.InvalidResume;
+                const block = program_plan.blocks[block_index];
+                const instruction_end = @as(usize, block.first_instruction) + block.instruction_count;
+                if (instruction_end > program_plan.instructions.len) return error.InvalidResume;
+                if (instruction_index < block.first_instruction or instruction_index > instruction_end) return error.InvalidResume;
+                if (failure.diagnostic_summary.len == 0) return error.InvalidResume;
+                if (failure.kind == .declared_error) {
+                    if (instruction_index == instruction_end) return error.InvalidResume;
+                    const instruction = program_plan.instructions[instruction_index];
+                    if (instruction.kind != .return_error) return error.InvalidResume;
+                    if (!std.mem.eql(u8, instruction.string_literal, failure.diagnostic_summary)) return error.SessionMismatch;
+                    if (failure.declared_error_ref != loadedDeclaredErrorRef(instruction.string_literal)) return error.SessionMismatch;
+                }
+            }
+
+            fn cloneEntryArguments(
+                allocator: std.mem.Allocator,
+                program_plan: internal_program_plan.ProgramPlan,
+                function: internal_program_plan.FunctionPlan,
+                entry_args: []const LoadedValue,
+                limits: loaded_execution.Limits,
+            ) loaded_execution.LoadedValueError!EntryArguments {
+                if (entry_args.len != function.parameter_count) return error.InvalidValue;
+                if (entry_args.len == 0) return .{};
+                if (function.parameter_count > function.local_count) return error.InvalidValue;
+                var values = try allocator.alloc(LoadedValue, entry_args.len);
+                errdefer allocator.free(values);
+                @memset(values, .unit);
+                var value_arena = LoadedValueArena.init(allocator);
+                errdefer value_arena.deinit();
+                const schema_set = loadedSchemaSet(program_plan);
+                for (entry_args, 0..) |value, index| {
+                    const expected_ref = loadedFunctionLocalRef(program_plan, function, @intCast(index)) orelse return error.InvalidValue;
+                    const value_image = try loaded_execution.encodeLoadedValueImageBytes(
+                        allocator,
+                        schema_set,
+                        expected_ref,
+                        value,
+                        limits,
+                    );
+                    defer allocator.free(value_image);
+                    values[index] = try loaded_execution.decodeLoadedValueImage(
+                        allocator,
+                        &value_arena,
+                        schema_set,
+                        expected_ref,
+                        value_image,
+                        limits,
+                    );
+                }
+                return .{
+                    .values = values,
+                    .value_arena = value_arena,
+                };
             }
         };
     };
@@ -7391,7 +8559,12 @@ pub const BoundaryTargetModule = struct {
 
     fn loadedProfileSupportsProgramPlan(profile: LoadedExecutionProfile, program_plan: internal_program_plan.ProgramPlan) bool {
         const reachability = loadedProgramReachability(program_plan) orelse return false;
-        if (!loadedProgramPlanUsesSupportedSessionShape(program_plan, reachability)) return false;
+        if (profile.format_version != loaded_execution.loaded_execution_profile_format_version_v2 and
+            program_plan.functions[program_plan.entry_index].parameter_count != 0)
+        {
+            return false;
+        }
+        if (!loadedProgramPlanUsesSupportedSessionShape(profile, program_plan, reachability)) return false;
         if (!loadedProfileSupportsReachableValues(profile, program_plan, reachability)) return false;
         if (!loadedProfileSupportsReachableInstructions(profile, program_plan, reachability)) return false;
         if (!loadedProfileSupportsReachableTerminators(profile, program_plan, reachability)) return false;
@@ -7422,7 +8595,6 @@ pub const BoundaryTargetModule = struct {
                         if (!std.mem.eql(u8, import.response_kind, "resume")) return false;
                         if (!import.payload_ref.eql(BoundaryValueRef.fromValueRef(.{ .codec = op.payload_codec, .schema_index = op.payload_schema_index }))) return false;
                         if (!import.response_ref.eql(BoundaryValueRef.fromValueRef(.{ .codec = op.resume_codec, .schema_index = op.resume_schema_index }))) return false;
-                        if (!import.response_ref.eql(BoundaryValueRef.fromValueRef(.{ .codec = function.value_codec, .schema_index = function.value_schema_index }))) return false;
                         if (!import.result_ref.eql(BoundaryValueRef.fromValueRef(.{ .codec = function.value_codec, .schema_index = function.value_schema_index }))) return false;
                     }
                 }
@@ -7529,8 +8701,17 @@ pub const BoundaryTargetModule = struct {
                 if (!reachability.blocks[block_index]) continue :profile_block_loop;
                 const instruction_end = @as(usize, block.first_instruction) + block.instruction_count;
                 if (instruction_end > program_plan.instructions.len) return false;
-                for (program_plan.instructions[block.first_instruction..instruction_end]) |instruction| {
+                for (program_plan.instructions[block.first_instruction..instruction_end], block.first_instruction..) |instruction, instruction_index| {
                     if (!loadedProfileSupportsInstruction(profile, instruction.kind)) return false;
+                    switch (instruction.kind) {
+                        .call_helper, .call_op => {
+                            if (instruction_index >= std.math.maxInt(u16)) return false;
+                        },
+                        .return_error => {
+                            if (instruction.string_literal.len == 0 or instruction.string_literal.len > loaded_execution.max_session_diagnostic_summary_bytes) return false;
+                        },
+                        else => {},
+                    }
                 }
             }
         }
@@ -7657,11 +8838,13 @@ pub const BoundaryTargetModule = struct {
         return null;
     }
 
-    fn loadedProgramPlanUsesSupportedSessionShape(program_plan: internal_program_plan.ProgramPlan, reachability: LoadedProgramReachability) bool {
+    fn loadedProgramPlanUsesSupportedSessionShape(profile: LoadedExecutionProfile, program_plan: internal_program_plan.ProgramPlan, reachability: LoadedProgramReachability) bool {
         if (program_plan.entry_index >= program_plan.functions.len) return false;
-        if (program_plan.functions[program_plan.entry_index].parameter_count != 0) return false;
+        const supports_v2_frames = profile.format_version == loaded_execution.loaded_execution_profile_format_version_v2;
         shape_function_loop: for (program_plan.functions, 0..) |function, function_index| {
             if (!reachability.functions[function_index]) continue :shape_function_loop;
+            if (function.parameter_count > function.local_count) return false;
+            if (@as(usize, function.first_local) + function.parameter_count > program_plan.locals.len) return false;
             const block_end = @as(usize, function.first_block) + function.block_count;
             if (block_end > program_plan.blocks.len) return false;
             shape_block_loop: for (program_plan.blocks[function.first_block..block_end], function.first_block..) |block, block_index| {
@@ -7669,12 +8852,20 @@ pub const BoundaryTargetModule = struct {
                 const instruction_end = @as(usize, block.first_instruction) + block.instruction_count;
                 if (instruction_end > program_plan.instructions.len) return false;
                 if (block.terminator_index >= program_plan.terminators.len) return false;
-                const terminator = program_plan.terminators[block.terminator_index];
                 for (program_plan.instructions[block.first_instruction..instruction_end], block.first_instruction..) |instruction, instruction_index| {
                     switch (instruction.kind) {
                         .call_op => {
-                            if (function_index != program_plan.entry_index) return false;
-                            if (!loadedCallOpUsesSupportedContinuationShape(program_plan, function, block, terminator, instruction, instruction_index)) return false;
+                            if (instruction_index >= std.math.maxInt(u16)) return false;
+                            if (supports_v2_frames) {
+                                if (!loadedCallOpUsesSupportedContinuationShape(program_plan, function, instruction, instruction_index)) return false;
+                            } else {
+                                const terminator = program_plan.terminators[block.terminator_index];
+                                if (function_index != program_plan.entry_index) return false;
+                                if (!loadedCallOpUsesLegacyContinuationShape(program_plan, function, block, terminator, instruction, instruction_index)) return false;
+                            }
+                        },
+                        .call_helper => {
+                            if (instruction_index >= std.math.maxInt(u16)) return false;
                         },
                         .compare_eq_zero => switch ((loadedFunctionLocalRef(program_plan, function, instruction.operand) orelse return false).codec) {
                             .bool, .i32, .usize => {},
@@ -7692,11 +8883,25 @@ pub const BoundaryTargetModule = struct {
         return true;
     }
 
-    fn loadedCallOpUsesSupportedContinuationShape(
+    fn loadedCallOpUsesLegacyContinuationShape(
         program_plan: internal_program_plan.ProgramPlan,
         function: internal_program_plan.FunctionPlan,
         block: internal_program_plan.BlockPlan,
         terminator: internal_program_plan.Terminator,
+        call_instruction: internal_program_plan.Instruction,
+        instruction_index: usize,
+    ) bool {
+        if (!loadedCallOpUsesSupportedContinuationShape(program_plan, function, call_instruction, instruction_index)) return false;
+        if (terminator.kind != .return_value or block.instruction_count == 0) return false;
+        const return_instruction_index = @as(usize, block.first_instruction) + block.instruction_count - 1;
+        if (instruction_index + 1 != return_instruction_index) return false;
+        const return_instruction = program_plan.instructions[return_instruction_index];
+        return return_instruction.kind == .return_value and return_instruction.operand == call_instruction.dst;
+    }
+
+    fn loadedCallOpUsesSupportedContinuationShape(
+        program_plan: internal_program_plan.ProgramPlan,
+        function: internal_program_plan.FunctionPlan,
         call_instruction: internal_program_plan.Instruction,
         instruction_index: usize,
     ) bool {
@@ -7707,12 +8912,12 @@ pub const BoundaryTargetModule = struct {
         if (function.result_codec) |result_codec| {
             if (result_codec != function.value_codec or function.result_schema_index != function.value_schema_index) return false;
         }
-        if (op.resume_codec != function.value_codec or op.resume_schema_index != function.value_schema_index) return false;
-        if (terminator.kind != .return_value or block.instruction_count == 0) return false;
-        const return_instruction_index = @as(usize, block.first_instruction) + block.instruction_count - 1;
-        if (instruction_index + 1 != return_instruction_index) return false;
-        const return_instruction = program_plan.instructions[return_instruction_index];
-        return return_instruction.kind == .return_value and return_instruction.operand == call_instruction.dst;
+        if (instruction_index >= std.math.maxInt(u16)) return false;
+        const response_ref = if (op.resume_codec == .unit and call_instruction.dst == std.math.maxInt(u16))
+            internal_program_plan.ValueRef{ .codec = .unit }
+        else
+            loadedFunctionLocalRef(program_plan, function, call_instruction.dst) orelse return false;
+        return response_ref.codec == op.resume_codec and response_ref.schema_index == op.resume_schema_index;
     }
 
     fn loadedProfileSupportsCodec(profile: LoadedExecutionProfile, codec: internal_program_plan.ValueCodec) bool {
@@ -7737,11 +8942,13 @@ pub const BoundaryTargetModule = struct {
             .const_i32 => profile.instruction_kinds.@"const" and profile.instruction_kinds.const_i32,
             .const_string => profile.instruction_kinds.@"const" and profile.instruction_kinds.const_string,
             .const_usize => profile.instruction_kinds.@"const" and profile.instruction_kinds.const_usize,
-            .return_error => false,
+            .return_error => profile.instruction_kinds.return_error,
             .return_value => profile.instruction_kinds.return_value,
-            .sum_extract_payload => false,
-            .sum_variant_is => false,
-            .add_const_i32, .add_i32, .sub_one => true,
+            .sum_extract_payload => profile.instruction_kinds.get_sum_payload,
+            .sum_variant_is => profile.instruction_kinds.match_sum_variant,
+            .add_const_i32 => profile.instruction_kinds.add_const_i32,
+            .add_i32 => profile.instruction_kinds.add_i32,
+            .sub_one => profile.instruction_kinds.sub_one,
         };
     }
 
@@ -7839,6 +9046,34 @@ pub const BoundaryTargetModule = struct {
         };
     }
 
+    fn loadedLocalSum(locals: []const LoadedValue, local_id: u16) ?LoadedValue.Sum {
+        const value = loadedLocalValue(locals, local_id) orelse return null;
+        return switch (value) {
+            .sum => |actual| actual,
+            else => null,
+        };
+    }
+
+    fn loadedSumVariantRef(program_plan: internal_program_plan.ProgramPlan, source_ref: internal_program_plan.ValueRef, variant_ordinal: u16) ?internal_program_plan.ValueRef {
+        if (source_ref.codec != .sum) return null;
+        const schema_index = source_ref.schema_index orelse return null;
+        if (schema_index >= program_plan.value_schemas.len) return null;
+        const schema = program_plan.value_schemas[schema_index];
+        if (schema.codec != .sum) return null;
+        if (variant_ordinal >= schema.variant_count) return null;
+        const variant_index = @as(usize, schema.first_variant) + variant_ordinal;
+        if (variant_index >= program_plan.value_variants.len) return null;
+        const variant = program_plan.value_variants[variant_index];
+        return .{ .codec = variant.codec, .schema_index = variant.schema_index };
+    }
+
+    fn loadedValueCanSurviveResponseArena(value: LoadedValue) bool {
+        return switch (value) {
+            .unit, .boolean, .i32, .word_u64 => true,
+            .bytes, .list, .product, .sum => false,
+        };
+    }
+
     fn loadedValueRefFromBoundary(ref: BoundaryValueRef) ?loaded_execution.LoadedValueRef {
         inline for (std.meta.fields(internal_program_plan.ValueCodec)) |field| {
             if (std.mem.eql(u8, ref.codec, field.name)) {
@@ -7870,7 +9105,32 @@ pub const BoundaryTargetModule = struct {
         return builder.finish();
     }
 
-    fn loadedRequestFingerprint(module_fingerprint: u64, continuation_fingerprint: u64, import: ImportSurface.Import, payload_image_bytes: []const u8) u64 {
+    fn loadedSessionImageFingerprintVersionForProfile(profile: LoadedExecutionProfile) u32 {
+        return if (profile.format_version == loaded_execution.loaded_execution_profile_format_version_v2)
+            loaded_execution.loaded_session_image_fingerprint_version_v2
+        else
+            loaded_execution.loaded_session_image_fingerprint_version_v1;
+    }
+
+    fn loadedDeclaredErrorRef(literal: []const u8) u64 {
+        return loaded_execution.loadedDeclaredErrorRef(literal);
+    }
+
+    fn loadedRequestFingerprintForProfile(profile: LoadedExecutionProfile, module_fingerprint: u64, continuation_fingerprint: u64, import: ImportSurface.Import, payload_image_bytes: []const u8) u64 {
+        return if (profile.format_version == loaded_execution.loaded_execution_profile_format_version_v2)
+            loadedRequestFingerprintV2(module_fingerprint, continuation_fingerprint, import, payload_image_bytes)
+        else
+            loadedRequestFingerprintV1(module_fingerprint, continuation_fingerprint, import, payload_image_bytes);
+    }
+
+    fn loadedRequestFingerprintForSessionImage(image: loaded_execution.LoadedSessionImage, module_fingerprint: u64, continuation_fingerprint: u64, import: ImportSurface.Import, payload_image_bytes: []const u8) u64 {
+        return if (image.fingerprint_version == loaded_execution.loaded_session_image_fingerprint_version_v2)
+            loadedRequestFingerprintV2(module_fingerprint, continuation_fingerprint, import, payload_image_bytes)
+        else
+            loadedRequestFingerprintV1(module_fingerprint, continuation_fingerprint, import, payload_image_bytes);
+    }
+
+    fn loadedRequestFingerprintV1(module_fingerprint: u64, continuation_fingerprint: u64, import: ImportSurface.Import, payload_image_bytes: []const u8) u64 {
         var builder = FingerprintBuilder.init(domains.boundary_loaded_session);
         builder.fieldU64("module_fingerprint", module_fingerprint);
         builder.fieldU64("continuation_fingerprint", continuation_fingerprint);
@@ -7884,6 +9144,23 @@ pub const BoundaryTargetModule = struct {
         return builder.finish();
     }
 
+    fn loadedRequestFingerprintV2(module_fingerprint: u64, continuation_fingerprint: u64, import: ImportSurface.Import, payload_image_bytes: []const u8) u64 {
+        var builder = FingerprintBuilder.init(domains.boundary_loaded_session);
+        builder.fieldU64("module_fingerprint", module_fingerprint);
+        builder.fieldU64("continuation_fingerprint", continuation_fingerprint);
+        builder.fieldUsize("residual_site_index", import.residual_site_index);
+        builder.fieldU64("residual_site_fingerprint", import.residual_site_fingerprint);
+        builder.fieldU64("world_port_id", import.world_port_id);
+        builder.fieldRef("world_port_ref", import.world_port_ref);
+        builder.fieldBytes("mode", import.mode);
+        builder.fieldValueRef("payload_ref", import.payload_ref);
+        builder.fieldValueRef("response_ref", import.response_ref);
+        builder.fieldBytes("response_kind", import.response_kind);
+        builder.fieldValueRef("result_ref", import.result_ref);
+        builder.fieldBytes("payload_image_bytes", payload_image_bytes);
+        return builder.finish();
+    }
+
     fn loadedRequestsEqual(left: LoadedModule.Session.Request, right: LoadedModule.Session.Request) bool {
         return left.module_fingerprint == right.module_fingerprint and
             left.entry_function == right.entry_function and
@@ -7893,9 +9170,17 @@ pub const BoundaryTargetModule = struct {
             optionalRefEql(left.world_port_ref, right.world_port_ref) and
             left.payload_ref.eql(right.payload_ref) and
             left.expected_response_ref.eql(right.expected_response_ref) and
+            left.response_kind == right.response_kind and
             std.mem.eql(u8, left.canonical_payload_image, right.canonical_payload_image) and
             left.canonical_request_fingerprint == right.canonical_request_fingerprint and
             left.deterministic_continuation_fingerprint == right.deterministic_continuation_fingerprint;
+    }
+
+    fn loadedSessionResponseKind(label: []const u8) ?loaded_execution.LoadedSessionResponseKind {
+        if (std.mem.eql(u8, label, "resume")) return .@"resume";
+        if (std.mem.eql(u8, label, "return_now")) return .return_now;
+        if (std.mem.eql(u8, label, "resume_after")) return .resume_after;
+        return null;
     }
 
     fn optionalRefEql(left: ?Ref, right: ?Ref) bool {
@@ -8199,6 +9484,7 @@ pub const BoundaryTargetModule = struct {
 
     fn parsedImageUnsupportedLoadedExecutionFeatures(bytes: []const u8, parsed: ParsedImage, options: ValidationOptions) ValidationError!bool {
         if (parsed.manifest.module_kind != .full_module) return false;
+        const profile = options.effectiveLoadedExecutionProfile();
         const payload = sectionPayloadForKind(bytes, @intCast(parsed.section_count), .executable_plan_image) orelse return true;
         const executable_plan_fingerprint = loaded_execution.executablePlanImageFingerprint(payload) catch return true;
         var decoded_plan = loaded_execution.decodeExecutablePlanImage(
@@ -8206,7 +9492,7 @@ pub const BoundaryTargetModule = struct {
             payload,
             executable_plan_fingerprint,
             parsed.manifest.program_plan_hash,
-            LoadedExecutionProfile.portableV1().limits,
+            profile.limits,
         ) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             else => return true,
@@ -8217,7 +9503,7 @@ pub const BoundaryTargetModule = struct {
             else => return true,
         };
         defer options.allocator.free(imports);
-        return !loadedModuleSupportsProgramPlan(imports, LoadedExecutionProfile.portableV1(), decoded_plan.program_plan);
+        return !loadedModuleSupportsProgramPlan(imports, profile, decoded_plan.program_plan);
     }
 
     pub fn validationReport(bytes: []const u8, options: ValidationOptions) ValidationReport {
@@ -11172,8 +12458,10 @@ test "executable plan image domains and section requirement are explicit" {
     try std.testing.expectEqual(@as(u32, 1), domains.boundary_executable_plan_image.format_version.?);
     try std.testing.expectEqual(@as(u32, 1), domains.boundary_executable_plan_image.fingerprint_version);
     try std.testing.expectEqual(@as(u32, 1), domains.boundary_loaded_value_image.format_version.?);
-    try std.testing.expectEqual(@as(u32, 1), domains.boundary_loaded_session_image.format_version.?);
-    try std.testing.expectEqual(@as(u32, 1), domains.boundary_loaded_execution_profile.format_version.?);
+    try std.testing.expectEqual(@as(u32, 2), domains.boundary_loaded_session_image.format_version.?);
+    try std.testing.expectEqual(@as(u32, 2), domains.boundary_loaded_session_image.fingerprint_version);
+    try std.testing.expectEqual(@as(u32, 2), domains.boundary_loaded_execution_profile.format_version.?);
+    try std.testing.expectEqual(@as(u32, 2), domains.boundary_loaded_execution_profile.fingerprint_version);
     try std.testing.expectEqual(domains.boundary_executable_plan_image, BoundaryTargetModule.sectionDomain(.executable_plan_image));
     try std.testing.expect(BoundaryTargetModule.sectionKindRequiredForFullModule(.executable_plan_image));
 }
@@ -19919,4 +21207,216 @@ fn computeReportFingerprint(
     builder.fieldOptionalU64("policy", policy_fingerprint);
     builder.fieldOptionalBytes("summary", summary);
     return builder.finish();
+}
+
+test "loaded portable v2 rejects unsupported after-operation parking shape before mutable session construction" {
+    const root = internal_program_plan.program_plan_builder.function(0);
+    const helper = internal_program_plan.program_plan_builder.function(1);
+    const instructions = [_]internal_program_plan.Instruction{
+        internal_program_plan.program_plan_builder.callHelperDiscardingResult(root, std.math.maxInt(u16), helper, null),
+        internal_program_plan.program_plan_builder.callOp(helper, null, internal_program_plan.program_plan_builder.op(helper, 0), null) catch unreachable,
+    };
+    const functions = [_]internal_program_plan.FunctionPlan{
+        .{
+            .symbol_name = "run",
+            .value_codec = .unit,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 1,
+        },
+        .{
+            .symbol_name = "helper",
+            .value_codec = .unit,
+            .result_codec = .unit,
+            .first_requirement = 0,
+            .requirement_count = 1,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 1,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 1,
+            .instruction_count = 1,
+        },
+    };
+    const requirements = [_]internal_program_plan.RequirementPlan{.{ .label = "effect", .first_op = 0, .op_count = 1 }};
+    const ops = [_]internal_program_plan.OpPlan{.{
+        .requirement_index = 0,
+        .op_name = "request",
+        .mode = .transform,
+        .has_after = true,
+        .payload_codec = .unit,
+        .resume_codec = .unit,
+    }};
+    const blocks = [_]internal_program_plan.BlockPlan{
+        .{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 },
+        .{ .first_instruction = 1, .instruction_count = 1, .terminator_index = 1 },
+    };
+    const terminators = [_]internal_program_plan.Terminator{
+        .{ .kind = .return_unit },
+        .{ .kind = .return_unit },
+    };
+    const plan = internal_program_plan.program_plan_builder.finish(.{
+        .label = "loaded-portable-v2-helper-parking",
+        .ir_hash = 0xB0A2_0001,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .locals = &.{},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+
+    try std.testing.expect(!BoundaryTargetModule.loadedProfileSupportsProgramPlan(
+        BoundaryTargetModule.LoadedExecutionProfile.portableV2(),
+        plan,
+    ));
+}
+
+test "loaded reachability ignores unsupported dead helper semantics and codecs" {
+    const root = internal_program_plan.program_plan_builder.function(0);
+    const dead_helper = internal_program_plan.program_plan_builder.function(1);
+    const instructions = [_]internal_program_plan.Instruction{
+        .{
+            .kind = .const_i32,
+            .dst = 0,
+            .operand = 0,
+        },
+        .{
+            .kind = .add_i32,
+            .dst = 3,
+            .operand = 1,
+            .aux = 2,
+        },
+    };
+    const functions = [_]internal_program_plan.FunctionPlan{
+        .{
+            .symbol_name = "run",
+            .value_codec = .unit,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 1,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 1,
+        },
+        .{
+            .symbol_name = "dead_helper",
+            .value_codec = .unit,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 1,
+            .local_count = 4,
+            .first_block = 1,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 1,
+            .instruction_count = 1,
+        },
+    };
+    const locals = [_]internal_program_plan.LocalPlan{
+        .{ .codec = .i32 },
+        .{ .codec = .string_list },
+        .{ .codec = .i32 },
+        .{ .codec = .i32 },
+        .{ .codec = .i32 },
+    };
+    const blocks = [_]internal_program_plan.BlockPlan{
+        .{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 },
+        .{ .first_instruction = 1, .instruction_count = 1, .terminator_index = 1 },
+    };
+    const terminators = [_]internal_program_plan.Terminator{
+        .{ .kind = .return_unit },
+        .{ .kind = .return_unit },
+    };
+    const plan = internal_program_plan.program_plan_builder.finish(.{
+        .label = "loaded-reachability-dead-helper-unsupported-semantics",
+        .ir_hash = 0xB0A2_0002,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &locals,
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+
+    var profile = BoundaryTargetModule.LoadedExecutionProfile.portableV2();
+    profile.value_codecs.byte_string_list = false;
+    profile.instruction_kinds.add_i32 = false;
+    try std.testing.expect(BoundaryTargetModule.loadedProfileSupportsProgramPlan(
+        profile,
+        plan,
+    ));
+
+    const reachable_instructions = [_]internal_program_plan.Instruction{
+        .{
+            .kind = .call_helper,
+            .operand = dead_helper.index,
+            .aux = std.math.maxInt(u16),
+        },
+        instructions[1],
+    };
+    const reachable_functions = [_]internal_program_plan.FunctionPlan{
+        .{
+            .symbol_name = "run",
+            .value_codec = .unit,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = 0,
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = 0,
+            .instruction_count = 1,
+        },
+        functions[1],
+    };
+    const reachable_blocks = [_]internal_program_plan.BlockPlan{
+        .{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 },
+        .{ .first_instruction = 1, .instruction_count = 1, .terminator_index = 1 },
+    };
+    const reachable_plan = internal_program_plan.program_plan_builder.finish(.{
+        .label = "loaded-reachability-reachable-helper-unsupported-semantics",
+        .ir_hash = 0xB0A2_0003,
+        .entry = root,
+        .functions = &reachable_functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &locals,
+        .blocks = &reachable_blocks,
+        .terminators = &terminators,
+        .instructions = &reachable_instructions,
+    }) catch unreachable;
+
+    try std.testing.expect(!BoundaryTargetModule.loadedProfileSupportsProgramPlan(
+        profile,
+        reachable_plan,
+    ));
 }

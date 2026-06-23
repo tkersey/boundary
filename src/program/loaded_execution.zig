@@ -4,16 +4,26 @@ const std = @import("std");
 
 pub const loaded_value_image_format_version: u32 = 1;
 pub const loaded_value_image_fingerprint_version: u32 = 1;
-pub const loaded_session_image_format_version: u32 = 1;
-pub const loaded_session_image_fingerprint_version: u32 = 1;
-pub const loaded_execution_profile_format_version: u32 = 1;
-pub const loaded_execution_profile_fingerprint_version: u32 = 1;
+pub const loaded_session_image_format_version_v1: u32 = 1;
+pub const loaded_session_image_fingerprint_version_v1: u32 = 1;
+pub const loaded_session_image_format_version_v2: u32 = 2;
+pub const loaded_session_image_fingerprint_version_v2: u32 = 2;
+pub const loaded_session_image_format_version: u32 = loaded_session_image_format_version_v1;
+pub const loaded_session_image_fingerprint_version: u32 = loaded_session_image_fingerprint_version_v1;
+pub const loaded_execution_profile_format_version_v1: u32 = 1;
+pub const loaded_execution_profile_fingerprint_version_v1: u32 = 1;
+pub const loaded_execution_profile_format_version_v2: u32 = 2;
+pub const loaded_execution_profile_fingerprint_version_v2: u32 = 2;
+pub const loaded_execution_profile_format_version: u32 = loaded_execution_profile_format_version_v1;
+pub const loaded_execution_profile_fingerprint_version: u32 = loaded_execution_profile_fingerprint_version_v1;
+pub const boundary_loaded_execution_profile_version: u32 = loaded_execution_profile_format_version_v2;
 pub const executable_plan_image_format_version: u32 = 1;
 pub const executable_plan_image_fingerprint_version: u32 = 1;
 
 const max_u32_len = std.math.maxInt(u32);
 const max_plan_table_count = std.math.maxInt(u16) + 1;
-const max_session_diagnostic_summary_bytes = 4096;
+const max_session_owned_value_image_bytes = 1 << 20;
+pub const max_session_diagnostic_summary_bytes = 4096;
 const fingerprint_offset: u64 = 14695981039346656037;
 const fingerprint_prime: u64 = 1099511628211;
 const executable_plan_domain_name = "boundary.evidence.target.module.executable_plan_image";
@@ -28,6 +38,7 @@ pub const ExecutionFailureKind = enum(u16) {
     module_mismatch,
     unsupported_codec,
     unsupported_feature,
+    declared_error,
 };
 
 pub const LoadedSessionStatus = enum(u8) {
@@ -37,9 +48,48 @@ pub const LoadedSessionStatus = enum(u8) {
     failed,
 };
 
+pub const LoadedSessionResponseKind = enum(u8) {
+    @"resume",
+    return_now,
+    resume_after,
+};
+
 pub const LoadedSessionBudgetLedger = struct {
     instructions_consumed: u64 = 0,
     advancements: u64 = 0,
+};
+
+pub const LoadedSessionAllocationLedger = struct {
+    payload_image_bytes: u64 = 0,
+    result_image_bytes: u64 = 0,
+    entry_argument_image_bytes: u64 = 0,
+    continuation_value_image_bytes: u64 = 0,
+    frame_count: u32 = 0,
+    local_slot_count: u32 = 0,
+    stored_local_image_count: u32 = 0,
+
+    pub fn eql(self: @This(), other: @This()) bool {
+        return self.payload_image_bytes == other.payload_image_bytes and
+            self.result_image_bytes == other.result_image_bytes and
+            self.entry_argument_image_bytes == other.entry_argument_image_bytes and
+            self.continuation_value_image_bytes == other.continuation_value_image_bytes and
+            self.frame_count == other.frame_count and
+            self.local_slot_count == other.local_slot_count and
+            self.stored_local_image_count == other.stored_local_image_count;
+    }
+
+    pub fn fingerprint(self: @This()) u64 {
+        var hasher = StableHasher.init("boundary.loaded_session_allocation_ledger");
+        hasher.putU32(loaded_session_image_fingerprint_version_v2);
+        hasher.putU64(self.payload_image_bytes);
+        hasher.putU64(self.result_image_bytes);
+        hasher.putU64(self.entry_argument_image_bytes);
+        hasher.putU64(self.continuation_value_image_bytes);
+        hasher.putU32(self.frame_count);
+        hasher.putU32(self.local_slot_count);
+        hasher.putU32(self.stored_local_image_count);
+        return hasher.finish();
+    }
 };
 
 pub const LoadedSessionFailure = struct {
@@ -68,12 +118,13 @@ pub const LoadedSessionPendingRequest = struct {
     world_port_id: u32,
     payload_ref: LoadedValueRef,
     expected_response_ref: LoadedValueRef,
+    response_kind: LoadedSessionResponseKind = .@"resume",
     canonical_request_fingerprint: u64,
     deterministic_continuation_fingerprint: u64,
     response_local: u16,
     result_local: u16,
 
-    pub fn fingerprint(self: @This()) u64 {
+    pub fn fingerprintForVersion(self: @This(), format_version: u32) u64 {
         var hasher = StableHasher.init("boundary.loaded_session_pending_request");
         hasher.putU64(self.residual_site_index);
         hasher.putU64(self.residual_site_fingerprint);
@@ -82,10 +133,99 @@ pub const LoadedSessionPendingRequest = struct {
         hasher.optionalU16(self.payload_ref.schema_index);
         hasher.putU8(@intFromEnum(self.expected_response_ref.codec));
         hasher.optionalU16(self.expected_response_ref.schema_index);
+        if (format_version == loaded_session_image_format_version_v2) hasher.putU8(@intFromEnum(self.response_kind));
         hasher.putU64(self.canonical_request_fingerprint);
         hasher.putU64(self.deterministic_continuation_fingerprint);
         hasher.putU16(self.response_local);
         hasher.putU16(self.result_local);
+        return hasher.finish();
+    }
+};
+
+pub const LoadedSessionLocalImage = struct {
+    local_index: u16,
+    value_ref: LoadedValueRef,
+    value_image_bytes: []const u8 = &.{},
+    owns_value_image_bytes: bool = false,
+
+    pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+        if (self.owns_value_image_bytes and self.value_image_bytes.len != 0) allocator.free(self.value_image_bytes);
+        self.* = undefined;
+    }
+
+    pub fn fingerprint(self: @This()) u64 {
+        var hasher = StableHasher.init("boundary.loaded_session_local_image");
+        hasher.putU16(self.local_index);
+        hasher.putU8(@intFromEnum(self.value_ref.codec));
+        hasher.optionalU16(self.value_ref.schema_index);
+        hasher.bytes(self.value_image_bytes);
+        return hasher.finish();
+    }
+};
+
+pub const LoadedSessionFrameImage = struct {
+    function_index: u16,
+    block_index: u16,
+    next_instruction_index: u16,
+    return_destination: ?u16 = null,
+    local_count: u16,
+    frame_fingerprint: u64 = 0,
+    last_return_ref: LoadedValueRef = .{ .codec = .unit },
+    last_return_image_bytes: []const u8 = &.{},
+    last_condition: bool = false,
+    local_images: []LoadedSessionLocalImage = &.{},
+    owns_last_return_image_bytes: bool = false,
+    owns_local_images: bool = false,
+
+    pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+        if (self.owns_last_return_image_bytes and self.last_return_image_bytes.len != 0) allocator.free(self.last_return_image_bytes);
+        if (self.owns_local_images) {
+            for (self.local_images) |*local_image| local_image.deinit(allocator);
+            if (self.local_images.len != 0) allocator.free(self.local_images);
+        }
+        self.* = undefined;
+    }
+
+    pub fn fingerprint(self: @This()) u64 {
+        var hasher = StableHasher.init("boundary.loaded_session_frame_image");
+        hasher.putU32(loaded_session_image_fingerprint_version_v2);
+        hasher.putU16(self.function_index);
+        hasher.putU16(self.block_index);
+        hasher.putU16(self.next_instruction_index);
+        hasher.optionalU16(self.return_destination);
+        hasher.putU16(self.local_count);
+        if (self.last_return_image_bytes.len != 0) {
+            hasher.putU8(1);
+            hasher.putU8(@intFromEnum(self.last_return_ref.codec));
+            hasher.optionalU16(self.last_return_ref.schema_index);
+            hasher.bytes(self.last_return_image_bytes);
+        } else {
+            hasher.putU8(0);
+        }
+        hasher.putU8(if (self.last_condition) 1 else 0);
+        hasher.putU32(@intCast(self.local_images.len));
+        for (self.local_images) |local_image| hasher.putU64(local_image.fingerprint());
+        return hasher.finish();
+    }
+};
+
+pub const LoadedSessionContinuationImage = struct {
+    frame_images: []LoadedSessionFrameImage = &.{},
+    owns_frame_images: bool = false,
+
+    pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+        if (self.owns_frame_images) {
+            for (self.frame_images) |*frame_image| frame_image.deinit(allocator);
+            if (self.frame_images.len != 0) allocator.free(self.frame_images);
+        }
+        self.* = undefined;
+    }
+
+    pub fn fingerprint(self: @This()) u64 {
+        var hasher = StableHasher.init("boundary.loaded_session_continuation_image");
+        hasher.putU32(loaded_session_image_fingerprint_version_v2);
+        hasher.putU32(@intCast(self.frame_images.len));
+        for (self.frame_images) |frame_image| hasher.putU64(frame_image.fingerprint());
         return hasher.finish();
     }
 };
@@ -106,9 +246,13 @@ pub const LoadedSessionImage = struct {
     result_fingerprint: u64 = 0,
     failure: ?LoadedSessionFailure = null,
     dependency_fingerprint: u64 = 0,
+    allocation: LoadedSessionAllocationLedger = .{},
+    continuation: ?LoadedSessionContinuationImage = null,
+    entry_argument_images: []LoadedSessionLocalImage = &.{},
     owns_payload_image_bytes: bool = false,
     owns_result_image_bytes: bool = false,
     owns_failure_summary: bool = false,
+    owns_entry_argument_images: bool = false,
 
     pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
         if (self.owns_payload_image_bytes and self.payload_image_bytes.len != 0) allocator.free(self.payload_image_bytes);
@@ -116,12 +260,17 @@ pub const LoadedSessionImage = struct {
         if (self.owns_failure_summary) {
             if (self.failure) |failure| allocator.free(failure.diagnostic_summary);
         }
+        if (self.continuation) |*continuation| continuation.deinit(allocator);
+        if (self.owns_entry_argument_images) {
+            for (self.entry_argument_images) |*entry_argument_image| entry_argument_image.deinit(allocator);
+            if (self.entry_argument_images.len != 0) allocator.free(self.entry_argument_images);
+        }
         self.* = undefined;
     }
 
     pub fn computeFingerprint(self: @This()) u64 {
         var hasher = StableHasher.init("boundary.loaded_session_image");
-        hasher.putU32(loaded_session_image_fingerprint_version);
+        hasher.putU32(self.fingerprint_version);
         hasher.putU64(self.module_fingerprint);
         hasher.putU64(self.executable_plan_fingerprint);
         hasher.putU64(self.execution_profile_fingerprint);
@@ -132,7 +281,7 @@ pub const LoadedSessionImage = struct {
         hasher.putU8(@intFromEnum(self.status));
         if (self.pending_request) |pending_request| {
             hasher.putU8(1);
-            hasher.putU64(pending_request.fingerprint());
+            hasher.putU64(pending_request.fingerprintForVersion(self.format_version));
         } else {
             hasher.putU8(0);
         }
@@ -146,11 +295,26 @@ pub const LoadedSessionImage = struct {
             hasher.putU8(0);
         }
         hasher.putU64(self.dependency_fingerprint);
+        if (self.format_version == loaded_session_image_format_version_v2) {
+            hasher.putU64(self.allocation.fingerprint());
+            if (self.continuation) |continuation| {
+                hasher.putU8(1);
+                hasher.putU64(continuation.fingerprint());
+            } else {
+                hasher.putU8(0);
+            }
+            hasher.putU32(@intCast(self.entry_argument_images.len));
+            for (self.entry_argument_images) |entry_argument_image| hasher.putU64(entry_argument_image.fingerprint());
+        }
         return hasher.finish();
     }
 
     pub fn encode(self: @This(), allocator: std.mem.Allocator) ![]u8 {
-        try self.validateState();
+        return self.encodeWithLimits(allocator, .{});
+    }
+
+    pub fn encodeWithLimits(self: @This(), allocator: std.mem.Allocator, limits: Limits) ![]u8 {
+        try self.validateStateWithLimits(limits);
         if (self.failure) |failure| {
             if (failure.diagnostic_summary.len > max_session_diagnostic_summary_bytes) return error.InvalidValue;
         }
@@ -173,6 +337,7 @@ pub const LoadedSessionImage = struct {
             try writeU32(&out, allocator, pending_request.world_port_id);
             try encodeSessionValueRef(&out, allocator, pending_request.payload_ref);
             try encodeSessionValueRef(&out, allocator, pending_request.expected_response_ref);
+            if (self.format_version == loaded_session_image_format_version_v2) try out.append(allocator, @intFromEnum(pending_request.response_kind));
             try writeU64(&out, allocator, pending_request.canonical_request_fingerprint);
             try writeU64(&out, allocator, pending_request.deterministic_continuation_fingerprint);
             try writeU16(&out, allocator, pending_request.response_local);
@@ -195,12 +360,57 @@ pub const LoadedSessionImage = struct {
             try out.append(allocator, 0);
         }
         try writeU64(&out, allocator, self.dependency_fingerprint);
+        if (self.format_version == loaded_session_image_format_version_v2) {
+            try encodeAllocationLedger(&out, allocator, self.allocation);
+            if (self.continuation) |continuation| {
+                try out.append(allocator, 1);
+                if (continuation.frame_images.len > max_u32_len) return error.InvalidValue;
+                try writeU32(&out, allocator, @intCast(continuation.frame_images.len));
+                for (continuation.frame_images) |frame_image| {
+                    try writeU16(&out, allocator, frame_image.function_index);
+                    try writeU16(&out, allocator, frame_image.block_index);
+                    try writeU16(&out, allocator, frame_image.next_instruction_index);
+                    try encodeOptionalU16(&out, allocator, frame_image.return_destination);
+                    try writeU16(&out, allocator, frame_image.local_count);
+                    if (frame_image.last_return_image_bytes.len != 0) {
+                        try out.append(allocator, 1);
+                        try encodeSessionValueRef(&out, allocator, frame_image.last_return_ref);
+                        try writeBytes(&out, allocator, frame_image.last_return_image_bytes);
+                    } else {
+                        try out.append(allocator, 0);
+                    }
+                    try out.append(allocator, if (frame_image.last_condition) 1 else 0);
+                    if (frame_image.local_images.len > max_u32_len) return error.InvalidValue;
+                    try writeU32(&out, allocator, @intCast(frame_image.local_images.len));
+                    for (frame_image.local_images) |local_image| {
+                        try writeU16(&out, allocator, local_image.local_index);
+                        try encodeSessionValueRef(&out, allocator, local_image.value_ref);
+                        try writeBytes(&out, allocator, local_image.value_image_bytes);
+                    }
+                    try writeU64(&out, allocator, frame_image.frame_fingerprint);
+                }
+            } else {
+                try out.append(allocator, 0);
+            }
+            if (self.entry_argument_images.len > max_u32_len) return error.InvalidValue;
+            try writeU32(&out, allocator, @intCast(self.entry_argument_images.len));
+            for (self.entry_argument_images) |entry_argument_image| {
+                try writeU16(&out, allocator, entry_argument_image.local_index);
+                try encodeSessionValueRef(&out, allocator, entry_argument_image.value_ref);
+                try writeBytes(&out, allocator, entry_argument_image.value_image_bytes);
+            }
+        }
         try writeU64(&out, allocator, self.computeFingerprint());
         return out.toOwnedSlice(allocator);
     }
 
     pub fn decode(allocator: std.mem.Allocator, bytes: []const u8) !@This() {
+        return decodeWithLimits(allocator, bytes, .{});
+    }
+
+    pub fn decodeWithLimits(allocator: std.mem.Allocator, bytes: []const u8, limits: Limits) !@This() {
         var cursor = SessionCursor{ .bytes = bytes };
+        const max_owned_value_image_bytes = sessionOwnedValueImageByteLimit(limits);
         var image = LoadedSessionImage{
             .format_version = try cursor.readU32(),
             .fingerprint_version = try cursor.readU32(),
@@ -216,8 +426,7 @@ pub const LoadedSessionImage = struct {
             .status = try decodeSessionStatus(try cursor.readU8()),
         };
         errdefer image.deinit(allocator);
-        if (image.format_version != loaded_session_image_format_version) return error.UnsupportedVersion;
-        if (image.fingerprint_version != loaded_session_image_fingerprint_version) return error.UnsupportedVersion;
+        if (!supportedLoadedSessionImageVersion(image.format_version, image.fingerprint_version)) return error.UnsupportedVersion;
         const has_pending_request = switch (try cursor.readU8()) {
             0 => false,
             1 => true,
@@ -230,15 +439,16 @@ pub const LoadedSessionImage = struct {
                 .world_port_id = try cursor.readU32(),
                 .payload_ref = try cursor.readSessionValueRef(),
                 .expected_response_ref = try cursor.readSessionValueRef(),
+                .response_kind = if (image.format_version == loaded_session_image_format_version_v2) try decodeSessionResponseKind(try cursor.readU8()) else .@"resume",
                 .canonical_request_fingerprint = try cursor.readU64(),
                 .deterministic_continuation_fingerprint = try cursor.readU64(),
                 .response_local = try cursor.readU16(),
                 .result_local = try cursor.readU16(),
             };
         }
-        image.payload_image_bytes = try cursor.readOwnedBytes(allocator, std.math.maxInt(u32));
+        image.payload_image_bytes = try cursor.readOwnedBytes(allocator, max_owned_value_image_bytes);
         image.owns_payload_image_bytes = true;
-        image.result_image_bytes = try cursor.readOwnedBytes(allocator, std.math.maxInt(u32));
+        image.result_image_bytes = try cursor.readOwnedBytes(allocator, max_owned_value_image_bytes);
         image.owns_result_image_bytes = true;
         image.result_fingerprint = try cursor.readU64();
         const has_failure = switch (try cursor.readU8()) {
@@ -264,35 +474,322 @@ pub const LoadedSessionImage = struct {
             image.owns_failure_summary = true;
         }
         image.dependency_fingerprint = try cursor.readU64();
+        if (image.format_version == loaded_session_image_format_version_v2) {
+            image.allocation = try cursor.readAllocationLedger();
+            const has_continuation = switch (try cursor.readU8()) {
+                0 => false,
+                1 => true,
+                else => return error.MalformedSessionImage,
+            };
+            if (has_continuation) {
+                const frame_image_count = try cursor.readU32();
+                if (frame_image_count > max_plan_table_count) return error.MalformedSessionImage;
+                const frame_images = try allocator.alloc(LoadedSessionFrameImage, frame_image_count);
+                var initialized_frame_images: usize = 0;
+                errdefer {
+                    for (frame_images[0..initialized_frame_images]) |*frame_image| frame_image.deinit(allocator);
+                    allocator.free(frame_images);
+                }
+                @memset(frame_images, .{ .function_index = 0, .block_index = 0, .next_instruction_index = 0, .local_count = 0 });
+                for (frame_images) |*frame_image| {
+                    var frame_image_transferred = false;
+                    errdefer if (!frame_image_transferred) frame_image.deinit(allocator);
+                    frame_image.* = .{
+                        .function_index = try cursor.readU16(),
+                        .block_index = try cursor.readU16(),
+                        .next_instruction_index = try cursor.readU16(),
+                        .return_destination = try cursor.readOptionalU16(),
+                        .local_count = try cursor.readU16(),
+                        .last_return_ref = .{ .codec = .unit },
+                        .last_return_image_bytes = &.{},
+                    };
+                    const has_last_return = switch (try cursor.readU8()) {
+                        0 => false,
+                        1 => true,
+                        else => return error.MalformedSessionImage,
+                    };
+                    if (has_last_return) {
+                        frame_image.last_return_ref = try cursor.readSessionValueRef();
+                        frame_image.last_return_image_bytes = try cursor.readOwnedBytes(allocator, max_owned_value_image_bytes);
+                        frame_image.owns_last_return_image_bytes = true;
+                    }
+                    frame_image.last_condition = switch (try cursor.readU8()) {
+                        0 => false,
+                        1 => true,
+                        else => return error.MalformedSessionImage,
+                    };
+                    const local_image_count = try cursor.readU32();
+                    if (local_image_count > max_plan_table_count) return error.MalformedSessionImage;
+                    const local_images = try allocator.alloc(LoadedSessionLocalImage, local_image_count);
+                    var initialized_local_images: usize = 0;
+                    var local_images_transferred = false;
+                    errdefer if (!local_images_transferred) {
+                        for (local_images[0..initialized_local_images]) |*local_image| local_image.deinit(allocator);
+                        allocator.free(local_images);
+                    };
+                    @memset(local_images, .{ .local_index = 0, .value_ref = .{ .codec = .unit } });
+                    for (local_images) |*local_image| {
+                        local_image.* = .{
+                            .local_index = try cursor.readU16(),
+                            .value_ref = try cursor.readSessionValueRef(),
+                            .value_image_bytes = try cursor.readOwnedBytes(allocator, max_owned_value_image_bytes),
+                            .owns_value_image_bytes = true,
+                        };
+                        initialized_local_images += 1;
+                    }
+                    frame_image.local_images = local_images;
+                    frame_image.owns_local_images = true;
+                    local_images_transferred = true;
+                    frame_image.frame_fingerprint = try cursor.readU64();
+                    if (frame_image.frame_fingerprint != frame_image.fingerprint()) return error.MalformedSessionImage;
+                    initialized_frame_images += 1;
+                    frame_image_transferred = true;
+                }
+                image.continuation = .{
+                    .frame_images = frame_images,
+                    .owns_frame_images = true,
+                };
+            }
+            const entry_argument_image_count = try cursor.readU32();
+            if (entry_argument_image_count > max_plan_table_count) return error.MalformedSessionImage;
+            const entry_argument_images = try allocator.alloc(LoadedSessionLocalImage, entry_argument_image_count);
+            var initialized_entry_argument_images: usize = 0;
+            errdefer {
+                for (entry_argument_images[0..initialized_entry_argument_images]) |*entry_argument_image| entry_argument_image.deinit(allocator);
+                allocator.free(entry_argument_images);
+            }
+            @memset(entry_argument_images, .{ .local_index = 0, .value_ref = .{ .codec = .unit } });
+            for (entry_argument_images) |*entry_argument_image| {
+                entry_argument_image.* = .{
+                    .local_index = try cursor.readU16(),
+                    .value_ref = try cursor.readSessionValueRef(),
+                    .value_image_bytes = try cursor.readOwnedBytes(allocator, max_owned_value_image_bytes),
+                    .owns_value_image_bytes = true,
+                };
+                initialized_entry_argument_images += 1;
+            }
+            image.entry_argument_images = entry_argument_images;
+            image.owns_entry_argument_images = true;
+        }
         const expected_fingerprint = try cursor.readU64();
         if (cursor.remaining() != 0) return error.TrailingBytes;
-        try image.validateState();
+        try image.validateStateWithLimits(limits);
         if (expected_fingerprint != image.computeFingerprint()) return error.FingerprintMismatch;
         return image;
     }
 
     fn validateState(self: @This()) !void {
+        try self.validateStateWithLimits(.{});
+    }
+
+    fn validateStateWithLimits(self: @This(), limits: Limits) !void {
+        if (!supportedLoadedSessionImageVersion(self.format_version, self.fingerprint_version)) return error.MalformedSessionImage;
+        validateSessionImageTableCounts(self) catch return error.MalformedSessionImage;
+        validateSessionOwnedValueImageBytes(self, sessionOwnedValueImageByteLimit(limits)) catch return error.MalformedSessionImage;
         if (self.status == .failed and self.failure == null) return error.MalformedSessionImage;
         if (self.status != .failed and self.failure != null) return error.MalformedSessionImage;
         if (self.status == .request and self.pending_request == null) return error.MalformedSessionImage;
         if (self.status != .request and self.pending_request != null) return error.MalformedSessionImage;
         if (self.status == .request and self.payload_image_bytes.len == 0) return error.MalformedSessionImage;
         if (self.status != .request and self.payload_image_bytes.len != 0) return error.MalformedSessionImage;
+        if (self.pending_request) |pending_request| {
+            if (pending_request.residual_site_index >= max_plan_table_count) return error.MalformedSessionImage;
+            if (pending_request.response_kind != .@"resume") return error.MalformedSessionImage;
+        }
+        if (self.payload_image_bytes.len != 0) {
+            const payload_evidence = loadedValueImageEvidence(self.payload_image_bytes) catch return error.MalformedSessionImage;
+            if (self.pending_request) |pending_request| {
+                if (!payload_evidence.value_ref.eql(pending_request.payload_ref)) return error.MalformedSessionImage;
+            }
+        }
         if (self.status != .completed and self.result_image_bytes.len != 0) return error.MalformedSessionImage;
         if (self.status != .completed and self.result_fingerprint != 0) return error.MalformedSessionImage;
         if (self.status == .completed and self.result_image_bytes.len == 0 and self.result_fingerprint != 0) return error.MalformedSessionImage;
         if (self.status == .completed and self.result_image_bytes.len != 0 and self.result_fingerprint == 0) return error.MalformedSessionImage;
+        if (self.result_image_bytes.len != 0) {
+            const result_evidence = loadedValueImageEvidence(self.result_image_bytes) catch return error.MalformedSessionImage;
+            if (self.result_fingerprint != result_evidence.value_fingerprint) return error.MalformedSessionImage;
+        }
+        if (self.session_fingerprint != loadedSessionFingerprintForVersion(self.fingerprint_version, self.module_fingerprint, self.executable_plan_fingerprint, self.execution_profile_fingerprint, self.entry_function)) return error.MalformedSessionImage;
+        if (self.status == .initial) {
+            if (self.budget.advancements != 0 or self.budget.instructions_consumed != 0) return error.MalformedSessionImage;
+        } else if (self.budget.advancements == 0) {
+            return error.MalformedSessionImage;
+        }
+        if (self.failure) |failure| {
+            if (failure.diagnostic_summary.len == 0) return error.MalformedSessionImage;
+            if (failure.diagnostic_summary.len > max_session_diagnostic_summary_bytes) return error.MalformedSessionImage;
+            if (failure.kind == .declared_error) {
+                if (failure.declared_error_ref != loadedDeclaredErrorRef(failure.diagnostic_summary)) return error.MalformedSessionImage;
+            } else if (failure.declared_error_ref != null) {
+                return error.MalformedSessionImage;
+            }
+        }
+        if (self.format_version == loaded_session_image_format_version_v1) {
+            if (self.continuation != null) return error.MalformedSessionImage;
+            if (!self.allocation.eql(.{})) return error.MalformedSessionImage;
+        }
+        if (self.format_version == loaded_session_image_format_version_v2 and self.fingerprint_version != loaded_session_image_fingerprint_version_v2) return error.MalformedSessionImage;
+        if (self.format_version == loaded_session_image_format_version_v2 and self.status == .request and self.continuation == null) return error.MalformedSessionImage;
+        if (self.continuation != null and self.status != .request) return error.MalformedSessionImage;
+        if (self.format_version == loaded_session_image_format_version_v2) {
+            if (!self.allocation.eql(try self.computeAllocationLedger())) return error.MalformedSessionImage;
+            if (self.continuation) |continuation| {
+                if (continuation.frame_images.len == 0) return error.MalformedSessionImage;
+                if (self.pending_request) |pending_request| {
+                    if (pending_request.result_local != std.math.maxInt(u16)) return error.MalformedSessionImage;
+                    if (pending_request.deterministic_continuation_fingerprint != continuation.fingerprint()) return error.MalformedSessionImage;
+                    const active_frame = continuation.frame_images[continuation.frame_images.len - 1];
+                    if (pending_request.expected_response_ref.codec == .unit and pending_request.expected_response_ref.schema_index == null) {
+                        if (pending_request.response_local != std.math.maxInt(u16) and pending_request.response_local >= active_frame.local_count) return error.MalformedSessionImage;
+                    } else if (pending_request.response_local >= active_frame.local_count) {
+                        return error.MalformedSessionImage;
+                    }
+                }
+                for (continuation.frame_images) |frame_image| {
+                    if (frame_image.last_return_image_bytes.len == 0 and (frame_image.last_return_ref.codec != .unit or frame_image.last_return_ref.schema_index != null)) return error.MalformedSessionImage;
+                    if (frame_image.last_return_image_bytes.len != 0) {
+                        const last_return_evidence = loadedValueImageEvidence(frame_image.last_return_image_bytes) catch return error.MalformedSessionImage;
+                        if (!last_return_evidence.value_ref.eql(frame_image.last_return_ref)) return error.MalformedSessionImage;
+                    }
+                    var prior_local_index: ?u16 = null;
+                    for (frame_image.local_images) |local_image| {
+                        if (local_image.value_image_bytes.len == 0) return error.MalformedSessionImage;
+                        const local_evidence = loadedValueImageEvidence(local_image.value_image_bytes) catch return error.MalformedSessionImage;
+                        if (!local_evidence.value_ref.eql(local_image.value_ref)) return error.MalformedSessionImage;
+                        if (local_image.local_index >= frame_image.local_count) return error.MalformedSessionImage;
+                        if (prior_local_index) |prior| {
+                            if (local_image.local_index <= prior) return error.MalformedSessionImage;
+                        }
+                        prior_local_index = local_image.local_index;
+                    }
+                    if (frame_image.frame_fingerprint != frame_image.fingerprint()) return error.MalformedSessionImage;
+                }
+            }
+        }
+        if (self.format_version == loaded_session_image_format_version_v1 and self.entry_argument_images.len != 0) return error.MalformedSessionImage;
+        if (self.entry_argument_images.len != 0 and self.status != .initial) return error.MalformedSessionImage;
+        for (self.entry_argument_images, 0..) |entry_argument_image, index| {
+            if (entry_argument_image.value_image_bytes.len == 0) return error.MalformedSessionImage;
+            const entry_argument_evidence = loadedValueImageEvidence(entry_argument_image.value_image_bytes) catch return error.MalformedSessionImage;
+            if (!entry_argument_evidence.value_ref.eql(entry_argument_image.value_ref)) return error.MalformedSessionImage;
+            if (index > std.math.maxInt(u16)) return error.MalformedSessionImage;
+            if (entry_argument_image.local_index != @as(u16, @intCast(index))) return error.MalformedSessionImage;
+        }
+    }
+
+    pub fn computeAllocationLedger(self: @This()) !LoadedSessionAllocationLedger {
+        var ledger = LoadedSessionAllocationLedger{
+            .payload_image_bytes = @intCast(self.payload_image_bytes.len),
+            .result_image_bytes = @intCast(self.result_image_bytes.len),
+        };
+        for (self.entry_argument_images) |entry_argument_image| {
+            try addLedgerBytes(&ledger.entry_argument_image_bytes, entry_argument_image.value_image_bytes.len);
+            try addLedgerCount(&ledger.stored_local_image_count, 1);
+        }
+        if (self.continuation) |continuation| {
+            if (continuation.frame_images.len > std.math.maxInt(u32)) return error.MalformedSessionImage;
+            ledger.frame_count = @intCast(continuation.frame_images.len);
+            for (continuation.frame_images) |frame_image| {
+                try addLedgerCount(&ledger.local_slot_count, frame_image.local_count);
+                try addLedgerBytes(&ledger.continuation_value_image_bytes, frame_image.last_return_image_bytes.len);
+                for (frame_image.local_images) |local_image| {
+                    try addLedgerCount(&ledger.stored_local_image_count, 1);
+                    try addLedgerBytes(&ledger.continuation_value_image_bytes, local_image.value_image_bytes.len);
+                }
+            }
+        }
+        return ledger;
     }
 };
 
+fn validateSessionImageTableCounts(image: LoadedSessionImage) !void {
+    if (image.entry_argument_images.len > max_plan_table_count) return error.InvalidValue;
+    if (image.continuation) |continuation| {
+        if (continuation.frame_images.len > max_plan_table_count) return error.InvalidValue;
+        for (continuation.frame_images) |frame_image| {
+            if (frame_image.local_images.len > max_plan_table_count) return error.InvalidValue;
+        }
+    }
+}
+
+fn addLedgerBytes(accumulator: *u64, amount: usize) !void {
+    accumulator.* = std.math.add(u64, accumulator.*, @intCast(amount)) catch return error.MalformedSessionImage;
+}
+
+fn addLedgerCount(accumulator: *u32, amount: u32) !void {
+    accumulator.* = std.math.add(u32, accumulator.*, amount) catch return error.MalformedSessionImage;
+}
+
+fn validateSessionOwnedValueImageBytes(image: LoadedSessionImage, max_owned_value_image_bytes: u32) !void {
+    if (image.payload_image_bytes.len > max_owned_value_image_bytes) return error.InvalidValue;
+    if (image.result_image_bytes.len > max_owned_value_image_bytes) return error.InvalidValue;
+    if (image.continuation) |continuation| {
+        for (continuation.frame_images) |frame_image| {
+            if (frame_image.last_return_image_bytes.len > max_owned_value_image_bytes) return error.InvalidValue;
+            for (frame_image.local_images) |local_image| {
+                if (local_image.value_image_bytes.len > max_owned_value_image_bytes) return error.InvalidValue;
+            }
+        }
+    }
+    for (image.entry_argument_images) |entry_argument_image| {
+        if (entry_argument_image.value_image_bytes.len > max_owned_value_image_bytes) return error.InvalidValue;
+    }
+}
+
+fn sessionOwnedValueImageByteLimit(limits: Limits) u32 {
+    var total: u64 = limits.maximum_owned_value_bytes;
+    total = std.math.add(u64, total, 64) catch return max_u32_len;
+    total = std.math.add(u64, total, std.math.mul(u64, limits.maximum_aggregate_elements, 4) catch return max_u32_len) catch return max_u32_len;
+    const nesting_depth = std.math.add(u64, limits.maximum_value_nesting_depth, 1) catch return max_u32_len;
+    total = std.math.add(u64, total, std.math.mul(u64, nesting_depth, 8) catch return max_u32_len) catch return max_u32_len;
+    return if (total > max_u32_len) max_u32_len else @intCast(total);
+}
+
+fn supportedLoadedSessionImageVersion(format_version: u32, fingerprint_version: u32) bool {
+    return (format_version == loaded_session_image_format_version_v1 and fingerprint_version == loaded_session_image_fingerprint_version_v1) or
+        (format_version == loaded_session_image_format_version_v2 and fingerprint_version == loaded_session_image_fingerprint_version_v2);
+}
+
 pub fn loadedSessionFingerprint(module_fingerprint: u64, executable_plan_fingerprint: u64, execution_profile_fingerprint: u64, entry_function: u16) u64 {
+    return loadedSessionFingerprintForVersion(loaded_session_image_fingerprint_version_v1, module_fingerprint, executable_plan_fingerprint, execution_profile_fingerprint, entry_function);
+}
+
+pub fn loadedSessionFingerprintForVersion(fingerprint_version: u32, module_fingerprint: u64, executable_plan_fingerprint: u64, execution_profile_fingerprint: u64, entry_function: u16) u64 {
     var hasher = StableHasher.init("boundary.loaded_session");
-    hasher.putU32(loaded_session_image_fingerprint_version);
+    hasher.putU32(fingerprint_version);
     hasher.putU64(module_fingerprint);
     hasher.putU64(executable_plan_fingerprint);
     hasher.putU64(execution_profile_fingerprint);
     hasher.putU16(entry_function);
     return hasher.finish();
+}
+
+pub fn loadedDeclaredErrorRef(literal: []const u8) u64 {
+    var hasher = std.hash.Wyhash.init(0);
+    evidenceFingerprintWriteBytes(&hasher, "domain.name", "boundary.evidence.target.module.loaded_session");
+    evidenceFingerprintWriteU32(&hasher, "domain.fingerprint_version", loaded_session_image_fingerprint_version_v1);
+    evidenceFingerprintWriteBytes(&hasher, "declared_error", literal);
+    return hasher.final();
+}
+
+fn evidenceFingerprintWriteBytes(hasher: *std.hash.Wyhash, label: []const u8, value: []const u8) void {
+    evidenceFingerprintRawBytes(hasher, label);
+    evidenceFingerprintRawBytes(hasher, value);
+}
+
+fn evidenceFingerprintWriteU32(hasher: *std.hash.Wyhash, label: []const u8, value: u32) void {
+    evidenceFingerprintRawBytes(hasher, label);
+    var raw: [4]u8 = undefined;
+    std.mem.writeInt(u32, &raw, value, .little);
+    hasher.update(&raw);
+}
+
+fn evidenceFingerprintRawBytes(hasher: *std.hash.Wyhash, bytes: []const u8) void {
+    var len: [8]u8 = undefined;
+    std.mem.writeInt(u64, &len, bytes.len, .little);
+    hasher.update(&len);
+    hasher.update(bytes);
 }
 
 pub const ArithmeticSemantics = enum(u8) {
@@ -351,7 +848,10 @@ pub const InstructionFeatureSet = packed struct(u64) {
     make_sum: bool = false,
     match_sum_variant: bool = false,
     get_sum_payload: bool = false,
-    _reserved: u47 = 0,
+    add_const_i32: bool = false,
+    add_i32: bool = false,
+    sub_one: bool = false,
+    _reserved: u44 = 0,
 };
 
 pub const TerminatorFeatureSet = packed struct(u64) {
@@ -403,12 +903,34 @@ pub const LoadedExecutionProfile = struct {
         .make_product = true,
         .make_sum = true,
     };
+    pub const portable_v2_instruction_kinds = InstructionFeatureSet{
+        .@"const" = true,
+        .copy_local = true,
+        .call_op = true,
+        .call_helper = true,
+        .compare = true,
+        .add_const_i32 = true,
+        .add_i32 = true,
+        .sub_one = true,
+        .return_value = true,
+        .return_error = true,
+        .const_i32 = true,
+        .const_usize = true,
+        .const_bool = true,
+        .const_string = true,
+        .get_product_field = true,
+        .make_product = true,
+        .make_sum = true,
+        .match_sum_variant = true,
+        .get_sum_payload = true,
+    };
     pub const portable_v1_terminator_kinds = TerminatorFeatureSet{
         .return_unit = true,
         .return_value = true,
         .branch = true,
         .branch_if = true,
     };
+    pub const portable_v2_terminator_kinds = portable_v1_terminator_kinds;
     pub const portable_v1_value_codecs = ValueCodecFeatureSet{
         .unit = true,
         .bool = true,
@@ -419,14 +941,25 @@ pub const LoadedExecutionProfile = struct {
         .product = true,
         .sum = true,
     };
+    pub const portable_v2_value_codecs = portable_v1_value_codecs;
 
     pub fn portableV1() @This() {
         return .{};
     }
 
+    pub fn portableV2() @This() {
+        return .{
+            .format_version = loaded_execution_profile_format_version_v2,
+            .fingerprint_version = loaded_execution_profile_fingerprint_version_v2,
+            .instruction_kinds = portable_v2_instruction_kinds,
+            .terminator_kinds = portable_v2_terminator_kinds,
+            .value_codecs = portable_v2_value_codecs,
+        };
+    }
+
     pub fn compatibleWith(self: @This(), required: @This()) bool {
-        if (required.format_version != loaded_execution_profile_format_version) return false;
-        if (required.fingerprint_version != loaded_execution_profile_fingerprint_version) return false;
+        if (!supportedProfileVersion(required.format_version, self.format_version)) return false;
+        if (!supportedProfileVersion(required.fingerprint_version, self.fingerprint_version)) return false;
         if (!instructionSubset(required.instruction_kinds, self.instruction_kinds)) return false;
         if (!terminatorSubset(required.terminator_kinds, self.terminator_kinds)) return false;
         if (!codecSubset(required.value_codecs, self.value_codecs)) return false;
@@ -478,7 +1011,7 @@ pub const LoadedExecutionProfile = struct {
 
     pub fn computeFingerprint(self: @This()) u64 {
         var hasher = StableHasher.init("boundary.loaded_execution_profile");
-        hasher.putU32(loaded_execution_profile_fingerprint_version);
+        hasher.putU32(self.fingerprint_version);
         hasher.putU32(self.format_version);
         hasher.putU32(self.fingerprint_version);
         hasher.putU64(@as(u64, @bitCast(self.instruction_kinds)));
@@ -501,6 +1034,12 @@ pub const LoadedExecutionProfile = struct {
         return hasher.finish();
     }
 };
+
+fn supportedProfileVersion(required: u32, supported: u32) bool {
+    return (required == loaded_execution_profile_format_version_v1 or required == loaded_execution_profile_format_version_v2) and
+        (supported == loaded_execution_profile_format_version_v1 or supported == loaded_execution_profile_format_version_v2) and
+        supported >= required;
+}
 
 pub const DecodedExecutablePlan = struct {
     arena: std.heap.ArenaAllocator,
@@ -983,15 +1522,31 @@ pub fn decodeLoadedValueImage(
     return value;
 }
 
-pub fn loadedValueImageFingerprint(bytes: []const u8) LoadedValueError!u64 {
+const LoadedValueImageEvidence = struct {
+    value_ref: LoadedValueRef,
+    value_fingerprint: u64,
+};
+
+fn loadedValueImageEvidence(bytes: []const u8) LoadedValueError!LoadedValueImageEvidence {
     var cursor = Cursor{ .bytes = bytes };
     const format_version = try cursor.readU32();
     if (format_version != loaded_value_image_format_version) return error.UnsupportedVersion;
     const fingerprint_version = try cursor.readU32();
     if (fingerprint_version != loaded_value_image_fingerprint_version) return error.UnsupportedVersion;
-    _ = try cursor.readU64();
-    _ = try decodeValueRef(&cursor);
-    return try cursor.readU64();
+    const schema_fingerprint = try cursor.readU64();
+    const image_ref = try decodeValueRef(&cursor);
+    const value_fingerprint = try cursor.readU64();
+    const body_bytes = try cursor.readBoundedBytes(max_u32_len);
+    if (cursor.remaining() != 0) return error.TrailingBytes;
+    if (value_fingerprint != fingerprintImage(schema_fingerprint, image_ref, body_bytes)) return error.FingerprintMismatch;
+    return .{
+        .value_ref = image_ref,
+        .value_fingerprint = value_fingerprint,
+    };
+}
+
+pub fn loadedValueImageFingerprint(bytes: []const u8) LoadedValueError!u64 {
+    return (try loadedValueImageEvidence(bytes)).value_fingerprint;
 }
 
 const ValueLedger = struct {
@@ -1179,6 +1734,7 @@ fn decodeValueRef(cursor: *Cursor) LoadedValueError!LoadedValueRef {
         else => return error.MalformedValueImage,
     };
     const schema_index = try cursor.readU16();
+    if (!has_schema and schema_index != 0) return error.MalformedValueImage;
     return .{ .codec = codec, .schema_index = if (has_schema) schema_index else null };
 }
 
@@ -1202,6 +1758,13 @@ fn valueCodecFromTag(tag: u8) ?plan.ValueCodec {
 
 fn decodeSessionStatus(tag: u8) !LoadedSessionStatus {
     inline for (@typeInfo(LoadedSessionStatus).@"enum".fields) |field| {
+        if (field.value == tag) return @enumFromInt(field.value);
+    }
+    return error.MalformedSessionImage;
+}
+
+fn decodeSessionResponseKind(tag: u8) !LoadedSessionResponseKind {
+    inline for (@typeInfo(LoadedSessionResponseKind).@"enum".fields) |field| {
         if (field.value == tag) return @enumFromInt(field.value);
     }
     return error.MalformedSessionImage;
@@ -1301,6 +1864,14 @@ const SessionCursor = struct {
         };
     }
 
+    fn readOptionalU16(self: *@This()) !?u16 {
+        return switch (try self.readU8()) {
+            0 => null,
+            1 => try self.readU16(),
+            else => error.MalformedSessionImage,
+        };
+    }
+
     fn readSessionValueRef(self: *@This()) !LoadedValueRef {
         const tag = try self.readU8();
         const codec = valueCodecFromTag(tag) orelse return error.UnsupportedCodec;
@@ -1310,7 +1881,20 @@ const SessionCursor = struct {
             else => return error.MalformedSessionImage,
         };
         const schema_index = try self.readU16();
+        if (!has_schema and schema_index != 0) return error.MalformedSessionImage;
         return .{ .codec = codec, .schema_index = if (has_schema) schema_index else null };
+    }
+
+    fn readAllocationLedger(self: *@This()) !LoadedSessionAllocationLedger {
+        return .{
+            .payload_image_bytes = try self.readU64(),
+            .result_image_bytes = try self.readU64(),
+            .entry_argument_image_bytes = try self.readU64(),
+            .continuation_value_image_bytes = try self.readU64(),
+            .frame_count = try self.readU32(),
+            .local_slot_count = try self.readU32(),
+            .stored_local_image_count = try self.readU32(),
+        };
     }
 
     fn readOwnedBytes(self: *@This(), allocator: std.mem.Allocator, limit: u32) ![]const u8 {
@@ -1535,10 +2119,29 @@ fn writeU64(out: *std.ArrayList(u8), allocator: std.mem.Allocator, value: u64) !
     try out.appendSlice(allocator, &bytes);
 }
 
+fn encodeAllocationLedger(out: *std.ArrayList(u8), allocator: std.mem.Allocator, ledger: LoadedSessionAllocationLedger) !void {
+    try writeU64(out, allocator, ledger.payload_image_bytes);
+    try writeU64(out, allocator, ledger.result_image_bytes);
+    try writeU64(out, allocator, ledger.entry_argument_image_bytes);
+    try writeU64(out, allocator, ledger.continuation_value_image_bytes);
+    try writeU32(out, allocator, ledger.frame_count);
+    try writeU32(out, allocator, ledger.local_slot_count);
+    try writeU32(out, allocator, ledger.stored_local_image_count);
+}
+
 fn encodeOptionalU64(out: *std.ArrayList(u8), allocator: std.mem.Allocator, value: ?u64) !void {
     if (value) |actual| {
         try out.append(allocator, 1);
         try writeU64(out, allocator, actual);
+    } else {
+        try out.append(allocator, 0);
+    }
+}
+
+fn encodeOptionalU16(out: *std.ArrayList(u8), allocator: std.mem.Allocator, value: ?u16) !void {
+    if (value) |actual| {
+        try out.append(allocator, 1);
+        try writeU16(out, allocator, actual);
     } else {
         try out.append(allocator, 0);
     }
@@ -1558,6 +2161,99 @@ test "loaded execution profile v1 compatibility is explicit and bounded" {
     try std.testing.expect(!supported.compatibleWith(required));
 }
 
+test "loaded execution profile v2 is versioned and extends v1" {
+    const v1 = LoadedExecutionProfile.portableV1();
+    const v2 = LoadedExecutionProfile.portableV2();
+
+    try std.testing.expectEqual(loaded_execution_profile_format_version_v1, v1.format_version);
+    try std.testing.expectEqual(loaded_execution_profile_fingerprint_version_v1, v1.fingerprint_version);
+    try std.testing.expectEqual(loaded_execution_profile_format_version_v2, v2.format_version);
+    try std.testing.expectEqual(loaded_execution_profile_fingerprint_version_v2, v2.fingerprint_version);
+    try std.testing.expectEqual(loaded_execution_profile_format_version_v2, boundary_loaded_execution_profile_version);
+    try std.testing.expect(v2.compatibleWith(v1));
+    try std.testing.expect(!v1.compatibleWith(v2));
+    try std.testing.expect(v2.computeFingerprint() != v1.computeFingerprint());
+    try std.testing.expectEqual(
+        testLoadedExecutionProfileFingerprintWithDomain(v2, loaded_execution_profile_fingerprint_version_v2),
+        v2.computeFingerprint(),
+    );
+    try std.testing.expect(v2.computeFingerprint() != testLoadedExecutionProfileFingerprintWithDomain(v2, loaded_execution_profile_fingerprint_version_v1));
+    try std.testing.expect(!v1.instruction_kinds.add_i32);
+    try std.testing.expect(v2.instruction_kinds.add_i32);
+    try std.testing.expect(v2.instruction_kinds.add_const_i32);
+    try std.testing.expect(v2.instruction_kinds.sub_one);
+}
+
+fn testLoadedExecutionProfileFingerprintWithDomain(profile: LoadedExecutionProfile, fingerprint_version: u32) u64 {
+    var hasher = StableHasher.init("boundary.loaded_execution_profile");
+    hasher.putU32(fingerprint_version);
+    hasher.putU32(profile.format_version);
+    hasher.putU32(profile.fingerprint_version);
+    hasher.putU64(@as(u64, @bitCast(profile.instruction_kinds)));
+    hasher.putU64(@as(u64, @bitCast(profile.terminator_kinds)));
+    hasher.putU16(@as(u16, @bitCast(profile.value_codecs)));
+    hasher.putU8(@intFromEnum(profile.arithmetic_semantics));
+    hasher.putU8(@intFromEnum(profile.integer_width_semantics));
+    hasher.putU32(profile.limits.maximum_call_depth);
+    hasher.putU32(profile.limits.maximum_value_nesting_depth);
+    hasher.putU32(profile.limits.maximum_locals_per_frame);
+    hasher.putU32(profile.limits.maximum_frames);
+    hasher.putU32(profile.limits.maximum_instructions_per_advancement);
+    hasher.putU32(profile.limits.maximum_owned_value_bytes);
+    hasher.putU32(profile.limits.maximum_string_bytes);
+    hasher.putU32(profile.limits.maximum_aggregate_elements);
+    hasher.putU8(@intFromEnum(profile.recursion_policy));
+    hasher.putU8(@intFromEnum(profile.host_intrinsic_policy));
+    hasher.putU8(@intFromEnum(profile.nested_module_call_policy));
+    hasher.putU8(@intFromEnum(profile.error_table_policy));
+    return hasher.finish();
+}
+
+test "loaded session fingerprint uses image fingerprint version domain" {
+    const profile = LoadedExecutionProfile.portableV2();
+    const profile_fingerprint = profile.computeFingerprint();
+    const v1_session_fingerprint = loadedSessionFingerprint(11, 22, profile_fingerprint, 0);
+    const v2_session_fingerprint = loadedSessionFingerprintForVersion(loaded_session_image_fingerprint_version_v2, 11, 22, profile_fingerprint, 0);
+
+    try std.testing.expectEqual(loadedSessionFingerprintForVersion(loaded_session_image_fingerprint_version_v1, 11, 22, profile_fingerprint, 0), v1_session_fingerprint);
+    try std.testing.expect(v2_session_fingerprint != v1_session_fingerprint);
+
+    var v2_image = LoadedSessionImage{
+        .format_version = loaded_session_image_format_version_v2,
+        .fingerprint_version = loaded_session_image_fingerprint_version_v2,
+        .module_fingerprint = 11,
+        .executable_plan_fingerprint = 22,
+        .execution_profile_fingerprint = profile_fingerprint,
+        .session_fingerprint = v2_session_fingerprint,
+        .entry_function = 0,
+        .status = .initial,
+        .dependency_fingerprint = 44,
+    };
+    v2_image.allocation = try v2_image.computeAllocationLedger();
+    try v2_image.validateState();
+
+    v2_image.session_fingerprint = v1_session_fingerprint;
+    try std.testing.expectError(error.MalformedSessionImage, v2_image.validateState());
+}
+
+fn testLoadedSessionFingerprintV2(module_fingerprint: u64, executable_plan_fingerprint: u64, execution_profile_fingerprint: u64, entry_function: u16) u64 {
+    return loadedSessionFingerprintForVersion(loaded_session_image_fingerprint_version_v2, module_fingerprint, executable_plan_fingerprint, execution_profile_fingerprint, entry_function);
+}
+
+test "loaded execution profile v2 arithmetic support is explicit" {
+    const supported = LoadedExecutionProfile.portableV2();
+    var required = LoadedExecutionProfile.portableV2();
+    try std.testing.expect(supported.compatibleWith(required));
+
+    var add_disabled = supported;
+    add_disabled.instruction_kinds.add_i32 = false;
+    try std.testing.expect(!add_disabled.compatibleWith(required));
+
+    required = LoadedExecutionProfile.portableV2();
+    required.instruction_kinds.call_nested_with = true;
+    try std.testing.expect(!supported.compatibleWith(required));
+}
+
 test "loaded value image roundtrips canonical scalar values" {
     const allocator = std.testing.allocator;
     const schemas = SchemaSet{};
@@ -1570,6 +2266,29 @@ test "loaded value image roundtrips canonical scalar values" {
     defer arena.deinit();
     const decoded = try decodeLoadedValueImage(allocator, &arena, schemas, .{ .codec = .usize }, encoded, limits);
     try std.testing.expectEqual(@as(u64, 0x1_0000_0000), decoded.word_u64);
+}
+
+test "loaded value image rejects noncanonical absent schema ref bytes" {
+    const allocator = std.testing.allocator;
+    const schemas = SchemaSet{};
+    const encoded = try encodeLoadedValueImageBytes(allocator, schemas, .{ .codec = .bool }, .{ .boolean = true }, .{});
+    defer allocator.free(encoded);
+
+    const forged = try allocator.dupe(u8, encoded);
+    defer allocator.free(forged);
+    const value_ref_schema_index_offset = 18;
+    forged[value_ref_schema_index_offset] = 1;
+
+    var arena = LoadedValueArena.init(allocator);
+    defer arena.deinit();
+    try std.testing.expectError(error.MalformedValueImage, decodeLoadedValueImage(
+        allocator,
+        &arena,
+        schemas,
+        .{ .codec = .bool },
+        forged,
+        .{},
+    ));
 }
 
 test "loaded value image validates product and sum schemas" {
@@ -1642,6 +2361,17 @@ test "loaded value image rejects trailing bytes and schema drift" {
         encoded,
         .{},
     ));
+
+    const extended_for_fingerprint = try allocator.alloc(u8, encoded.len + 1);
+    defer allocator.free(extended_for_fingerprint);
+    @memcpy(extended_for_fingerprint[0..encoded.len], encoded);
+    extended_for_fingerprint[encoded.len] = 0xff;
+    try std.testing.expectError(error.TrailingBytes, loadedValueImageFingerprint(extended_for_fingerprint));
+
+    const forged_body = try allocator.dupe(u8, encoded);
+    defer allocator.free(forged_body);
+    forged_body[forged_body.len - 1] ^= 0x1;
+    try std.testing.expectError(error.FingerprintMismatch, loadedValueImageFingerprint(forged_body));
 }
 
 test "loaded session image roundtrips failure state and rejects trailing bytes" {
@@ -1685,6 +2415,1298 @@ test "loaded session image roundtrips failure state and rejects trailing bytes" 
     try std.testing.expectError(error.MalformedSessionImage, forged_payload_image.validateState());
 }
 
+test "loaded session image rejects failed state without diagnostic summary" {
+    const profile = LoadedExecutionProfile.portableV1();
+    const profile_fingerprint = profile.computeFingerprint();
+    const image = LoadedSessionImage{
+        .module_fingerprint = 11,
+        .executable_plan_fingerprint = 22,
+        .execution_profile_fingerprint = profile_fingerprint,
+        .session_fingerprint = loadedSessionFingerprint(11, 22, profile_fingerprint, 3),
+        .entry_function = 3,
+        .budget = .{ .advancements = 1 },
+        .status = .failed,
+        .failure = .{
+            .kind = .unsupported_feature,
+            .function_index = 3,
+        },
+        .dependency_fingerprint = 44,
+    };
+    try std.testing.expectError(error.MalformedSessionImage, image.validateState());
+}
+
+test "loaded session image binds declared failure ref to diagnostic summary" {
+    const profile = LoadedExecutionProfile.portableV2();
+    const profile_fingerprint = profile.computeFingerprint();
+    var image = LoadedSessionImage{
+        .format_version = loaded_session_image_format_version_v2,
+        .fingerprint_version = loaded_session_image_fingerprint_version_v2,
+        .module_fingerprint = 11,
+        .executable_plan_fingerprint = 22,
+        .execution_profile_fingerprint = profile_fingerprint,
+        .session_fingerprint = testLoadedSessionFingerprintV2(11, 22, profile_fingerprint, 0),
+        .entry_function = 0,
+        .budget = .{ .advancements = 1 },
+        .status = .failed,
+        .failure = .{
+            .kind = .declared_error,
+            .declared_error_ref = loadedDeclaredErrorRef("Rejected"),
+            .diagnostic_summary = "Rejected",
+        },
+        .dependency_fingerprint = 44,
+    };
+    image.allocation = try image.computeAllocationLedger();
+    try image.validateState();
+
+    image.failure.?.declared_error_ref = loadedDeclaredErrorRef("Other");
+    try std.testing.expectError(error.MalformedSessionImage, image.validateState());
+}
+
+test "loaded session image rejects oversized failure diagnostic in validateState" {
+    const allocator = std.testing.allocator;
+    const profile_fingerprint = LoadedExecutionProfile.portableV2().computeFingerprint();
+    const oversized_summary = try allocator.alloc(u8, max_session_diagnostic_summary_bytes + 1);
+    defer allocator.free(oversized_summary);
+    @memset(oversized_summary, 'x');
+    var image = LoadedSessionImage{
+        .format_version = loaded_session_image_format_version_v2,
+        .fingerprint_version = loaded_session_image_fingerprint_version_v2,
+        .module_fingerprint = 11,
+        .executable_plan_fingerprint = 22,
+        .execution_profile_fingerprint = profile_fingerprint,
+        .session_fingerprint = testLoadedSessionFingerprintV2(11, 22, profile_fingerprint, 0),
+        .entry_function = 0,
+        .budget = .{ .advancements = 1 },
+        .status = .failed,
+        .failure = .{
+            .kind = .unsupported_feature,
+            .diagnostic_summary = oversized_summary,
+        },
+        .dependency_fingerprint = 44,
+    };
+    image.allocation = try image.computeAllocationLedger();
+
+    try std.testing.expectError(error.MalformedSessionImage, image.validateState());
+}
+
+test "loaded session image rejects unsupported version pairs in validateState" {
+    const profile_fingerprint = LoadedExecutionProfile.portableV1().computeFingerprint();
+    var wrong_v1_fingerprint = LoadedSessionImage{
+        .format_version = loaded_session_image_format_version_v1,
+        .fingerprint_version = loaded_session_image_fingerprint_version_v2,
+        .module_fingerprint = 11,
+        .executable_plan_fingerprint = 22,
+        .execution_profile_fingerprint = profile_fingerprint,
+        .session_fingerprint = testLoadedSessionFingerprintV2(11, 22, profile_fingerprint, 0),
+        .entry_function = 0,
+        .status = .initial,
+        .dependency_fingerprint = 44,
+    };
+    try std.testing.expectError(error.MalformedSessionImage, wrong_v1_fingerprint.validateState());
+
+    var unknown_format = wrong_v1_fingerprint;
+    unknown_format.format_version = loaded_session_image_format_version_v2 + 1;
+    unknown_format.fingerprint_version = loaded_session_image_fingerprint_version_v2 + 1;
+    try std.testing.expectError(error.MalformedSessionImage, unknown_format.validateState());
+}
+
+test "loaded session image v2 rejects oversized in-memory table counts in validateState" {
+    const allocator = std.testing.allocator;
+    const oversized_table_count = max_plan_table_count + 1;
+    const profile_fingerprint = LoadedExecutionProfile.portableV2().computeFingerprint();
+
+    const oversized_entry_arguments = try allocator.alloc(LoadedSessionLocalImage, oversized_table_count);
+    defer allocator.free(oversized_entry_arguments);
+    var entry_argument_image = LoadedSessionImage{
+        .format_version = loaded_session_image_format_version_v2,
+        .fingerprint_version = loaded_session_image_fingerprint_version_v2,
+        .module_fingerprint = 11,
+        .executable_plan_fingerprint = 22,
+        .execution_profile_fingerprint = profile_fingerprint,
+        .session_fingerprint = testLoadedSessionFingerprintV2(11, 22, profile_fingerprint, 0),
+        .entry_function = 0,
+        .status = .initial,
+        .dependency_fingerprint = 44,
+        .entry_argument_images = oversized_entry_arguments,
+    };
+    try std.testing.expectError(error.MalformedSessionImage, entry_argument_image.validateState());
+
+    const oversized_frames = try allocator.alloc(LoadedSessionFrameImage, oversized_table_count);
+    defer allocator.free(oversized_frames);
+    var frame_count_image = LoadedSessionImage{
+        .format_version = loaded_session_image_format_version_v2,
+        .fingerprint_version = loaded_session_image_fingerprint_version_v2,
+        .module_fingerprint = 11,
+        .executable_plan_fingerprint = 22,
+        .execution_profile_fingerprint = profile_fingerprint,
+        .session_fingerprint = testLoadedSessionFingerprintV2(11, 22, profile_fingerprint, 0),
+        .entry_function = 0,
+        .budget = .{ .advancements = 1 },
+        .status = .request,
+        .pending_request = .{
+            .residual_site_index = 1,
+            .residual_site_fingerprint = 2,
+            .world_port_id = 3,
+            .payload_ref = .{ .codec = .unit },
+            .expected_response_ref = .{ .codec = .unit },
+            .canonical_request_fingerprint = 4,
+            .deterministic_continuation_fingerprint = 5,
+            .response_local = 0,
+            .result_local = std.math.maxInt(u16),
+        },
+        .dependency_fingerprint = 44,
+        .continuation = .{ .frame_images = oversized_frames },
+    };
+    try std.testing.expectError(error.MalformedSessionImage, frame_count_image.validateState());
+
+    const oversized_locals = try allocator.alloc(LoadedSessionLocalImage, oversized_table_count);
+    defer allocator.free(oversized_locals);
+    const frame = LoadedSessionFrameImage{
+        .function_index = 0,
+        .block_index = 0,
+        .next_instruction_index = 1,
+        .local_count = 1,
+        .local_images = oversized_locals,
+    };
+    var frames = [_]LoadedSessionFrameImage{frame};
+    var local_count_image = frame_count_image;
+    local_count_image.continuation = .{ .frame_images = frames[0..] };
+    try std.testing.expectError(error.MalformedSessionImage, local_count_image.validateState());
+}
+
+test "loaded session image rejects oversized owned value images in validateState" {
+    const allocator = std.testing.allocator;
+    const oversized_value_image = try allocator.alloc(u8, max_session_owned_value_image_bytes + 1);
+    defer allocator.free(oversized_value_image);
+    @memset(oversized_value_image, 0);
+
+    const v1_profile_fingerprint = LoadedExecutionProfile.portableV1().computeFingerprint();
+    var oversized_payload = LoadedSessionImage{
+        .format_version = loaded_session_image_format_version_v1,
+        .fingerprint_version = loaded_session_image_fingerprint_version_v1,
+        .module_fingerprint = 11,
+        .executable_plan_fingerprint = 22,
+        .execution_profile_fingerprint = v1_profile_fingerprint,
+        .session_fingerprint = loadedSessionFingerprint(11, 22, v1_profile_fingerprint, 0),
+        .entry_function = 0,
+        .budget = .{ .advancements = 1 },
+        .status = .request,
+        .pending_request = .{
+            .residual_site_index = 1,
+            .residual_site_fingerprint = 2,
+            .world_port_id = 3,
+            .payload_ref = .{ .codec = .string },
+            .expected_response_ref = .{ .codec = .unit },
+            .canonical_request_fingerprint = 4,
+            .deterministic_continuation_fingerprint = 5,
+            .response_local = 0,
+            .result_local = 1,
+        },
+        .payload_image_bytes = oversized_value_image,
+        .dependency_fingerprint = 44,
+    };
+    try std.testing.expectError(error.MalformedSessionImage, oversized_payload.validateState());
+
+    const v2_profile_fingerprint = LoadedExecutionProfile.portableV2().computeFingerprint();
+    var oversized_entry_argument_images = [_]LoadedSessionLocalImage{.{
+        .local_index = 0,
+        .value_ref = .{ .codec = .string },
+        .value_image_bytes = oversized_value_image,
+    }};
+    var oversized_entry_argument = LoadedSessionImage{
+        .format_version = loaded_session_image_format_version_v2,
+        .fingerprint_version = loaded_session_image_fingerprint_version_v2,
+        .module_fingerprint = 11,
+        .executable_plan_fingerprint = 22,
+        .execution_profile_fingerprint = v2_profile_fingerprint,
+        .session_fingerprint = testLoadedSessionFingerprintV2(11, 22, v2_profile_fingerprint, 0),
+        .entry_function = 0,
+        .status = .initial,
+        .dependency_fingerprint = 44,
+        .entry_argument_images = oversized_entry_argument_images[0..],
+    };
+    oversized_entry_argument.allocation = try oversized_entry_argument.computeAllocationLedger();
+    try std.testing.expectError(error.MalformedSessionImage, oversized_entry_argument.validateState());
+
+    var oversized_local_images = [_]LoadedSessionLocalImage{.{
+        .local_index = 0,
+        .value_ref = .{ .codec = .string },
+        .value_image_bytes = oversized_value_image,
+    }};
+    var frame_with_oversized_local = LoadedSessionFrameImage{
+        .function_index = 0,
+        .block_index = 0,
+        .next_instruction_index = 1,
+        .local_count = 1,
+        .local_images = oversized_local_images[0..],
+    };
+    frame_with_oversized_local.frame_fingerprint = frame_with_oversized_local.fingerprint();
+    var frames_with_oversized_local = [_]LoadedSessionFrameImage{frame_with_oversized_local};
+    var oversized_continuation_local = LoadedSessionImage{
+        .format_version = loaded_session_image_format_version_v2,
+        .fingerprint_version = loaded_session_image_fingerprint_version_v2,
+        .module_fingerprint = 11,
+        .executable_plan_fingerprint = 22,
+        .execution_profile_fingerprint = v2_profile_fingerprint,
+        .session_fingerprint = testLoadedSessionFingerprintV2(11, 22, v2_profile_fingerprint, 0),
+        .entry_function = 0,
+        .budget = .{ .advancements = 1 },
+        .status = .request,
+        .pending_request = .{
+            .residual_site_index = 1,
+            .residual_site_fingerprint = 2,
+            .world_port_id = 3,
+            .payload_ref = .{ .codec = .unit },
+            .expected_response_ref = .{ .codec = .unit },
+            .canonical_request_fingerprint = 4,
+            .deterministic_continuation_fingerprint = 5,
+            .response_local = 0,
+            .result_local = std.math.maxInt(u16),
+        },
+        .dependency_fingerprint = 44,
+        .continuation = .{ .frame_images = frames_with_oversized_local[0..] },
+    };
+    oversized_continuation_local.allocation = try oversized_continuation_local.computeAllocationLedger();
+    try std.testing.expectError(error.MalformedSessionImage, oversized_continuation_local.validateState());
+}
+
+test "loaded session image rejects oversized owned value byte lengths before allocation" {
+    const allocator = std.testing.allocator;
+    const profile = LoadedExecutionProfile.portableV1();
+    const profile_fingerprint = profile.computeFingerprint();
+    var encoded = std.ArrayList(u8).empty;
+    defer encoded.deinit(allocator);
+
+    try writeU32(&encoded, allocator, loaded_session_image_format_version_v1);
+    try writeU32(&encoded, allocator, loaded_session_image_fingerprint_version_v1);
+    try writeU64(&encoded, allocator, 11);
+    try writeU64(&encoded, allocator, 22);
+    try writeU64(&encoded, allocator, profile_fingerprint);
+    try writeU64(&encoded, allocator, loadedSessionFingerprint(11, 22, profile_fingerprint, 0));
+    try writeU16(&encoded, allocator, 0);
+    try writeU64(&encoded, allocator, 0);
+    try writeU64(&encoded, allocator, 0);
+    try encoded.append(allocator, @intFromEnum(LoadedSessionStatus.initial));
+    try encoded.append(allocator, 0);
+    try writeU32(&encoded, allocator, sessionOwnedValueImageByteLimit(.{}) + 1);
+
+    try std.testing.expectError(error.StringBytesLimitExceeded, LoadedSessionImage.decode(allocator, encoded.items));
+}
+
+test "loaded session image honors raised owned value byte limits" {
+    const allocator = std.testing.allocator;
+    const large_value = try allocator.alloc(u8, max_session_owned_value_image_bytes + 32 * 1024);
+    defer allocator.free(large_value);
+    @memset(large_value, 'x');
+
+    const raised_limits = Limits{
+        .maximum_owned_value_bytes = max_session_owned_value_image_bytes + 64 * 1024,
+        .maximum_string_bytes = max_session_owned_value_image_bytes + 64 * 1024,
+    };
+    var profile = LoadedExecutionProfile.portableV2();
+    profile.limits = raised_limits;
+    const profile_fingerprint = profile.computeFingerprint();
+    const result_image = try encodeLoadedValueImageBytes(
+        allocator,
+        .{},
+        .{ .codec = .string },
+        .{ .bytes = large_value },
+        raised_limits,
+    );
+    defer allocator.free(result_image);
+
+    var image = LoadedSessionImage{
+        .format_version = loaded_session_image_format_version_v2,
+        .fingerprint_version = loaded_session_image_fingerprint_version_v2,
+        .module_fingerprint = 11,
+        .executable_plan_fingerprint = 22,
+        .execution_profile_fingerprint = profile_fingerprint,
+        .session_fingerprint = testLoadedSessionFingerprintV2(11, 22, profile_fingerprint, 0),
+        .entry_function = 0,
+        .budget = .{ .advancements = 1 },
+        .status = .completed,
+        .result_image_bytes = result_image,
+        .result_fingerprint = try loadedValueImageFingerprint(result_image),
+        .dependency_fingerprint = 44,
+    };
+    image.allocation = try image.computeAllocationLedger();
+    try std.testing.expectError(error.MalformedSessionImage, image.validateState());
+    try image.validateStateWithLimits(raised_limits);
+
+    const encoded = try image.encodeWithLimits(allocator, raised_limits);
+    defer allocator.free(encoded);
+    try std.testing.expectError(error.StringBytesLimitExceeded, LoadedSessionImage.decode(allocator, encoded));
+    var decoded = try LoadedSessionImage.decodeWithLimits(allocator, encoded, raised_limits);
+    defer decoded.deinit(allocator);
+    try std.testing.expectEqual(image.result_fingerprint, decoded.result_fingerprint);
+    try std.testing.expectEqualStrings(result_image, decoded.result_image_bytes);
+}
+
+test "loaded session image permits canonical aggregate envelope overhead" {
+    const allocator = std.testing.allocator;
+    const item_count = 4096;
+    const item_len = 255;
+    const aggregate_bytes = try allocator.alloc(u8, item_count * item_len);
+    defer allocator.free(aggregate_bytes);
+    @memset(aggregate_bytes, 'x');
+    const items = try allocator.alloc([]const u8, item_count);
+    defer allocator.free(items);
+    for (items, 0..) |*item, index| {
+        item.* = aggregate_bytes[index * item_len ..][0..item_len];
+    }
+
+    const profile = LoadedExecutionProfile.portableV2();
+    const profile_fingerprint = profile.computeFingerprint();
+    const result_image = try encodeLoadedValueImageBytes(
+        allocator,
+        .{},
+        .{ .codec = .string_list },
+        .{ .list = items },
+        .{},
+    );
+    defer allocator.free(result_image);
+    try std.testing.expect(result_image.len > max_session_owned_value_image_bytes);
+    try std.testing.expect(result_image.len <= sessionOwnedValueImageByteLimit(.{}));
+
+    var image = LoadedSessionImage{
+        .format_version = loaded_session_image_format_version_v2,
+        .fingerprint_version = loaded_session_image_fingerprint_version_v2,
+        .module_fingerprint = 11,
+        .executable_plan_fingerprint = 22,
+        .execution_profile_fingerprint = profile_fingerprint,
+        .session_fingerprint = testLoadedSessionFingerprintV2(11, 22, profile_fingerprint, 0),
+        .entry_function = 0,
+        .budget = .{ .advancements = 1 },
+        .status = .completed,
+        .result_image_bytes = result_image,
+        .result_fingerprint = try loadedValueImageFingerprint(result_image),
+        .dependency_fingerprint = 44,
+    };
+    image.allocation = try image.computeAllocationLedger();
+    const encoded = try image.encode(allocator);
+    defer allocator.free(encoded);
+    var decoded = try LoadedSessionImage.decode(allocator, encoded);
+    defer decoded.deinit(allocator);
+    try std.testing.expectEqual(image.result_fingerprint, decoded.result_fingerprint);
+    try std.testing.expectEqualStrings(result_image, decoded.result_image_bytes);
+}
+
+test "loaded session image rejects noncanonical absent schema ref bytes" {
+    const allocator = std.testing.allocator;
+    const profile = LoadedExecutionProfile.portableV1();
+    const profile_fingerprint = profile.computeFingerprint();
+    var encoded = std.ArrayList(u8).empty;
+    defer encoded.deinit(allocator);
+
+    try writeU32(&encoded, allocator, loaded_session_image_format_version_v1);
+    try writeU32(&encoded, allocator, loaded_session_image_fingerprint_version_v1);
+    try writeU64(&encoded, allocator, 11);
+    try writeU64(&encoded, allocator, 22);
+    try writeU64(&encoded, allocator, profile_fingerprint);
+    try writeU64(&encoded, allocator, loadedSessionFingerprint(11, 22, profile_fingerprint, 0));
+    try writeU16(&encoded, allocator, 0);
+    try writeU64(&encoded, allocator, 0);
+    try writeU64(&encoded, allocator, 1);
+    try encoded.append(allocator, @intFromEnum(LoadedSessionStatus.request));
+    try encoded.append(allocator, 1);
+    try writeU64(&encoded, allocator, 1);
+    try writeU64(&encoded, allocator, 2);
+    try writeU32(&encoded, allocator, 3);
+    try encoded.append(allocator, @intFromEnum(plan.ValueCodec.i32));
+    try encoded.append(allocator, 0);
+    try writeU16(&encoded, allocator, 1);
+
+    try std.testing.expectError(error.MalformedSessionImage, LoadedSessionImage.decode(allocator, encoded.items));
+}
+
+test "loaded session image v1 rejects hidden v2-only fields" {
+    const profile = LoadedExecutionProfile.portableV1();
+    const profile_fingerprint = profile.computeFingerprint();
+    const session_fingerprint = loadedSessionFingerprint(11, 22, profile_fingerprint, 0);
+
+    var hidden_response_kind = LoadedSessionImage{
+        .format_version = loaded_session_image_format_version_v1,
+        .fingerprint_version = loaded_session_image_fingerprint_version_v1,
+        .module_fingerprint = 11,
+        .executable_plan_fingerprint = 22,
+        .execution_profile_fingerprint = profile_fingerprint,
+        .session_fingerprint = session_fingerprint,
+        .entry_function = 0,
+        .budget = .{ .advancements = 1 },
+        .status = .request,
+        .pending_request = .{
+            .residual_site_index = 1,
+            .residual_site_fingerprint = 2,
+            .world_port_id = 3,
+            .payload_ref = .{ .codec = .i32 },
+            .expected_response_ref = .{ .codec = .i32 },
+            .response_kind = .return_now,
+            .canonical_request_fingerprint = 4,
+            .deterministic_continuation_fingerprint = 5,
+            .response_local = 0,
+            .result_local = 1,
+        },
+        .payload_image_bytes = "payload",
+        .dependency_fingerprint = 44,
+    };
+    try std.testing.expectError(error.MalformedSessionImage, hidden_response_kind.validateState());
+
+    var hidden_allocation = LoadedSessionImage{
+        .format_version = loaded_session_image_format_version_v1,
+        .fingerprint_version = loaded_session_image_fingerprint_version_v1,
+        .module_fingerprint = 11,
+        .executable_plan_fingerprint = 22,
+        .execution_profile_fingerprint = profile_fingerprint,
+        .session_fingerprint = session_fingerprint,
+        .entry_function = 0,
+        .status = .initial,
+        .dependency_fingerprint = 44,
+        .allocation = .{ .frame_count = 1 },
+    };
+    try std.testing.expectError(error.MalformedSessionImage, hidden_allocation.validateState());
+}
+
+test "loaded session image v2 rejects unsupported pending response kind in validateState" {
+    const allocator = std.testing.allocator;
+    const profile_fingerprint = LoadedExecutionProfile.portableV2().computeFingerprint();
+    const payload_image = try encodeLoadedValueImageBytes(
+        allocator,
+        .{},
+        .{ .codec = .unit },
+        .unit,
+        .{},
+    );
+    defer allocator.free(payload_image);
+
+    var frame = LoadedSessionFrameImage{
+        .function_index = 0,
+        .block_index = 0,
+        .next_instruction_index = 1,
+        .local_count = 1,
+    };
+    frame.frame_fingerprint = frame.fingerprint();
+    var frames = [_]LoadedSessionFrameImage{frame};
+    const continuation = LoadedSessionContinuationImage{ .frame_images = frames[0..] };
+    var image = LoadedSessionImage{
+        .format_version = loaded_session_image_format_version_v2,
+        .fingerprint_version = loaded_session_image_fingerprint_version_v2,
+        .module_fingerprint = 11,
+        .executable_plan_fingerprint = 22,
+        .execution_profile_fingerprint = profile_fingerprint,
+        .session_fingerprint = testLoadedSessionFingerprintV2(11, 22, profile_fingerprint, 0),
+        .entry_function = 0,
+        .budget = .{ .advancements = 1 },
+        .status = .request,
+        .pending_request = .{
+            .residual_site_index = 1,
+            .residual_site_fingerprint = 2,
+            .world_port_id = 3,
+            .payload_ref = .{ .codec = .unit },
+            .expected_response_ref = .{ .codec = .unit },
+            .canonical_request_fingerprint = 4,
+            .deterministic_continuation_fingerprint = continuation.fingerprint(),
+            .response_local = 0,
+            .result_local = std.math.maxInt(u16),
+        },
+        .payload_image_bytes = payload_image,
+        .dependency_fingerprint = 44,
+        .continuation = continuation,
+    };
+    image.allocation = try image.computeAllocationLedger();
+    try image.validateState();
+
+    image.pending_request.?.response_kind = .return_now;
+    try std.testing.expectError(error.MalformedSessionImage, image.validateState());
+}
+
+test "loaded session image rejects forged session fingerprint" {
+    const profile_fingerprint = LoadedExecutionProfile.portableV2().computeFingerprint();
+    const expected_session_fingerprint = testLoadedSessionFingerprintV2(11, 22, profile_fingerprint, 0);
+    var image = LoadedSessionImage{
+        .format_version = loaded_session_image_format_version_v2,
+        .fingerprint_version = loaded_session_image_fingerprint_version_v2,
+        .module_fingerprint = 11,
+        .executable_plan_fingerprint = 22,
+        .execution_profile_fingerprint = profile_fingerprint,
+        .session_fingerprint = expected_session_fingerprint ^ 0x1,
+        .entry_function = 0,
+        .status = .initial,
+        .dependency_fingerprint = 44,
+    };
+    image.allocation = try image.computeAllocationLedger();
+
+    try std.testing.expectError(error.MalformedSessionImage, image.validateState());
+}
+
+test "loaded session image v2 rejects residual site index outside portable table range" {
+    const allocator = std.testing.allocator;
+    const profile_fingerprint = LoadedExecutionProfile.portableV2().computeFingerprint();
+    const payload_image = try encodeLoadedValueImageBytes(
+        allocator,
+        .{},
+        .{ .codec = .unit },
+        .unit,
+        .{},
+    );
+    defer allocator.free(payload_image);
+    var frame = LoadedSessionFrameImage{
+        .function_index = 0,
+        .block_index = 0,
+        .next_instruction_index = 1,
+        .local_count = 1,
+    };
+    frame.frame_fingerprint = frame.fingerprint();
+    var frames = [_]LoadedSessionFrameImage{frame};
+    const continuation = LoadedSessionContinuationImage{ .frame_images = frames[0..] };
+    var image = LoadedSessionImage{
+        .format_version = loaded_session_image_format_version_v2,
+        .fingerprint_version = loaded_session_image_fingerprint_version_v2,
+        .module_fingerprint = 11,
+        .executable_plan_fingerprint = 22,
+        .execution_profile_fingerprint = profile_fingerprint,
+        .session_fingerprint = testLoadedSessionFingerprintV2(11, 22, profile_fingerprint, 0),
+        .entry_function = 0,
+        .budget = .{ .advancements = 1 },
+        .status = .request,
+        .pending_request = .{
+            .residual_site_index = max_plan_table_count,
+            .residual_site_fingerprint = 2,
+            .world_port_id = 3,
+            .payload_ref = .{ .codec = .unit },
+            .expected_response_ref = .{ .codec = .unit },
+            .canonical_request_fingerprint = 4,
+            .deterministic_continuation_fingerprint = continuation.fingerprint(),
+            .response_local = 0,
+            .result_local = std.math.maxInt(u16),
+        },
+        .payload_image_bytes = payload_image,
+        .dependency_fingerprint = 44,
+        .continuation = continuation,
+    };
+    image.allocation = try image.computeAllocationLedger();
+
+    try std.testing.expectError(error.MalformedSessionImage, image.validateState());
+}
+
+test "loaded session image rejects status-inconsistent fuel ledger" {
+    const profile_fingerprint = LoadedExecutionProfile.portableV2().computeFingerprint();
+    var initial_with_fuel = LoadedSessionImage{
+        .format_version = loaded_session_image_format_version_v2,
+        .fingerprint_version = loaded_session_image_fingerprint_version_v2,
+        .module_fingerprint = 11,
+        .executable_plan_fingerprint = 22,
+        .execution_profile_fingerprint = profile_fingerprint,
+        .session_fingerprint = testLoadedSessionFingerprintV2(11, 22, profile_fingerprint, 0),
+        .entry_function = 0,
+        .budget = .{ .advancements = 1 },
+        .status = .initial,
+        .dependency_fingerprint = 44,
+    };
+    initial_with_fuel.allocation = try initial_with_fuel.computeAllocationLedger();
+    try std.testing.expectError(error.MalformedSessionImage, initial_with_fuel.validateState());
+
+    var failed_without_advancement = LoadedSessionImage{
+        .format_version = loaded_session_image_format_version_v2,
+        .fingerprint_version = loaded_session_image_fingerprint_version_v2,
+        .module_fingerprint = 11,
+        .executable_plan_fingerprint = 22,
+        .execution_profile_fingerprint = profile_fingerprint,
+        .session_fingerprint = testLoadedSessionFingerprintV2(11, 22, profile_fingerprint, 0),
+        .entry_function = 0,
+        .status = .failed,
+        .failure = .{
+            .kind = .unsupported_feature,
+            .diagnostic_summary = "failed after advancement",
+        },
+        .dependency_fingerprint = 44,
+    };
+    failed_without_advancement.allocation = try failed_without_advancement.computeAllocationLedger();
+    try std.testing.expectError(error.MalformedSessionImage, failed_without_advancement.validateState());
+}
+
+test "loaded session image rejects forged result fingerprint" {
+    const allocator = std.testing.allocator;
+    const profile_fingerprint = LoadedExecutionProfile.portableV2().computeFingerprint();
+    const result_image_bytes = try encodeLoadedValueImageBytes(
+        allocator,
+        .{},
+        .{ .codec = .i32 },
+        .{ .i32 = 42 },
+        .{},
+    );
+    defer allocator.free(result_image_bytes);
+    var image = LoadedSessionImage{
+        .format_version = loaded_session_image_format_version_v2,
+        .fingerprint_version = loaded_session_image_fingerprint_version_v2,
+        .module_fingerprint = 11,
+        .executable_plan_fingerprint = 22,
+        .execution_profile_fingerprint = profile_fingerprint,
+        .session_fingerprint = testLoadedSessionFingerprintV2(11, 22, profile_fingerprint, 0),
+        .entry_function = 0,
+        .budget = .{ .advancements = 1 },
+        .status = .completed,
+        .result_image_bytes = result_image_bytes,
+        .result_fingerprint = (try loadedValueImageFingerprint(result_image_bytes)) ^ 0x1,
+        .dependency_fingerprint = 44,
+    };
+    image.allocation = try image.computeAllocationLedger();
+
+    try std.testing.expectError(error.MalformedSessionImage, image.validateState());
+}
+
+test "loaded session image v2 binds pending continuation fingerprint to continuation image" {
+    const allocator = std.testing.allocator;
+    const profile_fingerprint = LoadedExecutionProfile.portableV2().computeFingerprint();
+    const payload_image = try encodeLoadedValueImageBytes(
+        allocator,
+        .{},
+        .{ .codec = .bool },
+        .{ .boolean = true },
+        .{},
+    );
+    defer allocator.free(payload_image);
+    var frame = LoadedSessionFrameImage{
+        .function_index = 0,
+        .block_index = 0,
+        .next_instruction_index = 1,
+        .local_count = 1,
+    };
+    frame.frame_fingerprint = frame.fingerprint();
+    var frames = [_]LoadedSessionFrameImage{frame};
+    const continuation = LoadedSessionContinuationImage{ .frame_images = frames[0..] };
+    var image = LoadedSessionImage{
+        .format_version = loaded_session_image_format_version_v2,
+        .fingerprint_version = loaded_session_image_fingerprint_version_v2,
+        .module_fingerprint = 11,
+        .executable_plan_fingerprint = 22,
+        .execution_profile_fingerprint = profile_fingerprint,
+        .session_fingerprint = testLoadedSessionFingerprintV2(11, 22, profile_fingerprint, 0),
+        .entry_function = 0,
+        .budget = .{ .advancements = 1 },
+        .status = .request,
+        .pending_request = .{
+            .residual_site_index = 1,
+            .residual_site_fingerprint = 2,
+            .world_port_id = 3,
+            .payload_ref = .{ .codec = .bool },
+            .expected_response_ref = .{ .codec = .unit },
+            .canonical_request_fingerprint = 4,
+            .deterministic_continuation_fingerprint = continuation.fingerprint() ^ 0x1,
+            .response_local = 0,
+            .result_local = std.math.maxInt(u16),
+        },
+        .payload_image_bytes = payload_image,
+        .dependency_fingerprint = 44,
+        .continuation = continuation,
+    };
+    image.allocation = try image.computeAllocationLedger();
+
+    try std.testing.expectError(error.MalformedSessionImage, image.validateState());
+}
+
+test "loaded session image v2 rejects pending response local outside active frame" {
+    const allocator = std.testing.allocator;
+    const profile_fingerprint = LoadedExecutionProfile.portableV2().computeFingerprint();
+    const payload_image = try encodeLoadedValueImageBytes(
+        allocator,
+        .{},
+        .{ .codec = .bool },
+        .{ .boolean = true },
+        .{},
+    );
+    defer allocator.free(payload_image);
+    var frame = LoadedSessionFrameImage{
+        .function_index = 0,
+        .block_index = 0,
+        .next_instruction_index = 1,
+        .local_count = 1,
+    };
+    frame.frame_fingerprint = frame.fingerprint();
+    var frames = [_]LoadedSessionFrameImage{frame};
+    const continuation = LoadedSessionContinuationImage{ .frame_images = frames[0..] };
+    var image = LoadedSessionImage{
+        .format_version = loaded_session_image_format_version_v2,
+        .fingerprint_version = loaded_session_image_fingerprint_version_v2,
+        .module_fingerprint = 11,
+        .executable_plan_fingerprint = 22,
+        .execution_profile_fingerprint = profile_fingerprint,
+        .session_fingerprint = testLoadedSessionFingerprintV2(11, 22, profile_fingerprint, 0),
+        .entry_function = 0,
+        .budget = .{ .advancements = 1 },
+        .status = .request,
+        .pending_request = .{
+            .residual_site_index = 1,
+            .residual_site_fingerprint = 2,
+            .world_port_id = 3,
+            .payload_ref = .{ .codec = .bool },
+            .expected_response_ref = .{ .codec = .unit },
+            .canonical_request_fingerprint = 4,
+            .deterministic_continuation_fingerprint = continuation.fingerprint(),
+            .response_local = 1,
+            .result_local = std.math.maxInt(u16),
+        },
+        .payload_image_bytes = payload_image,
+        .dependency_fingerprint = 44,
+        .continuation = continuation,
+    };
+    image.allocation = try image.computeAllocationLedger();
+
+    try std.testing.expectError(error.MalformedSessionImage, image.validateState());
+}
+
+test "loaded session image rejects malformed embedded value images" {
+    const allocator = std.testing.allocator;
+    const v1_profile_fingerprint = LoadedExecutionProfile.portableV1().computeFingerprint();
+    const valid_payload_image = try encodeLoadedValueImageBytes(
+        allocator,
+        .{},
+        .{ .codec = .bool },
+        .{ .boolean = true },
+        .{},
+    );
+    defer allocator.free(valid_payload_image);
+    const malformed_payload_image = try allocator.dupe(u8, valid_payload_image);
+    defer allocator.free(malformed_payload_image);
+    malformed_payload_image[malformed_payload_image.len - 1] ^= 0x1;
+    var malformed_payload = LoadedSessionImage{
+        .format_version = loaded_session_image_format_version_v1,
+        .fingerprint_version = loaded_session_image_fingerprint_version_v1,
+        .module_fingerprint = 11,
+        .executable_plan_fingerprint = 22,
+        .execution_profile_fingerprint = v1_profile_fingerprint,
+        .session_fingerprint = loadedSessionFingerprint(11, 22, v1_profile_fingerprint, 0),
+        .entry_function = 0,
+        .budget = .{ .advancements = 1 },
+        .status = .request,
+        .pending_request = .{
+            .residual_site_index = 1,
+            .residual_site_fingerprint = 2,
+            .world_port_id = 3,
+            .payload_ref = .{ .codec = .bool },
+            .expected_response_ref = .{ .codec = .unit },
+            .canonical_request_fingerprint = 4,
+            .deterministic_continuation_fingerprint = 5,
+            .response_local = 0,
+            .result_local = 1,
+        },
+        .payload_image_bytes = malformed_payload_image,
+        .dependency_fingerprint = 44,
+    };
+    try std.testing.expectError(error.MalformedSessionImage, malformed_payload.validateState());
+
+    const v2_profile_fingerprint = LoadedExecutionProfile.portableV2().computeFingerprint();
+    const valid_local_image = try encodeLoadedValueImageBytes(
+        allocator,
+        .{},
+        .{ .codec = .i32 },
+        .{ .i32 = 9 },
+        .{},
+    );
+    defer allocator.free(valid_local_image);
+    const malformed_local_image = try allocator.dupe(u8, valid_local_image);
+    defer allocator.free(malformed_local_image);
+    malformed_local_image[malformed_local_image.len - 1] ^= 0x1;
+    var entry_arguments = [_]LoadedSessionLocalImage{.{
+        .local_index = 0,
+        .value_ref = .{ .codec = .i32 },
+        .value_image_bytes = malformed_local_image,
+    }};
+    var malformed_entry_argument = LoadedSessionImage{
+        .format_version = loaded_session_image_format_version_v2,
+        .fingerprint_version = loaded_session_image_fingerprint_version_v2,
+        .module_fingerprint = 11,
+        .executable_plan_fingerprint = 22,
+        .execution_profile_fingerprint = v2_profile_fingerprint,
+        .session_fingerprint = testLoadedSessionFingerprintV2(11, 22, v2_profile_fingerprint, 0),
+        .entry_function = 0,
+        .status = .initial,
+        .dependency_fingerprint = 44,
+        .entry_argument_images = entry_arguments[0..],
+    };
+    malformed_entry_argument.allocation = try malformed_entry_argument.computeAllocationLedger();
+    try std.testing.expectError(error.MalformedSessionImage, malformed_entry_argument.validateState());
+
+    var local_images = [_]LoadedSessionLocalImage{.{
+        .local_index = 0,
+        .value_ref = .{ .codec = .i32 },
+        .value_image_bytes = malformed_local_image,
+    }};
+    var frame = LoadedSessionFrameImage{
+        .function_index = 0,
+        .block_index = 0,
+        .next_instruction_index = 1,
+        .local_count = 1,
+        .local_images = local_images[0..],
+    };
+    frame.frame_fingerprint = frame.fingerprint();
+    var frames = [_]LoadedSessionFrameImage{frame};
+    var malformed_continuation_local = LoadedSessionImage{
+        .format_version = loaded_session_image_format_version_v2,
+        .fingerprint_version = loaded_session_image_fingerprint_version_v2,
+        .module_fingerprint = 11,
+        .executable_plan_fingerprint = 22,
+        .execution_profile_fingerprint = v2_profile_fingerprint,
+        .session_fingerprint = testLoadedSessionFingerprintV2(11, 22, v2_profile_fingerprint, 0),
+        .entry_function = 0,
+        .budget = .{ .advancements = 1 },
+        .status = .request,
+        .pending_request = .{
+            .residual_site_index = 1,
+            .residual_site_fingerprint = 2,
+            .world_port_id = 3,
+            .payload_ref = .{ .codec = .bool },
+            .expected_response_ref = .{ .codec = .unit },
+            .canonical_request_fingerprint = 4,
+            .deterministic_continuation_fingerprint = 5,
+            .response_local = 0,
+            .result_local = std.math.maxInt(u16),
+        },
+        .payload_image_bytes = valid_payload_image,
+        .dependency_fingerprint = 44,
+        .continuation = .{ .frame_images = frames[0..] },
+    };
+    malformed_continuation_local.allocation = try malformed_continuation_local.computeAllocationLedger();
+    try std.testing.expectError(error.MalformedSessionImage, malformed_continuation_local.validateState());
+
+    var valid_decoded_local_images = [_]LoadedSessionLocalImage{.{
+        .local_index = 0,
+        .value_ref = .{ .codec = .i32 },
+        .value_image_bytes = valid_local_image,
+    }};
+    var valid_decoded_frame = LoadedSessionFrameImage{
+        .function_index = 0,
+        .block_index = 0,
+        .next_instruction_index = 1,
+        .local_count = 1,
+        .local_images = valid_decoded_local_images[0..],
+    };
+    valid_decoded_frame.frame_fingerprint = valid_decoded_frame.fingerprint();
+    var valid_decoded_frames = [_]LoadedSessionFrameImage{valid_decoded_frame};
+    const valid_decoded_continuation = LoadedSessionContinuationImage{ .frame_images = valid_decoded_frames[0..] };
+    var valid_decoded_image = malformed_continuation_local;
+    valid_decoded_image.continuation = valid_decoded_continuation;
+    valid_decoded_image.pending_request.?.deterministic_continuation_fingerprint = valid_decoded_continuation.fingerprint();
+    valid_decoded_image.allocation = try valid_decoded_image.computeAllocationLedger();
+    const valid_decoded_bytes = try valid_decoded_image.encode(allocator);
+    defer allocator.free(valid_decoded_bytes);
+    var forged_frame_fingerprint_bytes = try allocator.dupe(u8, valid_decoded_bytes);
+    defer allocator.free(forged_frame_fingerprint_bytes);
+    var encoded_frame_fingerprint: [8]u8 = undefined;
+    std.mem.writeInt(u64, &encoded_frame_fingerprint, valid_decoded_frame.frame_fingerprint, .little);
+    const frame_fingerprint_offset = std.mem.find(u8, forged_frame_fingerprint_bytes, &encoded_frame_fingerprint) orelse return error.MissingFrameFingerprint;
+    forged_frame_fingerprint_bytes[frame_fingerprint_offset] ^= 0x1;
+    try std.testing.expectError(error.MalformedSessionImage, LoadedSessionImage.decode(
+        allocator,
+        forged_frame_fingerprint_bytes,
+    ));
+}
+
+test "loaded session image rejects embedded value ref mismatch" {
+    const allocator = std.testing.allocator;
+    const bool_image = try encodeLoadedValueImageBytes(
+        allocator,
+        .{},
+        .{ .codec = .bool },
+        .{ .boolean = true },
+        .{},
+    );
+    defer allocator.free(bool_image);
+    const v1_profile_fingerprint = LoadedExecutionProfile.portableV1().computeFingerprint();
+    var mismatched_payload_ref = LoadedSessionImage{
+        .format_version = loaded_session_image_format_version_v1,
+        .fingerprint_version = loaded_session_image_fingerprint_version_v1,
+        .module_fingerprint = 11,
+        .executable_plan_fingerprint = 22,
+        .execution_profile_fingerprint = v1_profile_fingerprint,
+        .session_fingerprint = loadedSessionFingerprint(11, 22, v1_profile_fingerprint, 0),
+        .entry_function = 0,
+        .budget = .{ .advancements = 1 },
+        .status = .request,
+        .pending_request = .{
+            .residual_site_index = 1,
+            .residual_site_fingerprint = 2,
+            .world_port_id = 3,
+            .payload_ref = .{ .codec = .i32 },
+            .expected_response_ref = .{ .codec = .unit },
+            .canonical_request_fingerprint = 4,
+            .deterministic_continuation_fingerprint = 5,
+            .response_local = 0,
+            .result_local = 1,
+        },
+        .payload_image_bytes = bool_image,
+        .dependency_fingerprint = 44,
+    };
+    try std.testing.expectError(error.MalformedSessionImage, mismatched_payload_ref.validateState());
+
+    const v2_profile_fingerprint = LoadedExecutionProfile.portableV2().computeFingerprint();
+    var entry_arguments = [_]LoadedSessionLocalImage{.{
+        .local_index = 0,
+        .value_ref = .{ .codec = .i32 },
+        .value_image_bytes = bool_image,
+    }};
+    var mismatched_entry_argument_ref = LoadedSessionImage{
+        .format_version = loaded_session_image_format_version_v2,
+        .fingerprint_version = loaded_session_image_fingerprint_version_v2,
+        .module_fingerprint = 11,
+        .executable_plan_fingerprint = 22,
+        .execution_profile_fingerprint = v2_profile_fingerprint,
+        .session_fingerprint = testLoadedSessionFingerprintV2(11, 22, v2_profile_fingerprint, 0),
+        .entry_function = 0,
+        .status = .initial,
+        .dependency_fingerprint = 44,
+        .entry_argument_images = entry_arguments[0..],
+    };
+    mismatched_entry_argument_ref.allocation = try mismatched_entry_argument_ref.computeAllocationLedger();
+    try std.testing.expectError(error.MalformedSessionImage, mismatched_entry_argument_ref.validateState());
+
+    var local_images = [_]LoadedSessionLocalImage{.{
+        .local_index = 0,
+        .value_ref = .{ .codec = .i32 },
+        .value_image_bytes = bool_image,
+    }};
+    var frame_with_local = LoadedSessionFrameImage{
+        .function_index = 0,
+        .block_index = 0,
+        .next_instruction_index = 1,
+        .local_count = 1,
+        .local_images = local_images[0..],
+    };
+    frame_with_local.frame_fingerprint = frame_with_local.fingerprint();
+    var frames_with_local = [_]LoadedSessionFrameImage{frame_with_local};
+    var mismatched_local_ref = LoadedSessionImage{
+        .format_version = loaded_session_image_format_version_v2,
+        .fingerprint_version = loaded_session_image_fingerprint_version_v2,
+        .module_fingerprint = 11,
+        .executable_plan_fingerprint = 22,
+        .execution_profile_fingerprint = v2_profile_fingerprint,
+        .session_fingerprint = testLoadedSessionFingerprintV2(11, 22, v2_profile_fingerprint, 0),
+        .entry_function = 0,
+        .budget = .{ .advancements = 1 },
+        .status = .request,
+        .pending_request = .{
+            .residual_site_index = 1,
+            .residual_site_fingerprint = 2,
+            .world_port_id = 3,
+            .payload_ref = .{ .codec = .bool },
+            .expected_response_ref = .{ .codec = .unit },
+            .canonical_request_fingerprint = 4,
+            .deterministic_continuation_fingerprint = 5,
+            .response_local = 0,
+            .result_local = std.math.maxInt(u16),
+        },
+        .payload_image_bytes = bool_image,
+        .dependency_fingerprint = 44,
+        .continuation = .{ .frame_images = frames_with_local[0..] },
+    };
+    mismatched_local_ref.allocation = try mismatched_local_ref.computeAllocationLedger();
+    try std.testing.expectError(error.MalformedSessionImage, mismatched_local_ref.validateState());
+
+    var frame_with_last_return = LoadedSessionFrameImage{
+        .function_index = 0,
+        .block_index = 0,
+        .next_instruction_index = 1,
+        .local_count = 0,
+        .last_return_ref = .{ .codec = .i32 },
+        .last_return_image_bytes = bool_image,
+    };
+    frame_with_last_return.frame_fingerprint = frame_with_last_return.fingerprint();
+    var frames_with_last_return = [_]LoadedSessionFrameImage{frame_with_last_return};
+    var mismatched_last_return_ref = mismatched_local_ref;
+    mismatched_last_return_ref.continuation = .{ .frame_images = frames_with_last_return[0..] };
+    mismatched_last_return_ref.allocation = try mismatched_last_return_ref.computeAllocationLedger();
+    try std.testing.expectError(error.MalformedSessionImage, mismatched_last_return_ref.validateState());
+}
+
+test "loaded session image v2 rejects present continuation with zero frames" {
+    const allocator = std.testing.allocator;
+    const profile = LoadedExecutionProfile.portableV2();
+    const profile_fingerprint = profile.computeFingerprint();
+    const payload_image_bytes = "payload";
+    var encoded = std.ArrayList(u8).empty;
+    defer encoded.deinit(allocator);
+
+    try writeU32(&encoded, allocator, loaded_session_image_format_version_v2);
+    try writeU32(&encoded, allocator, loaded_session_image_fingerprint_version_v2);
+    try writeU64(&encoded, allocator, 11);
+    try writeU64(&encoded, allocator, 22);
+    try writeU64(&encoded, allocator, profile_fingerprint);
+    try writeU64(&encoded, allocator, testLoadedSessionFingerprintV2(11, 22, profile_fingerprint, 0));
+    try writeU16(&encoded, allocator, 0);
+    try writeU64(&encoded, allocator, 0);
+    try writeU64(&encoded, allocator, 1);
+    try encoded.append(allocator, @intFromEnum(LoadedSessionStatus.request));
+    try encoded.append(allocator, 1);
+    try writeU64(&encoded, allocator, 1);
+    try writeU64(&encoded, allocator, 2);
+    try writeU32(&encoded, allocator, 3);
+    try encodeSessionValueRef(&encoded, allocator, .{ .codec = .i32 });
+    try encodeSessionValueRef(&encoded, allocator, .{ .codec = .i32 });
+    try encoded.append(allocator, @intFromEnum(LoadedSessionResponseKind.@"resume"));
+    try writeU64(&encoded, allocator, 4);
+    try writeU64(&encoded, allocator, 5);
+    try writeU16(&encoded, allocator, 0);
+    try writeU16(&encoded, allocator, std.math.maxInt(u16));
+    try writeBytes(&encoded, allocator, payload_image_bytes);
+    try writeBytes(&encoded, allocator, "");
+    try writeU64(&encoded, allocator, 0);
+    try encoded.append(allocator, 0);
+    try writeU64(&encoded, allocator, 44);
+    try encodeAllocationLedger(&encoded, allocator, .{
+        .payload_image_bytes = payload_image_bytes.len,
+    });
+    try encoded.append(allocator, 1);
+    try writeU32(&encoded, allocator, 0);
+    try writeU32(&encoded, allocator, 0);
+    try writeU64(&encoded, allocator, 0);
+
+    try std.testing.expectError(error.MalformedSessionImage, LoadedSessionImage.decode(allocator, encoded.items));
+}
+
+test "loaded session image v2 rejects noncanonical local image ordering" {
+    const profile_fingerprint = LoadedExecutionProfile.portableV2().computeFingerprint();
+    var duplicate_locals = [_]LoadedSessionLocalImage{
+        .{ .local_index = 1, .value_ref = .{ .codec = .i32 } },
+        .{ .local_index = 1, .value_ref = .{ .codec = .i32 } },
+    };
+    var frame_with_duplicate = LoadedSessionFrameImage{
+        .function_index = 0,
+        .block_index = 0,
+        .next_instruction_index = 1,
+        .local_count = 2,
+        .local_images = duplicate_locals[0..],
+    };
+    frame_with_duplicate.frame_fingerprint = frame_with_duplicate.fingerprint();
+    var duplicate_frames = [_]LoadedSessionFrameImage{frame_with_duplicate};
+    var duplicate_image = LoadedSessionImage{
+        .format_version = loaded_session_image_format_version_v2,
+        .fingerprint_version = loaded_session_image_fingerprint_version_v2,
+        .module_fingerprint = 11,
+        .executable_plan_fingerprint = 22,
+        .execution_profile_fingerprint = profile_fingerprint,
+        .session_fingerprint = testLoadedSessionFingerprintV2(11, 22, profile_fingerprint, 0),
+        .entry_function = 0,
+        .budget = .{ .advancements = 1 },
+        .status = .request,
+        .pending_request = .{
+            .residual_site_index = 1,
+            .residual_site_fingerprint = 2,
+            .world_port_id = 3,
+            .payload_ref = .{ .codec = .i32 },
+            .expected_response_ref = .{ .codec = .i32 },
+            .canonical_request_fingerprint = 4,
+            .deterministic_continuation_fingerprint = 5,
+            .response_local = 0,
+            .result_local = std.math.maxInt(u16),
+        },
+        .payload_image_bytes = "payload",
+        .dependency_fingerprint = 44,
+        .continuation = .{ .frame_images = duplicate_frames[0..] },
+    };
+    duplicate_image.allocation = try duplicate_image.computeAllocationLedger();
+    try std.testing.expectError(error.MalformedSessionImage, duplicate_image.validateState());
+
+    var out_of_order_locals = [_]LoadedSessionLocalImage{
+        .{ .local_index = 1, .value_ref = .{ .codec = .i32 } },
+        .{ .local_index = 0, .value_ref = .{ .codec = .i32 } },
+    };
+    var frame_with_out_of_order = frame_with_duplicate;
+    frame_with_out_of_order.local_images = out_of_order_locals[0..];
+    frame_with_out_of_order.frame_fingerprint = frame_with_out_of_order.fingerprint();
+    var out_of_order_frames = [_]LoadedSessionFrameImage{frame_with_out_of_order};
+    var out_of_order_image = duplicate_image;
+    out_of_order_image.continuation = .{ .frame_images = out_of_order_frames[0..] };
+    out_of_order_image.allocation = try out_of_order_image.computeAllocationLedger();
+    try std.testing.expectError(error.MalformedSessionImage, out_of_order_image.validateState());
+
+    var out_of_range_locals = [_]LoadedSessionLocalImage{.{ .local_index = 2, .value_ref = .{ .codec = .i32 } }};
+    var frame_with_out_of_range = frame_with_duplicate;
+    frame_with_out_of_range.local_images = out_of_range_locals[0..];
+    frame_with_out_of_range.frame_fingerprint = frame_with_out_of_range.fingerprint();
+    var out_of_range_frames = [_]LoadedSessionFrameImage{frame_with_out_of_range};
+    var out_of_range_image = duplicate_image;
+    out_of_range_image.continuation = .{ .frame_images = out_of_range_frames[0..] };
+    out_of_range_image.allocation = try out_of_range_image.computeAllocationLedger();
+    try std.testing.expectError(error.MalformedSessionImage, out_of_range_image.validateState());
+
+    var entry_arguments = [_]LoadedSessionLocalImage{
+        .{ .local_index = 1, .value_ref = .{ .codec = .i32 } },
+    };
+    var entry_argument_image = LoadedSessionImage{
+        .format_version = loaded_session_image_format_version_v2,
+        .fingerprint_version = loaded_session_image_fingerprint_version_v2,
+        .module_fingerprint = 11,
+        .executable_plan_fingerprint = 22,
+        .execution_profile_fingerprint = profile_fingerprint,
+        .session_fingerprint = testLoadedSessionFingerprintV2(11, 22, profile_fingerprint, 0),
+        .entry_function = 0,
+        .status = .initial,
+        .dependency_fingerprint = 44,
+        .entry_argument_images = entry_arguments[0..],
+    };
+    entry_argument_image.allocation = try entry_argument_image.computeAllocationLedger();
+    try std.testing.expectError(error.MalformedSessionImage, entry_argument_image.validateState());
+}
+
+test "loaded session image v2 rejects hidden last return ref without image bytes" {
+    const profile_fingerprint = LoadedExecutionProfile.portableV2().computeFingerprint();
+    var frame = LoadedSessionFrameImage{
+        .function_index = 0,
+        .block_index = 0,
+        .next_instruction_index = 1,
+        .local_count = 1,
+        .last_return_ref = .{ .codec = .bool },
+    };
+    frame.frame_fingerprint = frame.fingerprint();
+    var frames = [_]LoadedSessionFrameImage{frame};
+    var image = LoadedSessionImage{
+        .format_version = loaded_session_image_format_version_v2,
+        .fingerprint_version = loaded_session_image_fingerprint_version_v2,
+        .module_fingerprint = 11,
+        .executable_plan_fingerprint = 22,
+        .execution_profile_fingerprint = profile_fingerprint,
+        .session_fingerprint = testLoadedSessionFingerprintV2(11, 22, profile_fingerprint, 0),
+        .entry_function = 0,
+        .budget = .{ .advancements = 1 },
+        .status = .request,
+        .pending_request = .{
+            .residual_site_index = 1,
+            .residual_site_fingerprint = 2,
+            .world_port_id = 3,
+            .payload_ref = .{ .codec = .i32 },
+            .expected_response_ref = .{ .codec = .i32 },
+            .canonical_request_fingerprint = 4,
+            .deterministic_continuation_fingerprint = 5,
+            .response_local = 0,
+            .result_local = std.math.maxInt(u16),
+        },
+        .payload_image_bytes = "payload",
+        .dependency_fingerprint = 44,
+        .continuation = .{ .frame_images = frames[0..] },
+    };
+    image.allocation = try image.computeAllocationLedger();
+    try std.testing.expectError(error.MalformedSessionImage, image.validateState());
+}
+
+test "loaded session image v2 rejects empty stored value image bytes" {
+    const profile_fingerprint = LoadedExecutionProfile.portableV2().computeFingerprint();
+    var empty_local_images = [_]LoadedSessionLocalImage{.{
+        .local_index = 0,
+        .value_ref = .{ .codec = .i32 },
+    }};
+    var frame = LoadedSessionFrameImage{
+        .function_index = 0,
+        .block_index = 0,
+        .next_instruction_index = 1,
+        .local_count = 1,
+        .local_images = empty_local_images[0..],
+    };
+    frame.frame_fingerprint = frame.fingerprint();
+    var frames = [_]LoadedSessionFrameImage{frame};
+    var continuation_image = LoadedSessionImage{
+        .format_version = loaded_session_image_format_version_v2,
+        .fingerprint_version = loaded_session_image_fingerprint_version_v2,
+        .module_fingerprint = 11,
+        .executable_plan_fingerprint = 22,
+        .execution_profile_fingerprint = profile_fingerprint,
+        .session_fingerprint = testLoadedSessionFingerprintV2(11, 22, profile_fingerprint, 0),
+        .entry_function = 0,
+        .budget = .{ .advancements = 1 },
+        .status = .request,
+        .pending_request = .{
+            .residual_site_index = 1,
+            .residual_site_fingerprint = 2,
+            .world_port_id = 3,
+            .payload_ref = .{ .codec = .i32 },
+            .expected_response_ref = .{ .codec = .i32 },
+            .canonical_request_fingerprint = 4,
+            .deterministic_continuation_fingerprint = 5,
+            .response_local = 0,
+            .result_local = std.math.maxInt(u16),
+        },
+        .payload_image_bytes = "payload",
+        .dependency_fingerprint = 44,
+        .continuation = .{ .frame_images = frames[0..] },
+    };
+    continuation_image.allocation = try continuation_image.computeAllocationLedger();
+    try std.testing.expectError(error.MalformedSessionImage, continuation_image.validateState());
+
+    var empty_entry_argument_images = [_]LoadedSessionLocalImage{.{
+        .local_index = 0,
+        .value_ref = .{ .codec = .i32 },
+    }};
+    var entry_argument_image = LoadedSessionImage{
+        .format_version = loaded_session_image_format_version_v2,
+        .fingerprint_version = loaded_session_image_fingerprint_version_v2,
+        .module_fingerprint = 11,
+        .executable_plan_fingerprint = 22,
+        .execution_profile_fingerprint = profile_fingerprint,
+        .session_fingerprint = testLoadedSessionFingerprintV2(11, 22, profile_fingerprint, 0),
+        .entry_function = 0,
+        .status = .initial,
+        .dependency_fingerprint = 44,
+        .entry_argument_images = empty_entry_argument_images[0..],
+    };
+    entry_argument_image.allocation = try entry_argument_image.computeAllocationLedger();
+    try std.testing.expectError(error.MalformedSessionImage, entry_argument_image.validateState());
+}
+
+test "loaded session allocation ledger uses checked arithmetic" {
+    var byte_count: u64 = std.math.maxInt(u64);
+    try std.testing.expectError(error.MalformedSessionImage, addLedgerBytes(&byte_count, 1));
+    try std.testing.expectEqual(std.math.maxInt(u64), byte_count);
+
+    var item_count: u32 = std.math.maxInt(u32);
+    try std.testing.expectError(error.MalformedSessionImage, addLedgerCount(&item_count, 1));
+    try std.testing.expectEqual(std.math.maxInt(u32), item_count);
+}
+
+test "loaded session image deinit preserves borrowed v2 child image slices" {
+    const allocator = std.testing.allocator;
+    const profile_fingerprint = LoadedExecutionProfile.portableV2().computeFingerprint();
+    var frame_locals = [_]LoadedSessionLocalImage{.{
+        .local_index = 1,
+        .value_ref = .{ .codec = .i32 },
+        .value_image_bytes = "borrowed-frame-local",
+    }};
+    var frames = [_]LoadedSessionFrameImage{.{
+        .function_index = 3,
+        .block_index = 5,
+        .next_instruction_index = 8,
+        .local_count = 2,
+        .local_images = frame_locals[0..],
+    }};
+    var entry_arguments = [_]LoadedSessionLocalImage{.{
+        .local_index = 0,
+        .value_ref = .{ .codec = .string },
+        .value_image_bytes = "borrowed-entry-argument",
+    }};
+    var image = LoadedSessionImage{
+        .format_version = loaded_session_image_format_version_v2,
+        .fingerprint_version = loaded_session_image_fingerprint_version_v2,
+        .module_fingerprint = 11,
+        .executable_plan_fingerprint = 22,
+        .execution_profile_fingerprint = profile_fingerprint,
+        .session_fingerprint = testLoadedSessionFingerprintV2(11, 22, profile_fingerprint, 0),
+        .entry_function = 0,
+        .status = .failed,
+        .failure = .{
+            .kind = .unsupported_feature,
+            .diagnostic_summary = "borrowed children are owned by caller",
+        },
+        .dependency_fingerprint = 33,
+        .continuation = .{ .frame_images = frames[0..] },
+        .entry_argument_images = entry_arguments[0..],
+    };
+
+    image.deinit(allocator);
+
+    try std.testing.expectEqual(@as(u16, 3), frames[0].function_index);
+    try std.testing.expectEqual(@as(u16, 1), frame_locals[0].local_index);
+    try std.testing.expectEqualStrings("borrowed-frame-local", frame_locals[0].value_image_bytes);
+    try std.testing.expectEqual(@as(u16, 0), entry_arguments[0].local_index);
+    try std.testing.expectEqualStrings("borrowed-entry-argument", entry_arguments[0].value_image_bytes);
+}
+
 test "loaded session image binds fingerprinted identity fields" {
     const allocator = std.testing.allocator;
     const profile_fingerprint = LoadedExecutionProfile.portableV1().computeFingerprint();
@@ -1700,5 +3722,5 @@ test "loaded session image binds fingerprinted identity fields" {
     const corrupted = try allocator.dupe(u8, encoded);
     defer allocator.free(corrupted);
     corrupted[8] ^= 1;
-    try std.testing.expectError(error.FingerprintMismatch, LoadedSessionImage.decode(allocator, corrupted));
+    try std.testing.expectError(error.MalformedSessionImage, LoadedSessionImage.decode(allocator, corrupted));
 }
