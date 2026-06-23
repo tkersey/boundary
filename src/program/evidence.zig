@@ -8835,15 +8835,10 @@ pub const BoundaryTargetModule = struct {
             .return_value => profile.instruction_kinds.return_value,
             .sum_extract_payload => profile.instruction_kinds.get_sum_payload,
             .sum_variant_is => profile.instruction_kinds.match_sum_variant,
-            .add_const_i32 => loadedProfileSupportsArithmeticInstruction(profile, profile.instruction_kinds.add_const_i32),
-            .add_i32 => loadedProfileSupportsArithmeticInstruction(profile, profile.instruction_kinds.add_i32),
-            .sub_one => loadedProfileSupportsArithmeticInstruction(profile, profile.instruction_kinds.sub_one),
+            .add_const_i32 => profile.instruction_kinds.add_const_i32,
+            .add_i32 => profile.instruction_kinds.add_i32,
+            .sub_one => profile.instruction_kinds.sub_one,
         };
-    }
-
-    fn loadedProfileSupportsArithmeticInstruction(profile: LoadedExecutionProfile, explicit_support: bool) bool {
-        if (profile.format_version == loaded_execution.loaded_execution_profile_format_version_v1) return true;
-        return explicit_support;
     }
 
     fn validateLoadedSessionValueImage(

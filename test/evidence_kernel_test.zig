@@ -19080,10 +19080,17 @@ test "loaded executable session interprets scalar locals and branches" {
     var loaded = try Target.Module.decode(allocator, full);
     defer loaded.deinit();
 
-    var session = try Target.Module.LoadedModule.Session.startExecutable(
+    try std.testing.expect(!Target.Module.LoadedExecutionProfile.portableV1().instruction_kinds.add_i32);
+    try std.testing.expectError(error.UnsupportedLoadedExecutionProfile, Target.Module.LoadedModule.Session.startExecutable(
         allocator,
         &loaded,
         Target.Module.LoadedExecutionProfile.portableV1(),
+    ));
+
+    var session = try Target.Module.LoadedModule.Session.startExecutable(
+        allocator,
+        &loaded,
+        Target.Module.LoadedExecutionProfile.portableV2(),
     );
     defer session.deinit();
     const done = switch (session.next()) {
@@ -19111,7 +19118,7 @@ test "loaded executable session interprets scalar locals and branches" {
         allocator,
         &loaded,
         frozen,
-        Target.Module.LoadedExecutionProfile.portableV1(),
+        Target.Module.LoadedExecutionProfile.portableV2(),
     );
     defer restored.deinit();
     const restored_done = switch (restored.next()) {
@@ -19122,7 +19129,7 @@ test "loaded executable session interprets scalar locals and branches" {
     try std.testing.expectEqual(done.result_fingerprint, restored_done.result_fingerprint);
     try std.testing.expectEqualStrings(done.canonical_result_image, restored_done.canonical_result_image);
 
-    var bytes_disabled_profile = Target.Module.LoadedExecutionProfile.portableV1();
+    var bytes_disabled_profile = Target.Module.LoadedExecutionProfile.portableV2();
     bytes_disabled_profile.value_codecs.bytes = false;
     var bytes_disabled_session = try Target.Module.LoadedModule.Session.startExecutable(
         allocator,
@@ -19137,7 +19144,7 @@ test "loaded executable session interprets scalar locals and branches" {
     };
     try std.testing.expectEqual(done.result_fingerprint, bytes_disabled_done.result_fingerprint);
 
-    var constrained_profile = Target.Module.LoadedExecutionProfile.portableV1();
+    var constrained_profile = Target.Module.LoadedExecutionProfile.portableV2();
     constrained_profile.limits.maximum_instructions_per_advancement = 2;
     var constrained_session = try Target.Module.LoadedModule.Session.startExecutable(
         allocator,
@@ -19168,7 +19175,7 @@ test "loaded executable session interprets scalar locals and branches" {
     try std.testing.expectEqual(failure.kind, restored_failure.kind);
     try std.testing.expectEqualStrings(failure.diagnostic_summary, restored_failure.diagnostic_summary);
 
-    var branch_boundary_profile = Target.Module.LoadedExecutionProfile.portableV1();
+    var branch_boundary_profile = Target.Module.LoadedExecutionProfile.portableV2();
     branch_boundary_profile.limits.maximum_instructions_per_advancement = 5;
     var branch_boundary_session = try Target.Module.LoadedModule.Session.startExecutable(
         allocator,
@@ -20010,7 +20017,7 @@ test "loaded executable session interprets completing helper calls" {
     var session = try Target.Module.LoadedModule.Session.startExecutable(
         allocator,
         &loaded,
-        Target.Module.LoadedExecutionProfile.portableV1(),
+        Target.Module.LoadedExecutionProfile.portableV2(),
     );
     defer session.deinit();
     const done = switch (session.next()) {
@@ -20031,7 +20038,7 @@ test "loaded executable session interprets completing helper calls" {
     );
     try std.testing.expectEqual(@as(i32, 42), result.i32);
 
-    var constrained_profile = Target.Module.LoadedExecutionProfile.portableV1();
+    var constrained_profile = Target.Module.LoadedExecutionProfile.portableV2();
     constrained_profile.limits.maximum_call_depth = 1;
     var constrained_session = try Target.Module.LoadedModule.Session.startExecutable(
         allocator,
@@ -20046,7 +20053,7 @@ test "loaded executable session interprets completing helper calls" {
     };
     try std.testing.expectEqual(Target.Module.LoadedExecution.ExecutionFailureKind.call_depth_exceeded, failure.kind);
 
-    var call_helper_disabled_profile = Target.Module.LoadedExecutionProfile.portableV1();
+    var call_helper_disabled_profile = Target.Module.LoadedExecutionProfile.portableV2();
     call_helper_disabled_profile.instruction_kinds.call_helper = false;
     try std.testing.expectError(error.UnsupportedLoadedExecutionProfile, Target.Module.LoadedModule.Session.startExecutable(
         allocator,
@@ -20953,7 +20960,7 @@ test "generated-loaded parity scalar branches and helper calls" {
     var scalar_loaded_session = try ScalarTarget.Module.LoadedModule.Session.startExecutable(
         allocator,
         &scalar_loaded,
-        ScalarTarget.Module.LoadedExecutionProfile.portableV1(),
+        ScalarTarget.Module.LoadedExecutionProfile.portableV2(),
     );
     defer scalar_loaded_session.deinit();
     const scalar_loaded_done = switch (scalar_loaded_session.next()) {
@@ -20991,7 +20998,7 @@ test "generated-loaded parity scalar branches and helper calls" {
     var helper_loaded_session = try HelperTarget.Module.LoadedModule.Session.startExecutable(
         allocator,
         &helper_loaded,
-        HelperTarget.Module.LoadedExecutionProfile.portableV1(),
+        HelperTarget.Module.LoadedExecutionProfile.portableV2(),
     );
     defer helper_loaded_session.deinit();
     const helper_loaded_done = switch (helper_loaded_session.next()) {

@@ -30,6 +30,7 @@ pub const CapabilityBlockerTag = enum {
     payload_codec,
     resume_codec,
     local_codec,
+    native_usize_literal,
 };
 pub const CapabilityBlocker = struct {
     tag: CapabilityBlockerTag,
@@ -47,6 +48,7 @@ pub const SessionBlockerTag = enum {
     payload_codec,
     resume_codec,
     local_codec,
+    native_usize_literal,
 };
 pub const SessionBlocker = struct {
     tag: SessionBlockerTag,
@@ -64,6 +66,7 @@ pub const ExecutablePlanSupportError = error{
     UnsupportedPayloadCodec,
     UnsupportedResumeCodec,
     UnsupportedLocalCodec,
+    UnsupportedNativeUsizeLiteral,
 };
 pub const SessionPlanSupportError = error{
     UnsupportedSessionPlan,
@@ -108,6 +111,7 @@ fn sessionBlockerTagForCapability(comptime tag: CapabilityBlockerTag) SessionBlo
         .payload_codec => .payload_codec,
         .resume_codec => .resume_codec,
         .local_codec => .local_codec,
+        .native_usize_literal => .native_usize_literal,
     };
 }
 
@@ -207,6 +211,16 @@ pub fn ExecutableCapabilityLedgerForPlan(
                     }
                     if (!executableTypedRef(schema_types, .{ .codec = op.resume_codec, .schema_index = op.resume_schema_index })) {
                         appendCapabilityBlocker(&blockers, &count, &truncated, .{ .tag = .resume_codec, .function_index = @intCast(owner_index), .instruction_index = @intCast(instruction_index), .codec = op.resume_codec });
+                    }
+                },
+                .const_usize => {
+                    if (!constUsizeLiteralFitsNative(instruction)) {
+                        appendCapabilityBlocker(&blockers, &count, &truncated, .{
+                            .tag = .native_usize_literal,
+                            .function_index = @intCast(owner_index),
+                            .instruction_index = @intCast(instruction_index),
+                            .codec = .usize,
+                        });
                     }
                 },
                 else => {},
@@ -366,6 +380,11 @@ pub fn executableResultRefForPlan(comptime compiled_plan: program_plan.ProgramPl
     return program_plan.functionResultRef(compiled_plan.functions[compiled_plan.entry_index]);
 }
 
+fn constUsizeLiteralFitsNative(comptime instruction: program_plan.Instruction) bool {
+    _ = std.fmt.parseUnsigned(usize, instruction.string_literal, 0) catch return false;
+    return true;
+}
+
 pub fn validateExecutablePlanSupport(comptime compiled_plan: program_plan.ProgramPlan) ExecutablePlanSupportError!void {
     comptime {
         const analysis = program_plan.entryExecutionAnalysis(compiled_plan) catch return error.UnsupportedLocalCodec;
@@ -426,6 +445,9 @@ pub fn validateExecutablePlanSupport(comptime compiled_plan: program_plan.Progra
                     if (!instructionLocalHasExecutableScalarCodec(compiled_plan, owner, instruction.dst)) return error.UnsupportedLocalCodec;
                     if (instruction.kind == .add_const_i32 and !instructionLocalHasExecutableScalarCodec(compiled_plan, owner, instruction.operand)) {
                         return error.UnsupportedLocalCodec;
+                    }
+                    if (instruction.kind == .const_usize and !constUsizeLiteralFitsNative(instruction)) {
+                        return error.UnsupportedNativeUsizeLiteral;
                     }
                 },
                 .add_i32 => {
@@ -548,6 +570,9 @@ pub fn validateTypedExecutablePlanSupportWithNestedTargets(
                     if (!instructionLocalHasExecutableTypedRef(compiled_plan, schema_types, owner, instruction.dst)) return error.UnsupportedLocalCodec;
                     if (instruction.kind == .add_const_i32 and !instructionLocalHasExecutableTypedRef(compiled_plan, schema_types, owner, instruction.operand)) {
                         return error.UnsupportedLocalCodec;
+                    }
+                    if (instruction.kind == .const_usize and !constUsizeLiteralFitsNative(instruction)) {
+                        return error.UnsupportedNativeUsizeLiteral;
                     }
                 },
                 .add_i32 => {
@@ -8175,6 +8200,43 @@ fn supportUnitPlan(comptime label: []const u8) program_plan.ProgramPlan {
     }) catch |err| supportPlanError(err);
 }
 
+fn supportUsizeLiteralPlan(comptime literal: []const u8) program_plan.ProgramPlan {
+    const functions = [_]program_plan.FunctionPlan{.{
+        .symbol_name = "run",
+        .value_codec = .usize,
+        .first_requirement = 0,
+        .requirement_count = 0,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 1,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = 2,
+    }};
+    const blocks = [_]program_plan.BlockPlan{.{ .first_instruction = 0, .instruction_count = 2, .terminator_index = 0 }};
+    const terminators = [_]program_plan.Terminator{.{ .kind = .return_value }};
+    const instructions = [_]program_plan.Instruction{
+        .{ .kind = .const_usize, .dst = 0, .string_literal = literal },
+        .{ .kind = .return_value, .operand = 0 },
+    };
+    return program_plan.program_plan_builder.finish(.{
+        .label = "usize-literal-support",
+        .ir_hash = 101,
+        .entry = program_plan.program_plan_builder.function(0),
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &.{.{ .codec = .usize }},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch |err| supportPlanError(err);
+}
+
 fn supportParameterPlan(comptime codec: program_plan.ValueCodec) program_plan.ProgramPlan {
     const root = program_plan.program_plan_builder.function(0);
     const functions = [_]program_plan.FunctionPlan{.{
@@ -9220,6 +9282,25 @@ fn supportStructuredAfterHelperResultPlan() program_plan.ProgramPlan {
 test "boundary.program executable support accepts scalar entry codecs" {
     inline for (.{ program_plan.ValueCodec.unit, .bool, .i32, .usize, .string }) |codec| {
         try validateExecutablePlanSupport(supportResultPlan(codec));
+    }
+}
+
+test "boundary.program executable support gates const_usize to native representation" {
+    const max_u64_literal = "18446744073709551615";
+    const max_u64_plan = comptime supportUsizeLiteralPlan(max_u64_literal);
+    try max_u64_plan.validate();
+
+    if (comptime @bitSizeOf(usize) < 64) {
+        try std.testing.expectError(error.UnsupportedNativeUsizeLiteral, validateExecutablePlanSupport(max_u64_plan));
+        try std.testing.expectError(error.UnsupportedNativeUsizeLiteral, validateTypedExecutablePlanSupport(max_u64_plan, &.{}));
+        const ledger = ExecutableCapabilityLedgerForPlan(max_u64_plan, &.{}, &.{});
+        try std.testing.expectEqual(@as(usize, 1), ledger.blockers.len);
+        try std.testing.expectEqual(CapabilityBlockerTag.native_usize_literal, ledger.blockers[0].tag);
+    } else {
+        try validateExecutablePlanSupport(max_u64_plan);
+        try validateTypedExecutablePlanSupport(max_u64_plan, &.{});
+        const ledger = ExecutableCapabilityLedgerForPlan(max_u64_plan, &.{}, &.{});
+        try std.testing.expectEqual(@as(usize, 0), ledger.blockers.len);
     }
 }
 
