@@ -917,6 +917,90 @@ const closure_dual_world_port_program = boundary.program("evidence-closure-dual-
 });
 const closure_dual_first = closure_dual_world_port_program.protocol.operationSite("approval-dual", "first", 0);
 const closure_dual_second = closure_dual_world_port_program.protocol.operationSite("approval-dual", "second", 0);
+
+fn lastReturnWorldPortPlan() boundary.ir.ProgramPlan {
+    const root = boundary.ir.builder.function(0);
+    const requirements = [_]boundary.ir.plan.Requirement{.{ .label = "approval-last-return", .first_op = 0, .op_count = 2 }};
+    const ops = [_]boundary.ir.plan.Op{
+        .{
+            .requirement_index = 0,
+            .op_name = "first",
+            .mode = .transform,
+            .payload_codec = .string,
+            .resume_codec = .string,
+        },
+        .{
+            .requirement_index = 0,
+            .op_name = "second",
+            .mode = .transform,
+            .payload_codec = .string,
+            .resume_codec = .i32,
+        },
+    };
+    const functions = [_]boundary.ir.plan.Function{.{
+        .symbol_name = "run",
+        .value_codec = .string,
+        .result_codec = .string,
+        .parameter_count = 0,
+        .first_requirement = 0,
+        .requirement_count = 1,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 3,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 2,
+        .first_instruction = 0,
+        .instruction_count = 5,
+    }};
+    const locals = [_]boundary.ir.plan.Local{
+        .{ .codec = .string },
+        .{ .codec = .string },
+        .{ .codec = .i32 },
+    };
+    const blocks = [_]boundary.ir.plan.Block{
+        .{ .first_instruction = 0, .instruction_count = 3, .terminator_index = 0 },
+        .{ .first_instruction = 3, .instruction_count = 2, .terminator_index = 1 },
+    };
+    const terminators = [_]boundary.ir.plan.Terminator{
+        .{ .kind = .jump, .primary = 1 },
+        .{ .kind = .return_value },
+    };
+    const payload = boundary.ir.builder.local(root, 0);
+    const first = boundary.ir.builder.local(root, 1);
+    const second = boundary.ir.builder.local(root, 2);
+    const instructions = [_]boundary.ir.plan.Instruction{
+        .{ .kind = .const_string, .dst = 0, .string_literal = "last-return" },
+        boundary.ir.builder.callOp(root, first, boundary.ir.builder.op(root, 0), payload) catch unreachable,
+        boundary.ir.builder.returnValue(root, first) catch unreachable,
+        boundary.ir.builder.callOp(root, second, boundary.ir.builder.op(root, 1), first) catch unreachable,
+        boundary.ir.builder.returnValue(root, first) catch unreachable,
+    };
+    return boundary.ir.builder.finish(.{
+        .label = "evidence-closure-last-return-world-port",
+        .ir_hash = 0xC105_E519,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .locals = &locals,
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+}
+
+const closure_last_return_world_port_program = boundary.program("evidence-closure-last-return-world-port", closure_fixture_handlers, struct {
+    pub const site_metadata = [_]boundary.ir.builder.semantic.SiteMetadata{
+        .{ .instruction_index = 1, .label = "approval-last-return.first" },
+        .{ .instruction_index = 3, .label = "approval-last-return.second" },
+    };
+    pub const compiled_plan = lastReturnWorldPortPlan();
+});
+const closure_last_return_first = closure_last_return_world_port_program.protocol.operationSite("approval-last-return", "first", 0);
+const closure_last_return_second = closure_last_return_world_port_program.protocol.operationSite("approval-last-return", "second", 0);
 const closure_multi_yield_compiled = closure_fixture_semantic.finish(.{
     .label = "evidence-closure-multi-yield",
     .ir_hash = 0xC105E507,
@@ -17831,6 +17915,86 @@ fn ModuleDualWorldPortTarget(comptime label: []const u8) type {
     });
 }
 
+fn ModuleLastReturnWorldPortTarget(comptime label: []const u8) type {
+    const Closure = closure_last_return_world_port_program.BoundaryClosure;
+    const Elaboration = Closure.Elaboration;
+    @setEvalBranchQuota(2_000_000);
+    const source_ref = closure_last_return_world_port_program.Evidence.refFor(
+        closure_last_return_world_port_program.Evidence.domains.program_plan,
+        closure_last_return_world_port_program.compiled_plan.hash(),
+        .{ .label = closure_last_return_world_port_program.contract.label },
+    );
+    const first_shape = Closure.EffectShape.init(.{
+        .program_label = closure_last_return_world_port_program.contract.label,
+        .plan_hash = closure_last_return_world_port_program.compiled_plan.hash(),
+        .kind = .operation,
+        .site_index = closure_last_return_first.index,
+        .protocol_label = "approval-last-return",
+        .protocol_op_fingerprint = closure_last_return_first.fingerprint,
+        .semantic_label = "approval-last-return.first",
+        .name = "first",
+        .mode = "transform",
+        .value_ref = Evidence.BoundaryValueRef.fromValueRef(closure_last_return_first.payload_ref),
+        .expected_resume_ref = Evidence.BoundaryValueRef.fromValueRef(closure_last_return_first.resume_ref),
+        .result_ref = Evidence.BoundaryValueRef.fromValueRef(closure_last_return_first.result_ref),
+    });
+    const second_shape = Closure.EffectShape.init(.{
+        .program_label = closure_last_return_world_port_program.contract.label,
+        .plan_hash = closure_last_return_world_port_program.compiled_plan.hash(),
+        .kind = .operation,
+        .site_index = closure_last_return_second.index,
+        .protocol_label = "approval-last-return",
+        .protocol_op_fingerprint = closure_last_return_second.fingerprint,
+        .semantic_label = "approval-last-return.second",
+        .name = "second",
+        .mode = "transform",
+        .value_ref = Evidence.BoundaryValueRef.fromValueRef(closure_last_return_second.payload_ref),
+        .expected_resume_ref = Evidence.BoundaryValueRef.fromValueRef(closure_last_return_second.resume_ref),
+        .result_ref = Evidence.BoundaryValueRef.fromValueRef(closure_last_return_second.result_ref),
+    });
+    const first_port = Closure.WorldPort.init(.{
+        .label = "module-last-return-first-port",
+        .kind = .test_fixture,
+        .effect_shape_ref = first_shape.evidenceRef(),
+        .effect_shape_witness = first_shape,
+        .supported_protocol_labels = &.{"approval-last-return"},
+        .supported_site_indexes = &.{closure_last_return_first.index},
+        .supported_protocol_op_fingerprints = &.{closure_last_return_first.fingerprint},
+    });
+    const second_port = Closure.WorldPort.init(.{
+        .label = "module-last-return-second-port",
+        .kind = .test_fixture,
+        .effect_shape_ref = second_shape.evidenceRef(),
+        .effect_shape_witness = second_shape,
+        .supported_protocol_labels = &.{"approval-last-return"},
+        .supported_site_indexes = &.{closure_last_return_second.index},
+        .supported_protocol_op_fingerprints = &.{closure_last_return_second.fingerprint},
+    });
+    const graph = Closure.Graph.init("module-last-return-world-port-graph", &.{}, &.{}, &.{});
+    const report = Closure.Report.init(.{
+        .graph_fingerprint = graph.fingerprint,
+        .root_program_refs = &.{source_ref},
+        .effect_shape_count = 2,
+        .world_port_refs = &.{ first_port.evidenceRef(), second_port.evidenceRef() },
+        .open_world_port_count = 2,
+    });
+    const certificate = Closure.Certificate.init(report, graph, Closure.Policy.auditOnly(), &.{});
+    const input = Elaboration.Input{
+        .closure_graph = graph,
+        .closure_report = report,
+        .closure_certificate = certificate,
+        .source_program_ref = source_ref,
+        .world_ports = &.{ first_port, second_port },
+        .policy = Elaboration.Policy.auditOnly(),
+    };
+    return Elaboration.Target.compileComptime(.{
+        .label = label,
+        .input = input,
+        .residual_program = closure_last_return_world_port_program,
+        .policy = Elaboration.Target.Policy.auditOnly(),
+    });
+}
+
 fn ModuleBoolWorldPortTarget(comptime label: []const u8) type {
     const Closure = closure_bool_source_program.BoundaryClosure;
     const Elaboration = Closure.Elaboration;
@@ -19712,6 +19876,105 @@ test "loaded executable portable v2 executes two sequential residual requests" {
         .{},
     );
     try std.testing.expectEqual(@as(i32, 13), result.i32);
+}
+
+test "loaded executable portable v2 deep copies parked last_return values" {
+    const allocator = std.testing.allocator;
+    const Target = comptime ModuleLastReturnWorldPortTarget("module-last-return-world-port-loaded-portable-v2-target");
+    const full = try Target.Module.fullImage(allocator);
+    defer allocator.free(full);
+    var loaded = try Target.Module.decode(allocator, full);
+    defer loaded.deinit();
+
+    var session = try Target.Module.LoadedModule.Session.startExecutable(
+        allocator,
+        &loaded,
+        Target.Module.LoadedExecutionProfile.portableV2(),
+    );
+    defer session.deinit();
+
+    const first_request = switch (session.next()) {
+        .request => |request| request,
+        .done => return error.UnexpectedDone,
+        .failed => return error.UnexpectedFailure,
+    };
+    try std.testing.expectEqual(closure_last_return_first.index, first_request.residual_site_index);
+
+    const first_response = try Target.Module.LoadedExecution.encodeLoadedValueImageBytes(
+        allocator,
+        .{},
+        .{ .codec = .string },
+        .{ .bytes = "owned-last-return" },
+        .{},
+    );
+    defer allocator.free(first_response);
+    try session.@"resume"(first_request, first_response);
+
+    const second_request = switch (session.next()) {
+        .request => |request| request,
+        .done => return error.UnexpectedDone,
+        .failed => return error.UnexpectedFailure,
+    };
+    try std.testing.expectEqual(closure_last_return_second.index, second_request.residual_site_index);
+
+    const frozen_second = try session.freeze(allocator);
+    defer allocator.free(frozen_second);
+    var frozen_image = try Target.Module.LoadedSessionImage.decode(allocator, frozen_second);
+    defer frozen_image.deinit(allocator);
+    const frame_images = frozen_image.continuation.?.frame_images;
+    try std.testing.expectEqual(@as(usize, 1), frame_images.len);
+    try std.testing.expectEqual(Target.Module.LoadedValueRef{ .codec = .string }, frame_images[0].last_return_ref);
+    var last_return_arena = Target.Module.LoadedValueArena.init(allocator);
+    defer last_return_arena.deinit();
+    const last_return = try Target.Module.LoadedExecution.decodeLoadedValueImage(
+        allocator,
+        &last_return_arena,
+        .{},
+        .{ .codec = .string },
+        frame_images[0].last_return_image_bytes,
+        .{},
+    );
+    try std.testing.expectEqualStrings("owned-last-return", last_return.bytes);
+
+    var restored = try Target.Module.LoadedModule.Session.thaw(
+        allocator,
+        &loaded,
+        frozen_second,
+        Target.Module.LoadedExecutionProfile.portableV2(),
+    );
+    defer restored.deinit();
+    const restored_second = switch (restored.next()) {
+        .request => |request| request,
+        .done => return error.UnexpectedDone,
+        .failed => return error.UnexpectedFailure,
+    };
+    try std.testing.expectEqual(second_request.canonical_request_fingerprint, restored_second.canonical_request_fingerprint);
+
+    const second_response = try Target.Module.LoadedExecution.encodeLoadedValueImageBytes(
+        allocator,
+        .{},
+        .{ .codec = .i32 },
+        .{ .i32 = 1 },
+        .{},
+    );
+    defer allocator.free(second_response);
+    try restored.@"resume"(restored_second, second_response);
+    const done = switch (restored.next()) {
+        .done => |value| value,
+        .request => return error.UnexpectedRequest,
+        .failed => return error.UnexpectedFailure,
+    };
+    var result_arena = Target.Module.LoadedValueArena.init(allocator);
+    defer result_arena.deinit();
+    const result = try Target.Module.LoadedExecution.decodeLoadedValueImage(
+        allocator,
+        &result_arena,
+        .{},
+        .{ .codec = .string },
+        done.canonical_result_image,
+        .{},
+    );
+    try std.testing.expectEqualStrings("owned-last-return", result.bytes);
 }
 
 test "loaded executable portable v2 restores helper frame parked on residual request" {

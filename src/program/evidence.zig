@@ -7739,6 +7739,32 @@ pub const BoundaryTargetModule = struct {
                         limits,
                     );
                 }
+                var cloned_last_return: LoadedValue = .unit;
+                switch (frame.last_return) {
+                    .unit => {},
+                    else => {
+                        const last_return_ref = loaded_execution.LoadedValueRef{
+                            .codec = function.value_codec,
+                            .schema_index = function.value_schema_index,
+                        };
+                        const last_return_image = try loaded_execution.encodeLoadedValueImageBytes(
+                            allocator,
+                            schema_set,
+                            last_return_ref,
+                            frame.last_return,
+                            limits,
+                        );
+                        defer allocator.free(last_return_image);
+                        cloned_last_return = try loaded_execution.decodeLoadedValueImage(
+                            allocator,
+                            arena,
+                            schema_set,
+                            last_return_ref,
+                            last_return_image,
+                            limits,
+                        );
+                    },
+                }
                 return .{
                     .function_index = frame.function_index,
                     .block_index = frame.block_index,
@@ -7746,7 +7772,7 @@ pub const BoundaryTargetModule = struct {
                     .locals = cloned_locals,
                     .value_arena = arena,
                     .return_destination = frame.return_destination,
-                    .last_return = frame.last_return,
+                    .last_return = cloned_last_return,
                     .last_condition = frame.last_condition,
                 };
             }
