@@ -8438,9 +8438,10 @@ pub const BoundaryTargetModule = struct {
                 const block = program_plan.blocks[block_index];
                 const instruction_end = @as(usize, block.first_instruction) + block.instruction_count;
                 if (instruction_end > program_plan.instructions.len) return error.InvalidResume;
-                if (instruction_index < block.first_instruction or instruction_index >= instruction_end) return error.InvalidResume;
+                if (instruction_index < block.first_instruction or instruction_index > instruction_end) return error.InvalidResume;
                 if (failure.diagnostic_summary.len == 0) return error.InvalidResume;
                 if (failure.kind == .declared_error) {
+                    if (instruction_index == instruction_end) return error.InvalidResume;
                     const instruction = program_plan.instructions[instruction_index];
                     if (instruction.kind != .return_error) return error.InvalidResume;
                     if (!std.mem.eql(u8, instruction.string_literal, failure.diagnostic_summary)) return error.SessionMismatch;

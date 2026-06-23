@@ -19475,6 +19475,25 @@ test "loaded executable portable v2 gates reachable arithmetic before session co
     try std.testing.expectEqual(budget_failure.kind, budget_failure_image.failure.?.kind);
     try std.testing.expectEqual(@as(u64, 1), budget_failure_image.budget.advancements);
     try std.testing.expectEqual(@as(u64, 2), budget_failure_image.budget.instructions_consumed);
+    var boundary_cursor_image = try Target.Module.LoadedSessionImage.decode(allocator, frozen_budget_failure);
+    defer boundary_cursor_image.deinit(allocator);
+    const failure_block = Target.Program.compiled_plan.blocks[@intCast(boundary_cursor_image.failure.?.block_index)];
+    boundary_cursor_image.failure.?.instruction_index = @as(u32, @intCast(@as(usize, failure_block.first_instruction) + failure_block.instruction_count));
+    const boundary_cursor_failure = try boundary_cursor_image.encode(allocator);
+    defer allocator.free(boundary_cursor_failure);
+    var restored_boundary_cursor = try Target.Module.LoadedModule.Session.thaw(
+        allocator,
+        &loaded,
+        boundary_cursor_failure,
+        constrained_profile,
+    );
+    defer restored_boundary_cursor.deinit();
+    const boundary_cursor_failure_value = switch (restored_boundary_cursor.next()) {
+        .failed => |failure_value| failure_value,
+        .done => return error.UnexpectedDone,
+        .request => return error.UnexpectedRequest,
+    };
+    try std.testing.expectEqual(Target.Module.LoadedExecution.ExecutionFailureKind.execution_budget_exceeded, boundary_cursor_failure_value.kind);
     var forged_budget_declared_ref_image = try Target.Module.LoadedSessionImage.decode(allocator, frozen_budget_failure);
     defer forged_budget_declared_ref_image.deinit(allocator);
     forged_budget_declared_ref_image.failure.?.declared_error_ref = 0xD1E_C1A1;
