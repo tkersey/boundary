@@ -19917,7 +19917,9 @@ test "loaded executable portable v2 deep copies parked last_return values" {
     };
     try std.testing.expectEqual(closure_last_return_second.index, second_request.residual_site_index);
 
-    const frozen_second = try session.freeze(allocator);
+    var public_second_image = try session.image(allocator);
+    defer public_second_image.deinit(allocator);
+    const frozen_second = try public_second_image.encode(allocator);
     defer allocator.free(frozen_second);
     var frozen_image = try Target.Module.LoadedSessionImage.decode(allocator, frozen_second);
     defer frozen_image.deinit(allocator);

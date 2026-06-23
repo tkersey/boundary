@@ -8086,12 +8086,12 @@ pub const BoundaryTargetModule = struct {
             }
 
             pub fn freeze(self: @This(), allocator: std.mem.Allocator) ![]u8 {
-                var session_image = try self.imageForFreeze(allocator);
+                var session_image = try self.image(allocator);
                 defer session_image.deinit(allocator);
                 return session_image.encode(allocator);
             }
 
-            pub fn image(self: @This()) loaded_execution.LoadedSessionImage {
+            fn baseImage(self: @This()) loaded_execution.LoadedSessionImage {
                 return .{
                     .module_fingerprint = self.module.moduleFingerprint(),
                     .executable_plan_fingerprint = self.executable_plan_fingerprint,
@@ -8121,8 +8121,8 @@ pub const BoundaryTargetModule = struct {
                 };
             }
 
-            fn imageForFreeze(self: @This(), allocator: std.mem.Allocator) !loaded_execution.LoadedSessionImage {
-                var session_image = self.image();
+            pub fn image(self: @This(), allocator: std.mem.Allocator) !loaded_execution.LoadedSessionImage {
+                var session_image = self.baseImage();
                 const freeze_as_v2 = self.profile.format_version == loaded_execution.loaded_execution_profile_format_version_v2;
                 if (freeze_as_v2) {
                     session_image.format_version = loaded_execution.loaded_session_image_format_version_v2;
