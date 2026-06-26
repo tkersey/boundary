@@ -310,6 +310,13 @@ pub fn build(b: *std.Build) void {
     });
     wireBoundaryImports(boundary_shared, core);
 
+    const host_boundary_shared = b.createModule(.{
+        .root_source_file = b.path("src/boundary_shared.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+    });
+    wireBoundaryImports(host_boundary_shared, host_core);
+
     const protocol_mod = b.createModule(.{
         .root_source_file = b.path("src/protocol.zig"),
         .target = target,
@@ -338,6 +345,13 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     boundary.addImport("boundary_shared", boundary_shared);
+
+    const host_boundary = b.createModule(.{
+        .root_source_file = b.path("src/root.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+    });
+    host_boundary.addImport("boundary_shared", host_boundary_shared);
 
     const lib_check = b.addLibrary(.{
         .linkage = .static,
@@ -658,15 +672,54 @@ pub fn build(b: *std.Build) void {
     const loaded_parity_run = addRunArtifactWithArgs(b, loaded_parity_tests, loaded_parity_args.passthrough);
     loaded_parity_step.dependOn(&loaded_parity_run.step);
     loaded_parity_required_step.dependOn(&loaded_parity_run.step);
-    const receipt_loaded_v2_run = b.addSystemCommand(&.{ "zig", "build", "check-boundary-loaded-v2", "--summary", "all" });
-    const receipt_loaded_session_run = b.addSystemCommand(&.{ "zig", "build", "check-boundary-loaded-session", "--summary", "all" });
-    const receipt_loaded_parity_run = b.addSystemCommand(&.{ "zig", "build", "check-boundary-loaded-parity", "--summary", "all" });
-    proof_receipts_step.dependOn(&receipt_loaded_v2_run.step);
-    proof_receipts_step.dependOn(&receipt_loaded_session_run.step);
-    proof_receipts_step.dependOn(&receipt_loaded_parity_run.step);
-    proof_receipts_run.step.dependOn(&receipt_loaded_v2_run.step);
-    proof_receipts_run.step.dependOn(&receipt_loaded_session_run.step);
-    proof_receipts_run.step.dependOn(&receipt_loaded_parity_run.step);
+
+    const receipt_loaded_v2_step = b.step("check-boundary-loaded-v2-receipt-host", "Check Boundary portable_v2 proof receipts on the host target.");
+    addTestArtifact(b, receipt_loaded_v2_step, host_core.loaded_execution, loaded_v2_args);
+    const receipt_v2_core_evidence_mod = b.createModule(.{
+        .root_source_file = b.path("src/program/evidence.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+    });
+    wireBoundaryImports(receipt_v2_core_evidence_mod, host_core);
+    const receipt_v2_core_evidence_tests = b.addTest(.{ .root_module = receipt_v2_core_evidence_mod, .filters = loaded_v2_args.filters });
+    receipt_loaded_v2_step.dependOn(&addRunArtifactWithArgs(b, receipt_v2_core_evidence_tests, loaded_v2_args.passthrough).step);
+    const receipt_loaded_v2_evidence_mod = b.createModule(.{
+        .root_source_file = b.path("test/evidence_kernel_test.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+    });
+    receipt_loaded_v2_evidence_mod.addImport("boundary", host_boundary);
+    const receipt_v2_evidence_tests = b.addTest(.{ .root_module = receipt_loaded_v2_evidence_mod, .filters = loaded_v2_args.filters });
+    receipt_loaded_v2_step.dependOn(&addRunArtifactWithArgs(b, receipt_v2_evidence_tests, loaded_v2_args.passthrough).step);
+
+    const receipt_loaded_session_step = b.step("check-boundary-loaded-session-receipt-host", "Check loaded-session proof receipts on the host target.");
+    addTestArtifact(b, receipt_loaded_session_step, host_core.loaded_execution, loaded_session_args);
+    addTestArtifact(b, receipt_loaded_session_step, host_boundary_shared, loaded_session_args);
+    const receipt_loaded_evidence_mod = b.createModule(.{
+        .root_source_file = b.path("test/evidence_kernel_test.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+    });
+    receipt_loaded_evidence_mod.addImport("boundary", host_boundary);
+    const receipt_loaded_evidence_tests = b.addTest(.{ .root_module = receipt_loaded_evidence_mod, .filters = loaded_session_args.filters });
+    receipt_loaded_session_step.dependOn(&addRunArtifactWithArgs(b, receipt_loaded_evidence_tests, loaded_session_args.passthrough).step);
+
+    const receipt_loaded_parity_step = b.step("check-boundary-loaded-parity-receipt-host", "Check generated-loaded parity proof receipts on the host target.");
+    const receipt_loaded_parity_mod = b.createModule(.{
+        .root_source_file = b.path("test/evidence_kernel_test.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+    });
+    receipt_loaded_parity_mod.addImport("boundary", host_boundary);
+    const receipt_loaded_parity_tests = b.addTest(.{ .root_module = receipt_loaded_parity_mod, .filters = loaded_parity_args.filters });
+    receipt_loaded_parity_step.dependOn(&addRunArtifactWithArgs(b, receipt_loaded_parity_tests, loaded_parity_args.passthrough).step);
+
+    proof_receipts_step.dependOn(receipt_loaded_v2_step);
+    proof_receipts_step.dependOn(receipt_loaded_session_step);
+    proof_receipts_step.dependOn(receipt_loaded_parity_step);
+    proof_receipts_run.step.dependOn(receipt_loaded_v2_step);
+    proof_receipts_run.step.dependOn(receipt_loaded_session_step);
+    proof_receipts_run.step.dependOn(receipt_loaded_parity_step);
 
     const loaded_import_bindings_step = b.step("check-boundary-loaded-import-bindings", "Check exact loaded residual import/site binding regressions.");
     const loaded_import_bindings_args = TestArgs{
