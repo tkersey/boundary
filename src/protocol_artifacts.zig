@@ -67,9 +67,11 @@ fn checkPublicSurface(init: std.process.Init, allocator: std.mem.Allocator) !voi
 }
 
 fn updateCorpus(init: std.process.Init, allocator: std.mem.Allocator) !void {
+    const surface = try publicSurfaceSnapshotAlloc(allocator);
     const manifest = try corpusManifestAlloc(allocator);
     const image = try protocol.Protocol.Manifest.encodeAlloc(allocator);
     try std.Io.Dir.cwd().createDirPath(init.io, corpus_dir);
+    try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = public_surface_path, .data = surface });
     try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = corpus_manifest_path, .data = manifest });
     try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = manifest_image_path, .data = image });
 }
