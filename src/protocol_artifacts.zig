@@ -24,9 +24,9 @@ const proof_commands = [_]struct {
     .{ .proof_id = "proof-004", .command = "zig build check-boundary-conformance-corpus" },
     .{ .proof_id = "proof-005", .command = "zig build check-boundary-adversarial-codecs" },
     .{ .proof_id = "proof-006", .command = "zig build check-boundary-v0-budgets" },
-    .{ .proof_id = "proof-007", .command = "zig build check-boundary-loaded-v2" },
-    .{ .proof_id = "proof-008", .command = "zig build check-boundary-loaded-session" },
-    .{ .proof_id = "proof-009", .command = "zig build check-boundary-loaded-parity" },
+    .{ .proof_id = "proof-007", .command = "zig build check-boundary-loaded-v2-receipt-host" },
+    .{ .proof_id = "proof-008", .command = "zig build check-boundary-loaded-session-receipt-host" },
+    .{ .proof_id = "proof-009", .command = "zig build check-boundary-loaded-parity-receipt-host" },
 };
 
 pub fn main(init: std.process.Init) !void {
