@@ -301,6 +301,7 @@ pub fn build(b: *std.Build) void {
     const bench_optimize: std.builtin.OptimizeMode = .ReleaseFast;
     const test_args = parseTestArgs(b);
     const core = addCoreModules(b, target, optimize);
+    const host_core = addCoreModules(b, b.graph.host, optimize);
 
     const boundary_shared = b.createModule(.{
         .root_source_file = b.path("src/boundary_shared.zig"),
@@ -316,13 +317,20 @@ pub fn build(b: *std.Build) void {
     });
     wireBoundaryImports(protocol_mod, core);
 
-    const protocol_artifacts_mod = b.createModule(.{
-        .root_source_file = b.path("src/protocol_artifacts.zig"),
-        .target = target,
+    const host_protocol_mod = b.createModule(.{
+        .root_source_file = b.path("src/protocol.zig"),
+        .target = b.graph.host,
         .optimize = optimize,
     });
-    wireBoundaryImports(protocol_artifacts_mod, core);
-    protocol_artifacts_mod.addImport("protocol", protocol_mod);
+    wireBoundaryImports(host_protocol_mod, host_core);
+
+    const protocol_artifacts_mod = b.createModule(.{
+        .root_source_file = b.path("src/protocol_artifacts.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+    });
+    wireBoundaryImports(protocol_artifacts_mod, host_core);
+    protocol_artifacts_mod.addImport("protocol", host_protocol_mod);
 
     const boundary = b.addModule("boundary", .{
         .root_source_file = b.path("src/root.zig"),
@@ -352,7 +360,7 @@ pub fn build(b: *std.Build) void {
     addTestArtifact(b, test_step, protocol_artifacts_mod, test_args);
 
     const protocol_manifest_step = b.step("check-boundary-protocol-manifest", "Check Boundary v0 protocol manifest encoding and fingerprint.");
-    addTestArtifact(b, protocol_manifest_step, protocol_mod, test_args);
+    addTestArtifact(b, protocol_manifest_step, host_protocol_mod, test_args);
 
     const protocol_artifacts_exe = b.addExecutable(.{
         .name = "boundary-protocol-artifacts",
