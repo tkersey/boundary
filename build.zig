@@ -386,11 +386,19 @@ pub fn build(b: *std.Build) void {
     proof_receipts_step.dependOn(corpus_step);
     proof_receipts_step.dependOn(adversarial_codecs_step);
     proof_receipts_step.dependOn(budgets_step);
-    proof_receipts_step.dependOn(&addRunArtifactWithArgs(b, protocol_artifacts_exe, &.{"emit-proof-receipts"}).step);
+    proof_receipts_step.dependOn(&addRunArtifactWithArgs(b, protocol_artifacts_exe, &.{
+        "emit-proof-receipts",
+        "--out-dir",
+        b.getInstallPath(.prefix, "protocol/boundary/proof-receipts"),
+    }).step);
 
     const dist_boundary_protocol_step = b.step("dist-boundary-protocol", "Build the Boundary v0.5.0 protocol distribution.");
     dist_boundary_protocol_step.dependOn(proof_receipts_step);
-    dist_boundary_protocol_step.dependOn(&addRunArtifactWithArgs(b, protocol_artifacts_exe, &.{"dist"}).step);
+    dist_boundary_protocol_step.dependOn(&addRunArtifactWithArgs(b, protocol_artifacts_exe, &.{
+        "dist",
+        "--out-dir",
+        b.getInstallPath(.prefix, "dist/boundary-v0.5.0-protocol"),
+    }).step);
 
     const executable_module_step = b.step("check-boundary-executable-module", "Check executable Certified Boundary Module v2 image foundations.");
     const executable_module_args = TestArgs{

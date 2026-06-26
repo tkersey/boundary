@@ -37,15 +37,16 @@ pub const Protocol = struct {
             "wrong-stale-duplicate-response-rejection",
         };
         pub const metadata_bytes: []const u8 = "";
+        const portable_v2_limits = loaded_execution.LoadedExecutionProfile.portableV2().limits;
 
         pub const Limits = struct {
             max_module_image_bytes: u32 = 16 * 1024 * 1024,
             max_executable_plan_bytes: u32 = 4 * 1024 * 1024,
             max_loaded_value_bytes: u32 = 1 * 1024 * 1024,
-            max_value_nesting: u16 = 64,
+            max_value_nesting: u16 = portable_v2_limits.maximum_value_nesting_depth,
             max_frame_depth: u16 = 256,
-            max_locals: u16 = 1024,
-            max_instruction_fuel: u64 = 1_000_000,
+            max_locals: u16 = portable_v2_limits.maximum_locals_per_frame,
+            max_instruction_fuel: u64 = portable_v2_limits.maximum_instructions_per_advancement,
             max_function_count: u16 = 4096,
             max_block_count: u16 = 8192,
             max_schema_count: u16 = 4096,
@@ -88,8 +89,8 @@ pub const Protocol = struct {
         fn encodeIdentity(allocator: std.mem.Allocator, out: *std.ArrayList(u8)) !void {
             try appendString(out, allocator, boundary_package_version);
             try appendString(out, allocator, minimum_zig_version);
-            try appendU32(out, allocator, 1);
-            try appendU32(out, allocator, 1);
+            try appendU32(out, allocator, format_version);
+            try appendU32(out, allocator, fingerprint_version);
             try appendU32(out, allocator, loaded_execution.executable_plan_image_format_version);
             try appendU32(out, allocator, loaded_execution.executable_plan_image_fingerprint_version);
             try appendU32(out, allocator, loaded_execution.loaded_execution_profile_format_version_v1);

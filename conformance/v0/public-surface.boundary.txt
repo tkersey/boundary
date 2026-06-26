@@ -2,7 +2,7 @@ Boundary v0 public surface
 package: boundary 0.5.0
 manifest_format_version: 1
 manifest_fingerprint_version: 1
-manifest_fingerprint: 0xbb405780fa69575e
+manifest_fingerprint: 0x58b7987d194f0923
 public_surface_fingerprint: 0xef583b4d9700ee04
 
 root_namespaces:

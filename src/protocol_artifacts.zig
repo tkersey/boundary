@@ -9,8 +9,8 @@ const public_surface_path = "conformance/v0/public-surface.boundary.txt";
 const corpus_dir = "conformance/v0/boundary";
 const corpus_manifest_path = corpus_dir ++ "/corpus.boundary.txt";
 const manifest_image_path = corpus_dir ++ "/protocol-manifest.bin";
-const proof_receipts_dir = "zig-out/protocol/boundary/proof-receipts";
-const dist_dir = "zig-out/dist/boundary-v0.5.0-protocol";
+const default_proof_receipts_dir = "zig-out/protocol/boundary/proof-receipts";
+const default_dist_dir = "zig-out/dist/boundary-v0.5.0-protocol";
 const compatibility_doc_path = "docs/compatibility.md";
 const security_model_doc_path = "docs/security_model.md";
 
@@ -79,7 +79,14 @@ pub fn main(init: std.process.Init) !void {
     var args = std.process.Args.Iterator.init(init.minimal.args);
     _ = args.next();
     const command = args.next() orelse return error.InvalidArguments;
-    if (args.next() != null) return error.InvalidArguments;
+    var output_dir: ?[]const u8 = null;
+    while (args.next()) |arg| {
+        if (std.mem.eql(u8, arg, "--out-dir")) {
+            output_dir = args.next() orelse return error.InvalidArguments;
+            continue;
+        }
+        return error.InvalidArguments;
+    }
 
     if (std.mem.eql(u8, command, "update-public-surface")) return updatePublicSurface(init, allocator);
     if (std.mem.eql(u8, command, "check-public-surface")) return checkPublicSurface(init, allocator);
@@ -88,8 +95,8 @@ pub fn main(init: std.process.Init) !void {
     if (std.mem.eql(u8, command, "check-format-drift")) return checkFormatDrift(init, allocator);
     if (std.mem.eql(u8, command, "check-adversarial-codecs")) return checkAdversarialCodecs(allocator);
     if (std.mem.eql(u8, command, "check-budgets")) return checkBudgets();
-    if (std.mem.eql(u8, command, "emit-proof-receipts")) return emitProofReceipts(init, allocator);
-    if (std.mem.eql(u8, command, "dist")) return dist(init, allocator);
+    if (std.mem.eql(u8, command, "emit-proof-receipts")) return emitProofReceipts(init, allocator, output_dir orelse default_proof_receipts_dir);
+    if (std.mem.eql(u8, command, "dist")) return dist(init, allocator, output_dir orelse default_dist_dir);
     return error.InvalidArguments;
 }
 
@@ -149,6 +156,7 @@ fn checkAdversarialCodecs(allocator: std.mem.Allocator) !void {
 
 fn checkBudgets() !void {
     const limits = protocol.Protocol.Manifest.limits;
+    const profile_limits = loaded_execution.LoadedExecutionProfile.portableV2().limits;
     if (limits.max_module_image_bytes == 0) return error.InvalidBudget;
     if (limits.max_executable_plan_bytes == 0) return error.InvalidBudget;
     if (limits.max_loaded_value_bytes == 0) return error.InvalidBudget;
@@ -159,21 +167,22 @@ fn checkBudgets() !void {
     if (limits.max_function_count == 0) return error.InvalidBudget;
     if (limits.max_block_count == 0) return error.InvalidBudget;
     if (limits.max_schema_count == 0) return error.InvalidBudget;
+    if (limits.max_value_nesting != profile_limits.maximum_value_nesting_depth) return error.InvalidBudget;
+    if (limits.max_frame_depth != profile_limits.maximum_frames) return error.InvalidBudget;
+    if (limits.max_locals != profile_limits.maximum_locals_per_frame) return error.InvalidBudget;
+    if (limits.max_instruction_fuel != profile_limits.maximum_instructions_per_advancement) return error.InvalidBudget;
 }
 
-fn emitProofReceipts(init: std.process.Init, allocator: std.mem.Allocator) !void {
-    try std.Io.Dir.cwd().createDirPath(init.io, proof_receipts_dir);
+fn emitProofReceipts(init: std.process.Init, allocator: std.mem.Allocator, output_dir: []const u8) !void {
+    try std.Io.Dir.cwd().createDirPath(init.io, output_dir);
     inline for (proof_commands) |proof| {
         const receipt = try proofReceiptAlloc(allocator, proof.id, proof.command);
-        const path = try std.fmt.allocPrint(allocator, "{s}/{s}.json", .{ proof_receipts_dir, proof.id });
+        const path = try joinPath(allocator, output_dir, try std.fmt.allocPrint(allocator, "{s}.json", .{proof.id}));
         try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = path, .data = receipt });
     }
 }
 
-fn dist(init: std.process.Init, allocator: std.mem.Allocator) !void {
-    try updatePublicSurface(init, allocator);
-    try updateCorpus(init, allocator);
-    try emitProofReceipts(init, allocator);
+fn dist(init: std.process.Init, allocator: std.mem.Allocator, output_dir: []const u8) !void {
     const manifest = try protocol.Protocol.Manifest.encodeAlloc(allocator);
     const manifest_text = try manifestTextAlloc(allocator);
     const surface = try publicSurfaceSnapshotAlloc(allocator);
@@ -182,22 +191,22 @@ fn dist(init: std.process.Init, allocator: std.mem.Allocator) !void {
     const compatibility_doc = try std.Io.Dir.cwd().readFileAlloc(init.io, compatibility_doc_path, allocator, .limited(64 * 1024));
     const security_model_doc = try std.Io.Dir.cwd().readFileAlloc(init.io, security_model_doc_path, allocator, .limited(64 * 1024));
 
-    try std.Io.Dir.cwd().createDirPath(init.io, dist_dir ++ "/conformance/v0/boundary");
-    try std.Io.Dir.cwd().createDirPath(init.io, dist_dir ++ "/proof-receipts");
-    try std.Io.Dir.cwd().createDirPath(init.io, dist_dir ++ "/docs");
-    try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = dist_dir ++ "/boundary-protocol-manifest.bin", .data = manifest });
-    try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = dist_dir ++ "/boundary-protocol-manifest.txt", .data = manifest_text });
-    try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = dist_dir ++ "/public-surface.boundary.txt", .data = surface });
-    try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = dist_dir ++ "/conformance/v0/boundary/corpus.boundary.txt", .data = corpus });
-    try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = dist_dir ++ "/conformance/v0/boundary/protocol-manifest.bin", .data = manifest });
-    try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = dist_dir ++ "/checksums.txt", .data = checksums });
+    try std.Io.Dir.cwd().createDirPath(init.io, try joinPath(allocator, output_dir, "conformance/v0/boundary"));
+    try std.Io.Dir.cwd().createDirPath(init.io, try joinPath(allocator, output_dir, "proof-receipts"));
+    try std.Io.Dir.cwd().createDirPath(init.io, try joinPath(allocator, output_dir, "docs"));
+    try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = try joinPath(allocator, output_dir, "boundary-protocol-manifest.bin"), .data = manifest });
+    try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = try joinPath(allocator, output_dir, "boundary-protocol-manifest.txt"), .data = manifest_text });
+    try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = try joinPath(allocator, output_dir, "public-surface.boundary.txt"), .data = surface });
+    try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = try joinPath(allocator, output_dir, "conformance/v0/boundary/corpus.boundary.txt"), .data = corpus });
+    try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = try joinPath(allocator, output_dir, "conformance/v0/boundary/protocol-manifest.bin"), .data = manifest });
+    try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = try joinPath(allocator, output_dir, "checksums.txt"), .data = checksums });
     inline for (proof_commands) |proof| {
         const receipt = try proofReceiptAlloc(allocator, proof.id, proof.command);
-        const path = try std.fmt.allocPrint(allocator, "{s}/proof-receipts/{s}.json", .{ dist_dir, proof.id });
+        const path = try joinPath(allocator, output_dir, try std.fmt.allocPrint(allocator, "proof-receipts/{s}.json", .{proof.id}));
         try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = path, .data = receipt });
     }
-    try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = dist_dir ++ "/docs/compatibility.md", .data = compatibility_doc });
-    try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = dist_dir ++ "/docs/security_model.md", .data = security_model_doc });
+    try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = try joinPath(allocator, output_dir, "docs/compatibility.md"), .data = compatibility_doc });
+    try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = try joinPath(allocator, output_dir, "docs/security_model.md"), .data = security_model_doc });
 }
 
 fn publicSurfaceSnapshotAlloc(allocator: std.mem.Allocator) ![]u8 {
@@ -286,17 +295,17 @@ fn corpusManifestAlloc(allocator: std.mem.Allocator) ![]u8 {
         \\positive_count: {d}
         \\negative_count: {d}
         \\
-        \\positive_vectors:
     , .{
         protocol.Protocol.Manifest.manifestFingerprint(),
         manifest_hash,
         positive_cases.len,
         negative_cases.len,
     });
-    for (positive_cases) |case| try appendFmt(&out, allocator, "- {s}\n", .{case});
+    try appendLine(&out, allocator, "positive_vectors:");
+    for (positive_cases) |case| try appendCorpusCase(&out, allocator, case, "accept");
     try appendLine(&out, allocator, "");
     try appendLine(&out, allocator, "negative_vectors:");
-    for (negative_cases) |case| try appendFmt(&out, allocator, "- {s}\n", .{case});
+    for (negative_cases) |case| try appendCorpusCase(&out, allocator, case, "reject");
     try appendLine(&out, allocator, "");
     try appendLine(&out, allocator, "validation:");
     try appendLine(&out, allocator, "- old valid vectors remain valid under their same format version");
@@ -389,9 +398,22 @@ fn appendEnumTableText(out: *std.ArrayList(u8), allocator: std.mem.Allocator, la
     try appendLine(out, allocator, "");
 }
 
+fn appendCorpusCase(out: *std.ArrayList(u8), allocator: std.mem.Allocator, case: []const u8, expectation: []const u8) !void {
+    try appendFmt(out, allocator,
+        \\- id: {s}
+        \\  expectation: {s}
+        \\  replay: zig build check-boundary-conformance-corpus
+        \\
+    , .{ case, expectation });
+}
+
 fn appendLine(out: *std.ArrayList(u8), allocator: std.mem.Allocator, line: []const u8) !void {
     try out.appendSlice(allocator, line);
     try out.append(allocator, '\n');
+}
+
+fn joinPath(allocator: std.mem.Allocator, dir: []const u8, path: []const u8) ![]const u8 {
+    return std.Io.Dir.path.join(allocator, &.{ dir, path });
 }
 
 fn appendFmt(out: *std.ArrayList(u8), allocator: std.mem.Allocator, comptime fmt: []const u8, args: anytype) !void {
