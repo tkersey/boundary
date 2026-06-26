@@ -1,8 +1,8 @@
 // zlinter-disable declaration_naming no_inferred_error_unions require_doc_comment
 const effect_ir = @import("effect_ir");
 const loaded_execution = @import("loaded_execution");
-const plan = @import("internal_program_plan");
 const parity_scenarios = @import("parity_scenarios");
+const plan = @import("internal_program_plan");
 const std = @import("std");
 
 pub const boundary_protocol_manifest_format_version: u32 = 1;
@@ -66,6 +66,9 @@ pub const Protocol = struct {
             appendEnumTable(std.heap.page_allocator, &out, "instruction", plan.InstructionKind) catch @panic("boundary protocol public surface encoding failed");
             appendEnumTable(std.heap.page_allocator, &out, "terminator", plan.TerminatorKind) catch @panic("boundary protocol public surface encoding failed");
             appendEnumTable(std.heap.page_allocator, &out, "value-codec", plan.ValueCodec) catch @panic("boundary protocol public surface encoding failed");
+            appendEnumTable(std.heap.page_allocator, &out, "loaded-session-status", loaded_execution.LoadedSessionStatus) catch @panic("boundary protocol public surface encoding failed");
+            appendEnumTable(std.heap.page_allocator, &out, "loaded-session-response-kind", loaded_execution.LoadedSessionResponseKind) catch @panic("boundary protocol public surface encoding failed");
+            appendEnumTable(std.heap.page_allocator, &out, "execution-failure-kind", loaded_execution.ExecutionFailureKind) catch @panic("boundary protocol public surface encoding failed");
             appendEnumTable(std.heap.page_allocator, &out, "effect-ir-instruction", effect_ir.InstructionKind) catch @panic("boundary protocol public surface encoding failed");
             appendEnumTable(std.heap.page_allocator, &out, "effect-ir-terminator", effect_ir.TerminatorKind) catch @panic("boundary protocol public surface encoding failed");
             return fnv64(out.items);

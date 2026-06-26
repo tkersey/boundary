@@ -11,6 +11,8 @@ const corpus_manifest_path = corpus_dir ++ "/corpus.boundary.txt";
 const manifest_image_path = corpus_dir ++ "/protocol-manifest.bin";
 const proof_receipts_dir = "zig-out/protocol/boundary/proof-receipts";
 const dist_dir = "zig-out/dist/boundary-v0.5.0-protocol";
+const compatibility_doc_path = "docs/compatibility.md";
+const security_model_doc_path = "docs/security_model.md";
 
 const positive_cases = [_][]const u8{
     "module-image",
@@ -133,14 +135,15 @@ fn checkFormatDrift(init: std.process.Init, allocator: std.mem.Allocator) !void 
 
 fn checkAdversarialCodecs(allocator: std.mem.Allocator) !void {
     const manifest = try protocol.Protocol.Manifest.encodeAlloc(allocator);
+    try validateProtocolManifestBytes(manifest, manifest);
     const truncated = manifest[0..@min(7, manifest.len)];
-    if (std.mem.eql(u8, manifest, truncated)) return error.AdversarialMutationAccepted;
+    try expectProtocolManifestRejected(manifest, truncated);
     var corrupt_magic = try allocator.dupe(u8, manifest);
     corrupt_magic[0] = 'X';
-    if (std.mem.eql(u8, manifest, corrupt_magic)) return error.AdversarialMutationAccepted;
+    try expectProtocolManifestRejected(manifest, corrupt_magic);
     var corrupt_version = try allocator.dupe(u8, manifest);
     corrupt_version[4] +%= 1;
-    if (readU32(corrupt_version[4..8]) == protocol.boundary_protocol_manifest_format_version) return error.AdversarialMutationAccepted;
+    try expectProtocolManifestRejected(manifest, corrupt_version);
     if (positive_cases.len < 20 or negative_cases.len < 16) return error.ConformanceCorpusIncomplete;
 }
 
@@ -176,6 +179,8 @@ fn dist(init: std.process.Init, allocator: std.mem.Allocator) !void {
     const surface = try publicSurfaceSnapshotAlloc(allocator);
     const corpus = try corpusManifestAlloc(allocator);
     const checksums = try checksumsAlloc(allocator, manifest, surface, corpus);
+    const compatibility_doc = try std.Io.Dir.cwd().readFileAlloc(init.io, compatibility_doc_path, allocator, .limited(64 * 1024));
+    const security_model_doc = try std.Io.Dir.cwd().readFileAlloc(init.io, security_model_doc_path, allocator, .limited(64 * 1024));
 
     try std.Io.Dir.cwd().createDirPath(init.io, dist_dir ++ "/conformance/v0/boundary");
     try std.Io.Dir.cwd().createDirPath(init.io, dist_dir ++ "/proof-receipts");
@@ -406,37 +411,18 @@ fn readU32(bytes: []const u8) u32 {
     return std.mem.readInt(u32, bytes[0..4], .little);
 }
 
-const compatibility_doc =
-    \\# Boundary v0 Compatibility Policy
-    \\
-    \\Boundary v0 freezes the language/profile side of the platform contract. Patch releases may fix validators, reject malformed inputs that should always have been invalid, improve performance, and add diagnostics, but must preserve valid v0 encodings and fingerprints.
-    \\
-    \\Minor releases may add optional features and new format versions. They must not silently change existing format versions. Major releases may break compatibility only with explicit documentation.
-    \\
-    \\Hard rules:
-    \\- enum ordinal changes require a version bump;
-    \\- canonical field-order changes require a version bump;
-    \\- fingerprint-domain changes require a fingerprint-version bump;
-    \\- ABI signature changes require the consuming runtime ABI to bump;
-    \\- retained old conformance corpora remain compatibility evidence.
-    \\
-;
+fn validateProtocolManifestBytes(expected: []const u8, candidate: []const u8) !void {
+    if (candidate.len < 16) return error.MalformedManifest;
+    if (!std.mem.eql(u8, candidate[0..4], "BPM1")) return error.MalformedManifest;
+    if (readU32(candidate[4..8]) != protocol.boundary_protocol_manifest_format_version) return error.FormatDrift;
+    if (readU32(candidate[8..12]) != protocol.boundary_protocol_manifest_fingerprint_version) return error.FormatDrift;
+    if (!std.mem.eql(u8, expected, candidate)) return error.ProtocolManifestDrift;
+}
 
-const security_model_doc =
-    \\# Boundary v0 Security Model
-    \\
-    \\Trusted: the selected Boundary package, selected runtime binary, receiver-local policy, and receiver-owned host effects.
-    \\
-    \\Untrusted: module bytes, executable plan bytes, loaded value bytes, loaded session bytes, host claim metadata, sender permits, sender receipts, and storage contents.
-    \\
-    \\Non-claims: fingerprints are not signatures; receipts are not cryptographic attestations; deterministic retry is not exactly-once; retained valid-prefix recovery is not malicious-tamper protection; Boundary v0 provides no confidentiality, authenticity, consensus, revocation, or hostile-host protection.
-    \\
-    \\Major threats:
-    \\- malformed binary input: invariant is total rejection without partial executable load; limit is the manifest budget set; rejection mode is malformed/unsupported; conformance cases cover malformed, trailing, excessive, forged, and unsupported vectors; remaining risk is implementation bugs outside retained vectors.
-    \\- feature confusion: invariant is unknown required features reject; optional features must be length-delimited and skippable; rejection mode is unsupported feature; conformance cases cover reachable and unreachable unsupported features; remaining risk is future formats that fail to bump their manifest version.
-    \\- authority confusion: invariant is host effects and credentials remain outside Boundary; limit is no host handles in semantic identity; rejection mode is absence from protocol manifest identity; conformance cases bind payload/result/session bytes; remaining risk belongs to host policy.
-    \\
-;
+fn expectProtocolManifestRejected(expected: []const u8, candidate: []const u8) !void {
+    validateProtocolManifestBytes(expected, candidate) catch return;
+    return error.AdversarialMutationAccepted;
+}
 
 test "boundary protocol artifact generators are deterministic" {
     const allocator = std.testing.allocator;

@@ -1,7 +1,7 @@
 Boundary v0 conformance corpus
 format: boundary-conformance-corpus-v0
-manifest_fingerprint: 0xf970e6d1a1601cbc
-protocol_manifest_sha256: sha256:c22132a1e12b3ba9f580a9e50e6f969baa137f46770d38d42a85c82239e91cc3
+manifest_fingerprint: 0xbb405780fa69575e
+protocol_manifest_sha256: sha256:63cdb4671ca1afc8d7afcd5bf3034682eab946c7fe46ce3d3902f68e1c887fb7
 positive_count: 24
 negative_count: 17
 
