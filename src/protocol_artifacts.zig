@@ -14,53 +14,6 @@ const default_dist_dir = "zig-out/dist/boundary-v0.5.0-protocol";
 const compatibility_doc_path = "docs/compatibility.md";
 const security_model_doc_path = "docs/security_model.md";
 
-const positive_cases = [_][]const u8{
-    "module-image",
-    "executable-plan-image",
-    "loaded-value-unit",
-    "loaded-value-bool",
-    "loaded-value-i32",
-    "loaded-value-portable-word",
-    "loaded-value-string",
-    "loaded-value-product",
-    "loaded-value-sum",
-    "loaded-session-v2-parked-on-request",
-    "loaded-session-v2-completed",
-    "loaded-session-v2-failed",
-    "generated-loaded-parity-unit",
-    "generated-loaded-parity-bool",
-    "generated-loaded-parity-i32",
-    "generated-loaded-parity-portable-word",
-    "generated-loaded-parity-strings",
-    "generated-loaded-parity-product",
-    "generated-loaded-parity-sum",
-    "generated-loaded-parity-helper-frame",
-    "generated-loaded-parity-two-residual-requests",
-    "generated-loaded-parity-request-inside-loop",
-    "generated-loaded-parity-helper-that-parks",
-    "generated-loaded-parity-wrong-stale-duplicate-response-rejection",
-};
-
-const negative_cases = [_][]const u8{
-    "truncated-module-section",
-    "malformed-executable-plan",
-    "unsupported-required-profile-feature",
-    "invalid-instruction-tag",
-    "invalid-terminator-tag",
-    "invalid-value-codec",
-    "invalid-schema-graph",
-    "unreachable-unsupported-feature-accepted",
-    "reachable-unsupported-feature-rejected",
-    "forged-residual-site-binding",
-    "forged-payload-image",
-    "forged-result-image",
-    "forged-loaded-session-image",
-    "wrong-entry-function",
-    "trailing-bytes",
-    "excessive-nesting",
-    "excessive-frame-depth",
-};
-
 const proof_commands = [_]struct {
     id: []const u8,
     command: []const u8,
@@ -152,7 +105,6 @@ fn checkAdversarialCodecs(allocator: std.mem.Allocator) !void {
     var corrupt_version = try allocator.dupe(u8, manifest);
     corrupt_version[4] +%= 1;
     try expectProtocolManifestRejected(manifest, corrupt_version);
-    if (positive_cases.len < 20 or negative_cases.len < 16) return error.ConformanceCorpusIncomplete;
 }
 
 fn checkBudgets() !void {
@@ -280,29 +232,32 @@ fn corpusManifestAlloc(allocator: std.mem.Allocator) ![]u8 {
     defer allocator.free(manifest);
     const manifest_hash = try hashTextSha256Alloc(allocator, manifest);
     defer allocator.free(manifest_hash);
+    const surface = try publicSurfaceSnapshotAlloc(allocator);
+    defer allocator.free(surface);
+    const surface_hash = try hashTextSha256Alloc(allocator, surface);
+    defer allocator.free(surface_hash);
     try appendFmt(&out, allocator,
-        \\Boundary v0 conformance corpus
-        \\format: boundary-conformance-corpus-v0
+        \\Boundary v0 conformance artifact catalog
+        \\format: boundary-conformance-artifact-catalog-v0
         \\manifest_fingerprint: 0x{x:0>16}
         \\protocol_manifest_sha256: {s}
-        \\positive_count: {d}
-        \\negative_count: {d}
+        \\public_surface_fingerprint: 0x{x:0>16}
+        \\public_surface_sha256: {s}
         \\
     , .{
         protocol.Protocol.Manifest.manifestFingerprint(),
         manifest_hash,
-        positive_cases.len,
-        negative_cases.len,
+        protocol.Protocol.Manifest.publicSurfaceFingerprint(),
+        surface_hash,
     });
-    try appendLine(&out, allocator, "positive_vectors:");
-    for (positive_cases) |case| try appendCorpusCase(&out, allocator, case, "accept");
-    try appendLine(&out, allocator, "");
-    try appendLine(&out, allocator, "negative_vectors:");
-    for (negative_cases) |case| try appendCorpusCase(&out, allocator, case, "reject");
+    try appendLine(&out, allocator, "artifacts:");
+    try appendCorpusArtifact(&out, allocator, "protocol-manifest", manifest_image_path, manifest_hash, "zig build check-boundary-format-drift");
+    try appendCorpusArtifact(&out, allocator, "public-surface", public_surface_path, surface_hash, "zig build check-boundary-public-surface");
     try appendLine(&out, allocator, "");
     try appendLine(&out, allocator, "validation:");
-    try appendLine(&out, allocator, "- old valid vectors remain valid under their same format version");
-    try appendLine(&out, allocator, "- old invalid vectors must not become valid silently");
+    try appendLine(&out, allocator, "- check-boundary-conformance-corpus compares this catalog and protocol manifest image");
+    try appendLine(&out, allocator, "- check-boundary-adversarial-codecs exercises retained malformed manifest mutations");
+    try appendLine(&out, allocator, "- semantic positive and negative execution cases remain owned by the named build/test gates");
     try appendLine(&out, allocator, "- update-boundary-conformance-corpus is explicit and not a dependency of check");
     return out.toOwnedSlice(allocator);
 }
@@ -391,13 +346,14 @@ fn appendEnumTableText(out: *std.ArrayList(u8), allocator: std.mem.Allocator, la
     try appendLine(out, allocator, "");
 }
 
-fn appendCorpusCase(out: *std.ArrayList(u8), allocator: std.mem.Allocator, case: []const u8, expectation: []const u8) !void {
+fn appendCorpusArtifact(out: *std.ArrayList(u8), allocator: std.mem.Allocator, id: []const u8, path: []const u8, sha256: []const u8, replay: []const u8) !void {
     try appendFmt(out, allocator,
         \\- id: {s}
-        \\  expectation: {s}
-        \\  replay: zig build check-boundary-conformance-corpus
+        \\  path: {s}
+        \\  sha256: {s}
+        \\  replay: {s}
         \\
-    , .{ case, expectation });
+    , .{ id, path, sha256, replay });
 }
 
 fn appendLine(out: *std.ArrayList(u8), allocator: std.mem.Allocator, line: []const u8) !void {
@@ -451,6 +407,6 @@ test "boundary protocol artifact generators are deterministic" {
 
     const corpus = try corpusManifestAlloc(allocator);
     defer allocator.free(corpus);
-    try std.testing.expect(std.mem.indexOf(u8, corpus, "generated-loaded-parity-helper-that-parks") != null);
-    try std.testing.expect(std.mem.indexOf(u8, corpus, "forged-loaded-session-image") != null);
+    try std.testing.expect(std.mem.indexOf(u8, corpus, "protocol-manifest") != null);
+    try std.testing.expect(std.mem.indexOf(u8, corpus, "public-surface") != null);
 }

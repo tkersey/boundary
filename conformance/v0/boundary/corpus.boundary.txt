@@ -1,137 +1,21 @@
-Boundary v0 conformance corpus
-format: boundary-conformance-corpus-v0
+Boundary v0 conformance artifact catalog
+format: boundary-conformance-artifact-catalog-v0
 manifest_fingerprint: 0x992ca18b50e8fb88
 protocol_manifest_sha256: sha256:44f40178c08ec2de3ae2eff4fe8838fbbf0de857d6a59095331acbeb91f9ab5f
-positive_count: 24
-negative_count: 17
-positive_vectors:
-- id: module-image
-  expectation: accept
-  replay: zig build check-boundary-conformance-corpus
-- id: executable-plan-image
-  expectation: accept
-  replay: zig build check-boundary-conformance-corpus
-- id: loaded-value-unit
-  expectation: accept
-  replay: zig build check-boundary-conformance-corpus
-- id: loaded-value-bool
-  expectation: accept
-  replay: zig build check-boundary-conformance-corpus
-- id: loaded-value-i32
-  expectation: accept
-  replay: zig build check-boundary-conformance-corpus
-- id: loaded-value-portable-word
-  expectation: accept
-  replay: zig build check-boundary-conformance-corpus
-- id: loaded-value-string
-  expectation: accept
-  replay: zig build check-boundary-conformance-corpus
-- id: loaded-value-product
-  expectation: accept
-  replay: zig build check-boundary-conformance-corpus
-- id: loaded-value-sum
-  expectation: accept
-  replay: zig build check-boundary-conformance-corpus
-- id: loaded-session-v2-parked-on-request
-  expectation: accept
-  replay: zig build check-boundary-conformance-corpus
-- id: loaded-session-v2-completed
-  expectation: accept
-  replay: zig build check-boundary-conformance-corpus
-- id: loaded-session-v2-failed
-  expectation: accept
-  replay: zig build check-boundary-conformance-corpus
-- id: generated-loaded-parity-unit
-  expectation: accept
-  replay: zig build check-boundary-conformance-corpus
-- id: generated-loaded-parity-bool
-  expectation: accept
-  replay: zig build check-boundary-conformance-corpus
-- id: generated-loaded-parity-i32
-  expectation: accept
-  replay: zig build check-boundary-conformance-corpus
-- id: generated-loaded-parity-portable-word
-  expectation: accept
-  replay: zig build check-boundary-conformance-corpus
-- id: generated-loaded-parity-strings
-  expectation: accept
-  replay: zig build check-boundary-conformance-corpus
-- id: generated-loaded-parity-product
-  expectation: accept
-  replay: zig build check-boundary-conformance-corpus
-- id: generated-loaded-parity-sum
-  expectation: accept
-  replay: zig build check-boundary-conformance-corpus
-- id: generated-loaded-parity-helper-frame
-  expectation: accept
-  replay: zig build check-boundary-conformance-corpus
-- id: generated-loaded-parity-two-residual-requests
-  expectation: accept
-  replay: zig build check-boundary-conformance-corpus
-- id: generated-loaded-parity-request-inside-loop
-  expectation: accept
-  replay: zig build check-boundary-conformance-corpus
-- id: generated-loaded-parity-helper-that-parks
-  expectation: accept
-  replay: zig build check-boundary-conformance-corpus
-- id: generated-loaded-parity-wrong-stale-duplicate-response-rejection
-  expectation: accept
-  replay: zig build check-boundary-conformance-corpus
-
-negative_vectors:
-- id: truncated-module-section
-  expectation: reject
-  replay: zig build check-boundary-conformance-corpus
-- id: malformed-executable-plan
-  expectation: reject
-  replay: zig build check-boundary-conformance-corpus
-- id: unsupported-required-profile-feature
-  expectation: reject
-  replay: zig build check-boundary-conformance-corpus
-- id: invalid-instruction-tag
-  expectation: reject
-  replay: zig build check-boundary-conformance-corpus
-- id: invalid-terminator-tag
-  expectation: reject
-  replay: zig build check-boundary-conformance-corpus
-- id: invalid-value-codec
-  expectation: reject
-  replay: zig build check-boundary-conformance-corpus
-- id: invalid-schema-graph
-  expectation: reject
-  replay: zig build check-boundary-conformance-corpus
-- id: unreachable-unsupported-feature-accepted
-  expectation: reject
-  replay: zig build check-boundary-conformance-corpus
-- id: reachable-unsupported-feature-rejected
-  expectation: reject
-  replay: zig build check-boundary-conformance-corpus
-- id: forged-residual-site-binding
-  expectation: reject
-  replay: zig build check-boundary-conformance-corpus
-- id: forged-payload-image
-  expectation: reject
-  replay: zig build check-boundary-conformance-corpus
-- id: forged-result-image
-  expectation: reject
-  replay: zig build check-boundary-conformance-corpus
-- id: forged-loaded-session-image
-  expectation: reject
-  replay: zig build check-boundary-conformance-corpus
-- id: wrong-entry-function
-  expectation: reject
-  replay: zig build check-boundary-conformance-corpus
-- id: trailing-bytes
-  expectation: reject
-  replay: zig build check-boundary-conformance-corpus
-- id: excessive-nesting
-  expectation: reject
-  replay: zig build check-boundary-conformance-corpus
-- id: excessive-frame-depth
-  expectation: reject
-  replay: zig build check-boundary-conformance-corpus
+public_surface_fingerprint: 0x90165a2bf0e3495e
+public_surface_sha256: sha256:ef747ad2503d875be1cdb8de883a71ab9f381a977d828c078973ae124e9cfa30
+artifacts:
+- id: protocol-manifest
+  path: conformance/v0/boundary/protocol-manifest.bin
+  sha256: sha256:44f40178c08ec2de3ae2eff4fe8838fbbf0de857d6a59095331acbeb91f9ab5f
+  replay: zig build check-boundary-format-drift
+- id: public-surface
+  path: conformance/v0/public-surface.boundary.txt
+  sha256: sha256:ef747ad2503d875be1cdb8de883a71ab9f381a977d828c078973ae124e9cfa30
+  replay: zig build check-boundary-public-surface
 
 validation:
-- old valid vectors remain valid under their same format version
-- old invalid vectors must not become valid silently
+- check-boundary-conformance-corpus compares this catalog and protocol manifest image
+- check-boundary-adversarial-codecs exercises retained malformed manifest mutations
+- semantic positive and negative execution cases remain owned by the named build/test gates
 - update-boundary-conformance-corpus is explicit and not a dependency of check
