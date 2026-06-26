@@ -24,6 +24,9 @@ const proof_commands = [_]struct {
     .{ .proof_id = "proof-004", .command = "zig build check-boundary-conformance-corpus" },
     .{ .proof_id = "proof-005", .command = "zig build check-boundary-adversarial-codecs" },
     .{ .proof_id = "proof-006", .command = "zig build check-boundary-v0-budgets" },
+    .{ .proof_id = "proof-007", .command = "zig build check-boundary-loaded-v2" },
+    .{ .proof_id = "proof-008", .command = "zig build check-boundary-loaded-session" },
+    .{ .proof_id = "proof-009", .command = "zig build check-boundary-loaded-parity" },
 };
 
 pub fn main(init: std.process.Init) !void {
@@ -130,6 +133,9 @@ fn checkBudgets() !void {
     if (limits.max_frame_depth != profile_limits.maximum_frames) return error.InvalidBudget;
     if (limits.max_locals != profile_limits.maximum_locals_per_frame) return error.InvalidBudget;
     if (limits.max_instruction_fuel != profile_limits.maximum_instructions_per_advancement) return error.InvalidBudget;
+    if (limits.max_function_count != 1_000_000) return error.InvalidBudget;
+    if (limits.max_block_count != 1_000_000) return error.InvalidBudget;
+    if (limits.max_schema_count != 65_536) return error.InvalidBudget;
 }
 
 fn emitProofReceipts(init: std.process.Init, allocator: std.mem.Allocator, output_dir: []const u8) !void {

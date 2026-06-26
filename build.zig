@@ -658,6 +658,15 @@ pub fn build(b: *std.Build) void {
     const loaded_parity_run = addRunArtifactWithArgs(b, loaded_parity_tests, loaded_parity_args.passthrough);
     loaded_parity_step.dependOn(&loaded_parity_run.step);
     loaded_parity_required_step.dependOn(&loaded_parity_run.step);
+    const receipt_loaded_v2_run = b.addSystemCommand(&.{ "zig", "build", "check-boundary-loaded-v2", "--summary", "all" });
+    const receipt_loaded_session_run = b.addSystemCommand(&.{ "zig", "build", "check-boundary-loaded-session", "--summary", "all" });
+    const receipt_loaded_parity_run = b.addSystemCommand(&.{ "zig", "build", "check-boundary-loaded-parity", "--summary", "all" });
+    proof_receipts_step.dependOn(&receipt_loaded_v2_run.step);
+    proof_receipts_step.dependOn(&receipt_loaded_session_run.step);
+    proof_receipts_step.dependOn(&receipt_loaded_parity_run.step);
+    proof_receipts_run.step.dependOn(&receipt_loaded_v2_run.step);
+    proof_receipts_run.step.dependOn(&receipt_loaded_session_run.step);
+    proof_receipts_run.step.dependOn(&receipt_loaded_parity_run.step);
 
     const loaded_import_bindings_step = b.step("check-boundary-loaded-import-bindings", "Check exact loaded residual import/site binding regressions.");
     const loaded_import_bindings_args = TestArgs{

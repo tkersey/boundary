@@ -64,9 +64,9 @@ pub const Protocol = struct {
             max_frame_depth: u16 = 256,
             max_locals: u16 = portable_v2_limits.maximum_locals_per_frame,
             max_instruction_fuel: u64 = portable_v2_limits.maximum_instructions_per_advancement,
-            max_function_count: u16 = 4096,
-            max_block_count: u16 = 8192,
-            max_schema_count: u16 = 4096,
+            max_function_count: u32 = 1_000_000,
+            max_block_count: u32 = 1_000_000,
+            max_schema_count: u32 = 65_536,
         };
 
         pub const limits = Limits{};
@@ -132,9 +132,9 @@ pub const Protocol = struct {
             try appendU16(out, allocator, limits.max_frame_depth);
             try appendU16(out, allocator, limits.max_locals);
             try appendU64(out, allocator, limits.max_instruction_fuel);
-            try appendU16(out, allocator, limits.max_function_count);
-            try appendU16(out, allocator, limits.max_block_count);
-            try appendU16(out, allocator, limits.max_schema_count);
+            try appendU32(out, allocator, limits.max_function_count);
+            try appendU32(out, allocator, limits.max_block_count);
+            try appendU32(out, allocator, limits.max_schema_count);
             try appendU64(out, allocator, loaded_execution.LoadedExecutionProfile.portableV2().computeFingerprint());
             try appendU64(out, allocator, publicSurfaceFingerprint());
             try appendBytesWithLength(out, allocator, metadata_bytes);
