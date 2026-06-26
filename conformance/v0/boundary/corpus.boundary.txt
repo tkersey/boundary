@@ -1,0 +1,55 @@
+Boundary v0 conformance corpus
+format: boundary-conformance-corpus-v0
+manifest_fingerprint: 0xf970e6d1a1601cbc
+protocol_manifest_sha256: sha256:c22132a1e12b3ba9f580a9e50e6f969baa137f46770d38d42a85c82239e91cc3
+positive_count: 24
+negative_count: 17
+
+positive_vectors:- module-image
+- executable-plan-image
+- loaded-value-unit
+- loaded-value-bool
+- loaded-value-i32
+- loaded-value-portable-word
+- loaded-value-string
+- loaded-value-product
+- loaded-value-sum
+- loaded-session-v2-parked-on-request
+- loaded-session-v2-completed
+- loaded-session-v2-failed
+- generated-loaded-parity-unit
+- generated-loaded-parity-bool
+- generated-loaded-parity-i32
+- generated-loaded-parity-portable-word
+- generated-loaded-parity-strings
+- generated-loaded-parity-product
+- generated-loaded-parity-sum
+- generated-loaded-parity-helper-frame
+- generated-loaded-parity-two-residual-requests
+- generated-loaded-parity-request-inside-loop
+- generated-loaded-parity-helper-that-parks
+- generated-loaded-parity-wrong-stale-duplicate-response-rejection
+
+negative_vectors:
+- truncated-module-section
+- malformed-executable-plan
+- unsupported-required-profile-feature
+- invalid-instruction-tag
+- invalid-terminator-tag
+- invalid-value-codec
+- invalid-schema-graph
+- unreachable-unsupported-feature-accepted
+- reachable-unsupported-feature-rejected
+- forged-residual-site-binding
+- forged-payload-image
+- forged-result-image
+- forged-loaded-session-image
+- wrong-entry-function
+- trailing-bytes
+- excessive-nesting
+- excessive-frame-depth
+
+validation:
+- old valid vectors remain valid under their same format version
+- old invalid vectors must not become valid silently
+- update-boundary-conformance-corpus is explicit and not a dependency of check

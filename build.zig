@@ -292,6 +292,7 @@ fn wireBoundaryImports(mod: *std.Build.Module, core: CoreModules) void {
     mod.addImport("loaded_execution", core.loaded_execution);
     mod.addImport("interpreter", core.interpreter);
     mod.addImport("lowering_api", core.lowering_api);
+    mod.addImport("parity_scenarios", core.parity_scenarios);
 }
 
 pub fn build(b: *std.Build) void {
@@ -307,6 +308,21 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     wireBoundaryImports(boundary_shared, core);
+
+    const protocol_mod = b.createModule(.{
+        .root_source_file = b.path("src/protocol.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    wireBoundaryImports(protocol_mod, core);
+
+    const protocol_artifacts_mod = b.createModule(.{
+        .root_source_file = b.path("src/protocol_artifacts.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    wireBoundaryImports(protocol_artifacts_mod, core);
+    protocol_artifacts_mod.addImport("protocol", protocol_mod);
 
     const boundary = b.addModule("boundary", .{
         .root_source_file = b.path("src/root.zig"),
@@ -332,6 +348,49 @@ pub fn build(b: *std.Build) void {
     addTestArtifact(b, test_step, core.loaded_execution, test_args);
     addTestArtifact(b, test_step, core.lowered_machine, test_args);
     addTestArtifact(b, test_step, core.portable_core, test_args);
+    addTestArtifact(b, test_step, protocol_mod, test_args);
+    addTestArtifact(b, test_step, protocol_artifacts_mod, test_args);
+
+    const protocol_manifest_step = b.step("check-boundary-protocol-manifest", "Check Boundary v0 protocol manifest encoding and fingerprint.");
+    addTestArtifact(b, protocol_manifest_step, protocol_mod, test_args);
+
+    const protocol_artifacts_exe = b.addExecutable(.{
+        .name = "boundary-protocol-artifacts",
+        .root_module = protocol_artifacts_mod,
+    });
+
+    const update_public_surface_step = b.step("update-boundary-public-surface", "Update Boundary v0 public-surface snapshot.");
+    update_public_surface_step.dependOn(&addRunArtifactWithArgs(b, protocol_artifacts_exe, &.{"update-public-surface"}).step);
+
+    const public_surface_step = b.step("check-boundary-public-surface", "Check Boundary v0 public-surface snapshot for drift.");
+    public_surface_step.dependOn(&addRunArtifactWithArgs(b, protocol_artifacts_exe, &.{"check-public-surface"}).step);
+
+    const update_corpus_step = b.step("update-boundary-conformance-corpus", "Update Boundary v0 conformance corpus artifacts.");
+    update_corpus_step.dependOn(&addRunArtifactWithArgs(b, protocol_artifacts_exe, &.{"update-corpus"}).step);
+
+    const corpus_step = b.step("check-boundary-conformance-corpus", "Check Boundary v0 conformance corpus artifacts.");
+    corpus_step.dependOn(&addRunArtifactWithArgs(b, protocol_artifacts_exe, &.{"check-corpus"}).step);
+
+    const format_drift_step = b.step("check-boundary-format-drift", "Check Boundary v0 format and public-surface drift.");
+    format_drift_step.dependOn(&addRunArtifactWithArgs(b, protocol_artifacts_exe, &.{"check-format-drift"}).step);
+
+    const adversarial_codecs_step = b.step("check-boundary-adversarial-codecs", "Check Boundary v0 adversarial codec guardrails.");
+    adversarial_codecs_step.dependOn(&addRunArtifactWithArgs(b, protocol_artifacts_exe, &.{"check-adversarial-codecs"}).step);
+
+    const budgets_step = b.step("check-boundary-v0-budgets", "Check Boundary v0 structural budgets.");
+    budgets_step.dependOn(&addRunArtifactWithArgs(b, protocol_artifacts_exe, &.{"check-budgets"}).step);
+
+    const proof_receipts_step = b.step("emit-boundary-proof-receipts", "Emit Boundary v0 proof receipts.");
+    proof_receipts_step.dependOn(public_surface_step);
+    proof_receipts_step.dependOn(format_drift_step);
+    proof_receipts_step.dependOn(corpus_step);
+    proof_receipts_step.dependOn(adversarial_codecs_step);
+    proof_receipts_step.dependOn(budgets_step);
+    proof_receipts_step.dependOn(&addRunArtifactWithArgs(b, protocol_artifacts_exe, &.{"emit-proof-receipts"}).step);
+
+    const dist_boundary_protocol_step = b.step("dist-boundary-protocol", "Build the Boundary v0.5.0 protocol distribution.");
+    dist_boundary_protocol_step.dependOn(proof_receipts_step);
+    dist_boundary_protocol_step.dependOn(&addRunArtifactWithArgs(b, protocol_artifacts_exe, &.{"dist"}).step);
 
     const executable_module_step = b.step("check-boundary-executable-module", "Check executable Certified Boundary Module v2 image foundations.");
     const executable_module_args = TestArgs{

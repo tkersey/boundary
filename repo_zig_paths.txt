@@ -112,6 +112,8 @@ src/program/evidence.zig
 src/program/loaded_execution.zig
 src/program_api.zig
 src/program_frontend.zig
+src/protocol_artifacts.zig
+src/protocol.zig
 src/prompt_contract.zig
 src/prompt_support_internal.zig
 src/reference_eval.zig
