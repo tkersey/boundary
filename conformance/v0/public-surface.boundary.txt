@@ -2,15 +2,8 @@ Boundary v0 public surface
 package: boundary 0.5.0
 manifest_format_version: 1
 manifest_fingerprint_version: 1
-manifest_fingerprint: 0x58b7987d194f0923
-public_surface_fingerprint: 0xef583b4d9700ee04
-
-root_namespaces:
-- effect
-- ir
-- program
-- Runtime
-- Protocol
+manifest_fingerprint: 0x992ca18b50e8fb88
+public_surface_fingerprint: 0x90165a2bf0e3495e
 
 stable_format_constants:
 - boundary_protocol_manifest_format_version = 1
@@ -27,6 +20,13 @@ stable_format_constants:
 - loaded_session_image_fingerprint_version_v2 = 2
 - loaded_value_image_format_version = 1
 - loaded_value_image_fingerprint_version = 1
+root_namespaces:
+- effect
+- ir
+- program
+- Runtime
+- Protocol
+
 instruction_tags:
 - add_const_i32 = 0
 - add_i32 = 1
@@ -105,6 +105,7 @@ effect_ir_terminator_tags:
 - return_value = 3
 
 supported_build_gates:
+- check-boundary-protocol-manifest
 - check-boundary-public-surface
 - check-boundary-format-drift
 - check-boundary-conformance-corpus

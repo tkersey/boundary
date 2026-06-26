@@ -381,6 +381,7 @@ pub fn build(b: *std.Build) void {
     budgets_step.dependOn(&addRunArtifactWithArgs(b, protocol_artifacts_exe, &.{"check-budgets"}).step);
 
     const proof_receipts_step = b.step("emit-boundary-proof-receipts", "Emit Boundary v0 proof receipts.");
+    proof_receipts_step.dependOn(protocol_manifest_step);
     proof_receipts_step.dependOn(public_surface_step);
     proof_receipts_step.dependOn(format_drift_step);
     proof_receipts_step.dependOn(corpus_step);

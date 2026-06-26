@@ -65,6 +65,7 @@ const proof_commands = [_]struct {
     id: []const u8,
     command: []const u8,
 }{
+    .{ .id = "proof-001", .command = "zig build check-boundary-protocol-manifest" },
     .{ .id = "proof-002", .command = "zig build check-boundary-public-surface" },
     .{ .id = "proof-003", .command = "zig build check-boundary-format-drift" },
     .{ .id = "proof-004", .command = "zig build check-boundary-conformance-corpus" },
@@ -220,13 +221,6 @@ fn publicSurfaceSnapshotAlloc(allocator: std.mem.Allocator) ![]u8 {
         \\manifest_fingerprint: 0x{x:0>16}
         \\public_surface_fingerprint: 0x{x:0>16}
         \\
-        \\root_namespaces:
-        \\- effect
-        \\- ir
-        \\- program
-        \\- Runtime
-        \\- Protocol
-        \\
         \\stable_format_constants:
         \\- boundary_protocol_manifest_format_version = {d}
         \\- boundary_protocol_manifest_fingerprint_version = {d}
@@ -263,6 +257,9 @@ fn publicSurfaceSnapshotAlloc(allocator: std.mem.Allocator) ![]u8 {
         loaded_execution.loaded_value_image_format_version,
         loaded_execution.loaded_value_image_fingerprint_version,
     });
+    try appendLine(&out, allocator, "root_namespaces:");
+    inline for (protocol.Protocol.Manifest.root_namespaces) |namespace| try appendFmt(&out, allocator, "- {s}\n", .{namespace});
+    try appendLine(&out, allocator, "");
     try appendEnumTableText(&out, allocator, "instruction_tags", plan.InstructionKind);
     try appendEnumTableText(&out, allocator, "terminator_tags", plan.TerminatorKind);
     try appendEnumTableText(&out, allocator, "value_codec_tags", plan.ValueCodec);
@@ -272,11 +269,7 @@ fn publicSurfaceSnapshotAlloc(allocator: std.mem.Allocator) ![]u8 {
     try appendEnumTableText(&out, allocator, "effect_ir_instruction_tags", effect_ir.InstructionKind);
     try appendEnumTableText(&out, allocator, "effect_ir_terminator_tags", effect_ir.TerminatorKind);
     try appendLine(&out, allocator, "supported_build_gates:");
-    inline for (proof_commands) |proof| {
-        try appendFmt(&out, allocator, "- {s}\n", .{proof.command["zig build ".len..]});
-    }
-    try appendLine(&out, allocator, "- update-boundary-conformance-corpus");
-    try appendLine(&out, allocator, "- dist-boundary-protocol");
+    inline for (protocol.Protocol.Manifest.supported_build_gates) |gate| try appendFmt(&out, allocator, "- {s}\n", .{gate});
     return out.toOwnedSlice(allocator);
 }
 

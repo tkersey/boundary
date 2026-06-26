@@ -14,6 +14,23 @@ pub const Protocol = struct {
         pub const fingerprint_version: u32 = boundary_protocol_manifest_fingerprint_version;
         pub const boundary_package_version = "0.5.0";
         pub const minimum_zig_version = "0.16.0";
+        pub const root_namespaces = &.{
+            "effect",
+            "ir",
+            "program",
+            "Runtime",
+            "Protocol",
+        };
+        pub const supported_build_gates = &.{
+            "check-boundary-protocol-manifest",
+            "check-boundary-public-surface",
+            "check-boundary-format-drift",
+            "check-boundary-conformance-corpus",
+            "check-boundary-adversarial-codecs",
+            "check-boundary-v0-budgets",
+            "update-boundary-conformance-corpus",
+            "dist-boundary-protocol",
+        };
         pub const required_feature_flags = &.{
             "portable-v2-loaded-execution-profile",
             "loaded-session-image-v2",
@@ -64,6 +81,23 @@ pub const Protocol = struct {
         pub fn publicSurfaceFingerprint() u64 {
             var out: std.ArrayList(u8) = .empty;
             defer out.deinit(std.heap.page_allocator);
+            appendString(&out, std.heap.page_allocator, "boundary") catch @panic("boundary protocol public surface encoding failed");
+            appendString(&out, std.heap.page_allocator, boundary_package_version) catch @panic("boundary protocol public surface encoding failed");
+            appendU32(&out, std.heap.page_allocator, format_version) catch @panic("boundary protocol public surface encoding failed");
+            appendU32(&out, std.heap.page_allocator, fingerprint_version) catch @panic("boundary protocol public surface encoding failed");
+            appendStringList(std.heap.page_allocator, &out, root_namespaces) catch @panic("boundary protocol public surface encoding failed");
+            appendU32(&out, std.heap.page_allocator, loaded_execution.executable_plan_image_format_version) catch @panic("boundary protocol public surface encoding failed");
+            appendU32(&out, std.heap.page_allocator, loaded_execution.executable_plan_image_fingerprint_version) catch @panic("boundary protocol public surface encoding failed");
+            appendU32(&out, std.heap.page_allocator, loaded_execution.loaded_execution_profile_format_version_v1) catch @panic("boundary protocol public surface encoding failed");
+            appendU32(&out, std.heap.page_allocator, loaded_execution.loaded_execution_profile_format_version_v2) catch @panic("boundary protocol public surface encoding failed");
+            appendU32(&out, std.heap.page_allocator, loaded_execution.loaded_execution_profile_fingerprint_version_v1) catch @panic("boundary protocol public surface encoding failed");
+            appendU32(&out, std.heap.page_allocator, loaded_execution.loaded_execution_profile_fingerprint_version_v2) catch @panic("boundary protocol public surface encoding failed");
+            appendU32(&out, std.heap.page_allocator, loaded_execution.loaded_session_image_format_version_v1) catch @panic("boundary protocol public surface encoding failed");
+            appendU32(&out, std.heap.page_allocator, loaded_execution.loaded_session_image_format_version_v2) catch @panic("boundary protocol public surface encoding failed");
+            appendU32(&out, std.heap.page_allocator, loaded_execution.loaded_session_image_fingerprint_version_v1) catch @panic("boundary protocol public surface encoding failed");
+            appendU32(&out, std.heap.page_allocator, loaded_execution.loaded_session_image_fingerprint_version_v2) catch @panic("boundary protocol public surface encoding failed");
+            appendU32(&out, std.heap.page_allocator, loaded_execution.loaded_value_image_format_version) catch @panic("boundary protocol public surface encoding failed");
+            appendU32(&out, std.heap.page_allocator, loaded_execution.loaded_value_image_fingerprint_version) catch @panic("boundary protocol public surface encoding failed");
             appendEnumTable(std.heap.page_allocator, &out, "instruction", plan.InstructionKind) catch @panic("boundary protocol public surface encoding failed");
             appendEnumTable(std.heap.page_allocator, &out, "terminator", plan.TerminatorKind) catch @panic("boundary protocol public surface encoding failed");
             appendEnumTable(std.heap.page_allocator, &out, "value-codec", plan.ValueCodec) catch @panic("boundary protocol public surface encoding failed");
@@ -72,6 +106,7 @@ pub const Protocol = struct {
             appendEnumTable(std.heap.page_allocator, &out, "execution-failure-kind", loaded_execution.ExecutionFailureKind) catch @panic("boundary protocol public surface encoding failed");
             appendEnumTable(std.heap.page_allocator, &out, "effect-ir-instruction", effect_ir.InstructionKind) catch @panic("boundary protocol public surface encoding failed");
             appendEnumTable(std.heap.page_allocator, &out, "effect-ir-terminator", effect_ir.TerminatorKind) catch @panic("boundary protocol public surface encoding failed");
+            appendStringList(std.heap.page_allocator, &out, supported_build_gates) catch @panic("boundary protocol public surface encoding failed");
             return fnv64(out.items);
         }
 
