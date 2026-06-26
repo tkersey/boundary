@@ -387,19 +387,27 @@ pub fn build(b: *std.Build) void {
     proof_receipts_step.dependOn(corpus_step);
     proof_receipts_step.dependOn(adversarial_codecs_step);
     proof_receipts_step.dependOn(budgets_step);
-    proof_receipts_step.dependOn(&addRunArtifactWithArgs(b, protocol_artifacts_exe, &.{
+    const proof_receipts_run = addRunArtifactWithArgs(b, protocol_artifacts_exe, &.{
         "emit-proof-receipts",
         "--out-dir",
         b.getInstallPath(.prefix, "protocol/boundary/proof-receipts"),
-    }).step);
+    });
+    proof_receipts_run.step.dependOn(protocol_manifest_step);
+    proof_receipts_run.step.dependOn(public_surface_step);
+    proof_receipts_run.step.dependOn(format_drift_step);
+    proof_receipts_run.step.dependOn(corpus_step);
+    proof_receipts_run.step.dependOn(adversarial_codecs_step);
+    proof_receipts_run.step.dependOn(budgets_step);
+    proof_receipts_step.dependOn(&proof_receipts_run.step);
 
     const dist_boundary_protocol_step = b.step("dist-boundary-protocol", "Build the Boundary v0.5.0 protocol distribution.");
-    dist_boundary_protocol_step.dependOn(proof_receipts_step);
-    dist_boundary_protocol_step.dependOn(&addRunArtifactWithArgs(b, protocol_artifacts_exe, &.{
+    const dist_boundary_protocol_run = addRunArtifactWithArgs(b, protocol_artifacts_exe, &.{
         "dist",
         "--out-dir",
         b.getInstallPath(.prefix, "dist/boundary-v0.5.0-protocol"),
-    }).step);
+    });
+    dist_boundary_protocol_run.step.dependOn(proof_receipts_step);
+    dist_boundary_protocol_step.dependOn(&dist_boundary_protocol_run.step);
 
     const executable_module_step = b.step("check-boundary-executable-module", "Check executable Certified Boundary Module v2 image foundations.");
     const executable_module_args = TestArgs{
