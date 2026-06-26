@@ -6115,6 +6115,7 @@ pub const BoundaryTargetModule = struct {
 
     pub const ValidationLimits = struct {
         max_image_bytes: usize = 16 * 1024 * 1024,
+        max_executable_plan_bytes: usize = 4 * 1024 * 1024,
         max_section_count: usize = 128,
         max_plan_rows: usize = 1_000_000,
         max_world_ports: usize = dense_world_port_cap,
@@ -6126,6 +6127,7 @@ pub const BoundaryTargetModule = struct {
 
         pub const small_test = ValidationLimits{
             .max_image_bytes = 64 * 1024,
+            .max_executable_plan_bytes = 16 * 1024,
             .max_section_count = 32,
             .max_plan_rows = 16_384,
             .max_world_ports = 128,
@@ -6140,6 +6142,7 @@ pub const BoundaryTargetModule = struct {
 
         pub const large_local = ValidationLimits{
             .max_image_bytes = 128 * 1024 * 1024,
+            .max_executable_plan_bytes = 64 * 1024 * 1024,
             .max_section_count = 512,
             .max_plan_rows = 16_000_000,
             .max_world_ports = 1_000_000,
@@ -6152,6 +6155,7 @@ pub const BoundaryTargetModule = struct {
 
         pub const audit_only = ValidationLimits{
             .max_image_bytes = 512 * 1024 * 1024,
+            .max_executable_plan_bytes = 256 * 1024 * 1024,
             .max_section_count = 2048,
             .max_plan_rows = 64_000_000,
             .max_world_ports = 4_000_000,
@@ -6172,6 +6176,7 @@ pub const BoundaryTargetModule = struct {
         allocator: std.mem.Allocator = std.heap.page_allocator,
         limits: ?ValidationLimits = null,
         max_image_bytes: usize = 16 * 1024 * 1024,
+        max_executable_plan_bytes: usize = 4 * 1024 * 1024,
         max_section_count: usize = 128,
         max_plan_rows: usize = 1_000_000,
         max_dependency_count: usize = 256,
@@ -6183,6 +6188,7 @@ pub const BoundaryTargetModule = struct {
             if (self.limits) |limits| return limits;
             var limits = ValidationLimits.default_safe;
             limits.max_image_bytes = self.max_image_bytes;
+            limits.max_executable_plan_bytes = self.max_executable_plan_bytes;
             limits.max_section_count = self.max_section_count;
             limits.max_plan_rows = self.max_plan_rows;
             limits.max_dependency_count = self.max_dependency_count;
@@ -11852,6 +11858,7 @@ pub const BoundaryTargetModule = struct {
 
     fn validateExecutablePlanImagePayload(payload: []const u8, manifest: Manifest, options: ValidationOptions) ValidationError!void {
         const limits = options.effectiveLimits();
+        if (payload.len > limits.max_executable_plan_bytes) return error.LimitExceeded;
         var envelope_reader = PayloadReader.init(payload);
         const format_version = try envelope_reader.readU32();
         if (format_version != domains.boundary_executable_plan_image.format_version.?) return error.InvalidVersion;
@@ -12511,6 +12518,19 @@ test "executable plan image payload binds canonical body bytes" {
     var payload = try BoundaryTargetModule.encodeExecutablePlanImagePayload(TestTarget, allocator);
     defer allocator.free(payload);
     try BoundaryTargetModule.validateExecutablePlanImagePayload(payload, manifest, .{});
+    try std.testing.expectError(
+        error.LimitExceeded,
+        BoundaryTargetModule.validateExecutablePlanImagePayload(
+            payload,
+            manifest,
+            .{ .limits = .{ .max_executable_plan_bytes = payload.len - 1 } },
+        ),
+    );
+    try BoundaryTargetModule.validateExecutablePlanImagePayload(
+        payload,
+        manifest,
+        .{ .limits = .{ .max_executable_plan_bytes = payload.len } },
+    );
 
     payload[payload.len - 1] ^= 1;
     try std.testing.expectError(
