@@ -2,8 +2,8 @@ Boundary v0 public surface
 package: boundary 0.5.0
 manifest_format_version: 1
 manifest_fingerprint_version: 1
-manifest_fingerprint: 0x005867c4ac924571
-public_surface_fingerprint: 0x3eaa0fa5b602d824
+manifest_fingerprint: 0xdba87f9d3a813a68
+public_surface_fingerprint: 0x9d44e67990624f76
 
 stable_format_constants:
 - boundary_protocol_manifest_format_version = 1
@@ -113,5 +113,9 @@ supported_build_gates:
 - check-boundary-conformance-corpus
 - check-boundary-adversarial-codecs
 - check-boundary-v0-budgets
+- check-boundary-loaded-v2-receipt-host
+- check-boundary-loaded-session-receipt-host
+- check-boundary-loaded-parity-receipt-host
 - update-boundary-conformance-corpus
+- emit-boundary-proof-receipts
 - dist-boundary-protocol

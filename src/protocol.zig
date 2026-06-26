@@ -30,7 +30,11 @@ pub const Protocol = struct {
             "check-boundary-conformance-corpus",
             "check-boundary-adversarial-codecs",
             "check-boundary-v0-budgets",
+            "check-boundary-loaded-v2-receipt-host",
+            "check-boundary-loaded-session-receipt-host",
+            "check-boundary-loaded-parity-receipt-host",
             "update-boundary-conformance-corpus",
+            "emit-boundary-proof-receipts",
             "dist-boundary-protocol",
         };
         pub const required_feature_flags = &.{
