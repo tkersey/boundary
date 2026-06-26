@@ -130,7 +130,7 @@ fn checkBudgets() !void {
     if (limits.max_block_count == 0) return error.InvalidBudget;
     if (limits.max_schema_count == 0) return error.InvalidBudget;
     if (limits.max_value_nesting != profile_limits.maximum_value_nesting_depth) return error.InvalidBudget;
-    if (limits.max_frame_depth != profile_limits.maximum_frames) return error.InvalidBudget;
+    if (limits.max_frame_depth != @min(profile_limits.maximum_call_depth, profile_limits.maximum_frames)) return error.InvalidBudget;
     if (limits.max_locals != profile_limits.maximum_locals_per_frame) return error.InvalidBudget;
     if (limits.max_instruction_fuel != profile_limits.maximum_instructions_per_advancement) return error.InvalidBudget;
     if (limits.max_function_count != 1_000_000) return error.InvalidBudget;

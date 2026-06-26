@@ -2,8 +2,8 @@ Boundary v0 public surface
 package: boundary 0.5.0
 manifest_format_version: 1
 manifest_fingerprint_version: 1
-manifest_fingerprint: 0xd9ab8873246459cf
-public_surface_fingerprint: 0x1be9a0802e0f2098
+manifest_fingerprint: 0x005867c4ac924571
+public_surface_fingerprint: 0x3eaa0fa5b602d824
 
 stable_format_constants:
 - boundary_protocol_manifest_format_version = 1
@@ -26,6 +26,8 @@ root_namespaces:
 - program
 - Runtime
 - Protocol
+- boundary_protocol_manifest_format_version
+- boundary_protocol_manifest_fingerprint_version
 
 instruction_tags:
 - add_const_i32 = 0

@@ -300,6 +300,7 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const bench_optimize: std.builtin.OptimizeMode = .ReleaseFast;
     const test_args = parseTestArgs(b);
+    const proof_test_args = TestArgs{ .filters = &.{}, .passthrough = &.{} };
     const core = addCoreModules(b, target, optimize);
     const host_core = addCoreModules(b, b.graph.host, optimize);
 
@@ -374,7 +375,7 @@ pub fn build(b: *std.Build) void {
     addTestArtifact(b, test_step, protocol_artifacts_mod, test_args);
 
     const protocol_manifest_step = b.step("check-boundary-protocol-manifest", "Check Boundary v0 protocol manifest encoding and fingerprint.");
-    addTestArtifact(b, protocol_manifest_step, host_protocol_mod, test_args);
+    addTestArtifact(b, protocol_manifest_step, host_protocol_mod, proof_test_args);
 
     const protocol_artifacts_exe = b.addExecutable(.{
         .name = "boundary-protocol-artifacts",

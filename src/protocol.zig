@@ -20,6 +20,8 @@ pub const Protocol = struct {
             "program",
             "Runtime",
             "Protocol",
+            "boundary_protocol_manifest_format_version",
+            "boundary_protocol_manifest_fingerprint_version",
         };
         pub const supported_build_gates = &.{
             "check-boundary-protocol-manifest",
@@ -61,7 +63,7 @@ pub const Protocol = struct {
             max_executable_plan_bytes: u32 = 4 * 1024 * 1024,
             max_loaded_value_bytes: u32 = 1 * 1024 * 1024,
             max_value_nesting: u16 = portable_v2_limits.maximum_value_nesting_depth,
-            max_frame_depth: u16 = 256,
+            max_frame_depth: u16 = @intCast(@min(portable_v2_limits.maximum_call_depth, portable_v2_limits.maximum_frames)),
             max_locals: u16 = portable_v2_limits.maximum_locals_per_frame,
             max_instruction_fuel: u64 = portable_v2_limits.maximum_instructions_per_advancement,
             max_function_count: u32 = 1_000_000,
