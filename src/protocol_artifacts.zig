@@ -82,6 +82,10 @@ fn checkCorpus(init: std.process.Init, allocator: std.mem.Allocator) !void {
     const expected_image = try protocol.Protocol.Manifest.encodeAlloc(allocator);
     const actual_image = try std.Io.Dir.cwd().readFileAlloc(init.io, manifest_image_path, allocator, .limited(1024 * 1024));
     if (!std.mem.eql(u8, expected_image, actual_image)) return error.ConformanceCorpusDrift;
+
+    const expected_surface = try publicSurfaceSnapshotAlloc(allocator);
+    const actual_surface = try std.Io.Dir.cwd().readFileAlloc(init.io, public_surface_path, allocator, .limited(128 * 1024));
+    if (!std.mem.eql(u8, expected_surface, actual_surface)) return error.ConformanceCorpusDrift;
 }
 
 fn checkFormatDrift(init: std.process.Init, allocator: std.mem.Allocator) !void {
@@ -297,7 +301,7 @@ fn checksumsAlloc(
     return std.fmt.allocPrint(allocator,
         \\boundary-protocol-manifest.bin {s}
         \\public-surface.boundary.txt {s}
-        \\corpus.boundary.txt {s}
+        \\conformance/v0/boundary/corpus.boundary.txt {s}
         \\
     , .{
         manifest_hash,
