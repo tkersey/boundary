@@ -1,4 +1,4 @@
-// zlinter-disable declaration_naming no_inferred_error_unions require_doc_comment
+// zlinter-disable declaration_naming no_inferred_error_unions no_panic require_doc_comment
 const effect_ir = @import("effect_ir");
 const loaded_execution = @import("loaded_execution");
 const parity_scenarios = @import("parity_scenarios");
@@ -81,32 +81,7 @@ pub const Protocol = struct {
         pub fn publicSurfaceFingerprint() u64 {
             var out: std.ArrayList(u8) = .empty;
             defer out.deinit(std.heap.page_allocator);
-            appendString(&out, std.heap.page_allocator, "boundary") catch @panic("boundary protocol public surface encoding failed");
-            appendString(&out, std.heap.page_allocator, boundary_package_version) catch @panic("boundary protocol public surface encoding failed");
-            appendU32(&out, std.heap.page_allocator, format_version) catch @panic("boundary protocol public surface encoding failed");
-            appendU32(&out, std.heap.page_allocator, fingerprint_version) catch @panic("boundary protocol public surface encoding failed");
-            appendStringList(std.heap.page_allocator, &out, root_namespaces) catch @panic("boundary protocol public surface encoding failed");
-            appendU32(&out, std.heap.page_allocator, loaded_execution.executable_plan_image_format_version) catch @panic("boundary protocol public surface encoding failed");
-            appendU32(&out, std.heap.page_allocator, loaded_execution.executable_plan_image_fingerprint_version) catch @panic("boundary protocol public surface encoding failed");
-            appendU32(&out, std.heap.page_allocator, loaded_execution.loaded_execution_profile_format_version_v1) catch @panic("boundary protocol public surface encoding failed");
-            appendU32(&out, std.heap.page_allocator, loaded_execution.loaded_execution_profile_format_version_v2) catch @panic("boundary protocol public surface encoding failed");
-            appendU32(&out, std.heap.page_allocator, loaded_execution.loaded_execution_profile_fingerprint_version_v1) catch @panic("boundary protocol public surface encoding failed");
-            appendU32(&out, std.heap.page_allocator, loaded_execution.loaded_execution_profile_fingerprint_version_v2) catch @panic("boundary protocol public surface encoding failed");
-            appendU32(&out, std.heap.page_allocator, loaded_execution.loaded_session_image_format_version_v1) catch @panic("boundary protocol public surface encoding failed");
-            appendU32(&out, std.heap.page_allocator, loaded_execution.loaded_session_image_format_version_v2) catch @panic("boundary protocol public surface encoding failed");
-            appendU32(&out, std.heap.page_allocator, loaded_execution.loaded_session_image_fingerprint_version_v1) catch @panic("boundary protocol public surface encoding failed");
-            appendU32(&out, std.heap.page_allocator, loaded_execution.loaded_session_image_fingerprint_version_v2) catch @panic("boundary protocol public surface encoding failed");
-            appendU32(&out, std.heap.page_allocator, loaded_execution.loaded_value_image_format_version) catch @panic("boundary protocol public surface encoding failed");
-            appendU32(&out, std.heap.page_allocator, loaded_execution.loaded_value_image_fingerprint_version) catch @panic("boundary protocol public surface encoding failed");
-            appendEnumTable(std.heap.page_allocator, &out, "instruction", plan.InstructionKind) catch @panic("boundary protocol public surface encoding failed");
-            appendEnumTable(std.heap.page_allocator, &out, "terminator", plan.TerminatorKind) catch @panic("boundary protocol public surface encoding failed");
-            appendEnumTable(std.heap.page_allocator, &out, "value-codec", plan.ValueCodec) catch @panic("boundary protocol public surface encoding failed");
-            appendEnumTable(std.heap.page_allocator, &out, "loaded-session-status", loaded_execution.LoadedSessionStatus) catch @panic("boundary protocol public surface encoding failed");
-            appendEnumTable(std.heap.page_allocator, &out, "loaded-session-response-kind", loaded_execution.LoadedSessionResponseKind) catch @panic("boundary protocol public surface encoding failed");
-            appendEnumTable(std.heap.page_allocator, &out, "execution-failure-kind", loaded_execution.ExecutionFailureKind) catch @panic("boundary protocol public surface encoding failed");
-            appendEnumTable(std.heap.page_allocator, &out, "effect-ir-instruction", effect_ir.InstructionKind) catch @panic("boundary protocol public surface encoding failed");
-            appendEnumTable(std.heap.page_allocator, &out, "effect-ir-terminator", effect_ir.TerminatorKind) catch @panic("boundary protocol public surface encoding failed");
-            appendStringList(std.heap.page_allocator, &out, supported_build_gates) catch @panic("boundary protocol public surface encoding failed");
+            encodePublicSurfaceIdentity(std.heap.page_allocator, &out) catch @panic("boundary protocol public surface encoding failed");
             return fnv64(out.items);
         }
 
@@ -122,7 +97,6 @@ pub const Protocol = struct {
         }
 
         fn encodeIdentity(allocator: std.mem.Allocator, out: *std.ArrayList(u8)) !void {
-            try appendString(out, allocator, boundary_package_version);
             try appendString(out, allocator, minimum_zig_version);
             try appendU32(out, allocator, format_version);
             try appendU32(out, allocator, fingerprint_version);
@@ -165,6 +139,34 @@ pub const Protocol = struct {
             try appendU64(out, allocator, publicSurfaceFingerprint());
             try appendBytesWithLength(out, allocator, metadata_bytes);
             try appendEnumTable(allocator, out, "parity-scenario", parity_scenarios.ScenarioId);
+        }
+
+        fn encodePublicSurfaceIdentity(allocator: std.mem.Allocator, out: *std.ArrayList(u8)) !void {
+            try appendString(out, allocator, "boundary");
+            try appendU32(out, allocator, format_version);
+            try appendU32(out, allocator, fingerprint_version);
+            try appendStringList(allocator, out, root_namespaces);
+            try appendU32(out, allocator, loaded_execution.executable_plan_image_format_version);
+            try appendU32(out, allocator, loaded_execution.executable_plan_image_fingerprint_version);
+            try appendU32(out, allocator, loaded_execution.loaded_execution_profile_format_version_v1);
+            try appendU32(out, allocator, loaded_execution.loaded_execution_profile_format_version_v2);
+            try appendU32(out, allocator, loaded_execution.loaded_execution_profile_fingerprint_version_v1);
+            try appendU32(out, allocator, loaded_execution.loaded_execution_profile_fingerprint_version_v2);
+            try appendU32(out, allocator, loaded_execution.loaded_session_image_format_version_v1);
+            try appendU32(out, allocator, loaded_execution.loaded_session_image_format_version_v2);
+            try appendU32(out, allocator, loaded_execution.loaded_session_image_fingerprint_version_v1);
+            try appendU32(out, allocator, loaded_execution.loaded_session_image_fingerprint_version_v2);
+            try appendU32(out, allocator, loaded_execution.loaded_value_image_format_version);
+            try appendU32(out, allocator, loaded_execution.loaded_value_image_fingerprint_version);
+            try appendEnumTable(allocator, out, "instruction", plan.InstructionKind);
+            try appendEnumTable(allocator, out, "terminator", plan.TerminatorKind);
+            try appendEnumTable(allocator, out, "value-codec", plan.ValueCodec);
+            try appendEnumTable(allocator, out, "loaded-session-status", loaded_execution.LoadedSessionStatus);
+            try appendEnumTable(allocator, out, "loaded-session-response-kind", loaded_execution.LoadedSessionResponseKind);
+            try appendEnumTable(allocator, out, "execution-failure-kind", loaded_execution.ExecutionFailureKind);
+            try appendEnumTable(allocator, out, "effect-ir-instruction", effect_ir.InstructionKind);
+            try appendEnumTable(allocator, out, "effect-ir-terminator", effect_ir.TerminatorKind);
+            try appendStringList(allocator, out, supported_build_gates);
         }
     };
 };
@@ -238,4 +240,19 @@ test "boundary protocol manifest has deterministic canonical identity" {
     try std.testing.expect(Protocol.Manifest.manifestFingerprint() != 0);
     try std.testing.expect(Protocol.Manifest.publicSurfaceFingerprint() != 0);
     try std.testing.expectEqual(@as(u32, 2), loaded_execution.boundary_loaded_execution_profile_version);
+}
+
+test "boundary protocol fingerprints exclude package release metadata" {
+    const allocator = std.testing.allocator;
+
+    var manifest_identity: std.ArrayList(u8) = .empty;
+    defer manifest_identity.deinit(allocator);
+    try Protocol.Manifest.encodeIdentity(allocator, &manifest_identity);
+
+    var public_surface_identity: std.ArrayList(u8) = .empty;
+    defer public_surface_identity.deinit(allocator);
+    try Protocol.Manifest.encodePublicSurfaceIdentity(allocator, &public_surface_identity);
+
+    try std.testing.expect(std.mem.find(u8, manifest_identity.items, Protocol.Manifest.boundary_package_version) == null);
+    try std.testing.expect(std.mem.find(u8, public_surface_identity.items, Protocol.Manifest.boundary_package_version) == null);
 }

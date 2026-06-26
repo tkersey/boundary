@@ -2,8 +2,8 @@
 const effect_root = @import("effect/root.zig");
 const ir_api = @import("ir_api.zig");
 const lowered_machine = @import("lowered_machine");
-const protocol = @import("protocol.zig");
 const program_api = @import("program_api.zig");
+const protocol = @import("protocol.zig");
 
 /// Public effect family and handler constructors.
 pub const effect = effect_root;

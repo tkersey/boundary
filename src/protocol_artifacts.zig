@@ -1,4 +1,4 @@
-// zlinter-disable require_doc_comment no_inferred_error_unions declaration_naming
+// zlinter-disable declaration_naming no_inferred_error_unions require_doc_comment require_errdefer_dealloc
 const effect_ir = @import("effect_ir");
 const loaded_execution = @import("loaded_execution");
 const plan = @import("internal_program_plan");
@@ -15,15 +15,15 @@ const compatibility_doc_path = "docs/compatibility.md";
 const security_model_doc_path = "docs/security_model.md";
 
 const proof_commands = [_]struct {
-    id: []const u8,
+    proof_id: []const u8,
     command: []const u8,
 }{
-    .{ .id = "proof-001", .command = "zig build check-boundary-protocol-manifest" },
-    .{ .id = "proof-002", .command = "zig build check-boundary-public-surface" },
-    .{ .id = "proof-003", .command = "zig build check-boundary-format-drift" },
-    .{ .id = "proof-004", .command = "zig build check-boundary-conformance-corpus" },
-    .{ .id = "proof-005", .command = "zig build check-boundary-adversarial-codecs" },
-    .{ .id = "proof-006", .command = "zig build check-boundary-v0-budgets" },
+    .{ .proof_id = "proof-001", .command = "zig build check-boundary-protocol-manifest" },
+    .{ .proof_id = "proof-002", .command = "zig build check-boundary-public-surface" },
+    .{ .proof_id = "proof-003", .command = "zig build check-boundary-format-drift" },
+    .{ .proof_id = "proof-004", .command = "zig build check-boundary-conformance-corpus" },
+    .{ .proof_id = "proof-005", .command = "zig build check-boundary-adversarial-codecs" },
+    .{ .proof_id = "proof-006", .command = "zig build check-boundary-v0-budgets" },
 };
 
 pub fn main(init: std.process.Init) !void {
@@ -133,8 +133,8 @@ fn checkBudgets() !void {
 fn emitProofReceipts(init: std.process.Init, allocator: std.mem.Allocator, output_dir: []const u8) !void {
     try std.Io.Dir.cwd().createDirPath(init.io, output_dir);
     inline for (proof_commands) |proof| {
-        const receipt = try proofReceiptAlloc(allocator, proof.id, proof.command);
-        const path = try joinPath(allocator, output_dir, try std.fmt.allocPrint(allocator, "{s}.json", .{proof.id}));
+        const receipt = try proofReceiptAlloc(allocator, proof.proof_id, proof.command);
+        const path = try joinPath(allocator, output_dir, try std.fmt.allocPrint(allocator, "{s}.json", .{proof.proof_id}));
         try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = path, .data = receipt });
     }
 }
@@ -159,8 +159,8 @@ fn dist(init: std.process.Init, allocator: std.mem.Allocator, output_dir: []cons
     try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = try joinPath(allocator, output_dir, "conformance/v0/boundary/protocol-manifest.bin"), .data = manifest });
     try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = try joinPath(allocator, output_dir, "checksums.txt"), .data = checksums });
     inline for (proof_commands) |proof| {
-        const receipt = try proofReceiptAlloc(allocator, proof.id, proof.command);
-        const path = try joinPath(allocator, output_dir, try std.fmt.allocPrint(allocator, "proof-receipts/{s}.json", .{proof.id}));
+        const receipt = try proofReceiptAlloc(allocator, proof.proof_id, proof.command);
+        const path = try joinPath(allocator, output_dir, try std.fmt.allocPrint(allocator, "proof-receipts/{s}.json", .{proof.proof_id}));
         try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = path, .data = receipt });
     }
     try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = try joinPath(allocator, output_dir, "docs/compatibility.md"), .data = compatibility_doc });
@@ -256,8 +256,18 @@ fn corpusManifestAlloc(allocator: std.mem.Allocator) ![]u8 {
         surface_hash,
     });
     try appendLine(&out, allocator, "artifacts:");
-    try appendCorpusArtifact(&out, allocator, "protocol-manifest", manifest_image_path, manifest_hash, "zig build check-boundary-format-drift");
-    try appendCorpusArtifact(&out, allocator, "public-surface", public_surface_path, surface_hash, "zig build check-boundary-public-surface");
+    try appendCorpusArtifact(&out, allocator, .{
+        .artifact_id = "protocol-manifest",
+        .path = manifest_image_path,
+        .sha256 = manifest_hash,
+        .replay = "zig build check-boundary-format-drift",
+    });
+    try appendCorpusArtifact(&out, allocator, .{
+        .artifact_id = "public-surface",
+        .path = public_surface_path,
+        .sha256 = surface_hash,
+        .replay = "zig build check-boundary-public-surface",
+    });
     try appendLine(&out, allocator, "");
     try appendLine(&out, allocator, "validation:");
     try appendLine(&out, allocator, "- check-boundary-conformance-corpus compares this catalog and protocol manifest image");
@@ -351,14 +361,21 @@ fn appendEnumTableText(out: *std.ArrayList(u8), allocator: std.mem.Allocator, la
     try appendLine(out, allocator, "");
 }
 
-fn appendCorpusArtifact(out: *std.ArrayList(u8), allocator: std.mem.Allocator, id: []const u8, path: []const u8, sha256: []const u8, replay: []const u8) !void {
+const CorpusArtifact = struct {
+    artifact_id: []const u8,
+    path: []const u8,
+    sha256: []const u8,
+    replay: []const u8,
+};
+
+fn appendCorpusArtifact(out: *std.ArrayList(u8), allocator: std.mem.Allocator, artifact: CorpusArtifact) !void {
     try appendFmt(out, allocator,
         \\- id: {s}
         \\  path: {s}
         \\  sha256: {s}
         \\  replay: {s}
         \\
-    , .{ id, path, sha256, replay });
+    , .{ artifact.artifact_id, artifact.path, artifact.sha256, artifact.replay });
 }
 
 fn appendLine(out: *std.ArrayList(u8), allocator: std.mem.Allocator, line: []const u8) !void {
@@ -377,7 +394,7 @@ fn appendFmt(out: *std.ArrayList(u8), allocator: std.mem.Allocator, comptime fmt
 }
 
 fn hashTextSha256Alloc(allocator: std.mem.Allocator, text: []const u8) ![]const u8 {
-    var digest: [32]u8 = undefined;
+    var digest: [32]u8 = [_]u8{0} ** 32;
     std.crypto.hash.sha2.Sha256.hash(text, &digest, .{});
     const encoded = std.fmt.bytesToHex(digest, .lower);
     return std.fmt.allocPrint(allocator, "sha256:{s}", .{&encoded});
@@ -407,11 +424,11 @@ test "boundary protocol artifact generators are deterministic" {
     const second = try publicSurfaceSnapshotAlloc(allocator);
     defer allocator.free(second);
     try std.testing.expectEqualSlices(u8, first, second);
-    try std.testing.expect(std.mem.indexOf(u8, first, "instruction_tags:") != null);
-    try std.testing.expect(std.mem.indexOf(u8, first, "check-boundary-public-surface") != null);
+    try std.testing.expect(std.mem.find(u8, first, "instruction_tags:") != null);
+    try std.testing.expect(std.mem.find(u8, first, "check-boundary-public-surface") != null);
 
     const corpus = try corpusManifestAlloc(allocator);
     defer allocator.free(corpus);
-    try std.testing.expect(std.mem.indexOf(u8, corpus, "protocol-manifest") != null);
-    try std.testing.expect(std.mem.indexOf(u8, corpus, "public-surface") != null);
+    try std.testing.expect(std.mem.find(u8, corpus, "protocol-manifest") != null);
+    try std.testing.expect(std.mem.find(u8, corpus, "public-surface") != null);
 }

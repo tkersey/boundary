@@ -2,8 +2,8 @@ Boundary v0 public surface
 package: boundary 0.5.0
 manifest_format_version: 1
 manifest_fingerprint_version: 1
-manifest_fingerprint: 0x992ca18b50e8fb88
-public_surface_fingerprint: 0x90165a2bf0e3495e
+manifest_fingerprint: 0x5dfa8fdd0e2de132
+public_surface_fingerprint: 0x1be9a0802e0f2098
 
 stable_format_constants:
 - boundary_protocol_manifest_format_version = 1
