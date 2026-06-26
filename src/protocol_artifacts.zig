@@ -154,6 +154,7 @@ fn dist(init: std.process.Init, allocator: std.mem.Allocator, output_dir: []cons
     try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = try joinPath(allocator, output_dir, "boundary-protocol-manifest.bin"), .data = manifest });
     try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = try joinPath(allocator, output_dir, "boundary-protocol-manifest.txt"), .data = manifest_text });
     try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = try joinPath(allocator, output_dir, "public-surface.boundary.txt"), .data = surface });
+    try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = try joinPath(allocator, output_dir, "conformance/v0/public-surface.boundary.txt"), .data = surface });
     try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = try joinPath(allocator, output_dir, "conformance/v0/boundary/corpus.boundary.txt"), .data = corpus });
     try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = try joinPath(allocator, output_dir, "conformance/v0/boundary/protocol-manifest.bin"), .data = manifest });
     try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = try joinPath(allocator, output_dir, "checksums.txt"), .data = checksums });
@@ -300,7 +301,7 @@ fn checksumsAlloc(
     defer allocator.free(corpus_hash);
     return std.fmt.allocPrint(allocator,
         \\boundary-protocol-manifest.bin {s}
-        \\public-surface.boundary.txt {s}
+        \\conformance/v0/public-surface.boundary.txt {s}
         \\conformance/v0/boundary/corpus.boundary.txt {s}
         \\
     , .{
