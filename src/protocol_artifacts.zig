@@ -176,7 +176,7 @@ fn publicSurfaceSnapshotAlloc(allocator: std.mem.Allocator) ![]u8 {
     errdefer out.deinit(allocator);
     try appendFmt(&out, allocator,
         \\Boundary v0 public surface
-        \\package: boundary 0.5.0
+        \\package: boundary {s}
         \\manifest_format_version: {d}
         \\manifest_fingerprint_version: {d}
         \\manifest_fingerprint: 0x{x:0>16}
@@ -199,6 +199,7 @@ fn publicSurfaceSnapshotAlloc(allocator: std.mem.Allocator) ![]u8 {
         \\- loaded_value_image_fingerprint_version = {d}
         \\
     , .{
+        protocol.Protocol.Manifest.boundary_package_version,
         protocol.boundary_protocol_manifest_format_version,
         protocol.boundary_protocol_manifest_fingerprint_version,
         protocol.Protocol.Manifest.manifestFingerprint(),
