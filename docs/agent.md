@@ -105,8 +105,9 @@ Agent Closure v0 conformance grows around:
 - generated-versus-loaded parity.
 
 The current profile foundation provides the public namespace, deterministic
-profile fingerprinting, closed tool-id checks, budget checks, and named build
-gates used by later module-builder cases.
+profile fingerprinting, closed tool-id checks, action validation, malformed tag
+rejection, budget checks, bounded trace summaries, skeleton/fixture flow
+accounting, and named build gates used by later module-builder cases.
 
 ## Non-Goals
 

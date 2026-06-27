@@ -8,6 +8,7 @@ bench/state_effect_bench.zig
 bench/writer_effect_decompose_bench.zig
 bench/zprof_hotspots.zig
 examples/agent_loop.zig
+examples/agent_profile_conformance.zig
 examples/boundary_closure_nested.zig
 examples/boundary_closure_strict.zig
 examples/boundary_closure_world_port.zig

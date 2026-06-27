@@ -189,6 +189,32 @@ pub const Action = union(ActionTag) {
     fail: []const u8,
 };
 
+pub fn decodeActionTag(tag: u8) !ActionTag {
+    return switch (tag) {
+        @intFromEnum(ActionTag.final) => .final,
+        @intFromEnum(ActionTag.tool) => .tool,
+        @intFromEnum(ActionTag.fail) => .fail,
+        else => error.MalformedAgentAction,
+    };
+}
+
+pub fn validateAction(comptime ToolSet: type, config: Config, action: Action) !void {
+    switch (action) {
+        .final => |text| if (text.len > config.max_action_bytes) return error.AgentActionTooLarge,
+        .fail => |reason| if (reason.len > config.max_action_bytes) return error.AgentActionTooLarge,
+        .tool => |request| {
+            if (!ToolSet.contains(request.tool_id)) return error.UnknownToolId;
+            if (request.payload.len > config.max_action_bytes) return error.AgentActionTooLarge;
+        },
+    }
+}
+
+pub fn observeToolResult(config: Config, state: *State, result: ToolResult) !void {
+    if (result.bytes.len > config.max_tool_result_bytes) return error.AgentToolResultTooLarge;
+    state.prior_observation_summary = state.current_observation;
+    state.current_observation = result.bytes;
+}
+
 pub const DecisionPrompt = struct {
     goal: []const u8,
     observation: []const u8,
@@ -330,6 +356,25 @@ test "Agent closed ToolId set rejects unknown labels" {
     try std.testing.expectEqualStrings("actuate", try tools.label(actuate));
     try std.testing.expect(tools.find("shell") == null);
     try std.testing.expectError(error.UnknownToolId, tools.label(.{ .index = 9, .label = "shell" }));
+}
+
+test "Agent action validation rejects malformed tags, unknown tools, and oversized payloads" {
+    const tools = ClosedToolSet(&.{"actuate"});
+    const config = Config{
+        .max_iterations = 2,
+        .max_model_calls = 2,
+        .max_tool_calls = 2,
+        .max_observation_bytes = 128,
+        .max_action_bytes = 8,
+        .max_tool_result_bytes = 128,
+        .max_trace_entries = 2,
+    };
+    try std.testing.expectError(error.MalformedAgentAction, decodeActionTag(99));
+    try validateAction(tools, config, .{ .tool = .{ .tool_id = tools.id(0), .payload = "" } });
+    try std.testing.expectError(error.UnknownToolId, validateAction(tools, config, .{
+        .tool = .{ .tool_id = .{ .index = 4, .label = "shell" }, .payload = "" },
+    }));
+    try std.testing.expectError(error.AgentActionTooLarge, validateAction(tools, config, .{ .final = "too-large" }));
 }
 
 test "Agent state budget fails closed before extra model or tool calls" {
