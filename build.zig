@@ -419,6 +419,13 @@ pub fn build(b: *std.Build) void {
     });
     agent_modules_mod.addImport("boundary", boundary);
     addTestArtifact(b, agent_modules_step, agent_modules_mod, test_args);
+    const agent_module_manifest_mod = b.createModule(.{
+        .root_source_file = b.path("examples/agent_module_manifest.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    agent_module_manifest_mod.addImport("boundary", boundary);
+    addTestArtifact(b, agent_modules_step, agent_module_manifest_mod, test_args);
 
     const agent_conformance_corpus_step = b.step("check-boundary-agent-conformance-corpus", "Check Boundary Agent Closure v0 conformance foundations.");
     agent_conformance_corpus_step.dependOn(agent_profile_step);
@@ -1257,6 +1264,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "boundary-plan-native-resource", .path = "examples/plan_native_resource.zig", .step = "run-plan-native-resource", .desc = "Run the plan-native resource example." },
         .{ .name = "boundary-custom-approval-workflow", .path = "examples/custom_approval_workflow.zig", .step = "run-custom-approval-workflow", .desc = "Run the custom approval workflow example." },
         .{ .name = "boundary-agent-loop", .path = "examples/agent_loop.zig", .step = "run-agent-loop", .desc = "Run the host-driven Program.Session agent loop example." },
+        .{ .name = "boundary-agent-module-manifest", .path = "examples/agent_module_manifest.zig", .step = "run-agent-module-manifest", .desc = "Run the Agent Profile module byte provenance example." },
         .{ .name = "boundary-agent-profile-conformance", .path = "examples/agent_profile_conformance.zig", .step = "run-agent-profile-conformance", .desc = "Run the Agent Profile v0 conformance scenario summary." },
         .{ .name = "boundary-continuation-branching", .path = "examples/continuation_branching.zig", .step = "run-continuation-branching", .desc = "Run the Program.Session continuation capsule branching example." },
         .{ .name = "boundary-interpreter-branching", .path = "examples/interpreter_branching.zig", .step = "run-interpreter-branching", .desc = "Run the continuation-aware Program.Interpreter branching example." },

@@ -17,6 +17,12 @@ pub const TerminalStatus = enum(u8) {
     failed = 2,
 };
 
+pub const ModuleRole = enum(u8) {
+    root = 0,
+    toolbox = 1,
+    fixture_model = 2,
+};
+
 pub const ToolId = struct {
     index: u16,
     label: []const u8,
@@ -242,6 +248,53 @@ pub const Program = struct {
     profile: Profile,
 };
 
+pub const ModuleArtifact = struct {
+    role: ModuleRole,
+    profile_fingerprint: u64,
+    module_fingerprint: u64,
+    manifest_fingerprint: u64,
+    world_surface_fingerprint: u64,
+    import_count: u32,
+    export_result_fingerprint: u64,
+    byte_len: u64,
+    byte_fingerprint: u64,
+
+    pub fn init(args: struct {
+        role: ModuleRole,
+        profile: Profile,
+        module_fingerprint: u64,
+        manifest_fingerprint: u64,
+        world_surface_fingerprint: u64,
+        import_count: usize,
+        export_result_fingerprint: u64,
+        bytes: []const u8,
+    }) ModuleArtifact {
+        return .{
+            .role = args.role,
+            .profile_fingerprint = args.profile.profile_fingerprint,
+            .module_fingerprint = args.module_fingerprint,
+            .manifest_fingerprint = args.manifest_fingerprint,
+            .world_surface_fingerprint = args.world_surface_fingerprint,
+            .import_count = @intCast(args.import_count),
+            .export_result_fingerprint = args.export_result_fingerprint,
+            .byte_len = args.bytes.len,
+            .byte_fingerprint = fingerprintBytes(args.bytes),
+        };
+    }
+
+    pub fn validate(self: ModuleArtifact, profile: Profile, expected_role: ModuleRole) !void {
+        try profile.validate();
+        if (self.role != expected_role) return error.AgentModuleRoleMismatch;
+        if (self.profile_fingerprint != profile.profile_fingerprint) return error.AgentProfileFingerprintMismatch;
+        if (self.module_fingerprint == 0) return error.AgentModuleFingerprintMissing;
+        if (self.manifest_fingerprint == 0) return error.AgentModuleFingerprintMissing;
+        if (self.world_surface_fingerprint == 0) return error.AgentModuleFingerprintMissing;
+        if (self.export_result_fingerprint == 0) return error.AgentModuleFingerprintMissing;
+        if (self.byte_len == 0) return error.AgentModuleBytesEmpty;
+        if (self.byte_fingerprint == 0) return error.AgentModuleFingerprintMissing;
+    }
+};
+
 pub const Profile = struct {
     format_version: u32 = profile_format_version,
     fingerprint_version: u32 = profile_fingerprint_version,
@@ -322,6 +375,12 @@ fn hashBytes(hasher: *std.hash.Wyhash, bytes: []const u8) void {
     hasher.update(bytes);
 }
 
+pub fn fingerprintBytes(bytes: []const u8) u64 {
+    var hasher = std.hash.Wyhash.init(0x4147454e545f4d4f);
+    hashBytes(&hasher, bytes);
+    return hasher.final();
+}
+
 fn hashInt(hasher: *std.hash.Wyhash, value: anytype) void {
     var buffer: [@sizeOf(@TypeOf(value))]u8 = undefined;
     std.mem.writeInt(@TypeOf(value), &buffer, value, .little);
@@ -375,6 +434,35 @@ test "Agent action validation rejects malformed tags, unknown tools, and oversiz
         .tool = .{ .tool_id = .{ .index = 4, .label = "shell" }, .payload = "" },
     }));
     try std.testing.expectError(error.AgentActionTooLarge, validateAction(tools, config, .{ .final = "too-large" }));
+}
+
+test "Agent module artifact binds profile and full module byte identity" {
+    const tools = ClosedToolSet(&.{"actuate"});
+    const tool_ids = [_]ToolId{tools.id(0)};
+    const config = Config{
+        .max_iterations = 2,
+        .max_model_calls = 2,
+        .max_tool_calls = 2,
+        .max_observation_bytes = 128,
+        .max_action_bytes = 128,
+        .max_tool_result_bytes = 128,
+        .max_trace_entries = 2,
+    };
+    const profile = Profile.fromConfig(config, &tool_ids, &.{0xaaaa}, "module-artifact-test");
+    const bytes = "certified-boundary-module-fixture";
+    const artifact = ModuleArtifact.init(.{
+        .role = .toolbox,
+        .profile = profile,
+        .module_fingerprint = 0x1111,
+        .manifest_fingerprint = 0x2222,
+        .world_surface_fingerprint = 0x3333,
+        .import_count = 1,
+        .export_result_fingerprint = 0x4444,
+        .bytes = bytes,
+    });
+    try artifact.validate(profile, .toolbox);
+    try std.testing.expectEqual(fingerprintBytes(bytes), artifact.byte_fingerprint);
+    try std.testing.expectError(error.AgentModuleRoleMismatch, artifact.validate(profile, .root));
 }
 
 test "Agent state budget fails closed before extra model or tool calls" {

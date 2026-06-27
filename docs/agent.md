@@ -28,6 +28,18 @@ variants, value-schema fingerprints, and metadata bytes. Validation rejects
 unsupported format/fingerprint versions, empty execution budgets, empty trace
 capacity, action-surface mismatch, and fingerprint drift.
 
+## Module Artifact Provenance
+
+`boundary.Agent.ModuleArtifact` records the Boundary module role, Agent profile
+fingerprint, Certified Boundary Module fingerprint, Protocol.Manifest
+fingerprint, world-surface fingerprint, import count, exported result
+fingerprint, full-module byte length, and full-module byte fingerprint.
+
+It is not a package registry or a new execution path. It is a small provenance
+record that lets conformance examples prove that an Agent profile is bound to
+actual full-module bytes before World seals those bytes into an
+`Executable.Image`.
+
 ## Agent.State
 
 `Agent.State` is the portable state shape for the agent loop:
@@ -107,7 +119,8 @@ Agent Closure v0 conformance grows around:
 The current profile foundation provides the public namespace, deterministic
 profile fingerprinting, closed tool-id checks, action validation, malformed tag
 rejection, budget checks, bounded trace summaries, skeleton/fixture flow
-accounting, and named build gates used by later module-builder cases.
+accounting, full-module byte provenance, and named build gates used by later
+module-builder cases.
 
 ## Non-Goals
 
