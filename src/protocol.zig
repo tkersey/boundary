@@ -17,6 +17,7 @@ pub const Protocol = struct {
         pub const minimum_zig_version = protocol_version.minimum_zig_version;
         pub const root_namespaces = &.{
             "effect",
+            "Agent",
             "ir",
             "program",
             "Runtime",
@@ -31,6 +32,10 @@ pub const Protocol = struct {
             "check-boundary-conformance-corpus",
             "check-boundary-adversarial-codecs",
             "check-boundary-v0-budgets",
+            "check-boundary-agent-profile",
+            "check-boundary-agent-modules",
+            "check-boundary-agent-generated-loaded-parity",
+            "check-boundary-agent-conformance-corpus",
             "check-boundary-loaded-v2-receipt-host",
             "check-boundary-loaded-session-receipt-host",
             "check-boundary-loaded-parity-receipt-host",

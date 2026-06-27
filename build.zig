@@ -403,6 +403,27 @@ pub fn build(b: *std.Build) void {
     const corpus_step = b.step("check-boundary-conformance-corpus", "Check Boundary v0 conformance corpus artifacts.");
     corpus_step.dependOn(&addRunArtifactWithArgs(b, protocol_artifacts_exe, &.{"check-corpus"}).step);
 
+    const agent_profile_step = b.step("check-boundary-agent-profile", "Check Boundary Agent Profile v0 schema and fingerprint surface.");
+    const agent_profile_mod = b.createModule(.{
+        .root_source_file = b.path("src/agent.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    addTestArtifact(b, agent_profile_step, agent_profile_mod, test_args);
+
+    const agent_modules_step = b.step("check-boundary-agent-modules", "Check agent-shaped Certified Boundary Module transfer surface.");
+    const agent_modules_mod = b.createModule(.{
+        .root_source_file = b.path("examples/boundary_module_agent_transfer.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    agent_modules_mod.addImport("boundary", boundary);
+    addTestArtifact(b, agent_modules_step, agent_modules_mod, test_args);
+
+    const agent_conformance_corpus_step = b.step("check-boundary-agent-conformance-corpus", "Check Boundary Agent Closure v0 conformance foundations.");
+    agent_conformance_corpus_step.dependOn(agent_profile_step);
+    agent_conformance_corpus_step.dependOn(agent_modules_step);
+
     const format_drift_step = b.step("check-boundary-format-drift", "Check Boundary v0 format and public-surface drift.");
     format_drift_step.dependOn(&addRunArtifactWithArgs(b, protocol_artifacts_exe, &.{"check-format-drift"}).step);
 
@@ -668,6 +689,7 @@ pub fn build(b: *std.Build) void {
 
     const loaded_parity_step = b.step("check-boundary-generated-loaded-parity", "Check generated Program.Session and LoadedModule.Session canonical parity.");
     const loaded_parity_required_step = b.step("check-boundary-loaded-parity", "Check generated Program.Session and LoadedModule.Session canonical parity.");
+    const agent_parity_step = b.step("check-boundary-agent-generated-loaded-parity", "Check Agent Profile v0 generated and loaded execution foundations.");
     const loaded_parity_args = TestArgs{
         .filters = &.{"generated-loaded parity"},
         .passthrough = &.{},
@@ -682,6 +704,8 @@ pub fn build(b: *std.Build) void {
     const loaded_parity_run = addRunArtifactWithArgs(b, loaded_parity_tests, loaded_parity_args.passthrough);
     loaded_parity_step.dependOn(&loaded_parity_run.step);
     loaded_parity_required_step.dependOn(&loaded_parity_run.step);
+    agent_parity_step.dependOn(agent_profile_step);
+    agent_parity_step.dependOn(loaded_parity_step);
 
     const receipt_loaded_v2_step = b.step("check-boundary-loaded-v2-receipt-host", "Check Boundary portable_v2 proof receipts on the host target.");
     addTestArtifact(b, receipt_loaded_v2_step, host_core.loaded_execution, loaded_v2_args);

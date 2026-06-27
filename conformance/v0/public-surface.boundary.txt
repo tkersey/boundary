@@ -2,8 +2,8 @@ Boundary v0 public surface
 package: boundary 0.5.0
 manifest_format_version: 1
 manifest_fingerprint_version: 1
-manifest_fingerprint: 0x50aa2c73c76b51f3
-public_surface_fingerprint: 0x9d44e67990624f76
+manifest_fingerprint: 0xe51167f7a810fbdd
+public_surface_fingerprint: 0x8bc2e2f5347d0941
 
 stable_format_constants:
 - boundary_protocol_manifest_format_version = 1
@@ -22,6 +22,7 @@ stable_format_constants:
 - loaded_value_image_fingerprint_version = 1
 root_namespaces:
 - effect
+- Agent
 - ir
 - program
 - Runtime
@@ -113,6 +114,10 @@ supported_build_gates:
 - check-boundary-conformance-corpus
 - check-boundary-adversarial-codecs
 - check-boundary-v0-budgets
+- check-boundary-agent-profile
+- check-boundary-agent-modules
+- check-boundary-agent-generated-loaded-parity
+- check-boundary-agent-conformance-corpus
 - check-boundary-loaded-v2-receipt-host
 - check-boundary-loaded-session-receipt-host
 - check-boundary-loaded-parity-receipt-host

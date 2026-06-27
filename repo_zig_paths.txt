@@ -61,6 +61,7 @@ examples/world_surface_nested.zig
 examples/world_surface_ports.zig
 examples/world_surface_strict.zig
 src/algebraic.zig
+src/agent.zig
 src/bench_support.zig
 src/boundary_shared.zig
 src/decision_api.zig

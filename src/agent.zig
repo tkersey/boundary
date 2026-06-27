@@ -1,0 +1,357 @@
+const std = @import("std");
+
+/// Agent Profile v0 is a construction profile over existing Boundary programs.
+pub const profile_format_version: u32 = 0;
+/// Fingerprint version for deterministic Agent Profile v0 identity.
+pub const profile_fingerprint_version: u32 = 1;
+
+pub const ActionTag = enum(u8) {
+    final = 0,
+    tool = 1,
+    fail = 2,
+};
+
+pub const TerminalStatus = enum(u8) {
+    running = 0,
+    completed = 1,
+    failed = 2,
+};
+
+pub const ToolId = struct {
+    index: u16,
+    label: []const u8,
+
+    pub fn eql(self: ToolId, other: ToolId) bool {
+        return self.index == other.index and std.mem.eql(u8, self.label, other.label);
+    }
+};
+
+pub fn ClosedToolSet(comptime labels: []const []const u8) type {
+    comptime {
+        if (labels.len == 0) @compileError("Agent ToolId set must contain at least one variant");
+        if (labels.len > std.math.maxInt(u16) + 1) @compileError("Agent ToolId set exceeds u16 variant space");
+        for (labels, 0..) |label, index| {
+            if (label.len == 0) @compileError("Agent ToolId labels must be non-empty");
+            for (labels[0..index]) |prior| {
+                if (std.mem.eql(u8, label, prior)) @compileError("Agent ToolId labels must be unique");
+            }
+        }
+    }
+
+    return struct {
+        pub const count = labels.len;
+
+        pub fn id(comptime index: usize) ToolId {
+            if (index >= labels.len) @compileError("Agent ToolId index out of range");
+            return .{ .index = @intCast(index), .label = labels[index] };
+        }
+
+        pub fn find(search_label: []const u8) ?ToolId {
+            inline for (labels, 0..) |candidate, index| {
+                if (std.mem.eql(u8, search_label, candidate)) {
+                    return .{ .index = @intCast(index), .label = candidate };
+                }
+            }
+            return null;
+        }
+
+        pub fn contains(tool_id: ToolId) bool {
+            if (tool_id.index >= labels.len) return false;
+            return std.mem.eql(u8, labels[tool_id.index], tool_id.label);
+        }
+
+        pub fn label(tool_id: ToolId) ![]const u8 {
+            if (!contains(tool_id)) return error.UnknownToolId;
+            return labels[tool_id.index];
+        }
+
+        pub fn variants() []const []const u8 {
+            return &labels;
+        }
+    };
+}
+
+pub const Budget = struct {
+    max_iterations: u32,
+    max_model_calls: u32,
+    max_tool_calls: u32,
+    remaining_iterations: u32,
+    remaining_model_calls: u32,
+    remaining_tool_calls: u32,
+
+    pub fn init(config: Config) Budget {
+        return .{
+            .max_iterations = config.max_iterations,
+            .max_model_calls = config.max_model_calls,
+            .max_tool_calls = config.max_tool_calls,
+            .remaining_iterations = config.max_iterations,
+            .remaining_model_calls = config.max_model_calls,
+            .remaining_tool_calls = config.max_tool_calls,
+        };
+    }
+
+    pub fn consumeIteration(self: *Budget) !void {
+        if (self.remaining_iterations == 0) return error.AgentBudgetExhausted;
+        self.remaining_iterations -= 1;
+    }
+
+    pub fn consumeModelCall(self: *Budget) !void {
+        if (self.remaining_model_calls == 0) return error.AgentBudgetExhausted;
+        self.remaining_model_calls -= 1;
+    }
+
+    pub fn consumeToolCall(self: *Budget) !void {
+        if (self.remaining_tool_calls == 0) return error.AgentBudgetExhausted;
+        self.remaining_tool_calls -= 1;
+    }
+};
+
+pub const Config = struct {
+    max_iterations: u32,
+    max_model_calls: u32,
+    max_tool_calls: u32,
+    max_observation_bytes: u32,
+    max_action_bytes: u32,
+    max_tool_result_bytes: u32,
+    max_trace_entries: u32,
+};
+
+pub const TraceSummary = struct {
+    entry_count: u32 = 0,
+    last_event: []const u8 = "",
+    last_fingerprint: u64 = 0,
+
+    pub fn record(self: *TraceSummary, max_trace_entries: u32, event: []const u8, fingerprint: u64) !void {
+        if (self.entry_count >= max_trace_entries) return error.AgentTraceSummaryFull;
+        self.entry_count += 1;
+        self.last_event = event;
+        self.last_fingerprint = fingerprint;
+    }
+};
+
+pub const State = struct {
+    goal: []const u8,
+    current_observation: []const u8,
+    prior_observation_summary: []const u8 = "",
+    iteration_index: u32 = 0,
+    remaining_budget: Budget,
+    model_call_count: u32 = 0,
+    tool_call_count: u32 = 0,
+    terminal_status: TerminalStatus = .running,
+    trace_summary: TraceSummary = .{},
+
+    pub fn init(goal: []const u8, initial_observation: []const u8, config: Config) State {
+        return .{
+            .goal = goal,
+            .current_observation = initial_observation,
+            .remaining_budget = Budget.init(config),
+        };
+    }
+
+    pub fn beginModelDecision(self: *State) !void {
+        try self.remaining_budget.consumeIteration();
+        try self.remaining_budget.consumeModelCall();
+        self.iteration_index += 1;
+        self.model_call_count += 1;
+    }
+
+    pub fn beginToolCall(self: *State) !void {
+        try self.remaining_budget.consumeToolCall();
+        self.tool_call_count += 1;
+    }
+
+    pub fn complete(self: *State) void {
+        self.terminal_status = .completed;
+    }
+
+    pub fn fail(self: *State) void {
+        self.terminal_status = .failed;
+    }
+};
+
+pub const Observation = struct {
+    bytes: []const u8,
+};
+
+pub const ToolRequest = struct {
+    tool_id: ToolId,
+    payload: []const u8,
+};
+
+pub const ToolResult = struct {
+    tool_id: ToolId,
+    bytes: []const u8,
+};
+
+pub const Action = union(ActionTag) {
+    final: []const u8,
+    tool: ToolRequest,
+    fail: []const u8,
+};
+
+pub const DecisionPrompt = struct {
+    goal: []const u8,
+    observation: []const u8,
+    trace_summary: TraceSummary,
+    budget: Budget,
+};
+
+pub const DecisionRequest = struct {
+    prompt: DecisionPrompt,
+};
+
+pub const DecisionResponse = struct {
+    action: Action,
+};
+
+pub const FinalResult = struct {
+    text: []const u8,
+};
+
+pub const Failure = struct {
+    reason: []const u8,
+};
+
+pub const Program = struct {
+    profile: Profile,
+};
+
+pub const Profile = struct {
+    format_version: u32 = profile_format_version,
+    fingerprint_version: u32 = profile_fingerprint_version,
+    profile_fingerprint: u64 = 0,
+    max_iterations: u32,
+    max_model_calls: u32,
+    max_tool_calls: u32,
+    max_observation_bytes: u32,
+    max_action_bytes: u32,
+    max_tool_result_bytes: u32,
+    max_trace_entries: u32,
+    supported_action_variants: []const ActionTag,
+    supported_tool_variants: []const ToolId,
+    value_schema_fingerprints: []const u64,
+    metadata_bytes: []const u8 = "",
+
+    pub fn fromConfig(
+        config: Config,
+        supported_tool_variants: []const ToolId,
+        value_schema_fingerprints: []const u64,
+        metadata_bytes: []const u8,
+    ) Profile {
+        var profile = Profile{
+            .max_iterations = config.max_iterations,
+            .max_model_calls = config.max_model_calls,
+            .max_tool_calls = config.max_tool_calls,
+            .max_observation_bytes = config.max_observation_bytes,
+            .max_action_bytes = config.max_action_bytes,
+            .max_tool_result_bytes = config.max_tool_result_bytes,
+            .max_trace_entries = config.max_trace_entries,
+            .supported_action_variants = &.{ .final, .tool, .fail },
+            .supported_tool_variants = supported_tool_variants,
+            .value_schema_fingerprints = value_schema_fingerprints,
+            .metadata_bytes = metadata_bytes,
+        };
+        profile.profile_fingerprint = profile.computeFingerprint();
+        return profile;
+    }
+
+    pub fn computeFingerprint(self: Profile) u64 {
+        var hasher = std.hash.Wyhash.init(0x4147454e545f7630);
+        hashInt(&hasher, self.format_version);
+        hashInt(&hasher, self.fingerprint_version);
+        hashInt(&hasher, self.max_iterations);
+        hashInt(&hasher, self.max_model_calls);
+        hashInt(&hasher, self.max_tool_calls);
+        hashInt(&hasher, self.max_observation_bytes);
+        hashInt(&hasher, self.max_action_bytes);
+        hashInt(&hasher, self.max_tool_result_bytes);
+        hashInt(&hasher, self.max_trace_entries);
+        hashInt(&hasher, @as(u32, @intCast(self.supported_action_variants.len)));
+        for (self.supported_action_variants) |variant| hashInt(&hasher, @intFromEnum(variant));
+        hashInt(&hasher, @as(u32, @intCast(self.supported_tool_variants.len)));
+        for (self.supported_tool_variants) |tool_id| {
+            hashInt(&hasher, tool_id.index);
+            hashBytes(&hasher, tool_id.label);
+        }
+        hashInt(&hasher, @as(u32, @intCast(self.value_schema_fingerprints.len)));
+        for (self.value_schema_fingerprints) |fingerprint| hashInt(&hasher, fingerprint);
+        hashBytes(&hasher, self.metadata_bytes);
+        return hasher.final();
+    }
+
+    pub fn validate(self: Profile) !void {
+        if (self.format_version != profile_format_version) return error.UnsupportedAgentProfileFormat;
+        if (self.fingerprint_version != profile_fingerprint_version) return error.UnsupportedAgentProfileFingerprint;
+        if (self.profile_fingerprint != self.computeFingerprint()) return error.AgentProfileFingerprintMismatch;
+        if (self.max_iterations == 0) return error.AgentProfileEmptyBudget;
+        if (self.max_model_calls == 0) return error.AgentProfileEmptyBudget;
+        if (self.max_tool_calls == 0) return error.AgentProfileEmptyBudget;
+        if (self.max_trace_entries == 0) return error.AgentProfileEmptyTrace;
+        if (self.supported_action_variants.len != 3) return error.AgentProfileActionSurfaceMismatch;
+    }
+};
+
+fn hashBytes(hasher: *std.hash.Wyhash, bytes: []const u8) void {
+    hashInt(hasher, @as(u64, bytes.len));
+    hasher.update(bytes);
+}
+
+fn hashInt(hasher: *std.hash.Wyhash, value: anytype) void {
+    var buffer: [@sizeOf(@TypeOf(value))]u8 = undefined;
+    std.mem.writeInt(@TypeOf(value), &buffer, value, .little);
+    hasher.update(&buffer);
+}
+
+test "Agent Profile v0 fingerprint is deterministic and bound to tool variants" {
+    const tools = ClosedToolSet(&.{ "read_file", "write_file" });
+    const tool_ids = [_]ToolId{ tools.id(0), tools.id(1) };
+    const config = Config{
+        .max_iterations = 4,
+        .max_model_calls = 4,
+        .max_tool_calls = 3,
+        .max_observation_bytes = 1024,
+        .max_action_bytes = 256,
+        .max_tool_result_bytes = 1024,
+        .max_trace_entries = 8,
+    };
+    const profile = Profile.fromConfig(config, &tool_ids, &.{ 0x1111, 0x2222 }, "fixture-agent");
+    try profile.validate();
+    try std.testing.expectEqual(profile.profile_fingerprint, profile.computeFingerprint());
+
+    const shorter_tool_ids = [_]ToolId{tools.id(0)};
+    const changed = Profile.fromConfig(config, &shorter_tool_ids, &.{ 0x1111, 0x2222 }, "fixture-agent");
+    try std.testing.expect(profile.profile_fingerprint != changed.profile_fingerprint);
+}
+
+test "Agent closed ToolId set rejects unknown labels" {
+    const tools = ClosedToolSet(&.{ "actuate", "read_file", "write_file" });
+    const actuate = tools.find("actuate") orelse return error.MissingToolId;
+    try std.testing.expect(tools.contains(actuate));
+    try std.testing.expectEqualStrings("actuate", try tools.label(actuate));
+    try std.testing.expect(tools.find("shell") == null);
+    try std.testing.expectError(error.UnknownToolId, tools.label(.{ .index = 9, .label = "shell" }));
+}
+
+test "Agent state budget fails closed before extra model or tool calls" {
+    const config = Config{
+        .max_iterations = 1,
+        .max_model_calls = 1,
+        .max_tool_calls = 1,
+        .max_observation_bytes = 128,
+        .max_action_bytes = 128,
+        .max_tool_result_bytes = 128,
+        .max_trace_entries = 2,
+    };
+    var state = State.init("goal=fixture", "goal=fixture", config);
+    try state.beginModelDecision();
+    try std.testing.expectError(error.AgentBudgetExhausted, state.beginModelDecision());
+    try state.beginToolCall();
+    try std.testing.expectError(error.AgentBudgetExhausted, state.beginToolCall());
+}
+
+test "Agent trace summary is bounded" {
+    var summary = TraceSummary{};
+    try summary.record(1, "model=prompted", 0xabc);
+    try std.testing.expectEqual(@as(u32, 1), summary.entry_count);
+    try std.testing.expectError(error.AgentTraceSummaryFull, summary.record(1, "tool=called", 0xdef));
+}
