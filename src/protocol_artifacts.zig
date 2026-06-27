@@ -45,7 +45,7 @@ pub fn main(init: std.process.Init) !void {
         return error.InvalidArguments;
     }
 
-    if (std.mem.eql(u8, command, "update-public-surface")) return updateCorpus(init, allocator);
+    if (std.mem.eql(u8, command, "update-public-surface")) return updatePublicSurface(init, allocator);
     if (std.mem.eql(u8, command, "check-public-surface")) return checkPublicSurface(init, allocator);
     if (std.mem.eql(u8, command, "update-corpus")) return updateCorpus(init, allocator);
     if (std.mem.eql(u8, command, "check-corpus")) return checkCorpus(init, allocator);
@@ -61,6 +61,11 @@ fn checkPublicSurface(init: std.process.Init, allocator: std.mem.Allocator) !voi
     const expected = try publicSurfaceSnapshotAlloc(allocator);
     const actual = try std.Io.Dir.cwd().readFileAlloc(init.io, public_surface_path, allocator, .limited(128 * 1024));
     if (!std.mem.eql(u8, expected, actual)) return error.PublicSurfaceDrift;
+}
+
+fn updatePublicSurface(init: std.process.Init, allocator: std.mem.Allocator) !void {
+    const surface = try publicSurfaceSnapshotAlloc(allocator);
+    try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = public_surface_path, .data = surface });
 }
 
 fn updateCorpus(init: std.process.Init, allocator: std.mem.Allocator) !void {
