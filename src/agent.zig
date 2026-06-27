@@ -269,6 +269,9 @@ pub const ValueSchema = struct {
 pub const canonical_value_schemas = [_]ValueSchema{
     schema("Agent.Goal", "string"),
     schema("Agent.Observation", "string"),
+    schema("Agent.Budget", "product(max_iterations:u32,max_model_calls:u32,max_tool_calls:u32,remaining_iterations:u32,remaining_model_calls:u32,remaining_tool_calls:u32)"),
+    schema("Agent.TraceSummary", "product(entry_count:u32,last_event:string,last_fingerprint:u64)"),
+    schema("Agent.State", "product(goal:string,current_observation:string,prior_observation_summary:string,iteration_index:u32,remaining_budget:Agent.Budget,model_call_count:u32,tool_call_count:u32,terminal_status:u8,trace_summary:Agent.TraceSummary)"),
     schema("Agent.DecisionPrompt", "product(goal:string,observation:string,trace_summary:Agent.TraceSummary,budget:Agent.Budget)"),
     schema("Agent.Action", "sum(final:string,tool:Agent.ToolRequest,fail:string)"),
     schema("Agent.ToolId", "product(index:u16,diagnostic_label:string)"),
@@ -276,7 +279,6 @@ pub const canonical_value_schemas = [_]ValueSchema{
     schema("Agent.ToolResult", "product(tool_id:Agent.ToolId,bytes:string)"),
     schema("Agent.FinalResult", "product(text:string)"),
     schema("Agent.Failure", "product(reason:string)"),
-    schema("Agent.TraceSummary", "product(entry_count:u32,last_event:string,last_fingerprint:u64)"),
 };
 
 /// Fingerprints for `canonical_value_schemas`, in schema order.
@@ -407,6 +409,7 @@ pub fn schemaFingerprint(name: []const u8, codec: []const u8) u64 {
 }
 
 fn schema(comptime name: []const u8, comptime codec: []const u8) ValueSchema {
+    @setEvalBranchQuota(4000);
     return .{
         .name = name,
         .codec = codec,
@@ -530,7 +533,9 @@ test "Agent Profile v0 fingerprint is deterministic and bound to tool variants" 
 test "Agent canonical value schema fingerprints are stable profile inputs" {
     try std.testing.expect(canonicalValueSchemaFingerprints().len >= 10);
     try std.testing.expectEqualStrings("Agent.Goal", canonical_value_schemas[0].name);
-    try std.testing.expectEqualStrings("Agent.ToolPayload", canonical_value_schemas[5].name);
+    try std.testing.expectEqualStrings("Agent.Budget", canonical_value_schemas[2].name);
+    try std.testing.expectEqualStrings("Agent.State", canonical_value_schemas[4].name);
+    try std.testing.expectEqualStrings("Agent.ToolPayload", canonical_value_schemas[8].name);
     try std.testing.expect(canonical_value_schemas[0].fingerprint != schemaFingerprint("Agent.Goal", "bytes"));
 
     const tools = ClosedToolSet(&.{"actuate"});

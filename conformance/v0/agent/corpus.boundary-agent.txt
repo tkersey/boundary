@@ -2,7 +2,7 @@ Boundary Agent Profile v0 conformance corpus
 format: boundary-agent-conformance-corpus-v0
 profile_format_version: 0
 profile_fingerprint_version: 1
-profile_fingerprint: 0x6d328763610a9d9a
+profile_fingerprint: 0x39c66ae3adfe8fe6
 max_iterations: 5
 max_model_calls: 5
 max_tool_calls: 4
@@ -25,6 +25,15 @@ value_schemas:
 - name: Agent.Observation
   codec: string
   fingerprint: 0x19966cbbe1f09f9e
+- name: Agent.Budget
+  codec: product(max_iterations:u32,max_model_calls:u32,max_tool_calls:u32,remaining_iterations:u32,remaining_model_calls:u32,remaining_tool_calls:u32)
+  fingerprint: 0xf310e7383087c8a3
+- name: Agent.TraceSummary
+  codec: product(entry_count:u32,last_event:string,last_fingerprint:u64)
+  fingerprint: 0x6288da61bf1ab2f4
+- name: Agent.State
+  codec: product(goal:string,current_observation:string,prior_observation_summary:string,iteration_index:u32,remaining_budget:Agent.Budget,model_call_count:u32,tool_call_count:u32,terminal_status:u8,trace_summary:Agent.TraceSummary)
+  fingerprint: 0x0236f72521357ea2
 - name: Agent.DecisionPrompt
   codec: product(goal:string,observation:string,trace_summary:Agent.TraceSummary,budget:Agent.Budget)
   fingerprint: 0x06522581f185e215
@@ -46,9 +55,6 @@ value_schemas:
 - name: Agent.Failure
   codec: product(reason:string)
   fingerprint: 0xf47dac6b2cba3cfe
-- name: Agent.TraceSummary
-  codec: product(entry_count:u32,last_event:string,last_fingerprint:u64)
-  fingerprint: 0x6288da61bf1ab2f4
 
 scenarios:
 - id: skeleton-one-tool
