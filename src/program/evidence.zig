@@ -8727,7 +8727,7 @@ pub const BoundaryTargetModule = struct {
                 if (total_depth > max_depth) return null;
                 return depths[function_index];
             },
-            .visiting => return null,
+            .visiting => return 1,
             .unvisited => {},
         }
         states[function_index] = .visiting;
@@ -8843,8 +8843,8 @@ pub const BoundaryTargetModule = struct {
         schema_depths: *[std.math.maxInt(u16) + 1]u32,
     ) bool {
         if (!loadedProfileSupportsCodec(profile, codec)) return false;
-        const depth = loadedProfileValueRefMaxDepth(profile, program_plan, codec, schema_index, schema_states, schema_depths) orelse return false;
-        return depth <= profile.limits.maximum_value_nesting_depth;
+        _ = loadedProfileValueRefMaxDepth(profile, program_plan, codec, schema_index, schema_states, schema_depths, 0, profile.limits.maximum_value_nesting_depth) orelse return false;
+        return true;
     }
 
     fn loadedProfileValueRefMaxDepth(
@@ -8854,20 +8854,27 @@ pub const BoundaryTargetModule = struct {
         schema_index: ?u16,
         schema_states: *[std.math.maxInt(u16) + 1]LoadedSchemaDepthState,
         schema_depths: *[std.math.maxInt(u16) + 1]u32,
+        current_depth: u32,
+        budget_depth: u32,
     ) ?u32 {
+        if (current_depth > budget_depth) return null;
         return switch (codec) {
             .product, .sum => {
                 const index = schema_index orelse return null;
                 if (index >= program_plan.value_schemas.len) return null;
                 switch (schema_states[index]) {
-                    .done => return schema_depths[index],
+                    .done => {
+                        const total_depth = std.math.add(u32, current_depth, schema_depths[index]) catch return null;
+                        if (total_depth > budget_depth) return null;
+                        return schema_depths[index];
+                    },
                     .visiting => return 0,
                     .unvisited => {},
                 }
                 schema_states[index] = .visiting;
                 const schema = program_plan.value_schemas[index];
                 if (schema.codec != codec) return null;
-                var max_depth: u32 = 0;
+                var max_child_depth: u32 = 0;
                 switch (codec) {
                     .product => {
                         if (schema.field_count > profile.limits.maximum_aggregate_elements) return null;
@@ -8875,9 +8882,9 @@ pub const BoundaryTargetModule = struct {
                         if (field_end > program_plan.value_fields.len) return null;
                         for (program_plan.value_fields[schema.first_field..field_end]) |field| {
                             if (!loadedProfileSupportsCodec(profile, field.codec)) return null;
-                            const child_depth = loadedProfileValueRefMaxDepth(profile, program_plan, field.codec, field.schema_index, schema_states, schema_depths) orelse return null;
+                            const child_depth = loadedProfileValueRefMaxDepth(profile, program_plan, field.codec, field.schema_index, schema_states, schema_depths, current_depth + 1, budget_depth) orelse return null;
                             const candidate = std.math.add(u32, child_depth, 1) catch return null;
-                            max_depth = @max(max_depth, candidate);
+                            max_child_depth = @max(max_child_depth, candidate);
                         }
                     },
                     .sum => {
@@ -8886,16 +8893,16 @@ pub const BoundaryTargetModule = struct {
                         if (variant_end > program_plan.value_variants.len) return null;
                         for (program_plan.value_variants[schema.first_variant..variant_end]) |variant| {
                             if (!loadedProfileSupportsCodec(profile, variant.codec)) return null;
-                            const child_depth = loadedProfileValueRefMaxDepth(profile, program_plan, variant.codec, variant.schema_index, schema_states, schema_depths) orelse return null;
+                            const child_depth = loadedProfileValueRefMaxDepth(profile, program_plan, variant.codec, variant.schema_index, schema_states, schema_depths, current_depth + 1, budget_depth) orelse return null;
                             const candidate = std.math.add(u32, child_depth, 1) catch return null;
-                            max_depth = @max(max_depth, candidate);
+                            max_child_depth = @max(max_child_depth, candidate);
                         }
                     },
                     else => unreachable,
                 }
                 schema_states[index] = .done;
-                schema_depths[index] = max_depth;
-                return max_depth;
+                schema_depths[index] = max_child_depth;
+                return max_child_depth;
             },
             else => 0,
         };
@@ -21747,6 +21754,49 @@ test "loaded portable v2 profile rejects reachable helper chains above frame bud
     }) catch unreachable;
 
     try std.testing.expect(!BoundaryTargetModule.loadedProfileSupportsProgramPlan(
+        BoundaryTargetModule.LoadedExecutionProfile.portableV2(),
+        plan,
+    ));
+}
+
+test "loaded portable v2 profile keeps recursive helpers runtime budgeted" {
+    const root = internal_program_plan.program_plan_builder.function(0);
+    const functions = [_]internal_program_plan.FunctionPlan{.{
+        .symbol_name = "run",
+        .value_codec = .unit,
+        .first_requirement = 0,
+        .requirement_count = 0,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 0,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = 1,
+    }};
+    const blocks = [_]internal_program_plan.BlockPlan{.{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 }};
+    const terminators = [_]internal_program_plan.Terminator{.{ .kind = .return_unit }};
+    const instructions = [_]internal_program_plan.Instruction{.{
+        .kind = .call_helper,
+        .operand = root.index,
+        .aux = std.math.maxInt(u16),
+    }};
+    const plan = internal_program_plan.program_plan_builder.finish(.{
+        .label = "loaded-profile-recursive-helper",
+        .ir_hash = 0xB0A2_000A,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+
+    try std.testing.expect(BoundaryTargetModule.loadedProfileSupportsProgramPlan(
         BoundaryTargetModule.LoadedExecutionProfile.portableV2(),
         plan,
     ));

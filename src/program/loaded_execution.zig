@@ -1512,7 +1512,7 @@ pub fn decodeLoadedValueImage(
     if (!image_ref.eql(expected_ref)) return error.InvalidValue;
     try schemas.requireValueRef(image_ref);
     const value_fingerprint = try cursor.readU64();
-    const body_bytes = try cursor.readBoundedBytes(limits.maximum_owned_value_bytes);
+    const body_bytes = try cursor.readBoundedBytes(sessionOwnedValueImageByteLimit(limits));
     if (cursor.remaining() != 0) return error.TrailingBytes;
     if (value_fingerprint != fingerprintImage(schema_fingerprint, image_ref, body_bytes)) return error.FingerprintMismatch;
     var body = Cursor{ .bytes = body_bytes };
@@ -2767,6 +2767,10 @@ test "loaded session image permits canonical aggregate envelope overhead" {
     defer allocator.free(result_image);
     try std.testing.expect(result_image.len > max_session_owned_value_image_bytes);
     try std.testing.expect(result_image.len <= sessionOwnedValueImageByteLimit(.{}));
+    var value_arena = LoadedValueArena.init(allocator);
+    defer value_arena.deinit();
+    const decoded_value = try decodeLoadedValueImage(allocator, &value_arena, .{}, .{ .codec = .string_list }, result_image, .{});
+    try std.testing.expectEqual(@as(usize, item_count), decoded_value.list.len);
 
     var image = LoadedSessionImage{
         .format_version = loaded_session_image_format_version_v2,
