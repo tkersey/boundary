@@ -20390,18 +20390,11 @@ test "loaded executable session interprets completing helper calls" {
 
     var constrained_profile = Target.Module.LoadedExecutionProfile.portableV2();
     constrained_profile.limits.maximum_call_depth = 1;
-    var constrained_session = try Target.Module.LoadedModule.Session.startExecutable(
+    try std.testing.expectError(error.UnsupportedLoadedExecutionProfile, Target.Module.LoadedModule.Session.startExecutable(
         allocator,
         &loaded,
         constrained_profile,
-    );
-    defer constrained_session.deinit();
-    const failure = switch (constrained_session.next()) {
-        .failed => |value| value,
-        .done => return error.UnexpectedDone,
-        .request => return error.UnexpectedRequest,
-    };
-    try std.testing.expectEqual(Target.Module.LoadedExecution.ExecutionFailureKind.call_depth_exceeded, failure.kind);
+    ));
 
     var call_helper_disabled_profile = Target.Module.LoadedExecutionProfile.portableV2();
     call_helper_disabled_profile.instruction_kinds.call_helper = false;

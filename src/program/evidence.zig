@@ -8570,6 +8570,7 @@ pub const BoundaryTargetModule = struct {
         {
             return false;
         }
+        if (!loadedProfileSupportsReachableCallDepth(profile, program_plan, reachability)) return false;
         if (!loadedProgramPlanUsesSupportedSessionShape(profile, program_plan, reachability)) return false;
         if (!loadedProfileSupportsReachableValues(profile, program_plan, reachability)) return false;
         if (!loadedProfileSupportsReachableInstructions(profile, program_plan, reachability)) return false;
@@ -8698,6 +8699,52 @@ pub const BoundaryTargetModule = struct {
         return reachability;
     }
 
+    const LoadedHelperDepthState = enum { unvisited, visiting, done };
+
+    fn loadedProfileSupportsReachableCallDepth(profile: LoadedExecutionProfile, program_plan: internal_program_plan.ProgramPlan, reachability: LoadedProgramReachability) bool {
+        const max_depth = @min(profile.limits.maximum_call_depth, profile.limits.maximum_frames);
+        if (max_depth == 0) return false;
+        var states = [_]LoadedHelperDepthState{.unvisited} ** (std.math.maxInt(u16) + 1);
+        var depths = [_]u32{0} ** (std.math.maxInt(u16) + 1);
+        const depth = loadedReachableFunctionCallDepth(program_plan, reachability, program_plan.entry_index, &states, &depths) orelse return false;
+        return depth <= max_depth;
+    }
+
+    fn loadedReachableFunctionCallDepth(
+        program_plan: internal_program_plan.ProgramPlan,
+        reachability: LoadedProgramReachability,
+        function_index: usize,
+        states: *[std.math.maxInt(u16) + 1]LoadedHelperDepthState,
+        depths: *[std.math.maxInt(u16) + 1]u32,
+    ) ?u32 {
+        if (function_index >= program_plan.functions.len or !reachability.functions[function_index]) return null;
+        switch (states[function_index]) {
+            .done => return depths[function_index],
+            .visiting => return null,
+            .unvisited => {},
+        }
+        states[function_index] = .visiting;
+        const function = program_plan.functions[function_index];
+        const block_end = @as(usize, function.first_block) + function.block_count;
+        if (block_end > program_plan.blocks.len) return null;
+        var depth: u32 = 1;
+        for (program_plan.blocks[function.first_block..block_end], function.first_block..) |block, block_index| {
+            if (!reachability.blocks[block_index]) continue;
+            const instruction_end = @as(usize, block.first_instruction) + block.instruction_count;
+            if (instruction_end > program_plan.instructions.len) return null;
+            helper_instruction_loop: for (program_plan.instructions[block.first_instruction..instruction_end]) |instruction| {
+                if (instruction.kind != .call_helper) continue :helper_instruction_loop;
+                if (instruction.operand >= program_plan.functions.len) return null;
+                const child_depth = loadedReachableFunctionCallDepth(program_plan, reachability, instruction.operand, states, depths) orelse return null;
+                const candidate = std.math.add(u32, child_depth, 1) catch return null;
+                depth = @max(depth, candidate);
+            }
+        }
+        states[function_index] = .done;
+        depths[function_index] = depth;
+        return depth;
+    }
+
     fn loadedProfileSupportsReachableInstructions(profile: LoadedExecutionProfile, program_plan: internal_program_plan.ProgramPlan, reachability: LoadedProgramReachability) bool {
         profile_function_loop: for (program_plan.functions, 0..) |function, function_index| {
             if (!reachability.functions[function_index]) continue :profile_function_loop;
@@ -8715,6 +8762,9 @@ pub const BoundaryTargetModule = struct {
                         },
                         .return_error => {
                             if (instruction.string_literal.len == 0 or instruction.string_literal.len > loaded_execution.max_session_diagnostic_summary_bytes) return false;
+                        },
+                        .const_string => {
+                            if (instruction.string_literal.len > profile.limits.maximum_string_bytes) return false;
                         },
                         else => {},
                     }
@@ -8739,22 +8789,22 @@ pub const BoundaryTargetModule = struct {
     }
 
     fn loadedProfileSupportsReachableValues(profile: LoadedExecutionProfile, program_plan: internal_program_plan.ProgramPlan, reachability: LoadedProgramReachability) bool {
-        var visited_schemas = [_]bool{false} ** (std.math.maxInt(u16) + 1);
+        var visiting_schemas = [_]bool{false} ** (std.math.maxInt(u16) + 1);
         value_function_loop: for (program_plan.functions, 0..) |function, function_index| {
             if (!reachability.functions[function_index]) continue :value_function_loop;
-            if (!loadedProfileSupportsValueRef(profile, program_plan, function.value_codec, function.value_schema_index, &visited_schemas)) return false;
+            if (!loadedProfileSupportsValueRef(profile, program_plan, function.value_codec, function.value_schema_index, &visiting_schemas, 0)) return false;
             if (function.result_codec) |result_codec| {
-                if (!loadedProfileSupportsValueRef(profile, program_plan, result_codec, function.result_schema_index, &visited_schemas)) return false;
+                if (!loadedProfileSupportsValueRef(profile, program_plan, result_codec, function.result_schema_index, &visiting_schemas, 0)) return false;
             }
             const local_end = @as(usize, function.first_local) + function.local_count;
             if (local_end > program_plan.locals.len) return false;
             for (program_plan.locals[function.first_local..local_end]) |local| {
-                if (!loadedProfileSupportsValueRef(profile, program_plan, local.codec, local.schema_index, &visited_schemas)) return false;
+                if (!loadedProfileSupportsValueRef(profile, program_plan, local.codec, local.schema_index, &visiting_schemas, 0)) return false;
             }
             const output_end = @as(usize, function.first_output) + function.output_count;
             if (output_end > program_plan.outputs.len) return false;
             for (program_plan.outputs[function.first_output..output_end]) |output| {
-                if (!loadedProfileSupportsValueRef(profile, program_plan, output.codec, output.schema_index, &visited_schemas)) return false;
+                if (!loadedProfileSupportsValueRef(profile, program_plan, output.codec, output.schema_index, &visiting_schemas, 0)) return false;
             }
             const block_end = @as(usize, function.first_block) + function.block_count;
             if (block_end > program_plan.blocks.len) return false;
@@ -8766,8 +8816,8 @@ pub const BoundaryTargetModule = struct {
                     if (instruction.kind != .call_op) continue :value_instruction_loop;
                     if (instruction.operand >= program_plan.ops.len) return false;
                     const op = program_plan.ops[instruction.operand];
-                    if (!loadedProfileSupportsValueRef(profile, program_plan, op.payload_codec, op.payload_schema_index, &visited_schemas)) return false;
-                    if (!loadedProfileSupportsValueRef(profile, program_plan, op.resume_codec, op.resume_schema_index, &visited_schemas)) return false;
+                    if (!loadedProfileSupportsValueRef(profile, program_plan, op.payload_codec, op.payload_schema_index, &visiting_schemas, 0)) return false;
+                    if (!loadedProfileSupportsValueRef(profile, program_plan, op.resume_codec, op.resume_schema_index, &visiting_schemas, 0)) return false;
                 }
             }
         }
@@ -8779,30 +8829,37 @@ pub const BoundaryTargetModule = struct {
         program_plan: internal_program_plan.ProgramPlan,
         codec: internal_program_plan.ValueCodec,
         schema_index: ?u16,
-        visited_schemas: *[std.math.maxInt(u16) + 1]bool,
+        visiting_schemas: *[std.math.maxInt(u16) + 1]bool,
+        depth: u32,
     ) bool {
+        if (depth > profile.limits.maximum_value_nesting_depth) return false;
         if (!loadedProfileSupportsCodec(profile, codec)) return false;
         return switch (codec) {
             .product, .sum => {
                 const index = schema_index orelse return false;
                 if (index >= program_plan.value_schemas.len) return false;
-                if (visited_schemas[index]) return true;
-                visited_schemas[index] = true;
+                if (visiting_schemas[index]) return false;
+                visiting_schemas[index] = true;
+                defer visiting_schemas[index] = false;
                 const schema = program_plan.value_schemas[index];
                 if (schema.codec != codec) return false;
                 switch (codec) {
                     .product => {
+                        if (schema.field_count > profile.limits.maximum_aggregate_elements) return false;
                         const field_end = @as(usize, schema.first_field) + schema.field_count;
                         if (field_end > program_plan.value_fields.len) return false;
                         for (program_plan.value_fields[schema.first_field..field_end]) |field| {
-                            if (!loadedProfileSupportsValueRef(profile, program_plan, field.codec, field.schema_index, visited_schemas)) return false;
+                            const next_depth = std.math.add(u32, depth, 1) catch return false;
+                            if (!loadedProfileSupportsValueRef(profile, program_plan, field.codec, field.schema_index, visiting_schemas, next_depth)) return false;
                         }
                     },
                     .sum => {
+                        if (schema.variant_count > profile.limits.maximum_aggregate_elements) return false;
                         const variant_end = @as(usize, schema.first_variant) + schema.variant_count;
                         if (variant_end > program_plan.value_variants.len) return false;
                         for (program_plan.value_variants[schema.first_variant..variant_end]) |variant| {
-                            if (!loadedProfileSupportsValueRef(profile, program_plan, variant.codec, variant.schema_index, visited_schemas)) return false;
+                            const next_depth = std.math.add(u32, depth, 1) catch return false;
+                            if (!loadedProfileSupportsValueRef(profile, program_plan, variant.codec, variant.schema_index, visiting_schemas, next_depth)) return false;
                         }
                     },
                     else => unreachable,
@@ -8849,6 +8906,7 @@ pub const BoundaryTargetModule = struct {
         const supports_v2_frames = profile.format_version == loaded_execution.loaded_execution_profile_format_version_v2;
         shape_function_loop: for (program_plan.functions, 0..) |function, function_index| {
             if (!reachability.functions[function_index]) continue :shape_function_loop;
+            if (function.local_count > profile.limits.maximum_locals_per_frame) return false;
             if (function.parameter_count > function.local_count) return false;
             if (@as(usize, function.first_local) + function.parameter_count > program_plan.locals.len) return false;
             const block_end = @as(usize, function.first_block) + function.block_count;
@@ -11858,6 +11916,7 @@ pub const BoundaryTargetModule = struct {
 
     fn validateExecutablePlanImagePayload(payload: []const u8, manifest: Manifest, options: ValidationOptions) ValidationError!void {
         const limits = options.effectiveLimits();
+        const loaded_profile = options.effectiveLoadedExecutionProfile();
         if (payload.len > limits.max_executable_plan_bytes) return error.LimitExceeded;
         var envelope_reader = PayloadReader.init(payload);
         const format_version = try envelope_reader.readU32();
@@ -11926,6 +11985,7 @@ pub const BoundaryTargetModule = struct {
             const function_block_count = try reader.readU16();
             const first_instruction = try reader.readU16();
             const function_instruction_count = try reader.readU16();
+            if (function_local_count > loaded_profile.limits.maximum_locals_per_frame) return error.LimitExceeded;
             if (!boundaryValueRefWithinSchema(value_ref, value_schema_count)) return error.MalformedManifest;
             if (!optionalBoundaryValueRefWithinSchema(result_ref, value_schema_count)) return error.MalformedManifest;
             if (!spanWithin(first_requirement, function_requirement_count, requirement_count) or
@@ -11971,8 +12031,12 @@ pub const BoundaryTargetModule = struct {
             const first_variant = try reader.readU16();
             const variant_count = try reader.readU16();
             switch (codec) {
-                .product => if (!spanWithin(first_field, field_count, product_field_count) or variant_count != 0) return error.MalformedManifest,
-                .sum => if (!spanWithin(first_variant, variant_count, sum_variant_count) or field_count != 0) return error.MalformedManifest,
+                .product => if (!spanWithin(first_field, field_count, product_field_count) or
+                    variant_count != 0 or
+                    field_count > loaded_profile.limits.maximum_aggregate_elements) return error.MalformedManifest,
+                .sum => if (!spanWithin(first_variant, variant_count, sum_variant_count) or
+                    field_count != 0 or
+                    variant_count > loaded_profile.limits.maximum_aggregate_elements) return error.MalformedManifest,
                 else => if (field_count != 0 or variant_count != 0) return error.MalformedManifest,
             }
         }
@@ -12014,6 +12078,7 @@ pub const BoundaryTargetModule = struct {
             _ = try reader.readU16();
             const literal = try reader.readBytes();
             if (dst >= local_count and local_count != 0) return error.MalformedManifest;
+            if (kind == .const_string and literal.len > loaded_profile.limits.maximum_string_bytes) return error.LimitExceeded;
             if (literal.len != 0) actual_string_literals += 1;
             if (kind == .call_nested_with) actual_nested_refs += 1;
         }
@@ -21438,5 +21503,226 @@ test "loaded reachability ignores unsupported dead helper semantics and codecs" 
     try std.testing.expect(!BoundaryTargetModule.loadedProfileSupportsProgramPlan(
         profile,
         reachable_plan,
+    ));
+}
+
+test "loaded profile rejects reachable local count above frame budget" {
+    const root = internal_program_plan.program_plan_builder.function(0);
+    const locals = [_]internal_program_plan.LocalPlan{.{ .codec = .i32 }} ** 257;
+    const functions = [_]internal_program_plan.FunctionPlan{.{
+        .symbol_name = "run",
+        .value_codec = .unit,
+        .first_requirement = 0,
+        .requirement_count = 0,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = locals.len,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = 0,
+    }};
+    const blocks = [_]internal_program_plan.BlockPlan{.{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 }};
+    const terminators = [_]internal_program_plan.Terminator{.{ .kind = .return_unit }};
+    const plan = internal_program_plan.program_plan_builder.finish(.{
+        .label = "loaded-profile-local-count-budget",
+        .ir_hash = 0xB0A2_0004,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &locals,
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &.{},
+    }) catch unreachable;
+
+    try std.testing.expect(!BoundaryTargetModule.loadedProfileSupportsProgramPlan(
+        BoundaryTargetModule.LoadedExecutionProfile.portableV2(),
+        plan,
+    ));
+}
+
+test "loaded profile rejects reachable value shapes beyond portable v2 budgets" {
+    const root = internal_program_plan.program_plan_builder.function(0);
+    var schemas: [34]internal_program_plan.ValueSchemaPlan = undefined;
+    var fields: [33]internal_program_plan.ValueFieldPlan = undefined;
+    for (&schemas, 0..) |*schema, index| {
+        schema.* = .{
+            .label = "nested",
+            .codec = .product,
+            .first_field = @intCast(index),
+            .field_count = if (index == fields.len) 0 else 1,
+        };
+    }
+    for (&fields, 0..) |*field, index| {
+        field.* = .{
+            .name = "next",
+            .codec = .product,
+            .schema_index = @intCast(index + 1),
+        };
+    }
+    const locals = [_]internal_program_plan.LocalPlan{.{ .codec = .product, .schema_index = 0 }};
+    const functions = [_]internal_program_plan.FunctionPlan{.{
+        .symbol_name = "run",
+        .value_codec = .unit,
+        .first_requirement = 0,
+        .requirement_count = 0,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = locals.len,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = 0,
+    }};
+    const blocks = [_]internal_program_plan.BlockPlan{.{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 }};
+    const terminators = [_]internal_program_plan.Terminator{.{ .kind = .return_unit }};
+    const nested_plan = internal_program_plan.program_plan_builder.finish(.{
+        .label = "loaded-profile-value-nesting-budget",
+        .ir_hash = 0xB0A2_0005,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .value_schemas = &schemas,
+        .value_fields = &fields,
+        .locals = &locals,
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &.{},
+    }) catch unreachable;
+
+    var wide_fields: [4097]internal_program_plan.ValueFieldPlan = undefined;
+    for (&wide_fields) |*field| {
+        field.* = .{ .name = "field", .codec = .i32 };
+    }
+    const wide_schemas = [_]internal_program_plan.ValueSchemaPlan{.{
+        .label = "wide",
+        .codec = .product,
+        .first_field = 0,
+        .field_count = wide_fields.len,
+    }};
+    const wide_plan = internal_program_plan.program_plan_builder.finish(.{
+        .label = "loaded-profile-aggregate-budget",
+        .ir_hash = 0xB0A2_0006,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .value_schemas = &wide_schemas,
+        .value_fields = &wide_fields,
+        .locals = &locals,
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &.{},
+    }) catch unreachable;
+
+    const profile = BoundaryTargetModule.LoadedExecutionProfile.portableV2();
+    try std.testing.expect(!BoundaryTargetModule.loadedProfileSupportsProgramPlan(profile, nested_plan));
+    try std.testing.expect(!BoundaryTargetModule.loadedProfileSupportsProgramPlan(profile, wide_plan));
+}
+
+test "loaded profile rejects reachable helper chains above frame budget" {
+    const root = internal_program_plan.program_plan_builder.function(0);
+    var functions: [65]internal_program_plan.FunctionPlan = undefined;
+    var blocks: [65]internal_program_plan.BlockPlan = undefined;
+    var terminators: [65]internal_program_plan.Terminator = undefined;
+    var instructions: [64]internal_program_plan.Instruction = undefined;
+    for (&functions, 0..) |*function, index| {
+        function.* = .{
+            .symbol_name = "helper",
+            .value_codec = .unit,
+            .first_requirement = 0,
+            .requirement_count = 0,
+            .first_output = 0,
+            .output_count = 0,
+            .first_local = 0,
+            .local_count = 0,
+            .first_block = @intCast(index),
+            .entry_block = 0,
+            .block_count = 1,
+            .first_instruction = @intCast(@min(index, instructions.len)),
+            .instruction_count = if (index == instructions.len) 0 else 1,
+        };
+        blocks[index] = .{ .first_instruction = function.first_instruction, .instruction_count = function.instruction_count, .terminator_index = @intCast(index) };
+        terminators[index] = .{ .kind = .return_unit };
+    }
+    for (&instructions, 0..) |*instruction, index| {
+        instruction.* = .{
+            .kind = .call_helper,
+            .operand = @intCast(index + 1),
+            .aux = std.math.maxInt(u16),
+        };
+    }
+    const plan = internal_program_plan.program_plan_builder.finish(.{
+        .label = "loaded-profile-helper-depth-budget",
+        .ir_hash = 0xB0A2_0007,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+
+    try std.testing.expect(!BoundaryTargetModule.loadedProfileSupportsProgramPlan(
+        BoundaryTargetModule.LoadedExecutionProfile.portableV2(),
+        plan,
+    ));
+}
+
+test "loaded profile rejects reachable const strings beyond portable v2 budget" {
+    const root = internal_program_plan.program_plan_builder.function(0);
+    const literal = [_]u8{'x'} ** ((64 << 10) + 1);
+    const locals = [_]internal_program_plan.LocalPlan{.{ .codec = .string }};
+    const functions = [_]internal_program_plan.FunctionPlan{.{
+        .symbol_name = "run",
+        .value_codec = .unit,
+        .first_requirement = 0,
+        .requirement_count = 0,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = locals.len,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = 1,
+    }};
+    const blocks = [_]internal_program_plan.BlockPlan{.{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 }};
+    const terminators = [_]internal_program_plan.Terminator{.{ .kind = .return_unit }};
+    const instructions = [_]internal_program_plan.Instruction{.{
+        .kind = .const_string,
+        .dst = 0,
+        .string_literal = &literal,
+    }};
+    const plan = internal_program_plan.program_plan_builder.finish(.{
+        .label = "loaded-profile-const-string-budget",
+        .ir_hash = 0xB0A2_0008,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .locals = &locals,
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch unreachable;
+
+    try std.testing.expect(!BoundaryTargetModule.loadedProfileSupportsProgramPlan(
+        BoundaryTargetModule.LoadedExecutionProfile.portableV2(),
+        plan,
     ));
 }
