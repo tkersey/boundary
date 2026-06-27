@@ -100,9 +100,10 @@ export. The host does not act as a semantic tool registry.
 ## Closed ToolId
 
 `Agent.ClosedToolSet` constructs a fixed tool-id surface at module-build time.
-It rejects empty label sets and duplicate labels at comptime, rejects unknown
-runtime labels by returning absence, and rejects out-of-range tool ids before a
-toolbox label can be projected.
+It rejects empty label sets and duplicate labels at comptime. Label lookup is a
+builder/diagnostic convenience; runtime dispatch uses the closed generated
+variant index, and out-of-range tool ids fail closed before a toolbox label can
+be projected.
 
 ## Budget Semantics
 

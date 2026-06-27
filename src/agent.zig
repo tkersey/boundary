@@ -28,7 +28,7 @@ pub const ToolId = struct {
     label: []const u8,
 
     pub fn eql(self: ToolId, other: ToolId) bool {
-        return self.index == other.index and std.mem.eql(u8, self.label, other.label);
+        return self.index == other.index;
     }
 };
 
@@ -62,8 +62,7 @@ pub fn ClosedToolSet(comptime labels: []const []const u8) type {
         }
 
         pub fn contains(tool_id: ToolId) bool {
-            if (tool_id.index >= labels.len) return false;
-            return std.mem.eql(u8, labels[tool_id.index], tool_id.label);
+            return tool_id.index < labels.len;
         }
 
         pub fn label(tool_id: ToolId) ![]const u8 {
@@ -272,7 +271,7 @@ pub const canonical_value_schemas = [_]ValueSchema{
     schema("Agent.Observation", "string"),
     schema("Agent.DecisionPrompt", "product(goal:string,observation:string,trace_summary:Agent.TraceSummary,budget:Agent.Budget)"),
     schema("Agent.Action", "sum(final:string,tool:Agent.ToolRequest,fail:string)"),
-    schema("Agent.ToolId", "product(index:u16,label:string)"),
+    schema("Agent.ToolId", "product(index:u16,diagnostic_label:string)"),
     schema("Agent.ToolPayload", "string"),
     schema("Agent.ToolResult", "product(tool_id:Agent.ToolId,bytes:string)"),
     schema("Agent.FinalResult", "product(text:string)"),
@@ -550,12 +549,14 @@ test "Agent canonical value schema fingerprints are stable profile inputs" {
     try std.testing.expectEqual(canonical_value_schemas.len, profile.value_schema_fingerprints.len);
 }
 
-test "Agent closed ToolId set rejects unknown labels" {
+test "Agent closed ToolId set dispatches by generated index, not diagnostic labels" {
     const tools = ClosedToolSet(&.{ "actuate", "read_file", "write_file" });
     const actuate = tools.find("actuate") orelse return error.MissingToolId;
     try std.testing.expect(tools.contains(actuate));
     try std.testing.expectEqualStrings("actuate", try tools.label(actuate));
     try std.testing.expect(tools.find("shell") == null);
+    try std.testing.expect(tools.contains(.{ .index = 0, .label = "shell" }));
+    try std.testing.expectEqualStrings("actuate", try tools.label(.{ .index = 0, .label = "shell" }));
     try std.testing.expectError(error.UnknownToolId, tools.label(.{ .index = 9, .label = "shell" }));
 }
 
