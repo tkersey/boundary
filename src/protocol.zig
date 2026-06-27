@@ -61,18 +61,19 @@ pub const Protocol = struct {
         };
         pub const metadata_bytes: []const u8 = "";
         const portable_v2_limits = loaded_execution.LoadedExecutionProfile.portableV2().limits;
+        const max_indexed_plan_count: u32 = std.math.maxInt(u16) + 1;
 
         pub const Limits = struct {
             max_module_image_bytes: u32 = 16 * 1024 * 1024,
             max_executable_plan_bytes: u32 = 4 * 1024 * 1024,
-            max_loaded_value_bytes: u32 = 1 * 1024 * 1024,
+            max_loaded_value_bytes: u32 = loaded_execution.sessionOwnedValueImageByteLimit(portable_v2_limits),
             max_value_nesting: u16 = portable_v2_limits.maximum_value_nesting_depth,
             max_frame_depth: u16 = @intCast(@min(portable_v2_limits.maximum_call_depth, portable_v2_limits.maximum_frames)),
             max_locals: u16 = portable_v2_limits.maximum_locals_per_frame,
             max_instruction_fuel: u64 = portable_v2_limits.maximum_instructions_per_advancement,
-            max_function_count: u32 = 1_000_000,
-            max_block_count: u32 = 1_000_000,
-            max_schema_count: u32 = 65_536,
+            max_function_count: u32 = max_indexed_plan_count,
+            max_block_count: u32 = max_indexed_plan_count,
+            max_schema_count: u32 = max_indexed_plan_count,
         };
 
         pub const limits = Limits{};

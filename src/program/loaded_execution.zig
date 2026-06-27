@@ -737,7 +737,7 @@ fn validateSessionOwnedValueImageBytes(image: LoadedSessionImage, max_owned_valu
     }
 }
 
-fn sessionOwnedValueImageByteLimit(limits: Limits) u32 {
+pub fn sessionOwnedValueImageByteLimit(limits: Limits) u32 {
     var total: u64 = limits.maximum_owned_value_bytes;
     total = std.math.add(u64, total, 64) catch return max_u32_len;
     total = std.math.add(u64, total, std.math.mul(u64, limits.maximum_aggregate_elements, 4) catch return max_u32_len) catch return max_u32_len;

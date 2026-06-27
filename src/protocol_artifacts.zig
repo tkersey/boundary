@@ -45,7 +45,7 @@ pub fn main(init: std.process.Init) !void {
         return error.InvalidArguments;
     }
 
-    if (std.mem.eql(u8, command, "update-public-surface")) return updatePublicSurface(init, allocator);
+    if (std.mem.eql(u8, command, "update-public-surface")) return updateCorpus(init, allocator);
     if (std.mem.eql(u8, command, "check-public-surface")) return checkPublicSurface(init, allocator);
     if (std.mem.eql(u8, command, "update-corpus")) return updateCorpus(init, allocator);
     if (std.mem.eql(u8, command, "check-corpus")) return checkCorpus(init, allocator);
@@ -55,12 +55,6 @@ pub fn main(init: std.process.Init) !void {
     if (std.mem.eql(u8, command, "emit-proof-receipts")) return emitProofReceipts(init, allocator, output_dir orelse default_proof_receipts_dir);
     if (std.mem.eql(u8, command, "dist")) return dist(init, allocator, output_dir orelse default_dist_dir);
     return error.InvalidArguments;
-}
-
-fn updatePublicSurface(init: std.process.Init, allocator: std.mem.Allocator) !void {
-    const text = try publicSurfaceSnapshotAlloc(allocator);
-    try std.Io.Dir.cwd().createDirPath(init.io, "conformance/v0");
-    try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = public_surface_path, .data = text });
 }
 
 fn checkPublicSurface(init: std.process.Init, allocator: std.mem.Allocator) !void {
@@ -119,6 +113,7 @@ fn checkAdversarialCodecs(allocator: std.mem.Allocator) !void {
 fn checkBudgets() !void {
     const limits = protocol.Protocol.Manifest.limits;
     const profile_limits = loaded_execution.LoadedExecutionProfile.portableV2().limits;
+    const max_indexed_plan_count = std.math.maxInt(u16) + 1;
     if (limits.max_module_image_bytes == 0) return error.InvalidBudget;
     if (limits.max_executable_plan_bytes == 0) return error.InvalidBudget;
     if (limits.max_loaded_value_bytes == 0) return error.InvalidBudget;
@@ -133,9 +128,10 @@ fn checkBudgets() !void {
     if (limits.max_frame_depth != @min(profile_limits.maximum_call_depth, profile_limits.maximum_frames)) return error.InvalidBudget;
     if (limits.max_locals != profile_limits.maximum_locals_per_frame) return error.InvalidBudget;
     if (limits.max_instruction_fuel != profile_limits.maximum_instructions_per_advancement) return error.InvalidBudget;
-    if (limits.max_function_count != 1_000_000) return error.InvalidBudget;
-    if (limits.max_block_count != 1_000_000) return error.InvalidBudget;
-    if (limits.max_schema_count != 65_536) return error.InvalidBudget;
+    if (limits.max_loaded_value_bytes != loaded_execution.sessionOwnedValueImageByteLimit(profile_limits)) return error.InvalidBudget;
+    if (limits.max_function_count != max_indexed_plan_count) return error.InvalidBudget;
+    if (limits.max_block_count != max_indexed_plan_count) return error.InvalidBudget;
+    if (limits.max_schema_count != max_indexed_plan_count) return error.InvalidBudget;
 }
 
 fn emitProofReceipts(init: std.process.Init, allocator: std.mem.Allocator, output_dir: []const u8) !void {
