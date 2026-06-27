@@ -14,7 +14,7 @@ pub const Protocol = struct {
         pub const format_version: u32 = boundary_protocol_manifest_format_version;
         pub const fingerprint_version: u32 = boundary_protocol_manifest_fingerprint_version;
         pub const boundary_package_version = protocol_version.boundary_package_version;
-        pub const minimum_zig_version = "0.16.0";
+        pub const minimum_zig_version = protocol_version.minimum_zig_version;
         pub const root_namespaces = &.{
             "effect",
             "ir",

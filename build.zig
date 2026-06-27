@@ -1,9 +1,10 @@
 // zlinter-disable require_doc_comment
-const protocol_version = @import("src/protocol_version.zig");
+const package = @import("build.zig.zon");
 const std = @import("std");
 const zlinter = @import("zlinter");
 
 const CoreModules = struct {
+    boundary_build_metadata: *std.Build.Module,
     portable_core: *std.Build.Module,
     lowered_machine: *std.Build.Module,
     prompt_contract: *std.Build.Module,
@@ -172,6 +173,11 @@ fn addCoreModules(
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
 ) CoreModules {
+    const metadata_options = b.addOptions();
+    metadata_options.addOption([]const u8, "boundary_package_version", package.version);
+    metadata_options.addOption([]const u8, "minimum_zig_version", package.minimum_zig_version);
+    const boundary_build_metadata = metadata_options.createModule();
+
     const portable_core = b.createModule(.{
         .root_source_file = b.path("src/portable_core.zig"),
         .target = target,
@@ -266,6 +272,7 @@ fn addCoreModules(
     lowering_api.addImport("internal_program_plan", internal_program_plan);
 
     return .{
+        .boundary_build_metadata = boundary_build_metadata,
         .portable_core = portable_core,
         .lowered_machine = lowered_machine,
         .prompt_contract = prompt_contract,
@@ -282,6 +289,7 @@ fn addCoreModules(
 }
 
 fn wireBoundaryImports(mod: *std.Build.Module, core: CoreModules) void {
+    mod.addImport("boundary_build_metadata", core.boundary_build_metadata);
     mod.addImport("portable_core", core.portable_core);
     mod.addImport("lowered_machine", core.lowered_machine);
     mod.addImport("prompt_contract_support", core.prompt_contract);
@@ -428,7 +436,7 @@ pub fn build(b: *std.Build) void {
     const dist_boundary_protocol_run = addRunArtifactWithArgs(b, protocol_artifacts_exe, &.{
         "dist",
         "--out-dir",
-        b.getInstallPath(.prefix, "dist/boundary-v" ++ protocol_version.boundary_package_version ++ "-protocol"),
+        b.getInstallPath(.prefix, "dist/boundary-v" ++ package.version ++ "-protocol"),
     });
     dist_boundary_protocol_run.step.dependOn(proof_receipts_step);
     dist_boundary_protocol_step.dependOn(&dist_boundary_protocol_run.step);
