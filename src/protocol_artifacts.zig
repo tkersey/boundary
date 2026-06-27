@@ -10,7 +10,7 @@ const corpus_dir = "conformance/v0/boundary";
 const corpus_manifest_path = corpus_dir ++ "/corpus.boundary.txt";
 const manifest_image_path = corpus_dir ++ "/protocol-manifest.bin";
 const default_proof_receipts_dir = "zig-out/protocol/boundary/proof-receipts";
-const default_dist_dir = "zig-out/dist/boundary-v0.5.0-protocol";
+const default_dist_dir = "zig-out/dist/boundary-v" ++ protocol.Protocol.Manifest.boundary_package_version ++ "-protocol";
 const compatibility_doc_path = "docs/compatibility.md";
 const security_model_doc_path = "docs/security_model.md";
 

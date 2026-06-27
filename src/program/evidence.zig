@@ -8706,7 +8706,7 @@ pub const BoundaryTargetModule = struct {
         if (max_depth == 0) return false;
         var states = [_]LoadedHelperDepthState{.unvisited} ** (std.math.maxInt(u16) + 1);
         var depths = [_]u32{0} ** (std.math.maxInt(u16) + 1);
-        const depth = loadedReachableFunctionCallDepth(program_plan, reachability, program_plan.entry_index, &states, &depths) orelse return false;
+        const depth = loadedReachableFunctionCallDepth(program_plan, reachability, program_plan.entry_index, &states, &depths, 1, max_depth) orelse return false;
         return depth <= max_depth;
     }
 
@@ -8716,10 +8716,17 @@ pub const BoundaryTargetModule = struct {
         function_index: usize,
         states: *[std.math.maxInt(u16) + 1]LoadedHelperDepthState,
         depths: *[std.math.maxInt(u16) + 1]u32,
+        current_depth: u32,
+        max_depth: u32,
     ) ?u32 {
+        if (current_depth > max_depth) return null;
         if (function_index >= program_plan.functions.len or !reachability.functions[function_index]) return null;
         switch (states[function_index]) {
-            .done => return depths[function_index],
+            .done => {
+                const total_depth = std.math.add(u32, current_depth, depths[function_index] - 1) catch return null;
+                if (total_depth > max_depth) return null;
+                return depths[function_index];
+            },
             .visiting => return null,
             .unvisited => {},
         }
@@ -8735,7 +8742,7 @@ pub const BoundaryTargetModule = struct {
             helper_instruction_loop: for (program_plan.instructions[block.first_instruction..instruction_end]) |instruction| {
                 if (instruction.kind != .call_helper) continue :helper_instruction_loop;
                 if (instruction.operand >= program_plan.functions.len) return null;
-                const child_depth = loadedReachableFunctionCallDepth(program_plan, reachability, instruction.operand, states, depths) orelse return null;
+                const child_depth = loadedReachableFunctionCallDepth(program_plan, reachability, instruction.operand, states, depths, current_depth + 1, max_depth) orelse return null;
                 const candidate = std.math.add(u32, child_depth, 1) catch return null;
                 depth = @max(depth, candidate);
             }
@@ -8854,7 +8861,7 @@ pub const BoundaryTargetModule = struct {
                 if (index >= program_plan.value_schemas.len) return null;
                 switch (schema_states[index]) {
                     .done => return schema_depths[index],
-                    .visiting => return null,
+                    .visiting => return 0,
                     .unvisited => {},
                 }
                 schema_states[index] = .visiting;
@@ -21518,7 +21525,7 @@ test "loaded reachability ignores unsupported dead helper semantics and codecs" 
     ));
 }
 
-test "loaded profile rejects reachable local count above frame budget" {
+test "loaded portable v2 profile rejects reachable local count above frame budget" {
     const root = internal_program_plan.program_plan_builder.function(0);
     const locals = [_]internal_program_plan.LocalPlan{.{ .codec = .i32 }} ** 257;
     const functions = [_]internal_program_plan.FunctionPlan{.{
@@ -21558,7 +21565,7 @@ test "loaded profile rejects reachable local count above frame budget" {
     ));
 }
 
-test "loaded profile rejects reachable value shapes beyond portable v2 budgets" {
+test "loaded portable v2 profile rejects reachable value shapes beyond budget" {
     const root = internal_program_plan.program_plan_builder.function(0);
     var schemas: [34]internal_program_plan.ValueSchemaPlan = undefined;
     var fields: [33]internal_program_plan.ValueFieldPlan = undefined;
@@ -21642,7 +21649,59 @@ test "loaded profile rejects reachable value shapes beyond portable v2 budgets" 
     try std.testing.expect(!BoundaryTargetModule.loadedProfileSupportsProgramPlan(profile, wide_plan));
 }
 
-test "loaded profile rejects reachable helper chains above frame budget" {
+test "loaded portable v2 profile accepts finite recursive schemas" {
+    const root = internal_program_plan.program_plan_builder.function(0);
+    const schemas = [_]internal_program_plan.ValueSchemaPlan{.{
+        .label = "list",
+        .codec = .sum,
+        .first_variant = 0,
+        .variant_count = 2,
+    }};
+    const variants = [_]internal_program_plan.ValueVariantPlan{
+        .{ .name = "nil" },
+        .{ .name = "cons", .codec = .sum, .schema_index = 0 },
+    };
+    const locals = [_]internal_program_plan.LocalPlan{.{ .codec = .sum, .schema_index = 0 }};
+    const functions = [_]internal_program_plan.FunctionPlan{.{
+        .symbol_name = "run",
+        .value_codec = .unit,
+        .first_requirement = 0,
+        .requirement_count = 0,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = locals.len,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = 0,
+    }};
+    const blocks = [_]internal_program_plan.BlockPlan{.{ .first_instruction = 0, .instruction_count = 0, .terminator_index = 0 }};
+    const terminators = [_]internal_program_plan.Terminator{.{ .kind = .return_unit }};
+    const plan = internal_program_plan.program_plan_builder.finish(.{
+        .label = "loaded-profile-recursive-schema",
+        .ir_hash = 0xB0A2_0009,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &.{},
+        .ops = &.{},
+        .outputs = &.{},
+        .value_schemas = &schemas,
+        .value_variants = &variants,
+        .locals = &locals,
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &.{},
+    }) catch unreachable;
+
+    try std.testing.expect(BoundaryTargetModule.loadedProfileSupportsProgramPlan(
+        BoundaryTargetModule.LoadedExecutionProfile.portableV2(),
+        plan,
+    ));
+}
+
+test "loaded portable v2 profile rejects reachable helper chains above frame budget" {
     const root = internal_program_plan.program_plan_builder.function(0);
     var functions: [65]internal_program_plan.FunctionPlan = undefined;
     var blocks: [65]internal_program_plan.BlockPlan = undefined;
@@ -21693,7 +21752,7 @@ test "loaded profile rejects reachable helper chains above frame budget" {
     ));
 }
 
-test "loaded profile rejects reachable const strings beyond portable v2 budget" {
+test "loaded portable v2 profile rejects reachable const strings beyond budget" {
     const root = internal_program_plan.program_plan_builder.function(0);
     const literal = [_]u8{'x'} ** ((64 << 10) + 1);
     const locals = [_]internal_program_plan.LocalPlan{.{ .codec = .string }};

@@ -3,6 +3,7 @@ const effect_ir = @import("effect_ir");
 const loaded_execution = @import("loaded_execution");
 const parity_scenarios = @import("parity_scenarios");
 const plan = @import("internal_program_plan");
+const protocol_version = @import("protocol_version.zig");
 const std = @import("std");
 
 pub const boundary_protocol_manifest_format_version: u32 = 1;
@@ -12,7 +13,7 @@ pub const Protocol = struct {
     pub const Manifest = struct {
         pub const format_version: u32 = boundary_protocol_manifest_format_version;
         pub const fingerprint_version: u32 = boundary_protocol_manifest_fingerprint_version;
-        pub const boundary_package_version = "0.5.0";
+        pub const boundary_package_version = protocol_version.boundary_package_version;
         pub const minimum_zig_version = "0.16.0";
         pub const root_namespaces = &.{
             "effect",
@@ -55,7 +56,6 @@ pub const Protocol = struct {
             "sum",
             "helper-frame",
             "two-residual-requests",
-            "request-inside-loop",
             "helper-that-parks",
             "wrong-stale-duplicate-response-rejection",
         };
@@ -104,7 +104,6 @@ pub const Protocol = struct {
         }
 
         fn encodeIdentity(allocator: std.mem.Allocator, out: *std.ArrayList(u8)) !void {
-            try appendString(out, allocator, minimum_zig_version);
             try appendU32(out, allocator, format_version);
             try appendU32(out, allocator, fingerprint_version);
             try appendU32(out, allocator, loaded_execution.executable_plan_image_format_version);

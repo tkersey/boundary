@@ -1,4 +1,5 @@
 // zlinter-disable require_doc_comment
+const protocol_version = @import("src/protocol_version.zig");
 const std = @import("std");
 const zlinter = @import("zlinter");
 
@@ -423,11 +424,11 @@ pub fn build(b: *std.Build) void {
     proof_receipts_run.step.dependOn(budgets_step);
     proof_receipts_step.dependOn(&proof_receipts_run.step);
 
-    const dist_boundary_protocol_step = b.step("dist-boundary-protocol", "Build the Boundary v0.5.0 protocol distribution.");
+    const dist_boundary_protocol_step = b.step("dist-boundary-protocol", "Build the Boundary v0 protocol distribution.");
     const dist_boundary_protocol_run = addRunArtifactWithArgs(b, protocol_artifacts_exe, &.{
         "dist",
         "--out-dir",
-        b.getInstallPath(.prefix, "dist/boundary-v0.5.0-protocol"),
+        b.getInstallPath(.prefix, "dist/boundary-v" ++ protocol_version.boundary_package_version ++ "-protocol"),
     });
     dist_boundary_protocol_run.step.dependOn(proof_receipts_step);
     dist_boundary_protocol_step.dependOn(&dist_boundary_protocol_run.step);
