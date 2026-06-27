@@ -174,7 +174,7 @@ fn corpusManifestAlloc(allocator: std.mem.Allocator) ![]u8 {
     try appendLine(&out, allocator, "");
     try appendLine(&out, allocator, "validation:");
     try appendLine(&out, allocator, "- check-boundary-agent-conformance-corpus compares this catalog and executes the scenario tests");
-    try appendLine(&out, allocator, "- check-boundary-agent-generated-loaded-parity covers the generated-versus-loaded parity fixture");
+    try appendLine(&out, allocator, "- check-boundary-agent-generated-loaded-parity covers the Agent module generated-versus-loaded parity fixture");
     try appendLine(&out, allocator, "- model and tools are deterministic fixtures; no network, credentials, host registry, or real LLM is used");
     return out.toOwnedSlice(allocator);
 }

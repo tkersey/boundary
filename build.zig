@@ -733,6 +733,7 @@ pub fn build(b: *std.Build) void {
     loaded_parity_step.dependOn(&loaded_parity_run.step);
     loaded_parity_required_step.dependOn(&loaded_parity_run.step);
     agent_parity_step.dependOn(agent_profile_step);
+    agent_parity_step.dependOn(agent_modules_step);
     agent_parity_step.dependOn(loaded_parity_step);
 
     const receipt_loaded_v2_step = b.step("check-boundary-loaded-v2-receipt-host", "Check Boundary portable_v2 proof receipts on the host target.");

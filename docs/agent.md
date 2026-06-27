@@ -138,6 +138,9 @@ The tracked corpus catalog lives at
 `conformance/v0/agent/corpus.boundary-agent.txt`. The
 `check-boundary-agent-conformance-corpus` gate compares that catalog against the
 generated corpus text and runs the scenario tests.
+`check-boundary-agent-generated-loaded-parity` also runs the Agent module
+transfer fixture, comparing generated `Program.Session` output with loaded
+full-module execution.
 
 ## Non-Goals
 
