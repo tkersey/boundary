@@ -8788,23 +8788,26 @@ pub const BoundaryTargetModule = struct {
         return true;
     }
 
+    const LoadedSchemaDepthState = enum { unvisited, visiting, done };
+
     fn loadedProfileSupportsReachableValues(profile: LoadedExecutionProfile, program_plan: internal_program_plan.ProgramPlan, reachability: LoadedProgramReachability) bool {
-        var visiting_schemas = [_]bool{false} ** (std.math.maxInt(u16) + 1);
+        var schema_states = [_]LoadedSchemaDepthState{.unvisited} ** (std.math.maxInt(u16) + 1);
+        var schema_depths = [_]u32{0} ** (std.math.maxInt(u16) + 1);
         value_function_loop: for (program_plan.functions, 0..) |function, function_index| {
             if (!reachability.functions[function_index]) continue :value_function_loop;
-            if (!loadedProfileSupportsValueRef(profile, program_plan, function.value_codec, function.value_schema_index, &visiting_schemas, 0)) return false;
+            if (!loadedProfileSupportsValueRef(profile, program_plan, function.value_codec, function.value_schema_index, &schema_states, &schema_depths)) return false;
             if (function.result_codec) |result_codec| {
-                if (!loadedProfileSupportsValueRef(profile, program_plan, result_codec, function.result_schema_index, &visiting_schemas, 0)) return false;
+                if (!loadedProfileSupportsValueRef(profile, program_plan, result_codec, function.result_schema_index, &schema_states, &schema_depths)) return false;
             }
             const local_end = @as(usize, function.first_local) + function.local_count;
             if (local_end > program_plan.locals.len) return false;
             for (program_plan.locals[function.first_local..local_end]) |local| {
-                if (!loadedProfileSupportsValueRef(profile, program_plan, local.codec, local.schema_index, &visiting_schemas, 0)) return false;
+                if (!loadedProfileSupportsValueRef(profile, program_plan, local.codec, local.schema_index, &schema_states, &schema_depths)) return false;
             }
             const output_end = @as(usize, function.first_output) + function.output_count;
             if (output_end > program_plan.outputs.len) return false;
             for (program_plan.outputs[function.first_output..output_end]) |output| {
-                if (!loadedProfileSupportsValueRef(profile, program_plan, output.codec, output.schema_index, &visiting_schemas, 0)) return false;
+                if (!loadedProfileSupportsValueRef(profile, program_plan, output.codec, output.schema_index, &schema_states, &schema_depths)) return false;
             }
             const block_end = @as(usize, function.first_block) + function.block_count;
             if (block_end > program_plan.blocks.len) return false;
@@ -8816,8 +8819,8 @@ pub const BoundaryTargetModule = struct {
                     if (instruction.kind != .call_op) continue :value_instruction_loop;
                     if (instruction.operand >= program_plan.ops.len) return false;
                     const op = program_plan.ops[instruction.operand];
-                    if (!loadedProfileSupportsValueRef(profile, program_plan, op.payload_codec, op.payload_schema_index, &visiting_schemas, 0)) return false;
-                    if (!loadedProfileSupportsValueRef(profile, program_plan, op.resume_codec, op.resume_schema_index, &visiting_schemas, 0)) return false;
+                    if (!loadedProfileSupportsValueRef(profile, program_plan, op.payload_codec, op.payload_schema_index, &schema_states, &schema_depths)) return false;
+                    if (!loadedProfileSupportsValueRef(profile, program_plan, op.resume_codec, op.resume_schema_index, &schema_states, &schema_depths)) return false;
                 }
             }
         }
@@ -8829,44 +8832,65 @@ pub const BoundaryTargetModule = struct {
         program_plan: internal_program_plan.ProgramPlan,
         codec: internal_program_plan.ValueCodec,
         schema_index: ?u16,
-        visiting_schemas: *[std.math.maxInt(u16) + 1]bool,
-        depth: u32,
+        schema_states: *[std.math.maxInt(u16) + 1]LoadedSchemaDepthState,
+        schema_depths: *[std.math.maxInt(u16) + 1]u32,
     ) bool {
-        if (depth > profile.limits.maximum_value_nesting_depth) return false;
         if (!loadedProfileSupportsCodec(profile, codec)) return false;
+        const depth = loadedProfileValueRefMaxDepth(profile, program_plan, codec, schema_index, schema_states, schema_depths) orelse return false;
+        return depth <= profile.limits.maximum_value_nesting_depth;
+    }
+
+    fn loadedProfileValueRefMaxDepth(
+        profile: LoadedExecutionProfile,
+        program_plan: internal_program_plan.ProgramPlan,
+        codec: internal_program_plan.ValueCodec,
+        schema_index: ?u16,
+        schema_states: *[std.math.maxInt(u16) + 1]LoadedSchemaDepthState,
+        schema_depths: *[std.math.maxInt(u16) + 1]u32,
+    ) ?u32 {
         return switch (codec) {
             .product, .sum => {
-                const index = schema_index orelse return false;
-                if (index >= program_plan.value_schemas.len) return false;
-                if (visiting_schemas[index]) return false;
-                visiting_schemas[index] = true;
-                defer visiting_schemas[index] = false;
+                const index = schema_index orelse return null;
+                if (index >= program_plan.value_schemas.len) return null;
+                switch (schema_states[index]) {
+                    .done => return schema_depths[index],
+                    .visiting => return null,
+                    .unvisited => {},
+                }
+                schema_states[index] = .visiting;
                 const schema = program_plan.value_schemas[index];
-                if (schema.codec != codec) return false;
+                if (schema.codec != codec) return null;
+                var max_depth: u32 = 0;
                 switch (codec) {
                     .product => {
-                        if (schema.field_count > profile.limits.maximum_aggregate_elements) return false;
+                        if (schema.field_count > profile.limits.maximum_aggregate_elements) return null;
                         const field_end = @as(usize, schema.first_field) + schema.field_count;
-                        if (field_end > program_plan.value_fields.len) return false;
+                        if (field_end > program_plan.value_fields.len) return null;
                         for (program_plan.value_fields[schema.first_field..field_end]) |field| {
-                            const next_depth = std.math.add(u32, depth, 1) catch return false;
-                            if (!loadedProfileSupportsValueRef(profile, program_plan, field.codec, field.schema_index, visiting_schemas, next_depth)) return false;
+                            if (!loadedProfileSupportsCodec(profile, field.codec)) return null;
+                            const child_depth = loadedProfileValueRefMaxDepth(profile, program_plan, field.codec, field.schema_index, schema_states, schema_depths) orelse return null;
+                            const candidate = std.math.add(u32, child_depth, 1) catch return null;
+                            max_depth = @max(max_depth, candidate);
                         }
                     },
                     .sum => {
-                        if (schema.variant_count > profile.limits.maximum_aggregate_elements) return false;
+                        if (schema.variant_count > profile.limits.maximum_aggregate_elements) return null;
                         const variant_end = @as(usize, schema.first_variant) + schema.variant_count;
-                        if (variant_end > program_plan.value_variants.len) return false;
+                        if (variant_end > program_plan.value_variants.len) return null;
                         for (program_plan.value_variants[schema.first_variant..variant_end]) |variant| {
-                            const next_depth = std.math.add(u32, depth, 1) catch return false;
-                            if (!loadedProfileSupportsValueRef(profile, program_plan, variant.codec, variant.schema_index, visiting_schemas, next_depth)) return false;
+                            if (!loadedProfileSupportsCodec(profile, variant.codec)) return null;
+                            const child_depth = loadedProfileValueRefMaxDepth(profile, program_plan, variant.codec, variant.schema_index, schema_states, schema_depths) orelse return null;
+                            const candidate = std.math.add(u32, child_depth, 1) catch return null;
+                            max_depth = @max(max_depth, candidate);
                         }
                     },
                     else => unreachable,
                 }
-                return true;
+                schema_states[index] = .done;
+                schema_depths[index] = max_depth;
+                return max_depth;
             },
-            else => true,
+            else => 0,
         };
     }
 
