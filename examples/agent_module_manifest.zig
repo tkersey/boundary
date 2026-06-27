@@ -19,7 +19,7 @@ const config = Agent.Config{
 };
 
 fn profile() Agent.Profile {
-    return Agent.Profile.fromConfig(config, &tool_ids, &.{Target.WorldSurface.surface_fingerprint}, "agent-module-manifest");
+    return Agent.Profile.fromConfig(config, &tool_ids, Agent.canonicalValueSchemaFingerprints(), "agent-module-manifest");
 }
 
 pub fn run(writer: anytype) !void {

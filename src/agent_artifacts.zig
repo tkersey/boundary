@@ -7,14 +7,6 @@ const corpus_manifest_path = corpus_dir ++ "/corpus.boundary-agent.txt";
 
 const Tools = Agent.ClosedToolSet(&.{ "actuate", "read_file", "write_file" });
 const tool_ids = [_]Agent.ToolId{ Tools.id(0), Tools.id(1), Tools.id(2) };
-const value_schema_fingerprints = [_]u64{
-    Agent.fingerprintBytes("Agent.Goal"),
-    Agent.fingerprintBytes("Agent.Observation"),
-    Agent.fingerprintBytes("Agent.Action"),
-    Agent.fingerprintBytes("Agent.ToolResult"),
-    Agent.fingerprintBytes("Agent.FinalResult"),
-    Agent.fingerprintBytes("Agent.Failure"),
-};
 
 const config = Agent.Config{
     .max_iterations = 5,
@@ -102,7 +94,7 @@ const scenarios = [_]Scenario{
 };
 
 fn profile() Agent.Profile {
-    return Agent.Profile.fromConfig(config, &tool_ids, &value_schema_fingerprints, "agent-conformance-corpus-v0");
+    return Agent.Profile.fromConfig(config, &tool_ids, Agent.canonicalValueSchemaFingerprints(), "agent-conformance-corpus-v0");
 }
 
 pub fn main(init: std.process.Init) !void {
@@ -167,9 +159,14 @@ fn corpusManifestAlloc(allocator: std.mem.Allocator) ![]u8 {
         try appendFmt(&out, allocator, "- index: {d}\n  label: {s}\n", .{ tool_id.index, tool_id.label });
     }
     try appendLine(&out, allocator, "");
-    try appendLine(&out, allocator, "value_schema_fingerprints:");
-    for (value_schema_fingerprints) |fingerprint| {
-        try appendFmt(&out, allocator, "- 0x{x:0>16}\n", .{fingerprint});
+    try appendLine(&out, allocator, "value_schemas:");
+    for (Agent.canonical_value_schemas) |value_schema| {
+        try appendFmt(&out, allocator,
+            \\- name: {s}
+            \\  codec: {s}
+            \\  fingerprint: 0x{x:0>16}
+            \\
+        , .{ value_schema.name, value_schema.codec, value_schema.fingerprint });
     }
     try appendLine(&out, allocator, "");
     try appendLine(&out, allocator, "scenarios:");

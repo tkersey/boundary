@@ -2,7 +2,7 @@ Boundary Agent Profile v0 conformance corpus
 format: boundary-agent-conformance-corpus-v0
 profile_format_version: 0
 profile_fingerprint_version: 1
-profile_fingerprint: 0x004d0d52c1c9df75
+profile_fingerprint: 0xdfe8a75f82f4e2d9
 max_iterations: 5
 max_model_calls: 5
 max_tool_calls: 4
@@ -18,13 +18,37 @@ tool_variants:
 - index: 2
   label: write_file
 
-value_schema_fingerprints:
-- 0xbcca34404c166615
-- 0x53d8eb9a585b11b6
-- 0xcd4ed8a63508845e
-- 0xbec1f79b30df7023
-- 0xb072e5f2573c319e
-- 0x6d6cf4975e10ca12
+value_schemas:
+- name: Agent.Goal
+  codec: string
+  fingerprint: 0x97dd2f4479adf7eb
+- name: Agent.Observation
+  codec: string
+  fingerprint: 0x19966cbbe1f09f9e
+- name: Agent.DecisionPrompt
+  codec: product(goal:string,observation:string,trace_summary:Agent.TraceSummary,budget:Agent.Budget)
+  fingerprint: 0x06522581f185e215
+- name: Agent.Action
+  codec: sum(final:string,tool:Agent.ToolRequest,fail:string)
+  fingerprint: 0xaa92b35de6dc065e
+- name: Agent.ToolId
+  codec: product(index:u16,label:string)
+  fingerprint: 0x5b48c1e222f40649
+- name: Agent.ToolPayload
+  codec: string
+  fingerprint: 0x1473bb162d57c43b
+- name: Agent.ToolResult
+  codec: product(tool_id:Agent.ToolId,bytes:string)
+  fingerprint: 0xf3d8b9ea5064daf0
+- name: Agent.FinalResult
+  codec: product(text:string)
+  fingerprint: 0xbbda2384ae9427d7
+- name: Agent.Failure
+  codec: product(reason:string)
+  fingerprint: 0xf47dac6b2cba3cfe
+- name: Agent.TraceSummary
+  codec: product(entry_count:u32,last_event:string,last_fingerprint:u64)
+  fingerprint: 0x6288da61bf1ab2f4
 
 scenarios:
 - id: skeleton-one-tool

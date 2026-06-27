@@ -28,6 +28,13 @@ variants, value-schema fingerprints, and metadata bytes. Validation rejects
 unsupported format/fingerprint versions, empty execution budgets, empty trace
 capacity, action-surface mismatch, and fingerprint drift.
 
+`Agent.canonical_value_schemas` defines the Agent-owned portable value schemas
+and fingerprints for `Agent.Goal`, `Agent.Observation`,
+`Agent.DecisionPrompt`, `Agent.Action`, `Agent.ToolId`, `Agent.ToolPayload`,
+`Agent.ToolResult`, `Agent.FinalResult`, `Agent.Failure`, and
+`Agent.TraceSummary`. `Agent.canonicalValueSchemaFingerprints()` returns that
+fingerprint list for `Agent.Profile` construction.
+
 ## Module Artifact Provenance
 
 `boundary.Agent.ModuleArtifact` records the Boundary module role, Agent profile

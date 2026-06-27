@@ -175,7 +175,18 @@ pub const State = struct {
     }
 };
 
+/// Portable Agent goal bytes.
+pub const Goal = struct {
+    bytes: []const u8,
+};
+
+/// Portable Agent observation bytes.
 pub const Observation = struct {
+    bytes: []const u8,
+};
+
+/// Portable Agent tool payload bytes.
+pub const ToolPayload = struct {
     bytes: []const u8,
 };
 
@@ -247,6 +258,41 @@ pub const Failure = struct {
 pub const Program = struct {
     profile: Profile,
 };
+
+/// Agent-owned portable value schema identity.
+pub const ValueSchema = struct {
+    name: []const u8,
+    codec: []const u8,
+    fingerprint: u64,
+};
+
+/// Canonical Agent Profile v0 value schemas.
+pub const canonical_value_schemas = [_]ValueSchema{
+    schema("Agent.Goal", "string"),
+    schema("Agent.Observation", "string"),
+    schema("Agent.DecisionPrompt", "product(goal:string,observation:string,trace_summary:Agent.TraceSummary,budget:Agent.Budget)"),
+    schema("Agent.Action", "sum(final:string,tool:Agent.ToolRequest,fail:string)"),
+    schema("Agent.ToolId", "product(index:u16,label:string)"),
+    schema("Agent.ToolPayload", "string"),
+    schema("Agent.ToolResult", "product(tool_id:Agent.ToolId,bytes:string)"),
+    schema("Agent.FinalResult", "product(text:string)"),
+    schema("Agent.Failure", "product(reason:string)"),
+    schema("Agent.TraceSummary", "product(entry_count:u32,last_event:string,last_fingerprint:u64)"),
+};
+
+/// Fingerprints for `canonical_value_schemas`, in schema order.
+pub const canonical_schema_fingerprints = blk: {
+    var fingerprints = [_]u64{0} ** canonical_value_schemas.len;
+    for (canonical_value_schemas, 0..) |value_schema, index| {
+        fingerprints[index] = value_schema.fingerprint;
+    }
+    break :blk fingerprints;
+};
+
+/// Return canonical Agent value-schema fingerprints for Profile construction.
+pub fn canonicalValueSchemaFingerprints() []const u64 {
+    return &canonical_schema_fingerprints;
+}
 
 pub const ModuleArtifact = struct {
     role: ModuleRole,
@@ -351,6 +397,22 @@ pub fn valueRefFingerprint(ref: anytype) u64 {
         hashInt(&hasher, @as(u16, std.math.maxInt(u16)));
     }
     return hasher.final();
+}
+
+/// Fingerprint an Agent value schema name and portable codec description.
+pub fn schemaFingerprint(name: []const u8, codec: []const u8) u64 {
+    var hasher = std.hash.Wyhash.init(0x4147454e545f5343);
+    hashBytes(&hasher, name);
+    hashBytes(&hasher, codec);
+    return hasher.final();
+}
+
+fn schema(comptime name: []const u8, comptime codec: []const u8) ValueSchema {
+    return .{
+        .name = name,
+        .codec = codec,
+        .fingerprint = schemaFingerprint(name, codec),
+    };
 }
 
 pub const Profile = struct {
@@ -464,6 +526,28 @@ test "Agent Profile v0 fingerprint is deterministic and bound to tool variants" 
     const shorter_tool_ids = [_]ToolId{tools.id(0)};
     const changed = Profile.fromConfig(config, &shorter_tool_ids, &.{ 0x1111, 0x2222 }, "fixture-agent");
     try std.testing.expect(profile.profile_fingerprint != changed.profile_fingerprint);
+}
+
+test "Agent canonical value schema fingerprints are stable profile inputs" {
+    try std.testing.expect(canonicalValueSchemaFingerprints().len >= 10);
+    try std.testing.expectEqualStrings("Agent.Goal", canonical_value_schemas[0].name);
+    try std.testing.expectEqualStrings("Agent.ToolPayload", canonical_value_schemas[5].name);
+    try std.testing.expect(canonical_value_schemas[0].fingerprint != schemaFingerprint("Agent.Goal", "bytes"));
+
+    const tools = ClosedToolSet(&.{"actuate"});
+    const tool_ids = [_]ToolId{tools.id(0)};
+    const config = Config{
+        .max_iterations = 2,
+        .max_model_calls = 2,
+        .max_tool_calls = 2,
+        .max_observation_bytes = 128,
+        .max_action_bytes = 128,
+        .max_tool_result_bytes = 128,
+        .max_trace_entries = 2,
+    };
+    const profile = Profile.fromConfig(config, &tool_ids, canonicalValueSchemaFingerprints(), "canonical-schema-test");
+    try profile.validate();
+    try std.testing.expectEqual(canonical_value_schemas.len, profile.value_schema_fingerprints.len);
 }
 
 test "Agent closed ToolId set rejects unknown labels" {
