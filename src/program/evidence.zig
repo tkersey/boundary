@@ -11916,7 +11916,6 @@ pub const BoundaryTargetModule = struct {
 
     fn validateExecutablePlanImagePayload(payload: []const u8, manifest: Manifest, options: ValidationOptions) ValidationError!void {
         const limits = options.effectiveLimits();
-        const loaded_profile = options.effectiveLoadedExecutionProfile();
         if (payload.len > limits.max_executable_plan_bytes) return error.LimitExceeded;
         var envelope_reader = PayloadReader.init(payload);
         const format_version = try envelope_reader.readU32();
@@ -11985,7 +11984,6 @@ pub const BoundaryTargetModule = struct {
             const function_block_count = try reader.readU16();
             const first_instruction = try reader.readU16();
             const function_instruction_count = try reader.readU16();
-            if (function_local_count > loaded_profile.limits.maximum_locals_per_frame) return error.LimitExceeded;
             if (!boundaryValueRefWithinSchema(value_ref, value_schema_count)) return error.MalformedManifest;
             if (!optionalBoundaryValueRefWithinSchema(result_ref, value_schema_count)) return error.MalformedManifest;
             if (!spanWithin(first_requirement, function_requirement_count, requirement_count) or
@@ -12031,12 +12029,8 @@ pub const BoundaryTargetModule = struct {
             const first_variant = try reader.readU16();
             const variant_count = try reader.readU16();
             switch (codec) {
-                .product => if (!spanWithin(first_field, field_count, product_field_count) or
-                    variant_count != 0 or
-                    field_count > loaded_profile.limits.maximum_aggregate_elements) return error.MalformedManifest,
-                .sum => if (!spanWithin(first_variant, variant_count, sum_variant_count) or
-                    field_count != 0 or
-                    variant_count > loaded_profile.limits.maximum_aggregate_elements) return error.MalformedManifest,
+                .product => if (!spanWithin(first_field, field_count, product_field_count) or variant_count != 0) return error.MalformedManifest,
+                .sum => if (!spanWithin(first_variant, variant_count, sum_variant_count) or field_count != 0) return error.MalformedManifest,
                 else => if (field_count != 0 or variant_count != 0) return error.MalformedManifest,
             }
         }
@@ -12078,7 +12072,6 @@ pub const BoundaryTargetModule = struct {
             _ = try reader.readU16();
             const literal = try reader.readBytes();
             if (dst >= local_count and local_count != 0) return error.MalformedManifest;
-            if (kind == .const_string and literal.len > loaded_profile.limits.maximum_string_bytes) return error.LimitExceeded;
             if (literal.len != 0) actual_string_literals += 1;
             if (kind == .call_nested_with) actual_nested_refs += 1;
         }
@@ -21411,7 +21404,7 @@ test "loaded reachability ignores unsupported dead helper semantics and codecs" 
             .first_output = 0,
             .output_count = 0,
             .first_local = 1,
-            .local_count = 4,
+            .local_count = 257,
             .first_block = 1,
             .entry_block = 0,
             .block_count = 1,
@@ -21419,13 +21412,8 @@ test "loaded reachability ignores unsupported dead helper semantics and codecs" 
             .instruction_count = 1,
         },
     };
-    const locals = [_]internal_program_plan.LocalPlan{
-        .{ .codec = .i32 },
-        .{ .codec = .string_list },
-        .{ .codec = .i32 },
-        .{ .codec = .i32 },
-        .{ .codec = .i32 },
-    };
+    var locals = [_]internal_program_plan.LocalPlan{.{ .codec = .i32 }} ** 258;
+    locals[1] = .{ .codec = .string_list };
     const blocks = [_]internal_program_plan.BlockPlan{
         .{ .first_instruction = 0, .instruction_count = 1, .terminator_index = 0 },
         .{ .first_instruction = 1, .instruction_count = 1, .terminator_index = 1 },
