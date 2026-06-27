@@ -295,6 +295,64 @@ pub const ModuleArtifact = struct {
     }
 };
 
+pub const BuiltModule = struct {
+    artifact: ModuleArtifact,
+    bytes: []u8,
+
+    pub fn deinit(self: *BuiltModule, allocator: std.mem.Allocator) void {
+        allocator.free(self.bytes);
+        self.bytes = &.{};
+    }
+};
+
+pub fn buildRootModule(comptime Target: type, allocator: std.mem.Allocator, profile: Profile) !BuiltModule {
+    return buildModule(.root, Target, allocator, profile);
+}
+
+pub fn buildToolboxModule(comptime Target: type, allocator: std.mem.Allocator, profile: Profile) !BuiltModule {
+    return buildModule(.toolbox, Target, allocator, profile);
+}
+
+pub fn buildFixtureModelModule(comptime Target: type, allocator: std.mem.Allocator, profile: Profile) !BuiltModule {
+    return buildModule(.fixture_model, Target, allocator, profile);
+}
+
+fn buildModule(comptime role: ModuleRole, comptime Target: type, allocator: std.mem.Allocator, profile: Profile) !BuiltModule {
+    const bytes = try Target.Module.fullImage(allocator);
+    errdefer allocator.free(bytes);
+
+    var loaded = try Target.Module.decode(allocator, bytes);
+    defer loaded.deinit();
+
+    const artifact = ModuleArtifact.init(.{
+        .role = role,
+        .profile = profile,
+        .module_fingerprint = loaded.moduleFingerprint(),
+        .manifest_fingerprint = loaded.manifest().manifest_fingerprint,
+        .world_surface_fingerprint = loaded.worldSurfaceFingerprint(),
+        .import_count = loaded.imports().len,
+        .export_result_fingerprint = valueRefFingerprint(loaded.exportMain().result_ref),
+        .bytes = bytes,
+    });
+    try artifact.validate(profile, role);
+
+    return .{
+        .artifact = artifact,
+        .bytes = bytes,
+    };
+}
+
+pub fn valueRefFingerprint(ref: anytype) u64 {
+    var hasher = std.hash.Wyhash.init(0x4147454e545f5256);
+    hashBytes(&hasher, ref.codec);
+    if (ref.schema_index) |index| {
+        hashInt(&hasher, index);
+    } else {
+        hashInt(&hasher, @as(u16, std.math.maxInt(u16)));
+    }
+    return hasher.final();
+}
+
 pub const Profile = struct {
     format_version: u32 = profile_format_version,
     fingerprint_version: u32 = profile_fingerprint_version,

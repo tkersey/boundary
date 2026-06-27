@@ -22,42 +22,11 @@ fn profile() Agent.Profile {
     return Agent.Profile.fromConfig(config, &tool_ids, &.{Target.WorldSurface.surface_fingerprint}, "agent-module-manifest");
 }
 
-fn boundaryValueRefFingerprint(ref: anytype) u64 {
-    var hasher = std.hash.Wyhash.init(0x4147454e545f5256);
-    hasher.update(ref.codec);
-    if (ref.schema_index) |index| {
-        var buffer: [@sizeOf(u16)]u8 = undefined;
-        std.mem.writeInt(u16, &buffer, index, .little);
-        hasher.update(&buffer);
-    } else {
-        const sentinel = [_]u8{ 0xff, 0xff };
-        hasher.update(&sentinel);
-    }
-    return hasher.final();
-}
-
-fn moduleArtifact(bytes: []const u8, loaded: anytype) Agent.ModuleArtifact {
-    return Agent.ModuleArtifact.init(.{
-        .role = .toolbox,
-        .profile = profile(),
-        .module_fingerprint = loaded.moduleFingerprint(),
-        .manifest_fingerprint = loaded.manifest().manifest_fingerprint,
-        .world_surface_fingerprint = loaded.worldSurfaceFingerprint(),
-        .import_count = loaded.imports().len,
-        .export_result_fingerprint = boundaryValueRefFingerprint(loaded.exportMain().result_ref),
-        .bytes = bytes,
-    });
-}
-
 pub fn run(writer: anytype) !void {
     const allocator = std.heap.page_allocator;
-    const bytes = try Target.Module.fullImage(allocator);
-    defer allocator.free(bytes);
-    var loaded = try Target.Module.decode(allocator, bytes);
-    defer loaded.deinit();
-
-    const artifact = moduleArtifact(bytes, loaded);
-    try artifact.validate(profile(), .toolbox);
+    var built = try Agent.buildToolboxModule(Target, allocator, profile());
+    defer built.deinit(allocator);
+    const artifact = built.artifact;
 
     try writer.print("agent_profile_fingerprint={x}\n", .{artifact.profile_fingerprint});
     try writer.print("agent_module_role={s}\n", .{@tagName(artifact.role)});
@@ -69,14 +38,11 @@ pub fn run(writer: anytype) !void {
 
 test "Agent module manifest binds real full module bytes to profile provenance" {
     const allocator = std.testing.allocator;
-    const bytes = try Target.Module.fullImage(allocator);
-    defer allocator.free(bytes);
-    var loaded = try Target.Module.decode(allocator, bytes);
-    defer loaded.deinit();
-
-    const artifact = moduleArtifact(bytes, loaded);
+    var built = try Agent.buildToolboxModule(Target, allocator, profile());
+    defer built.deinit(allocator);
+    const artifact = built.artifact;
     try artifact.validate(profile(), .toolbox);
-    try std.testing.expectEqual(Agent.fingerprintBytes(bytes), artifact.byte_fingerprint);
+    try std.testing.expectEqual(Agent.fingerprintBytes(built.bytes), artifact.byte_fingerprint);
     try std.testing.expect(artifact.import_count > 0);
 }
 

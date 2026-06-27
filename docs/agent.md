@@ -35,6 +35,11 @@ fingerprint, Certified Boundary Module fingerprint, Protocol.Manifest
 fingerprint, world-surface fingerprint, import count, exported result
 fingerprint, full-module byte length, and full-module byte fingerprint.
 
+`Agent.buildRootModule`, `Agent.buildToolboxModule`, and
+`Agent.buildFixtureModelModule` are helper builders over existing compile-time
+Boundary module targets. Each helper emits owned full-module bytes and a
+validated `ModuleArtifact` for the requested role.
+
 It is not a package registry or a new execution path. It is a small provenance
 record that lets conformance examples prove that an Agent profile is bound to
 actual full-module bytes before World seals those bytes into an
