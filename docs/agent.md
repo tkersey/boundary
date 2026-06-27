@@ -127,6 +127,11 @@ rejection, budget checks, bounded trace summaries, skeleton/fixture flow
 accounting, full-module byte provenance, and named build gates used by later
 module-builder cases.
 
+The tracked corpus catalog lives at
+`conformance/v0/agent/corpus.boundary-agent.txt`. The
+`check-boundary-agent-conformance-corpus` gate compares that catalog against the
+generated corpus text and runs the scenario tests.
+
 ## Non-Goals
 
 Boundary Agent Profile v0 does not add:

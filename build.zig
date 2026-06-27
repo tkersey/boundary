@@ -411,6 +411,19 @@ pub fn build(b: *std.Build) void {
     });
     addTestArtifact(b, agent_profile_step, agent_profile_mod, test_args);
 
+    const agent_artifacts_mod = b.createModule(.{
+        .root_source_file = b.path("src/agent_artifacts.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    addTestArtifact(b, test_step, agent_artifacts_mod, test_args);
+    const agent_artifacts_exe = b.addExecutable(.{
+        .name = "boundary-agent-artifacts",
+        .root_module = agent_artifacts_mod,
+    });
+    const update_agent_corpus_step = b.step("update-boundary-agent-conformance-corpus", "Update Boundary Agent Profile v0 conformance corpus artifacts.");
+    update_agent_corpus_step.dependOn(&addRunArtifactWithArgs(b, agent_artifacts_exe, &.{"update-corpus"}).step);
+
     const agent_modules_step = b.step("check-boundary-agent-modules", "Check agent-shaped Certified Boundary Module transfer surface.");
     const agent_modules_mod = b.createModule(.{
         .root_source_file = b.path("examples/boundary_module_agent_transfer.zig"),
@@ -430,6 +443,7 @@ pub fn build(b: *std.Build) void {
     const agent_conformance_corpus_step = b.step("check-boundary-agent-conformance-corpus", "Check Boundary Agent Closure v0 conformance foundations.");
     agent_conformance_corpus_step.dependOn(agent_profile_step);
     agent_conformance_corpus_step.dependOn(agent_modules_step);
+    agent_conformance_corpus_step.dependOn(&addRunArtifactWithArgs(b, agent_artifacts_exe, &.{"check-corpus"}).step);
     const agent_conformance_mod = b.createModule(.{
         .root_source_file = b.path("examples/agent_profile_conformance.zig"),
         .target = target,

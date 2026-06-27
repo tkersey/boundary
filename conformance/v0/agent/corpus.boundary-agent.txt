@@ -1,0 +1,88 @@
+Boundary Agent Profile v0 conformance corpus
+format: boundary-agent-conformance-corpus-v0
+profile_format_version: 0
+profile_fingerprint_version: 1
+profile_fingerprint: 0x004d0d52c1c9df75
+max_iterations: 5
+max_model_calls: 5
+max_tool_calls: 4
+max_observation_bytes: 1024
+max_action_bytes: 256
+max_tool_result_bytes: 1024
+max_trace_entries: 8
+tool_variants:
+- index: 0
+  label: actuate
+- index: 1
+  label: read_file
+- index: 2
+  label: write_file
+
+value_schema_fingerprints:
+- 0xbcca34404c166615
+- 0x53d8eb9a585b11b6
+- 0xcd4ed8a63508845e
+- 0xbec1f79b30df7023
+- 0xb072e5f2573c319e
+- 0x6d6cf4975e10ca12
+
+scenarios:
+- id: skeleton-one-tool
+  kind: positive
+  initial_observation: goal=invoke
+  expected_terminal_status: completed
+  expected_model_calls: 2
+  expected_tool_calls: 1
+  expected_final: final=actuate skeleton complete
+  expected_final_fingerprint: 0x674ecedb0a3db921
+  replay: zig build check-boundary-agent-conformance-corpus -- --test-filter 'skeleton one-tool'
+- id: fixture-read-write
+  kind: positive
+  initial_observation: goal=fixture
+  expected_terminal_status: completed
+  expected_model_calls: 3
+  expected_tool_calls: 2
+  expected_final: final=fixture updated
+  expected_final_fingerprint: 0xf304cc7232d7cedb
+  replay: zig build check-boundary-agent-conformance-corpus -- --test-filter 'fixture read write'
+- id: budget-exhaustion
+  kind: negative
+  initial_observation: goal=invoke
+  expected_terminal_status: failed
+  expected_model_calls: 1
+  expected_tool_calls: 1
+  expected_failure: AgentBudgetExhausted
+  expected_failure_fingerprint: 0xde3aa5ff2f1ebf9a
+  replay: zig build check-boundary-agent-conformance-corpus -- --test-filter 'budget exhaustion'
+- id: malformed-action
+  kind: negative
+  initial_observation: goal=invoke
+  expected_terminal_status: failed
+  expected_model_calls: 1
+  expected_tool_calls: 0
+  expected_failure: MalformedAgentAction
+  expected_failure_fingerprint: 0x90efbf223325e900
+  replay: zig build check-boundary-agent-conformance-corpus -- --test-filter 'malformed action'
+- id: unknown-tool-id
+  kind: negative
+  initial_observation: goal=invoke
+  expected_terminal_status: failed
+  expected_model_calls: 1
+  expected_tool_calls: 0
+  expected_failure: UnknownToolId
+  expected_failure_fingerprint: 0x4d01b489d908f385
+  replay: zig build check-boundary-agent-conformance-corpus -- --test-filter 'unknown tool id'
+- id: generated-loaded-parity
+  kind: parity
+  initial_observation: agent-module-manifest
+  expected_terminal_status: completed
+  expected_model_calls: 0
+  expected_tool_calls: 0
+  expected_final: full-module bytes and loaded module provenance match
+  expected_final_fingerprint: 0x1ecdad2829de77f5
+  replay: zig build check-boundary-agent-generated-loaded-parity
+
+validation:
+- check-boundary-agent-conformance-corpus compares this catalog and executes the scenario tests
+- check-boundary-agent-generated-loaded-parity covers the generated-versus-loaded parity fixture
+- model and tools are deterministic fixtures; no network, credentials, host registry, or real LLM is used
