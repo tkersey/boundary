@@ -1,0 +1,121 @@
+Boundary v0 public surface
+package: boundary 0.5.0
+manifest_format_version: 1
+manifest_fingerprint_version: 1
+manifest_fingerprint: 0x50aa2c73c76b51f3
+public_surface_fingerprint: 0x9d44e67990624f76
+
+stable_format_constants:
+- boundary_protocol_manifest_format_version = 1
+- boundary_protocol_manifest_fingerprint_version = 1
+- executable_plan_image_format_version = 1
+- executable_plan_image_fingerprint_version = 1
+- loaded_execution_profile_format_version_v1 = 1
+- loaded_execution_profile_format_version_v2 = 2
+- loaded_execution_profile_fingerprint_version_v1 = 1
+- loaded_execution_profile_fingerprint_version_v2 = 2
+- loaded_session_image_format_version_v1 = 1
+- loaded_session_image_format_version_v2 = 2
+- loaded_session_image_fingerprint_version_v1 = 1
+- loaded_session_image_fingerprint_version_v2 = 2
+- loaded_value_image_format_version = 1
+- loaded_value_image_fingerprint_version = 1
+root_namespaces:
+- effect
+- ir
+- program
+- Runtime
+- Protocol
+- boundary_protocol_manifest_format_version
+- boundary_protocol_manifest_fingerprint_version
+
+instruction_tags:
+- add_const_i32 = 0
+- add_i32 = 1
+- call_helper = 2
+- call_nested_with = 3
+- call_op = 4
+- compare_eq_zero = 5
+- const_i32 = 6
+- const_string = 7
+- const_usize = 8
+- return_error = 9
+- return_value = 10
+- sub_one = 11
+- sum_extract_payload = 12
+- sum_variant_is = 13
+
+terminator_tags:
+- branch_if = 0
+- jump = 1
+- return_unit = 2
+- return_value = 3
+
+value_codec_tags:
+- bool = 0
+- i32 = 1
+- product = 6
+- string = 2
+- string_list = 3
+- sum = 7
+- unit = 4
+- usize = 5
+
+loaded_session_statuses:
+- initial = 0
+- request = 1
+- completed = 2
+- failed = 3
+
+loaded_session_response_kinds:
+- resume = 0
+- return_now = 1
+- resume_after = 2
+
+execution_failure_kinds:
+- call_depth_exceeded = 0
+- execution_budget_exceeded = 1
+- integer_overflow = 2
+- invalid_resume = 3
+- invalid_value = 4
+- malformed_plan = 5
+- module_mismatch = 6
+- unsupported_codec = 7
+- unsupported_feature = 8
+- declared_error = 9
+
+effect_ir_instruction_tags:
+- add_const_i32 = 0
+- add_i32 = 1
+- call_helper = 2
+- call_nested_with = 3
+- call_op = 4
+- compare_eq_zero = 5
+- const_i32 = 6
+- const_string = 7
+- const_usize = 8
+- return_error = 9
+- return_value = 10
+- sub_one = 11
+- sum_extract_payload = 12
+- sum_variant_is = 13
+
+effect_ir_terminator_tags:
+- branch_if = 0
+- jump = 1
+- return_unit = 2
+- return_value = 3
+
+supported_build_gates:
+- check-boundary-protocol-manifest
+- check-boundary-public-surface
+- check-boundary-format-drift
+- check-boundary-conformance-corpus
+- check-boundary-adversarial-codecs
+- check-boundary-v0-budgets
+- check-boundary-loaded-v2-receipt-host
+- check-boundary-loaded-session-receipt-host
+- check-boundary-loaded-parity-receipt-host
+- update-boundary-conformance-corpus
+- emit-boundary-proof-receipts
+- dist-boundary-protocol

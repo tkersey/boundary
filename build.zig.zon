@@ -19,6 +19,7 @@
         "build.zig",
         "build.zig.zon",
         "bench",
+        "conformance",
         "docs",
         "examples",
         "repo_zig_paths.txt",

@@ -1,8 +1,10 @@
 // zlinter-disable require_doc_comment
+const package = @import("build.zig.zon");
 const std = @import("std");
 const zlinter = @import("zlinter");
 
 const CoreModules = struct {
+    boundary_build_metadata: *std.Build.Module,
     portable_core: *std.Build.Module,
     lowered_machine: *std.Build.Module,
     prompt_contract: *std.Build.Module,
@@ -171,6 +173,11 @@ fn addCoreModules(
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
 ) CoreModules {
+    const metadata_options = b.addOptions();
+    metadata_options.addOption([]const u8, "boundary_package_version", package.version);
+    metadata_options.addOption([]const u8, "minimum_zig_version", package.minimum_zig_version);
+    const boundary_build_metadata = metadata_options.createModule();
+
     const portable_core = b.createModule(.{
         .root_source_file = b.path("src/portable_core.zig"),
         .target = target,
@@ -265,6 +272,7 @@ fn addCoreModules(
     lowering_api.addImport("internal_program_plan", internal_program_plan);
 
     return .{
+        .boundary_build_metadata = boundary_build_metadata,
         .portable_core = portable_core,
         .lowered_machine = lowered_machine,
         .prompt_contract = prompt_contract,
@@ -281,6 +289,7 @@ fn addCoreModules(
 }
 
 fn wireBoundaryImports(mod: *std.Build.Module, core: CoreModules) void {
+    mod.addImport("boundary_build_metadata", core.boundary_build_metadata);
     mod.addImport("portable_core", core.portable_core);
     mod.addImport("lowered_machine", core.lowered_machine);
     mod.addImport("prompt_contract_support", core.prompt_contract);
@@ -292,6 +301,7 @@ fn wireBoundaryImports(mod: *std.Build.Module, core: CoreModules) void {
     mod.addImport("loaded_execution", core.loaded_execution);
     mod.addImport("interpreter", core.interpreter);
     mod.addImport("lowering_api", core.lowering_api);
+    mod.addImport("parity_scenarios", core.parity_scenarios);
 }
 
 pub fn build(b: *std.Build) void {
@@ -299,7 +309,9 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const bench_optimize: std.builtin.OptimizeMode = .ReleaseFast;
     const test_args = parseTestArgs(b);
+    const proof_test_args = TestArgs{ .filters = &.{}, .passthrough = &.{} };
     const core = addCoreModules(b, target, optimize);
+    const host_core = addCoreModules(b, b.graph.host, optimize);
 
     const boundary_shared = b.createModule(.{
         .root_source_file = b.path("src/boundary_shared.zig"),
@@ -308,12 +320,48 @@ pub fn build(b: *std.Build) void {
     });
     wireBoundaryImports(boundary_shared, core);
 
+    const host_boundary_shared = b.createModule(.{
+        .root_source_file = b.path("src/boundary_shared.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+    });
+    wireBoundaryImports(host_boundary_shared, host_core);
+
+    const protocol_mod = b.createModule(.{
+        .root_source_file = b.path("src/protocol.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    wireBoundaryImports(protocol_mod, core);
+
+    const host_protocol_mod = b.createModule(.{
+        .root_source_file = b.path("src/protocol.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+    });
+    wireBoundaryImports(host_protocol_mod, host_core);
+
+    const protocol_artifacts_mod = b.createModule(.{
+        .root_source_file = b.path("src/protocol_artifacts.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+    });
+    wireBoundaryImports(protocol_artifacts_mod, host_core);
+    protocol_artifacts_mod.addImport("protocol", host_protocol_mod);
+
     const boundary = b.addModule("boundary", .{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
     });
     boundary.addImport("boundary_shared", boundary_shared);
+
+    const host_boundary = b.createModule(.{
+        .root_source_file = b.path("src/root.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+    });
+    host_boundary.addImport("boundary_shared", host_boundary_shared);
 
     const lib_check = b.addLibrary(.{
         .linkage = .static,
@@ -332,6 +380,66 @@ pub fn build(b: *std.Build) void {
     addTestArtifact(b, test_step, core.loaded_execution, test_args);
     addTestArtifact(b, test_step, core.lowered_machine, test_args);
     addTestArtifact(b, test_step, core.portable_core, test_args);
+    addTestArtifact(b, test_step, protocol_mod, test_args);
+    addTestArtifact(b, test_step, protocol_artifacts_mod, test_args);
+
+    const protocol_manifest_step = b.step("check-boundary-protocol-manifest", "Check Boundary v0 protocol manifest encoding and fingerprint.");
+    addTestArtifact(b, protocol_manifest_step, host_protocol_mod, proof_test_args);
+
+    const protocol_artifacts_exe = b.addExecutable(.{
+        .name = "boundary-protocol-artifacts",
+        .root_module = protocol_artifacts_mod,
+    });
+
+    const update_public_surface_step = b.step("update-boundary-public-surface", "Update Boundary v0 public-surface snapshot.");
+    update_public_surface_step.dependOn(&addRunArtifactWithArgs(b, protocol_artifacts_exe, &.{"update-public-surface"}).step);
+
+    const public_surface_step = b.step("check-boundary-public-surface", "Check Boundary v0 public-surface snapshot for drift.");
+    public_surface_step.dependOn(&addRunArtifactWithArgs(b, protocol_artifacts_exe, &.{"check-public-surface"}).step);
+
+    const update_corpus_step = b.step("update-boundary-conformance-corpus", "Update Boundary v0 conformance corpus artifacts.");
+    update_corpus_step.dependOn(&addRunArtifactWithArgs(b, protocol_artifacts_exe, &.{"update-corpus"}).step);
+
+    const corpus_step = b.step("check-boundary-conformance-corpus", "Check Boundary v0 conformance corpus artifacts.");
+    corpus_step.dependOn(&addRunArtifactWithArgs(b, protocol_artifacts_exe, &.{"check-corpus"}).step);
+
+    const format_drift_step = b.step("check-boundary-format-drift", "Check Boundary v0 format and public-surface drift.");
+    format_drift_step.dependOn(&addRunArtifactWithArgs(b, protocol_artifacts_exe, &.{"check-format-drift"}).step);
+
+    const adversarial_codecs_step = b.step("check-boundary-adversarial-codecs", "Check Boundary v0 adversarial codec guardrails.");
+    adversarial_codecs_step.dependOn(&addRunArtifactWithArgs(b, protocol_artifacts_exe, &.{"check-adversarial-codecs"}).step);
+
+    const budgets_step = b.step("check-boundary-v0-budgets", "Check Boundary v0 structural budgets.");
+    budgets_step.dependOn(&addRunArtifactWithArgs(b, protocol_artifacts_exe, &.{"check-budgets"}).step);
+
+    const proof_receipts_step = b.step("emit-boundary-proof-receipts", "Emit Boundary v0 proof receipts.");
+    proof_receipts_step.dependOn(protocol_manifest_step);
+    proof_receipts_step.dependOn(public_surface_step);
+    proof_receipts_step.dependOn(format_drift_step);
+    proof_receipts_step.dependOn(corpus_step);
+    proof_receipts_step.dependOn(adversarial_codecs_step);
+    proof_receipts_step.dependOn(budgets_step);
+    const proof_receipts_run = addRunArtifactWithArgs(b, protocol_artifacts_exe, &.{
+        "emit-proof-receipts",
+        "--out-dir",
+        b.getInstallPath(.prefix, "protocol/boundary/proof-receipts"),
+    });
+    proof_receipts_run.step.dependOn(protocol_manifest_step);
+    proof_receipts_run.step.dependOn(public_surface_step);
+    proof_receipts_run.step.dependOn(format_drift_step);
+    proof_receipts_run.step.dependOn(corpus_step);
+    proof_receipts_run.step.dependOn(adversarial_codecs_step);
+    proof_receipts_run.step.dependOn(budgets_step);
+    proof_receipts_step.dependOn(&proof_receipts_run.step);
+
+    const dist_boundary_protocol_step = b.step("dist-boundary-protocol", "Build the Boundary v0 protocol distribution.");
+    const dist_boundary_protocol_run = addRunArtifactWithArgs(b, protocol_artifacts_exe, &.{
+        "dist",
+        "--out-dir",
+        b.getInstallPath(.prefix, "dist/boundary-v" ++ package.version ++ "-protocol"),
+    });
+    dist_boundary_protocol_run.step.dependOn(proof_receipts_step);
+    dist_boundary_protocol_step.dependOn(&dist_boundary_protocol_run.step);
 
     const executable_module_step = b.step("check-boundary-executable-module", "Check executable Certified Boundary Module v2 image foundations.");
     const executable_module_args = TestArgs{
@@ -574,6 +682,54 @@ pub fn build(b: *std.Build) void {
     const loaded_parity_run = addRunArtifactWithArgs(b, loaded_parity_tests, loaded_parity_args.passthrough);
     loaded_parity_step.dependOn(&loaded_parity_run.step);
     loaded_parity_required_step.dependOn(&loaded_parity_run.step);
+
+    const receipt_loaded_v2_step = b.step("check-boundary-loaded-v2-receipt-host", "Check Boundary portable_v2 proof receipts on the host target.");
+    addTestArtifact(b, receipt_loaded_v2_step, host_core.loaded_execution, loaded_v2_args);
+    const receipt_v2_core_evidence_mod = b.createModule(.{
+        .root_source_file = b.path("src/program/evidence.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+    });
+    wireBoundaryImports(receipt_v2_core_evidence_mod, host_core);
+    const receipt_v2_core_evidence_tests = b.addTest(.{ .root_module = receipt_v2_core_evidence_mod, .filters = loaded_v2_args.filters });
+    receipt_loaded_v2_step.dependOn(&addRunArtifactWithArgs(b, receipt_v2_core_evidence_tests, loaded_v2_args.passthrough).step);
+    const receipt_loaded_v2_evidence_mod = b.createModule(.{
+        .root_source_file = b.path("test/evidence_kernel_test.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+    });
+    receipt_loaded_v2_evidence_mod.addImport("boundary", host_boundary);
+    const receipt_v2_evidence_tests = b.addTest(.{ .root_module = receipt_loaded_v2_evidence_mod, .filters = loaded_v2_args.filters });
+    receipt_loaded_v2_step.dependOn(&addRunArtifactWithArgs(b, receipt_v2_evidence_tests, loaded_v2_args.passthrough).step);
+
+    const receipt_loaded_session_step = b.step("check-boundary-loaded-session-receipt-host", "Check loaded-session proof receipts on the host target.");
+    addTestArtifact(b, receipt_loaded_session_step, host_core.loaded_execution, loaded_session_args);
+    addTestArtifact(b, receipt_loaded_session_step, host_boundary_shared, loaded_session_args);
+    const receipt_loaded_evidence_mod = b.createModule(.{
+        .root_source_file = b.path("test/evidence_kernel_test.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+    });
+    receipt_loaded_evidence_mod.addImport("boundary", host_boundary);
+    const receipt_loaded_evidence_tests = b.addTest(.{ .root_module = receipt_loaded_evidence_mod, .filters = loaded_session_args.filters });
+    receipt_loaded_session_step.dependOn(&addRunArtifactWithArgs(b, receipt_loaded_evidence_tests, loaded_session_args.passthrough).step);
+
+    const receipt_loaded_parity_step = b.step("check-boundary-loaded-parity-receipt-host", "Check generated-loaded parity proof receipts on the host target.");
+    const receipt_loaded_parity_mod = b.createModule(.{
+        .root_source_file = b.path("test/evidence_kernel_test.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+    });
+    receipt_loaded_parity_mod.addImport("boundary", host_boundary);
+    const receipt_loaded_parity_tests = b.addTest(.{ .root_module = receipt_loaded_parity_mod, .filters = loaded_parity_args.filters });
+    receipt_loaded_parity_step.dependOn(&addRunArtifactWithArgs(b, receipt_loaded_parity_tests, loaded_parity_args.passthrough).step);
+
+    proof_receipts_step.dependOn(receipt_loaded_v2_step);
+    proof_receipts_step.dependOn(receipt_loaded_session_step);
+    proof_receipts_step.dependOn(receipt_loaded_parity_step);
+    proof_receipts_run.step.dependOn(receipt_loaded_v2_step);
+    proof_receipts_run.step.dependOn(receipt_loaded_session_step);
+    proof_receipts_run.step.dependOn(receipt_loaded_parity_step);
 
     const loaded_import_bindings_step = b.step("check-boundary-loaded-import-bindings", "Check exact loaded residual import/site binding regressions.");
     const loaded_import_bindings_args = TestArgs{

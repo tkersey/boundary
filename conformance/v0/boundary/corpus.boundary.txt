@@ -1,0 +1,21 @@
+Boundary v0 conformance artifact catalog
+format: boundary-conformance-artifact-catalog-v0
+manifest_fingerprint: 0x50aa2c73c76b51f3
+protocol_manifest_sha256: sha256:9c3463acce31dfd4cbd23b39afed80a114e76a793802b879ca9d0957a8255278
+public_surface_fingerprint: 0x9d44e67990624f76
+public_surface_sha256: sha256:8c5a0c659602042aebe3686ce188bcc1a8bb22883daf7d005d2a66f8356de9b7
+artifacts:
+- id: protocol-manifest
+  path: conformance/v0/boundary/protocol-manifest.bin
+  sha256: sha256:9c3463acce31dfd4cbd23b39afed80a114e76a793802b879ca9d0957a8255278
+  replay: zig build check-boundary-format-drift
+- id: public-surface
+  path: conformance/v0/public-surface.boundary.txt
+  sha256: sha256:8c5a0c659602042aebe3686ce188bcc1a8bb22883daf7d005d2a66f8356de9b7
+  replay: zig build check-boundary-public-surface
+
+validation:
+- check-boundary-conformance-corpus compares this catalog and protocol manifest image
+- check-boundary-adversarial-codecs exercises retained malformed manifest mutations
+- semantic positive and negative execution cases remain owned by the named build/test gates
+- update-boundary-conformance-corpus is explicit and not a dependency of check

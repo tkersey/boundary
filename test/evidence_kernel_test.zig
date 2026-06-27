@@ -18445,6 +18445,15 @@ test "certified boundary module reference full image and loaded module projectio
     try std.testing.expectEqual(Target.Module.Kind.full_module, full_report.module_kind);
     try std.testing.expect(full_report.manifest_fingerprint != 0);
     try std.testing.expect(!full_report.compatibility.unsupported_loaded_execution_features);
+    const executable_plan_section = boundaryModuleSection(full, Target.Module.SectionKind.executable_plan_image);
+    try std.testing.expectError(
+        error.LimitExceeded,
+        Evidence.BoundaryTargetModule.decode(allocator, full, .{ .limits = .{ .max_executable_plan_bytes = executable_plan_section.len - 1 } }),
+    );
+    _ = try Target.Module.validate(full, .{
+        .require_full_module = true,
+        .limits = .{ .max_executable_plan_bytes = executable_plan_section.len },
+    });
     const forged_executable_plan = try allocator.dupe(u8, full);
     defer allocator.free(forged_executable_plan);
     var forged_executable_body = boundaryModuleExecutablePlanBody(forged_executable_plan);
@@ -20381,18 +20390,11 @@ test "loaded executable session interprets completing helper calls" {
 
     var constrained_profile = Target.Module.LoadedExecutionProfile.portableV2();
     constrained_profile.limits.maximum_call_depth = 1;
-    var constrained_session = try Target.Module.LoadedModule.Session.startExecutable(
+    try std.testing.expectError(error.UnsupportedLoadedExecutionProfile, Target.Module.LoadedModule.Session.startExecutable(
         allocator,
         &loaded,
         constrained_profile,
-    );
-    defer constrained_session.deinit();
-    const failure = switch (constrained_session.next()) {
-        .failed => |value| value,
-        .done => return error.UnexpectedDone,
-        .request => return error.UnexpectedRequest,
-    };
-    try std.testing.expectEqual(Target.Module.LoadedExecution.ExecutionFailureKind.call_depth_exceeded, failure.kind);
+    ));
 
     var call_helper_disabled_profile = Target.Module.LoadedExecutionProfile.portableV2();
     call_helper_disabled_profile.instruction_kinds.call_helper = false;
