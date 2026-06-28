@@ -4923,6 +4923,9 @@ pub fn ExecutableSessionForPlan(
                             _ = try readTypedValue(reader, scratch, context, variant_ref);
                             break :blk null;
                         } else blk: {
+                            if (comptime variant_ref.codec == .usize and optional_info.child == u64) {
+                                break :blk try reader.readU64();
+                            }
                             const decoded_payload = try readTypedValue(reader, scratch, context, variant_ref);
                             if (comptime variant_ref.codec == .string_list and optional_info.child == [][]const u8) {
                                 break :blk @constCast(decoded_payload);
@@ -4936,6 +4939,9 @@ pub fn ExecutableSessionForPlan(
                                     if (field.type == void) {
                                         _ = try readTypedValue(reader, scratch, context, variant_ref);
                                         break :blk @unionInit(T, field.name, {});
+                                    }
+                                    if (comptime variant_ref.codec == .usize and field.type == u64) {
+                                        break :blk @unionInit(T, field.name, try reader.readU64());
                                     }
                                     const decoded_payload = try readTypedValue(reader, scratch, context, variant_ref);
                                     if (comptime variant_ref.codec == .string_list and field.type == [][]const u8) {

@@ -17,7 +17,7 @@ const boundary_agent_config = BoundaryAgent.Config{
     .max_model_calls = 5,
     .max_tool_calls = 4,
     .max_observation_bytes = 1024,
-    .max_action_bytes = 512,
+    .max_action_bytes = 256,
     .max_tool_result_bytes = 1024,
     .max_trace_entries = 8,
 };
