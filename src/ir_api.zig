@@ -686,27 +686,31 @@ pub const builder = struct {
             };
         }
 
+        fn surfaceValueRefFromTypeField(comptime spec: anytype, comptime T: type) program_plan.ValueRef {
+            if (T == u64) @compileError("semantic builder u64 is supported only as a schema field, not as a function surface value type");
+            return valueRefForType(spec, T);
+        }
+
         fn valueRefFromLocalSpec(comptime spec: anytype, comptime local_spec: anytype) program_plan.ValueRef {
             const LocalSpecType = @TypeOf(local_spec);
+            if (comptime LocalSpecType.is_param and @hasDecl(LocalSpecType, "Type") and LocalSpecType.Type == u64) {
+                @compileError("semantic builder u64 is supported only as a schema field, not as a parameter type");
+            }
             if (@hasField(LocalSpecType, "ref")) return local_spec.ref;
             return valueRefForType(spec, LocalSpecType.Type);
         }
 
-        fn valueRefFromTypeField(comptime spec: anytype, comptime T: type) program_plan.ValueRef {
-            return valueRefForType(spec, T);
-        }
-
         fn functionValueRef(comptime spec: anytype, comptime function_spec: anytype) program_plan.ValueRef {
             if (comptime hasField(function_spec, "value_ref")) return function_spec.value_ref;
-            if (comptime hasField(function_spec, "value")) return valueRefFromTypeField(spec, function_spec.value);
+            if (comptime hasField(function_spec, "value")) return surfaceValueRefFromTypeField(spec, function_spec.value);
             if (comptime hasField(function_spec, "result_ref")) return function_spec.result_ref;
-            if (comptime hasField(function_spec, "result")) return valueRefFromTypeField(spec, function_spec.result);
+            if (comptime hasField(function_spec, "result")) return surfaceValueRefFromTypeField(spec, function_spec.result);
             return .{ .codec = .unit };
         }
 
         fn functionResultRef(comptime spec: anytype, comptime function_spec: anytype) ?program_plan.ValueRef {
             if (comptime hasField(function_spec, "result_ref")) return function_spec.result_ref;
-            if (comptime hasField(function_spec, "result")) return valueRefFromTypeField(spec, function_spec.result);
+            if (comptime hasField(function_spec, "result")) return surfaceValueRefFromTypeField(spec, function_spec.result);
             return null;
         }
 
@@ -1529,6 +1533,7 @@ pub const schema = struct {
             pub const schema_refs = Refs;
 
             pub fn valueRef(comptime T: type) ?program_plan.ValueRef {
+                if (T == u64) return null;
                 const codec = comptime program_plan.codecForType(T) catch return null;
                 return switch (codec) {
                     .product, .sum => Refs.valueRef(T),
@@ -2024,6 +2029,10 @@ pub const schema = struct {
         comptime role: []const u8,
         comptime schema_refs: type,
     ) program_plan.ValueRef {
+        if (T == u64) @compileError(standard.fmt.comptimePrint(
+            "schema.LowerBinding u64 is supported only as a schema field, not as a standalone {s} type",
+            .{role},
+        ));
         const codec = comptime program_plan.codecForType(T) catch |err| @compileError(standard.fmt.comptimePrint(
             "schema.LowerBinding unsupported {s} type '{s}': {s}",
             .{ role, @typeName(T), @errorName(err) },
@@ -2042,6 +2051,10 @@ pub const schema = struct {
         comptime role: []const u8,
         comptime schema_refs: type,
     ) program_plan.ValueRef {
+        if (T == u64) @compileError(standard.fmt.comptimePrint(
+            "schema.Protocol operation u64 is supported only as a schema field, not as a standalone {s} type",
+            .{role},
+        ));
         const codec = comptime program_plan.codecForType(T) catch |err| @compileError(standard.fmt.comptimePrint(
             "schema.Protocol operation unsupported {s} type '{s}': {s}",
             .{ role, @typeName(T), @errorName(err) },
@@ -2993,6 +3006,17 @@ test "schema Registry refs are accepted by Protocol.Rows" {
     try standard.testing.expectEqual(@as(?u16, 0), Rows.ops[0].payload_schema_index);
     try standard.testing.expectEqual(program_plan.ValueCodec.sum, Rows.ops[0].resume_codec);
     try standard.testing.expectEqual(@as(?u16, 1), Rows.ops[0].resume_schema_index);
+}
+
+test "schema Registry rejects standalone u64 while preserving u64 fields" {
+    const RequestPayload = struct {
+        id: u64,
+    };
+    const Schemas = schema.Registry(.{RequestPayload});
+
+    try standard.testing.expect(Schemas.valueRef(u64) == null);
+    try standard.testing.expectEqual(program_plan.ValueCodec.product, Schemas.valueRef(RequestPayload).?.codec);
+    try standard.testing.expectEqual(program_plan.ValueCodec.usize, Schemas.value_fields[0].codec);
 }
 
 test "semantic builder emits valid scalar plan and computes spans" {
