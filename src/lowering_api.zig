@@ -1224,7 +1224,6 @@ fn typeMatchesRuntimeRef(
     if (T == void) return ref.eql(.{ .codec = .unit });
     if (T == bool) return ref.eql(.{ .codec = .bool });
     if (T == i32) return ref.eql(.{ .codec = .i32 });
-    if (T == u64) return ref.eql(.{ .codec = .usize });
     if (T == usize) return ref.eql(.{ .codec = .usize });
     if (T == []const u8) return ref.eql(.{ .codec = .string });
     if (comptime isStringListCarrier(T)) return ref.eql(.{ .codec = .string_list });
@@ -1240,6 +1239,20 @@ fn typeMatchesRuntimeRef(
     }
     return false;
 }
+
+fn typeMatchesSchemaFieldRuntimeRef(
+    comptime schema_types: anytype,
+    ref: program_plan.ValueRef,
+    comptime T: type,
+) bool {
+    if (T == u64) return ref.eql(.{ .codec = .usize });
+    return typeMatchesRuntimeRef(schema_types, ref, T);
+}
+
+const RuntimeRefMatchMode = enum {
+    strict,
+    schema_field,
+};
 
 fn encodeScalarValue(value: anytype) ExecutableValue {
     if (comptime isStringListCarrier(@TypeOf(value))) return .{ .string_list = value };
@@ -1428,6 +1441,11 @@ fn runtimeValueRefForType(comptime schema_types: anytype, comptime T: type) ?pro
     };
 }
 
+fn runtimeSurfaceValueRefForType(comptime schema_types: anytype, comptime T: type) ?program_plan.ValueRef {
+    if (T == u64) return null;
+    return runtimeValueRefForType(schema_types, T);
+}
+
 fn ReturnPayloadType(comptime ReturnType: type) type {
     return switch (@typeInfo(ReturnType)) {
         .error_union => |err_union| err_union.payload,
@@ -1521,6 +1539,26 @@ fn encodeRuntimeValueForRuntimeRef(
 ) anyerror!ExecutableValue {
     const Value = @TypeOf(value);
     if (!typeMatchesRuntimeRef(schema_types, ref, Value)) return error.ProgramContractViolation;
+    return encodeRuntimeValueForMatchedRuntimeRef(ref, scratch, value);
+}
+
+fn encodeSchemaFieldRuntimeValueForRuntimeRef(
+    comptime schema_types: anytype,
+    ref: program_plan.ValueRef,
+    scratch: anytype,
+    value: anytype,
+) anyerror!ExecutableValue {
+    const Value = @TypeOf(value);
+    if (!typeMatchesSchemaFieldRuntimeRef(schema_types, ref, Value)) return error.ProgramContractViolation;
+    return encodeRuntimeValueForMatchedRuntimeRef(ref, scratch, value);
+}
+
+fn encodeRuntimeValueForMatchedRuntimeRef(
+    ref: program_plan.ValueRef,
+    scratch: anytype,
+    value: anytype,
+) anyerror!ExecutableValue {
+    const Value = @TypeOf(value);
     if (comptime Value == void or Value == bool or Value == i32 or Value == u64 or Value == usize or Value == []const u8 or isStringListCarrier(Value)) {
         return encodeScalarValue(value);
     }
@@ -1704,7 +1742,7 @@ fn extractVariantPayloadForTyped(
                 if (variant_ordinal == field_index) {
                     if (field.type == void) return error.ProgramContractViolation;
                     return .{
-                        .value = try encodeRuntimeValueForRuntimeRef(schema_types, ref, scratch, @field(value, field.name)),
+                        .value = try encodeSchemaFieldRuntimeValueForRuntimeRef(schema_types, ref, scratch, @field(value, field.name)),
                         .ref = ref,
                     };
                 }
@@ -1715,7 +1753,7 @@ fn extractVariantPayloadForTyped(
             _ = optional_info;
             if (variant_ordinal != 1) return error.ProgramContractViolation;
             return .{
-                .value = try encodeRuntimeValueForRuntimeRef(schema_types, ref, scratch, value.?),
+                .value = try encodeSchemaFieldRuntimeValueForRuntimeRef(schema_types, ref, scratch, value.?),
                 .ref = ref,
             };
         },
@@ -1756,7 +1794,7 @@ fn extractProductFieldForTyped(
             inline for (struct_info.fields, 0..) |field, field_index| {
                 if (field_ordinal == field_index) {
                     return .{
-                        .value = try encodeRuntimeValueForRuntimeRef(schema_types, ref, scratch, @field(value, field.name)),
+                        .value = try encodeSchemaFieldRuntimeValueForRuntimeRef(schema_types, ref, scratch, @field(value, field.name)),
                         .ref = ref,
                     };
                 }
@@ -2428,7 +2466,7 @@ pub fn sessionAfterProtocolInputRefForOperationSite(
         const Authored = AfterDispatchHandlerType(compiled_plan, op, HandlersType);
         if (comptime !afterDispatchHasRuntimeShape(Authored)) return null;
         const Input = CallableParamPayloadType(Authored.afterDispatch, 1);
-        return runtimeValueRefForType(schema_types, Input) orelse
+        return runtimeSurfaceValueRefForType(schema_types, Input) orelse
             @compileError("afterDispatch input type is not representable by Program.Session protocol: " ++ @typeName(Input));
     }
     return null;
@@ -2447,7 +2485,7 @@ pub fn sessionAfterProtocolOutputRefForOperationSite(
         const Authored = AfterDispatchHandlerType(compiled_plan, op, HandlersType);
         if (comptime !afterDispatchHasRuntimeShape(Authored)) return operation_site.result_ref;
         const Output = CallableReturnPayloadType(Authored.afterDispatch);
-        return runtimeValueRefForType(schema_types, Output) orelse
+        return runtimeSurfaceValueRefForType(schema_types, Output) orelse
             @compileError("afterDispatch output type is not representable by Program.Session protocol: " ++ @typeName(Output));
     }
     return operation_site.result_ref;
@@ -2502,6 +2540,7 @@ fn applyAfterByIndexForRefInferred(
             if (comptime !afterDispatchAccepts(compiled_plan, schema_types, @TypeOf(authored), input_ref)) return error.ProgramContractViolation;
             const decoded = try decodeTypedValue(compiled_plan, schema_types, input_ref, value);
             const Value = CallableReturnPayloadType(HandlerType(@TypeOf(authored)).afterDispatch);
+            if (comptime Value == u64) return error.ProgramContractViolation;
             var output = try prepareRuntimeValueForType(schema_types, scratch, Value);
             const completed = try authored.afterDispatch(decoded);
             return .{
@@ -2694,7 +2733,7 @@ fn sessionIntermediateAfterOutputRefByIndexForRef(
             const Authored = AfterDispatchHandlerType(compiled_plan, op, HandlersType);
             if (comptime !afterDispatchAccepts(compiled_plan, schema_types, Authored, input_ref)) return error.ProgramContractViolation;
             const Value = CallableReturnPayloadType(Authored.afterDispatch);
-            return runtimeValueRefForType(schema_types, Value) orelse error.ProgramContractViolation;
+            return runtimeSurfaceValueRefForType(schema_types, Value) orelse error.ProgramContractViolation;
         }
     }
     return error.ProgramContractViolation;
@@ -4743,7 +4782,7 @@ pub fn ExecutableSessionForPlan(
             comptime ref: program_plan.ValueRef,
             value: anytype,
         ) anyerror!void {
-            if (!typeMatchesRuntimeRef(schema_types, ref, @TypeOf(value))) return error.ProgramContractViolation;
+            if (!typeMatchesSchemaFieldRuntimeRef(schema_types, ref, @TypeOf(value))) return error.ProgramContractViolation;
             switch (comptime ref.codec) {
                 .unit => {},
                 .bool => try writer.writeBool(value),
@@ -6082,12 +6121,29 @@ pub fn ExecutableSessionForPlan(
         }
 
         fn fingerprintTypedValueForRef(ref: program_plan.ValueRef, value: anytype) error{ProgramContractViolation}!u64 {
-            if (!typeMatchesRuntimeRef(schema_types, ref, @TypeOf(value))) return error.ProgramContractViolation;
+            return fingerprintTypedValueForRefMode(ref, value, .strict);
+        }
+
+        fn fingerprintSchemaFieldTypedValueForRef(ref: program_plan.ValueRef, value: anytype) error{ProgramContractViolation}!u64 {
+            return fingerprintTypedValueForRefMode(ref, value, .schema_field);
+        }
+
+        fn fingerprintTypedValueForRefMode(
+            ref: program_plan.ValueRef,
+            value: anytype,
+            comptime match_mode: RuntimeRefMatchMode,
+        ) error{ProgramContractViolation}!u64 {
+            const Value = @TypeOf(value);
+            const matches_ref = switch (match_mode) {
+                .strict => typeMatchesRuntimeRef(schema_types, ref, Value),
+                .schema_field => typeMatchesSchemaFieldRuntimeRef(schema_types, ref, Value),
+            };
+            if (!matches_ref) return error.ProgramContractViolation;
             var hasher = std.hash.Wyhash.init(0);
             traceHashBytes(&hasher, "boundary.session.value");
             traceHashU32(&hasher, trace_fingerprint_version);
             traceHashValueRef(&hasher, ref);
-            try traceHashTypedValuePayload(&hasher, ref, value);
+            try traceHashTypedValuePayload(&hasher, ref, value, match_mode);
             return hasher.final();
         }
 
@@ -6158,8 +6214,14 @@ pub fn ExecutableSessionForPlan(
             hasher: *std.hash.Wyhash,
             ref: program_plan.ValueRef,
             value: anytype,
+            comptime match_mode: RuntimeRefMatchMode,
         ) error{ProgramContractViolation}!void {
-            if (!typeMatchesRuntimeRef(schema_types, ref, @TypeOf(value))) return error.ProgramContractViolation;
+            const Value = @TypeOf(value);
+            const matches_ref = switch (match_mode) {
+                .strict => typeMatchesRuntimeRef(schema_types, ref, Value),
+                .schema_field => typeMatchesSchemaFieldRuntimeRef(schema_types, ref, Value),
+            };
+            if (!matches_ref) return error.ProgramContractViolation;
             if (comptime isStringListCarrier(@TypeOf(value))) {
                 if (!ref.eql(.{ .codec = .string_list })) return error.ProgramContractViolation;
                 traceHashUsize(hasher, value.len);
@@ -6240,7 +6302,7 @@ pub fn ExecutableSessionForPlan(
                 traceHashU16(hasher, @intCast(field_offset));
                 traceHashBytes(hasher, field.name);
                 traceHashValueRef(hasher, field_ref);
-                const field_fingerprint = try fingerprintTypedValueForRef(field_ref, @field(value, field.name));
+                const field_fingerprint = try fingerprintSchemaFieldTypedValueForRef(field_ref, @field(value, field.name));
                 traceHashU64(hasher, field_fingerprint);
             }
         }
@@ -6282,16 +6344,16 @@ pub fn ExecutableSessionForPlan(
             value: T,
         ) error{ProgramContractViolation}!u64 {
             return switch (@typeInfo(T)) {
-                .@"enum" => fingerprintTypedValueForRef(variant_ref, {}),
+                .@"enum" => fingerprintSchemaFieldTypedValueForRef(variant_ref, {}),
                 .optional => if (variant_offset == 0)
-                    fingerprintTypedValueForRef(variant_ref, {})
+                    fingerprintSchemaFieldTypedValueForRef(variant_ref, {})
                 else
-                    fingerprintTypedValueForRef(variant_ref, value.?),
+                    fingerprintSchemaFieldTypedValueForRef(variant_ref, value.?),
                 .@"union" => |union_info| blk: {
                     inline for (union_info.fields, 0..) |field, field_index| {
                         if (variant_offset == field_index) {
-                            if (field.type == void) break :blk fingerprintTypedValueForRef(variant_ref, {});
-                            break :blk fingerprintTypedValueForRef(variant_ref, @field(value, field.name));
+                            if (field.type == void) break :blk fingerprintSchemaFieldTypedValueForRef(variant_ref, {});
+                            break :blk fingerprintSchemaFieldTypedValueForRef(variant_ref, @field(value, field.name));
                         }
                     }
                     return error.ProgramContractViolation;
@@ -6398,8 +6460,29 @@ pub fn ExecutableSessionForPlan(
             clone_context: *CloneContext,
             value: anytype,
         ) anyerror!@TypeOf(value) {
+            return cloneTypedRuntimeValueForRefMode(ref, clone_context, value, .strict);
+        }
+
+        fn cloneSchemaFieldTypedRuntimeValueForRef(
+            ref: program_plan.ValueRef,
+            clone_context: *CloneContext,
+            value: anytype,
+        ) anyerror!@TypeOf(value) {
+            return cloneTypedRuntimeValueForRefMode(ref, clone_context, value, .schema_field);
+        }
+
+        fn cloneTypedRuntimeValueForRefMode(
+            ref: program_plan.ValueRef,
+            clone_context: *CloneContext,
+            value: anytype,
+            comptime match_mode: RuntimeRefMatchMode,
+        ) anyerror!@TypeOf(value) {
             const ValueT = @TypeOf(value);
-            if (!typeMatchesRuntimeRef(schema_types, ref, ValueT)) return error.ProgramContractViolation;
+            const matches_ref = switch (match_mode) {
+                .strict => typeMatchesRuntimeRef(schema_types, ref, ValueT),
+                .schema_field => typeMatchesSchemaFieldRuntimeRef(schema_types, ref, ValueT),
+            };
+            if (!matches_ref) return error.ProgramContractViolation;
             if (ValueT == void or ValueT == bool or ValueT == i32 or ValueT == u64 or ValueT == usize) return value;
             if (ValueT == []const u8) return try clone_context.cloneString(value);
             if (ValueT == []const []const u8) return try clone_context.cloneStringList(value);
@@ -6437,7 +6520,7 @@ pub fn ExecutableSessionForPlan(
                     .codec = field.codec,
                     .schema_index = field.schema_index,
                 };
-                @field(cloned, field.name) = try cloneTypedRuntimeValueForRef(
+                @field(cloned, field.name) = try cloneSchemaFieldTypedRuntimeValueForRef(
                     field_ref,
                     clone_context,
                     @field(value, field.name),
@@ -6466,7 +6549,7 @@ pub fn ExecutableSessionForPlan(
                         .codec = variant.codec,
                         .schema_index = variant.schema_index,
                     };
-                    break :blk try cloneTypedRuntimeValueForRef(variant_ref, clone_context, value.?);
+                    break :blk try cloneSchemaFieldTypedRuntimeValueForRef(variant_ref, clone_context, value.?);
                 },
                 .@"union" => |union_info| blk: {
                     const Tag = union_info.tag_type orelse return error.ProgramContractViolation;
@@ -6482,7 +6565,7 @@ pub fn ExecutableSessionForPlan(
                             break :blk @unionInit(
                                 T,
                                 field.name,
-                                try cloneTypedRuntimeValueForRef(variant_ref, clone_context, @field(value, field.name)),
+                                try cloneSchemaFieldTypedRuntimeValueForRef(variant_ref, clone_context, @field(value, field.name)),
                             );
                         }
                     }
@@ -8459,6 +8542,54 @@ fn supportOpPlan(comptime payload_codec: program_plan.ValueCodec, comptime resum
     }) catch |err| supportPlanError(err);
 }
 
+fn supportStandaloneUsizeOpPlan() program_plan.ProgramPlan {
+    const root = program_plan.program_plan_builder.function(0);
+    const payload = program_plan.program_plan_builder.local(root, 0);
+    const resumed = program_plan.program_plan_builder.local(root, 1);
+    const instructions = [_]program_plan.Instruction{
+        program_plan.program_plan_builder.callOp(root, resumed, program_plan.program_plan_builder.op(root, 0), payload) catch |err| supportPlanError(err),
+    };
+    const functions = [_]program_plan.FunctionPlan{.{
+        .symbol_name = "run",
+        .value_codec = .unit,
+        .parameter_count = 1,
+        .first_requirement = 0,
+        .requirement_count = 1,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 2,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const requirements = [_]program_plan.RequirementPlan{.{ .label = "usize", .first_op = 0, .op_count = 1 }};
+    const ops = [_]program_plan.OpPlan{.{
+        .requirement_index = 0,
+        .op_name = "usize",
+        .mode = .transform,
+        .payload_codec = .usize,
+        .resume_codec = .usize,
+    }};
+    const blocks = [_]program_plan.BlockPlan{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
+    const terminators = [_]program_plan.Terminator{.{ .kind = .return_unit }};
+    return program_plan.program_plan_builder.finish(.{
+        .label = "standalone-usize-op",
+        .ir_hash = 124,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .locals = &.{ .{ .codec = .usize }, .{ .codec = .usize } },
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch |err| supportPlanError(err);
+}
+
 fn supportNestedWithPlan() program_plan.ProgramPlan {
     const root = program_plan.program_plan_builder.function(0);
     const instructions = [_]program_plan.Instruction{.{
@@ -9558,6 +9689,34 @@ test "Program.Session cloneState preserves last_return aliases into cloned scrat
         frame.last_return,
     );
     try std.testing.expectEqualStrings("restored", last_return.items[0]);
+}
+
+test "Program.Session rejects u64 typed access to standalone usize sites" {
+    const compiled_plan = supportStandaloneUsizeOpPlan();
+    const Core = ExecutableSessionForPlan(
+        error{ProgramContractViolation},
+        "session-standalone-usize-u64-boundary",
+        compiled_plan,
+        .{},
+        &.{},
+        struct {},
+        struct {},
+    );
+
+    var core = try Core.start(std.testing.allocator, .{@as(usize, 7)});
+    defer core.deinit();
+
+    const request = switch (try core.next()) {
+        .request => |request| request,
+        .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+
+    try std.testing.expectEqual(@as(usize, 7), try request.payload(usize));
+    try std.testing.expectError(error.ProgramContractViolation, request.payload(u64));
+    _ = try request.responseTrace(.@"resume", @as(usize, 11));
+    try std.testing.expectError(error.ProgramContractViolation, request.responseTrace(.@"resume", @as(u64, 11)));
+    try core.@"resume"(request, @as(usize, 11));
 }
 
 test "Program.Session decoded operation pending requires a resumable active frame" {
