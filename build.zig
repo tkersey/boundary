@@ -1425,19 +1425,19 @@ pub fn build(b: *std.Build) void {
     emit_boundary_agent_runtime.step.dependOn(agent_parity_step);
     const emit_runtime_step = b.step("emit-boundary-agent-runtime-artifacts", "Emit Boundary Agent Runtime pack-ready module artifacts.");
     emit_runtime_step.dependOn(&emit_boundary_agent_runtime.step);
-    const check_boundary_agent_runtime = b.addSystemCommand(&.{
-        "sh",
-        "-c",
-        b.fmt("test -s {s}/agent-root.full-module && test -s {s}/toolbox-provider.full-module && test -s {s}/boundary-protocol-manifest.bin && test -s {s}/agent-profile.json", .{
-            runtime_dist_dir,
-            runtime_dist_dir,
-            runtime_dist_dir,
-            runtime_dist_dir,
-        }),
-    });
-    check_boundary_agent_runtime.step.dependOn(&emit_boundary_agent_runtime.step);
     const check_runtime_step = b.step("check-boundary-agent-runtime-artifacts", "Check Boundary Agent Runtime pack-ready artifacts.");
-    check_runtime_step.dependOn(&check_boundary_agent_runtime.step);
+    const check_agent_root = b.addSystemCommand(&.{ "test", "-s", b.fmt("{s}/agent-root.full-module", .{runtime_dist_dir}) });
+    check_agent_root.step.dependOn(&emit_boundary_agent_runtime.step);
+    check_runtime_step.dependOn(&check_agent_root.step);
+    const check_toolbox = b.addSystemCommand(&.{ "test", "-s", b.fmt("{s}/toolbox-provider.full-module", .{runtime_dist_dir}) });
+    check_toolbox.step.dependOn(&emit_boundary_agent_runtime.step);
+    check_runtime_step.dependOn(&check_toolbox.step);
+    const check_protocol = b.addSystemCommand(&.{ "test", "-s", b.fmt("{s}/boundary-protocol-manifest.bin", .{runtime_dist_dir}) });
+    check_protocol.step.dependOn(&emit_boundary_agent_runtime.step);
+    check_runtime_step.dependOn(&check_protocol.step);
+    const check_profile = b.addSystemCommand(&.{ "test", "-s", b.fmt("{s}/agent-profile.json", .{runtime_dist_dir}) });
+    check_profile.step.dependOn(&emit_boundary_agent_runtime.step);
+    check_runtime_step.dependOn(&check_profile.step);
     check_step.dependOn(check_runtime_step);
 
     const bench_check_step = b.step("bench-check", "Compile retained benchmark programs.");
