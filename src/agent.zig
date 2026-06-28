@@ -203,7 +203,8 @@ pub const State = struct {
     trace_summary: TraceSummary = .{},
 
     /// Initialize state from a goal, initial observation, and config.
-    pub fn init(goal: []const u8, initial_observation: []const u8, config: Config) State {
+    pub fn init(goal: []const u8, initial_observation: []const u8, config: Config) ObservationError!State {
+        if (initial_observation.len > config.max_observation_bytes) return error.AgentObservationTooLarge;
         return .{
             .goal = goal,
             .current_observation = initial_observation,
@@ -589,6 +590,9 @@ pub const Profile = struct {
         for (self.supported_tool_variants, 0..) |tool_id, index| {
             if (@as(usize, tool_id.index) != index) return error.AgentProfileToolSurfaceMismatch;
             if (tool_id.label.len == 0) return error.AgentProfileToolSurfaceMismatch;
+            for (self.supported_tool_variants[0..index]) |prior| {
+                if (std.mem.eql(u8, tool_id.label, prior.label)) return error.AgentProfileToolSurfaceMismatch;
+            }
         }
         if (!std.mem.eql(u64, self.value_schema_fingerprints, &canonical_schema_fingerprints)) {
             return error.AgentProfileSchemaSurfaceMismatch;
@@ -703,6 +707,10 @@ test "Agent profile validation requires complete tool and schema surfaces" {
 
     profile = Profile.fromConfig(config, &.{ tools.id(1), tools.id(0) }, canonicalValueSchemaFingerprints(), "profile-surface-test");
     try std.testing.expectError(error.AgentProfileToolSurfaceMismatch, profile.validate());
+
+    profile = Profile.fromConfig(config, &.{ tools.id(0), .{ .index = 1, .label = "actuate" } }, canonicalValueSchemaFingerprints(), "profile-surface-test");
+    profile.profile_fingerprint = profile.computeFingerprint();
+    try std.testing.expectError(error.AgentProfileToolSurfaceMismatch, profile.validate());
 }
 
 test "Agent closed ToolId set dispatches by generated index, not diagnostic labels" {
@@ -774,7 +782,7 @@ test "Agent state budget fails closed before extra model or tool calls" {
         .max_tool_result_bytes = 128,
         .max_trace_entries = 2,
     };
-    var state = State.init("goal=fixture", "goal=fixture", config);
+    var state = try State.init("goal=fixture", "goal=fixture", config);
     try state.beginModelDecision();
     try std.testing.expectError(error.AgentBudgetExhausted, state.beginModelDecision());
     try state.beginToolCall();
@@ -791,7 +799,7 @@ test "Agent model decision budget failure does not consume iteration" {
         .max_tool_result_bytes = 128,
         .max_trace_entries = 2,
     };
-    var state = State.init("goal=fixture", "goal=fixture", config);
+    var state = try State.init("goal=fixture", "goal=fixture", config);
     try state.beginModelDecision();
     try std.testing.expectEqual(@as(u32, 1), state.remaining_budget.remaining_iterations);
     try std.testing.expectEqual(@as(u32, 0), state.remaining_budget.remaining_model_calls);
@@ -812,7 +820,8 @@ test "Agent tool observations obey the observation byte cap" {
         .max_tool_result_bytes = 8,
         .max_trace_entries = 2,
     };
-    var state = State.init("goal", "seed", config);
+    var state = try State.init("goal", "seed", config);
+    try std.testing.expectError(error.AgentObservationTooLarge, State.init("goal", "12345", config));
     try std.testing.expectError(error.AgentObservationTooLarge, observeToolResult(config, &state, .{
         .tool_id = .{ .index = 0, .label = "actuate" },
         .bytes = "12345",

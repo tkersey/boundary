@@ -73,7 +73,7 @@ fn callTool(request: Agent.ToolRequest) !Agent.ToolResult {
 }
 
 fn runScenario(scenario: Scenario, initial_observation: []const u8, run_config: Agent.Config) !Outcome {
-    var state = Agent.State.init(initial_observation, initial_observation, run_config);
+    var state = try Agent.State.init(initial_observation, initial_observation, run_config);
     while (state.terminal_status == .running) {
         state.beginModelDecision() catch |err| {
             state.fail();
