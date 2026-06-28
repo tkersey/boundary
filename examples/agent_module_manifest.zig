@@ -41,7 +41,7 @@ test "Agent module manifest binds real full module bytes to profile provenance" 
     var built = try Agent.buildToolboxModule(Target, allocator, profile());
     defer built.deinit(allocator);
     const artifact = built.artifact;
-    try artifact.validate(profile(), .toolbox);
+    try artifact.validate(profile(), .toolbox, built.bytes);
     try std.testing.expectEqual(Agent.fingerprintBytes(built.bytes), artifact.byte_fingerprint);
     try std.testing.expect(artifact.import_count > 0);
 }

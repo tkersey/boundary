@@ -2,7 +2,7 @@ Boundary Agent Profile v0 conformance corpus
 format: boundary-agent-conformance-corpus-v0
 profile_format_version: 0
 profile_fingerprint_version: 1
-profile_fingerprint: 0x0bad5b8f7ee4261a
+profile_fingerprint: 0x064a970512351289
 max_iterations: 5
 max_model_calls: 5
 max_tool_calls: 4
@@ -32,8 +32,8 @@ value_schemas:
   codec: product(entry_count:u32,last_event:string,last_fingerprint:u64)
   fingerprint: 0x6288da61bf1ab2f4
 - name: Agent.State
-  codec: product(goal:string,current_observation:string,prior_observation_summary:string,iteration_index:u32,remaining_budget:Agent.Budget,model_call_count:u32,tool_call_count:u32,terminal_status:u8,trace_summary:Agent.TraceSummary)
-  fingerprint: 0x0236f72521357ea2
+  codec: product(goal:string,current_observation:string,prior_observation_summary:string,iteration_index:u32,remaining_budget:Agent.Budget,model_call_count:u32,tool_call_count:u32,terminal_status:enum(running=0,completed=1,failed=2),trace_summary:Agent.TraceSummary)
+  fingerprint: 0x178c0989d351a520
 - name: Agent.DecisionPrompt
   codec: product(goal:string,observation:string,trace_summary:Agent.TraceSummary,budget:Agent.Budget)
   fingerprint: 0x06522581f185e215

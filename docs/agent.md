@@ -26,7 +26,9 @@ The framing is:
 The fingerprint binds the limit fields, supported action variants, closed tool
 variants, value-schema fingerprints, and metadata bytes. Validation rejects
 unsupported format/fingerprint versions, empty capacities, incomplete tool or
-schema surfaces, action-surface mismatch, and fingerprint drift.
+schema surfaces, action-surface mismatch, and fingerprint drift. The
+`Agent.State` schema binds the concrete `TerminalStatus` tag mapping, so
+renumbering terminal states changes the profile/corpus fingerprint surface.
 
 `Agent.canonical_value_schemas` defines the Agent-owned portable value schemas
 and fingerprints for `Agent.Goal`, `Agent.Observation`,
@@ -46,7 +48,7 @@ fingerprint, full-module byte length, and full-module byte fingerprint.
 `Agent.buildRootModule`, `Agent.buildToolboxModule`, and
 `Agent.buildFixtureModelModule` are helper builders over existing compile-time
 Boundary module targets. Each helper emits owned full-module bytes and a
-validated `ModuleArtifact` for the requested role.
+validated `ModuleArtifact` for the requested role and byte identity.
 
 It is not a package registry or a new execution path. It is a small provenance
 record that lets conformance examples prove that an Agent profile is bound to

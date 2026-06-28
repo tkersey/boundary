@@ -52,6 +52,15 @@ pub const TerminalStatus = enum(u8) {
     running = 0,
 };
 
+const terminal_status_codec = std.fmt.comptimePrint(
+    "enum(running={d},completed={d},failed={d})",
+    .{
+        @intFromEnum(TerminalStatus.running),
+        @intFromEnum(TerminalStatus.completed),
+        @intFromEnum(TerminalStatus.failed),
+    },
+);
+
 /// Role assigned to an Agent-related Certified Boundary Module artifact.
 pub const ModuleRole = enum(u8) {
     fixture_model = 2,
@@ -349,7 +358,7 @@ pub const canonical_value_schemas = [_]ValueSchema{
     schema("Agent.Observation", "string"),
     schema("Agent.Budget", "product(max_iterations:u32,max_model_calls:u32,max_tool_calls:u32,remaining_iterations:u32,remaining_model_calls:u32,remaining_tool_calls:u32)"),
     schema("Agent.TraceSummary", "product(entry_count:u32,last_event:string,last_fingerprint:u64)"),
-    schema("Agent.State", "product(goal:string,current_observation:string,prior_observation_summary:string,iteration_index:u32,remaining_budget:Agent.Budget,model_call_count:u32,tool_call_count:u32,terminal_status:u8,trace_summary:Agent.TraceSummary)"),
+    schema("Agent.State", "product(goal:string,current_observation:string,prior_observation_summary:string,iteration_index:u32,remaining_budget:Agent.Budget,model_call_count:u32,tool_call_count:u32,terminal_status:" ++ terminal_status_codec ++ ",trace_summary:Agent.TraceSummary)"),
     schema("Agent.DecisionPrompt", "product(goal:string,observation:string,trace_summary:Agent.TraceSummary,budget:Agent.Budget)"),
     schema("Agent.Action", "sum(final:string,tool:Agent.ToolRequest,fail:string)"),
     schema("Agent.ToolId", "product(index:u16,diagnostic_label:string)"),
@@ -410,8 +419,8 @@ pub const ModuleArtifact = struct {
         };
     }
 
-    /// Validate that the module artifact matches the expected profile and role.
-    pub fn validate(self: ModuleArtifact, profile: Profile, expected_role: ModuleRole) ModuleArtifactValidationError!void {
+    /// Validate that the module artifact matches the expected profile, role, and bytes.
+    pub fn validate(self: ModuleArtifact, profile: Profile, expected_role: ModuleRole, bytes: []const u8) ModuleArtifactValidationError!void {
         try profile.validate();
         if (self.role != expected_role) return error.AgentModuleRoleMismatch;
         if (self.profile_fingerprint != profile.profile_fingerprint) return error.AgentProfileFingerprintMismatch;
@@ -421,6 +430,8 @@ pub const ModuleArtifact = struct {
         if (self.export_result_fingerprint == 0) return error.AgentModuleFingerprintMissing;
         if (self.byte_len == 0) return error.AgentModuleBytesEmpty;
         if (self.byte_fingerprint == 0) return error.AgentModuleFingerprintMissing;
+        if (self.byte_len != bytes.len) return error.AgentModuleByteLengthMismatch;
+        if (self.byte_fingerprint != fingerprintBytes(bytes)) return error.AgentModuleByteFingerprintMismatch;
     }
 };
 
@@ -468,7 +479,7 @@ fn buildModule(comptime role: ModuleRole, comptime Target: type, allocator: std.
         .export_result_fingerprint = valueRefFingerprint(loaded.exportMain().result_ref),
         .bytes = bytes,
     });
-    try artifact.validate(profile, role);
+    try artifact.validate(profile, role, bytes);
 
     return .{
         .artifact = artifact,
@@ -653,6 +664,8 @@ test "Agent canonical value schema fingerprints are stable profile inputs" {
     try std.testing.expectEqualStrings("Agent.Goal", canonical_value_schemas[0].name);
     try std.testing.expectEqualStrings("Agent.Budget", canonical_value_schemas[2].name);
     try std.testing.expectEqualStrings("Agent.State", canonical_value_schemas[4].name);
+    try std.testing.expect(std.mem.find(u8, canonical_value_schemas[4].codec, "terminal_status:enum(running=0,completed=1,failed=2)") != null);
+    try std.testing.expect(canonical_value_schemas[4].fingerprint != schemaFingerprint("Agent.State", "product(goal:string,current_observation:string,prior_observation_summary:string,iteration_index:u32,remaining_budget:Agent.Budget,model_call_count:u32,tool_call_count:u32,terminal_status:u8,trace_summary:Agent.TraceSummary)"));
     try std.testing.expectEqualStrings("Agent.ToolPayload", canonical_value_schemas[8].name);
     try std.testing.expectEqualStrings("Agent.ToolRequest", canonical_value_schemas[9].name);
     try std.testing.expect(canonical_value_schemas[0].fingerprint != schemaFingerprint("Agent.Goal", "bytes"));
@@ -776,9 +789,10 @@ test "Agent module artifact binds profile and full module byte identity" {
         .export_result_fingerprint = 0x4444,
         .bytes = bytes,
     });
-    try artifact.validate(profile, .toolbox);
+    try artifact.validate(profile, .toolbox, bytes);
     try std.testing.expectEqual(fingerprintBytes(bytes), artifact.byte_fingerprint);
-    try std.testing.expectError(error.AgentModuleRoleMismatch, artifact.validate(profile, .root));
+    try std.testing.expectError(error.AgentModuleRoleMismatch, artifact.validate(profile, .root, bytes));
+    try std.testing.expectError(error.AgentModuleByteFingerprintMismatch, artifact.validate(profile, .toolbox, "certified-boundary-module-forgery"));
 }
 
 test "Agent state budget fails closed before extra model or tool calls" {
