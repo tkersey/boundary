@@ -1421,8 +1421,8 @@ pub fn build(b: *std.Build) void {
     });
     const emit_boundary_agent_runtime = b.addRunArtifact(boundary_agent_runtime_exe);
     emit_boundary_agent_runtime.addArgs(&.{ "export-agent-runtime", runtime_dist_dir });
-    emit_boundary_agent_runtime.step.dependOn(agent_modules_step);
-    emit_boundary_agent_runtime.step.dependOn(agent_parity_step);
+    emit_boundary_agent_runtime.step.dependOn(receipt_agent_modules_step);
+    emit_boundary_agent_runtime.step.dependOn(receipt_agent_parity_step);
     const emit_runtime_step = b.step("emit-boundary-agent-runtime-artifacts", "Emit Boundary Agent Runtime pack-ready module artifacts.");
     emit_runtime_step.dependOn(&emit_boundary_agent_runtime.step);
     const check_runtime_step = b.step("check-boundary-agent-runtime-artifacts", "Check Boundary Agent Runtime pack-ready artifacts.");
