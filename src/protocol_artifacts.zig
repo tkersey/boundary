@@ -15,6 +15,7 @@ const default_proof_receipts_dir = "zig-out/protocol/boundary/proof-receipts";
 const default_dist_dir = "zig-out/dist/boundary-v" ++ protocol.Protocol.Manifest.boundary_package_version ++ "-protocol";
 const compatibility_doc_path = "docs/compatibility.md";
 const security_model_doc_path = "docs/security_model.md";
+const agent_doc_path = "docs/agent.md";
 
 const proof_commands = [_]struct {
     proof_id: []const u8,
@@ -164,6 +165,7 @@ fn dist(init: std.process.Init, allocator: std.mem.Allocator, output_dir: []cons
     const checksums = try checksumsAlloc(allocator, manifest, surface, corpus, agent_corpus);
     const compatibility_doc = try std.Io.Dir.cwd().readFileAlloc(init.io, compatibility_doc_path, allocator, .limited(64 * 1024));
     const security_model_doc = try std.Io.Dir.cwd().readFileAlloc(init.io, security_model_doc_path, allocator, .limited(64 * 1024));
+    const agent_doc = try std.Io.Dir.cwd().readFileAlloc(init.io, agent_doc_path, allocator, .limited(64 * 1024));
 
     try std.Io.Dir.cwd().createDirPath(init.io, try joinPath(allocator, output_dir, "conformance/v0/boundary"));
     try std.Io.Dir.cwd().createDirPath(init.io, try joinPath(allocator, output_dir, "conformance/v0/agent"));
@@ -184,6 +186,7 @@ fn dist(init: std.process.Init, allocator: std.mem.Allocator, output_dir: []cons
     }
     try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = try joinPath(allocator, output_dir, "docs/compatibility.md"), .data = compatibility_doc });
     try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = try joinPath(allocator, output_dir, "docs/security_model.md"), .data = security_model_doc });
+    try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = try joinPath(allocator, output_dir, "docs/agent.md"), .data = agent_doc });
 }
 
 fn publicSurfaceSnapshotAlloc(allocator: std.mem.Allocator) ![]u8 {

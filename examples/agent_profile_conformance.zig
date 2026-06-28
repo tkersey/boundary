@@ -158,22 +158,23 @@ fn runScenario(scenario: Scenario, initial_observation: []const u8, run_config: 
     return error.UnreachableTerminalState;
 }
 
-fn expectCompleted(outcome: Outcome, expected: []const u8, expected_tool_calls: u32) !void {
+fn expectCompleted(outcome: Outcome, expected: []const u8, expected_model_calls: u32, expected_tool_calls: u32) !void {
     try std.testing.expectEqual(Agent.TerminalStatus.completed, outcome.terminal_status);
     try std.testing.expectEqualStrings(expected, outcome.final_text);
+    try std.testing.expectEqual(expected_model_calls, outcome.model_calls);
     try std.testing.expectEqual(expected_tool_calls, outcome.tool_calls);
 }
 
 test "Agent Profile conformance skeleton one-tool flow" {
     const outcome = try runScenario(.skeleton, "goal=invoke", config);
-    try expectCompleted(outcome, skeleton_final, 1);
+    try expectCompleted(outcome, skeleton_final, 2, 1);
 }
 
 test "Agent Profile conformance fixture read write flow" {
     _ = fixture_input;
     _ = fixture_output;
     const outcome = try runScenario(.fixture, "goal=fixture", config);
-    try expectCompleted(outcome, fixture_final, 2);
+    try expectCompleted(outcome, fixture_final, 3, 2);
 }
 
 test "Agent Profile conformance budget exhaustion fails deterministically" {
@@ -184,12 +185,15 @@ test "Agent Profile conformance budget exhaustion fails deterministically" {
     const outcome = try runScenario(.budget_exhaustion, "goal=invoke", exhausted);
     try std.testing.expectEqual(Agent.TerminalStatus.failed, outcome.terminal_status);
     try std.testing.expectEqualStrings("AgentBudgetExhausted", outcome.failure_reason);
+    try std.testing.expectEqual(@as(u32, 1), outcome.model_calls);
+    try std.testing.expectEqual(@as(u32, 1), outcome.tool_calls);
 }
 
 test "Agent Profile conformance malformed action fails before tool call" {
     const outcome = try runScenario(.malformed_action, "goal=invoke", config);
     try std.testing.expectEqual(Agent.TerminalStatus.failed, outcome.terminal_status);
     try std.testing.expectEqualStrings("MalformedAgentAction", outcome.failure_reason);
+    try std.testing.expectEqual(@as(u32, 1), outcome.model_calls);
     try std.testing.expectEqual(@as(u32, 0), outcome.tool_calls);
 }
 
@@ -197,6 +201,7 @@ test "Agent Profile conformance unknown tool id fails closed" {
     const outcome = try runScenario(.unknown_tool, "goal=invoke", config);
     try std.testing.expectEqual(Agent.TerminalStatus.failed, outcome.terminal_status);
     try std.testing.expectEqualStrings("UnknownToolId", outcome.failure_reason);
+    try std.testing.expectEqual(@as(u32, 1), outcome.model_calls);
     try std.testing.expectEqual(@as(u32, 0), outcome.tool_calls);
 }
 
