@@ -9,6 +9,8 @@ const public_surface_path = "conformance/v0/public-surface.boundary.txt";
 const corpus_dir = "conformance/v0/boundary";
 const corpus_manifest_path = corpus_dir ++ "/corpus.boundary.txt";
 const manifest_image_path = corpus_dir ++ "/protocol-manifest.bin";
+const agent_corpus_dir = "conformance/v0/agent";
+const agent_corpus_manifest_path = agent_corpus_dir ++ "/corpus.boundary-agent.txt";
 const default_proof_receipts_dir = "zig-out/protocol/boundary/proof-receipts";
 const default_dist_dir = "zig-out/dist/boundary-v" ++ protocol.Protocol.Manifest.boundary_package_version ++ "-protocol";
 const compatibility_doc_path = "docs/compatibility.md";
@@ -17,16 +19,21 @@ const security_model_doc_path = "docs/security_model.md";
 const proof_commands = [_]struct {
     proof_id: []const u8,
     command: []const u8,
+    input_corpus_path: []const u8,
 }{
-    .{ .proof_id = "proof-001", .command = "zig build check-boundary-protocol-manifest" },
-    .{ .proof_id = "proof-002", .command = "zig build check-boundary-public-surface" },
-    .{ .proof_id = "proof-003", .command = "zig build check-boundary-format-drift" },
-    .{ .proof_id = "proof-004", .command = "zig build check-boundary-conformance-corpus" },
-    .{ .proof_id = "proof-005", .command = "zig build check-boundary-adversarial-codecs" },
-    .{ .proof_id = "proof-006", .command = "zig build check-boundary-v0-budgets" },
-    .{ .proof_id = "proof-007", .command = "zig build check-boundary-loaded-v2-receipt-host" },
-    .{ .proof_id = "proof-008", .command = "zig build check-boundary-loaded-session-receipt-host" },
-    .{ .proof_id = "proof-009", .command = "zig build check-boundary-loaded-parity-receipt-host" },
+    .{ .proof_id = "proof-001", .command = "zig build check-boundary-protocol-manifest", .input_corpus_path = corpus_manifest_path },
+    .{ .proof_id = "proof-002", .command = "zig build check-boundary-public-surface", .input_corpus_path = corpus_manifest_path },
+    .{ .proof_id = "proof-003", .command = "zig build check-boundary-format-drift", .input_corpus_path = corpus_manifest_path },
+    .{ .proof_id = "proof-004", .command = "zig build check-boundary-conformance-corpus", .input_corpus_path = corpus_manifest_path },
+    .{ .proof_id = "proof-005", .command = "zig build check-boundary-adversarial-codecs", .input_corpus_path = corpus_manifest_path },
+    .{ .proof_id = "proof-006", .command = "zig build check-boundary-v0-budgets", .input_corpus_path = corpus_manifest_path },
+    .{ .proof_id = "proof-007", .command = "zig build check-boundary-loaded-v2-receipt-host", .input_corpus_path = corpus_manifest_path },
+    .{ .proof_id = "proof-008", .command = "zig build check-boundary-loaded-session-receipt-host", .input_corpus_path = corpus_manifest_path },
+    .{ .proof_id = "proof-009", .command = "zig build check-boundary-loaded-parity-receipt-host", .input_corpus_path = corpus_manifest_path },
+    .{ .proof_id = "proof-010", .command = "zig build check-boundary-agent-profile", .input_corpus_path = agent_corpus_manifest_path },
+    .{ .proof_id = "proof-011", .command = "zig build check-boundary-agent-modules", .input_corpus_path = agent_corpus_manifest_path },
+    .{ .proof_id = "proof-012", .command = "zig build check-boundary-agent-generated-loaded-parity", .input_corpus_path = agent_corpus_manifest_path },
+    .{ .proof_id = "proof-013", .command = "zig build check-boundary-agent-conformance-corpus", .input_corpus_path = agent_corpus_manifest_path },
 };
 
 pub fn main(init: std.process.Init) !void {
@@ -142,7 +149,7 @@ fn checkBudgets() !void {
 fn emitProofReceipts(init: std.process.Init, allocator: std.mem.Allocator, output_dir: []const u8) !void {
     try std.Io.Dir.cwd().createDirPath(init.io, output_dir);
     inline for (proof_commands) |proof| {
-        const receipt = try proofReceiptAlloc(allocator, proof.proof_id, proof.command);
+        const receipt = try proofReceiptAlloc(init, allocator, proof.proof_id, proof.command, proof.input_corpus_path);
         const path = try joinPath(allocator, output_dir, try std.fmt.allocPrint(allocator, "{s}.json", .{proof.proof_id}));
         try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = path, .data = receipt });
     }
@@ -153,11 +160,13 @@ fn dist(init: std.process.Init, allocator: std.mem.Allocator, output_dir: []cons
     const manifest_text = try manifestTextAlloc(allocator);
     const surface = try publicSurfaceSnapshotAlloc(allocator);
     const corpus = try corpusManifestAlloc(allocator);
-    const checksums = try checksumsAlloc(allocator, manifest, surface, corpus);
+    const agent_corpus = try std.Io.Dir.cwd().readFileAlloc(init.io, agent_corpus_manifest_path, allocator, .limited(256 * 1024));
+    const checksums = try checksumsAlloc(allocator, manifest, surface, corpus, agent_corpus);
     const compatibility_doc = try std.Io.Dir.cwd().readFileAlloc(init.io, compatibility_doc_path, allocator, .limited(64 * 1024));
     const security_model_doc = try std.Io.Dir.cwd().readFileAlloc(init.io, security_model_doc_path, allocator, .limited(64 * 1024));
 
     try std.Io.Dir.cwd().createDirPath(init.io, try joinPath(allocator, output_dir, "conformance/v0/boundary"));
+    try std.Io.Dir.cwd().createDirPath(init.io, try joinPath(allocator, output_dir, "conformance/v0/agent"));
     try std.Io.Dir.cwd().createDirPath(init.io, try joinPath(allocator, output_dir, "proof-receipts"));
     try std.Io.Dir.cwd().createDirPath(init.io, try joinPath(allocator, output_dir, "docs"));
     try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = try joinPath(allocator, output_dir, "boundary-protocol-manifest.bin"), .data = manifest });
@@ -166,9 +175,10 @@ fn dist(init: std.process.Init, allocator: std.mem.Allocator, output_dir: []cons
     try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = try joinPath(allocator, output_dir, "conformance/v0/public-surface.boundary.txt"), .data = surface });
     try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = try joinPath(allocator, output_dir, "conformance/v0/boundary/corpus.boundary.txt"), .data = corpus });
     try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = try joinPath(allocator, output_dir, "conformance/v0/boundary/protocol-manifest.bin"), .data = manifest });
+    try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = try joinPath(allocator, output_dir, "conformance/v0/agent/corpus.boundary-agent.txt"), .data = agent_corpus });
     try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = try joinPath(allocator, output_dir, "checksums.txt"), .data = checksums });
     inline for (proof_commands) |proof| {
-        const receipt = try proofReceiptAlloc(allocator, proof.proof_id, proof.command);
+        const receipt = try proofReceiptAlloc(init, allocator, proof.proof_id, proof.command, proof.input_corpus_path);
         const path = try joinPath(allocator, output_dir, try std.fmt.allocPrint(allocator, "proof-receipts/{s}.json", .{proof.proof_id}));
         try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = path, .data = receipt });
     }
@@ -312,6 +322,7 @@ fn checksumsAlloc(
     manifest: []const u8,
     surface: []const u8,
     corpus: []const u8,
+    agent_corpus: []const u8,
 ) ![]u8 {
     const manifest_hash = try hashTextSha256Alloc(allocator, manifest);
     defer allocator.free(manifest_hash);
@@ -319,22 +330,35 @@ fn checksumsAlloc(
     defer allocator.free(surface_hash);
     const corpus_hash = try hashTextSha256Alloc(allocator, corpus);
     defer allocator.free(corpus_hash);
+    const agent_corpus_hash = try hashTextSha256Alloc(allocator, agent_corpus);
+    defer allocator.free(agent_corpus_hash);
     return std.fmt.allocPrint(allocator,
         \\boundary-protocol-manifest.bin {s}
         \\conformance/v0/public-surface.boundary.txt {s}
         \\conformance/v0/boundary/corpus.boundary.txt {s}
+        \\conformance/v0/agent/corpus.boundary-agent.txt {s}
         \\
     , .{
         manifest_hash,
         surface_hash,
         corpus_hash,
+        agent_corpus_hash,
     });
 }
 
-fn proofReceiptAlloc(allocator: std.mem.Allocator, proof_id: []const u8, command: []const u8) ![]u8 {
+fn proofReceiptAlloc(
+    init: std.process.Init,
+    allocator: std.mem.Allocator,
+    proof_id: []const u8,
+    command: []const u8,
+    input_corpus_path: []const u8,
+) ![]u8 {
     const manifest = try protocol.Protocol.Manifest.encodeAlloc(allocator);
     defer allocator.free(manifest);
-    const corpus = try corpusManifestAlloc(allocator);
+    const corpus = if (std.mem.eql(u8, input_corpus_path, corpus_manifest_path))
+        try corpusManifestAlloc(allocator)
+    else
+        try std.Io.Dir.cwd().readFileAlloc(init.io, input_corpus_path, allocator, .limited(256 * 1024));
     defer allocator.free(corpus);
     const manifest_hash = try hashTextSha256Alloc(allocator, manifest);
     defer allocator.free(manifest_hash);

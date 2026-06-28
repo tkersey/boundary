@@ -419,9 +419,14 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     addTestArtifact(b, test_step, agent_artifacts_mod, test_args);
+    const host_agent_artifacts_mod = b.createModule(.{
+        .root_source_file = b.path("src/agent_artifacts.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+    });
     const agent_artifacts_exe = b.addExecutable(.{
         .name = "boundary-agent-artifacts",
-        .root_module = agent_artifacts_mod,
+        .root_module = host_agent_artifacts_mod,
     });
     const update_agent_corpus_step = b.step("update-boundary-agent-conformance-corpus", "Update Boundary Agent Profile v0 conformance corpus artifacts.");
     update_agent_corpus_step.dependOn(&addRunArtifactWithArgs(b, agent_artifacts_exe, &.{"update-corpus"}).step);
@@ -468,6 +473,9 @@ pub fn build(b: *std.Build) void {
     proof_receipts_step.dependOn(public_surface_step);
     proof_receipts_step.dependOn(format_drift_step);
     proof_receipts_step.dependOn(corpus_step);
+    proof_receipts_step.dependOn(agent_profile_step);
+    proof_receipts_step.dependOn(agent_modules_step);
+    proof_receipts_step.dependOn(agent_conformance_corpus_step);
     proof_receipts_step.dependOn(adversarial_codecs_step);
     proof_receipts_step.dependOn(budgets_step);
     const proof_receipts_run = addRunArtifactWithArgs(b, protocol_artifacts_exe, &.{
@@ -479,6 +487,9 @@ pub fn build(b: *std.Build) void {
     proof_receipts_run.step.dependOn(public_surface_step);
     proof_receipts_run.step.dependOn(format_drift_step);
     proof_receipts_run.step.dependOn(corpus_step);
+    proof_receipts_run.step.dependOn(agent_profile_step);
+    proof_receipts_run.step.dependOn(agent_modules_step);
+    proof_receipts_run.step.dependOn(agent_conformance_corpus_step);
     proof_receipts_run.step.dependOn(adversarial_codecs_step);
     proof_receipts_run.step.dependOn(budgets_step);
     proof_receipts_step.dependOn(&proof_receipts_run.step);
@@ -737,6 +748,8 @@ pub fn build(b: *std.Build) void {
     agent_parity_step.dependOn(agent_profile_step);
     agent_parity_step.dependOn(agent_modules_step);
     agent_parity_step.dependOn(loaded_parity_step);
+    proof_receipts_step.dependOn(agent_parity_step);
+    proof_receipts_run.step.dependOn(agent_parity_step);
 
     const receipt_loaded_v2_step = b.step("check-boundary-loaded-v2-receipt-host", "Check Boundary portable_v2 proof receipts on the host target.");
     addTestArtifact(b, receipt_loaded_v2_step, host_core.loaded_execution, loaded_v2_args);
