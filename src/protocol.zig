@@ -45,6 +45,7 @@ pub const Protocol = struct {
             "check-boundary-loaded-session-receipt-host",
             "check-boundary-loaded-parity-receipt-host",
             "update-boundary-conformance-corpus",
+            "update-boundary-agent-conformance-corpus",
             "emit-boundary-proof-receipts",
             "dist-boundary-protocol",
         };
