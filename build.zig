@@ -371,6 +371,8 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(lib_check);
 
     const test_step = b.step("test", "Run the boundary test suite.");
+    const check_step = b.step("check", "Run the full Boundary validation suite.");
+    check_step.dependOn(test_step);
     addTestArtifact(b, test_step, boundary, test_args);
     addTestArtifact(b, test_step, boundary_shared, test_args);
     addTestArtifact(b, test_step, core.effect_ir, test_args);
@@ -403,6 +405,93 @@ pub fn build(b: *std.Build) void {
     const corpus_step = b.step("check-boundary-conformance-corpus", "Check Boundary v0 conformance corpus artifacts.");
     corpus_step.dependOn(&addRunArtifactWithArgs(b, protocol_artifacts_exe, &.{"check-corpus"}).step);
 
+    const agent_profile_step = b.step("check-boundary-agent-profile", "Check Boundary Agent Profile v0 schema and fingerprint surface.");
+    const agent_profile_mod = b.createModule(.{
+        .root_source_file = b.path("src/agent.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    addTestArtifact(b, agent_profile_step, agent_profile_mod, test_args);
+    const receipt_agent_profile_step = b.step("check-boundary-agent-profile-receipt-host", "Check Boundary Agent Profile v0 proof receipts on the host target.");
+    const receipt_agent_profile_mod = b.createModule(.{
+        .root_source_file = b.path("src/agent.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+    });
+    addTestArtifact(b, receipt_agent_profile_step, receipt_agent_profile_mod, proof_test_args);
+
+    const agent_artifacts_mod = b.createModule(.{
+        .root_source_file = b.path("src/agent_artifacts.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    addTestArtifact(b, test_step, agent_artifacts_mod, test_args);
+    const host_agent_artifacts_mod = b.createModule(.{
+        .root_source_file = b.path("src/agent_artifacts.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+    });
+    const agent_artifacts_exe = b.addExecutable(.{
+        .name = "boundary-agent-artifacts",
+        .root_module = host_agent_artifacts_mod,
+    });
+    const update_agent_corpus_step = b.step("update-boundary-agent-conformance-corpus", "Update Boundary Agent Profile v0 conformance corpus artifacts.");
+    update_agent_corpus_step.dependOn(&addRunArtifactWithArgs(b, agent_artifacts_exe, &.{"update-corpus"}).step);
+
+    const agent_modules_step = b.step("check-boundary-agent-modules", "Check agent-shaped Certified Boundary Module transfer surface.");
+    const agent_modules_mod = b.createModule(.{
+        .root_source_file = b.path("examples/boundary_module_agent_transfer.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    agent_modules_mod.addImport("boundary", boundary);
+    addTestArtifact(b, agent_modules_step, agent_modules_mod, test_args);
+    const agent_module_manifest_mod = b.createModule(.{
+        .root_source_file = b.path("examples/agent_module_manifest.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    agent_module_manifest_mod.addImport("boundary", boundary);
+    addTestArtifact(b, agent_modules_step, agent_module_manifest_mod, test_args);
+    const receipt_agent_modules_step = b.step("check-boundary-agent-modules-receipt-host", "Check agent-shaped Certified Boundary Module proof receipts on the host target.");
+    const receipt_agent_modules_mod = b.createModule(.{
+        .root_source_file = b.path("examples/boundary_module_agent_transfer.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+    });
+    receipt_agent_modules_mod.addImport("boundary", host_boundary);
+    addTestArtifact(b, receipt_agent_modules_step, receipt_agent_modules_mod, proof_test_args);
+    const receipt_agent_manifest_mod = b.createModule(.{
+        .root_source_file = b.path("examples/agent_module_manifest.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+    });
+    receipt_agent_manifest_mod.addImport("boundary", host_boundary);
+    addTestArtifact(b, receipt_agent_modules_step, receipt_agent_manifest_mod, proof_test_args);
+
+    const agent_conformance_corpus_step = b.step("check-boundary-agent-conformance-corpus", "Check Boundary Agent Closure v0 conformance foundations.");
+    agent_conformance_corpus_step.dependOn(agent_profile_step);
+    agent_conformance_corpus_step.dependOn(agent_modules_step);
+    agent_conformance_corpus_step.dependOn(&addRunArtifactWithArgs(b, agent_artifacts_exe, &.{"check-corpus"}).step);
+    const agent_conformance_mod = b.createModule(.{
+        .root_source_file = b.path("examples/agent_profile_conformance.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    agent_conformance_mod.addImport("boundary", boundary);
+    addTestArtifact(b, agent_conformance_corpus_step, agent_conformance_mod, test_args);
+    const receipt_agent_corpus_step = b.step("check-boundary-agent-conformance-corpus-receipt-host", "Check Boundary Agent Closure v0 conformance proof receipts on the host target.");
+    receipt_agent_corpus_step.dependOn(receipt_agent_profile_step);
+    receipt_agent_corpus_step.dependOn(receipt_agent_modules_step);
+    receipt_agent_corpus_step.dependOn(&addRunArtifactWithArgs(b, agent_artifacts_exe, &.{"check-corpus"}).step);
+    const receipt_agent_conformance_mod = b.createModule(.{
+        .root_source_file = b.path("examples/agent_profile_conformance.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+    });
+    receipt_agent_conformance_mod.addImport("boundary", host_boundary);
+    addTestArtifact(b, receipt_agent_corpus_step, receipt_agent_conformance_mod, proof_test_args);
+
     const format_drift_step = b.step("check-boundary-format-drift", "Check Boundary v0 format and public-surface drift.");
     format_drift_step.dependOn(&addRunArtifactWithArgs(b, protocol_artifacts_exe, &.{"check-format-drift"}).step);
 
@@ -417,6 +506,9 @@ pub fn build(b: *std.Build) void {
     proof_receipts_step.dependOn(public_surface_step);
     proof_receipts_step.dependOn(format_drift_step);
     proof_receipts_step.dependOn(corpus_step);
+    proof_receipts_step.dependOn(receipt_agent_profile_step);
+    proof_receipts_step.dependOn(receipt_agent_modules_step);
+    proof_receipts_step.dependOn(receipt_agent_corpus_step);
     proof_receipts_step.dependOn(adversarial_codecs_step);
     proof_receipts_step.dependOn(budgets_step);
     const proof_receipts_run = addRunArtifactWithArgs(b, protocol_artifacts_exe, &.{
@@ -428,6 +520,9 @@ pub fn build(b: *std.Build) void {
     proof_receipts_run.step.dependOn(public_surface_step);
     proof_receipts_run.step.dependOn(format_drift_step);
     proof_receipts_run.step.dependOn(corpus_step);
+    proof_receipts_run.step.dependOn(receipt_agent_profile_step);
+    proof_receipts_run.step.dependOn(receipt_agent_modules_step);
+    proof_receipts_run.step.dependOn(receipt_agent_corpus_step);
     proof_receipts_run.step.dependOn(adversarial_codecs_step);
     proof_receipts_run.step.dependOn(budgets_step);
     proof_receipts_step.dependOn(&proof_receipts_run.step);
@@ -668,6 +763,7 @@ pub fn build(b: *std.Build) void {
 
     const loaded_parity_step = b.step("check-boundary-generated-loaded-parity", "Check generated Program.Session and LoadedModule.Session canonical parity.");
     const loaded_parity_required_step = b.step("check-boundary-loaded-parity", "Check generated Program.Session and LoadedModule.Session canonical parity.");
+    const agent_parity_step = b.step("check-boundary-agent-generated-loaded-parity", "Check Agent Profile v0 generated and loaded execution foundations.");
     const loaded_parity_args = TestArgs{
         .filters = &.{"generated-loaded parity"},
         .passthrough = &.{},
@@ -682,6 +778,9 @@ pub fn build(b: *std.Build) void {
     const loaded_parity_run = addRunArtifactWithArgs(b, loaded_parity_tests, loaded_parity_args.passthrough);
     loaded_parity_step.dependOn(&loaded_parity_run.step);
     loaded_parity_required_step.dependOn(&loaded_parity_run.step);
+    agent_parity_step.dependOn(agent_profile_step);
+    agent_parity_step.dependOn(agent_modules_step);
+    agent_parity_step.dependOn(loaded_parity_step);
 
     const receipt_loaded_v2_step = b.step("check-boundary-loaded-v2-receipt-host", "Check Boundary portable_v2 proof receipts on the host target.");
     addTestArtifact(b, receipt_loaded_v2_step, host_core.loaded_execution, loaded_v2_args);
@@ -723,13 +822,19 @@ pub fn build(b: *std.Build) void {
     receipt_loaded_parity_mod.addImport("boundary", host_boundary);
     const receipt_loaded_parity_tests = b.addTest(.{ .root_module = receipt_loaded_parity_mod, .filters = loaded_parity_args.filters });
     receipt_loaded_parity_step.dependOn(&addRunArtifactWithArgs(b, receipt_loaded_parity_tests, loaded_parity_args.passthrough).step);
+    const receipt_agent_parity_step = b.step("check-boundary-agent-generated-loaded-parity-receipt-host", "Check Agent Profile v0 generated and loaded execution proof receipts on the host target.");
+    receipt_agent_parity_step.dependOn(receipt_agent_profile_step);
+    receipt_agent_parity_step.dependOn(receipt_agent_modules_step);
+    receipt_agent_parity_step.dependOn(receipt_loaded_parity_step);
 
     proof_receipts_step.dependOn(receipt_loaded_v2_step);
     proof_receipts_step.dependOn(receipt_loaded_session_step);
     proof_receipts_step.dependOn(receipt_loaded_parity_step);
+    proof_receipts_step.dependOn(receipt_agent_parity_step);
     proof_receipts_run.step.dependOn(receipt_loaded_v2_step);
     proof_receipts_run.step.dependOn(receipt_loaded_session_step);
     proof_receipts_run.step.dependOn(receipt_loaded_parity_step);
+    proof_receipts_run.step.dependOn(receipt_agent_parity_step);
 
     const loaded_import_bindings_step = b.step("check-boundary-loaded-import-bindings", "Check exact loaded residual import/site binding regressions.");
     const loaded_import_bindings_args = TestArgs{
@@ -1226,6 +1331,8 @@ pub fn build(b: *std.Build) void {
         .{ .name = "boundary-plan-native-resource", .path = "examples/plan_native_resource.zig", .step = "run-plan-native-resource", .desc = "Run the plan-native resource example." },
         .{ .name = "boundary-custom-approval-workflow", .path = "examples/custom_approval_workflow.zig", .step = "run-custom-approval-workflow", .desc = "Run the custom approval workflow example." },
         .{ .name = "boundary-agent-loop", .path = "examples/agent_loop.zig", .step = "run-agent-loop", .desc = "Run the host-driven Program.Session agent loop example." },
+        .{ .name = "boundary-agent-module-manifest", .path = "examples/agent_module_manifest.zig", .step = "run-agent-module-manifest", .desc = "Run the Agent Profile module byte provenance example." },
+        .{ .name = "boundary-agent-profile-conformance", .path = "examples/agent_profile_conformance.zig", .step = "run-agent-profile-conformance", .desc = "Run the Agent Profile v0 conformance scenario summary." },
         .{ .name = "boundary-continuation-branching", .path = "examples/continuation_branching.zig", .step = "run-continuation-branching", .desc = "Run the Program.Session continuation capsule branching example." },
         .{ .name = "boundary-interpreter-branching", .path = "examples/interpreter_branching.zig", .step = "run-interpreter-branching", .desc = "Run the continuation-aware Program.Interpreter branching example." },
         .{ .name = "boundary-protocol-reinterpretation", .path = "examples/protocol_reinterpretation.zig", .step = "run-protocol-reinterpretation", .desc = "Run the protocol morphism reinterpretation example." },
@@ -1371,4 +1478,42 @@ pub fn build(b: *std.Build) void {
     }
     defer b.graph.global_cache_root.path = saved_global_cache_path;
     lint_step.dependOn(builder.build());
+
+    for (&[_]*std.Build.Step{
+        protocol_manifest_step,
+        public_surface_step,
+        corpus_step,
+        agent_profile_step,
+        agent_modules_step,
+        agent_conformance_corpus_step,
+        agent_parity_step,
+        format_drift_step,
+        adversarial_codecs_step,
+        budgets_step,
+        proof_receipts_step,
+        executable_module_step,
+        executable_plan_step,
+        loaded_value_step,
+        loaded_session_step,
+        loaded_v2_step,
+        loaded_profile_codecs_step,
+        loaded_reachability_step,
+        loaded_continuation_step,
+        loaded_session_image_step,
+        loaded_forged_session_step,
+        loaded_resource_ledger_step,
+        loaded_frame_stack_step,
+        loaded_parity_required_step,
+        receipt_loaded_v2_step,
+        receipt_loaded_session_step,
+        receipt_loaded_parity_step,
+        loaded_import_bindings_step,
+        loaded_response_safety_step,
+        loaded_malformed_step,
+        loaded_payload_result_step,
+        loaded_fuzz_step,
+        lint_step,
+    }) |validation_step| {
+        check_step.dependOn(validation_step);
+    }
 }

@@ -2,8 +2,8 @@ Boundary v0 public surface
 package: boundary 0.5.0
 manifest_format_version: 1
 manifest_fingerprint_version: 1
-manifest_fingerprint: 0x50aa2c73c76b51f3
-public_surface_fingerprint: 0x9d44e67990624f76
+manifest_fingerprint: 0xbc48f87b7134db15
+public_surface_fingerprint: 0x9ec7df70840c902b
 
 stable_format_constants:
 - boundary_protocol_manifest_format_version = 1
@@ -22,6 +22,7 @@ stable_format_constants:
 - loaded_value_image_fingerprint_version = 1
 root_namespaces:
 - effect
+- Agent
 - ir
 - program
 - Runtime
@@ -107,15 +108,25 @@ effect_ir_terminator_tags:
 - return_value = 3
 
 supported_build_gates:
+- check
 - check-boundary-protocol-manifest
 - check-boundary-public-surface
 - check-boundary-format-drift
 - check-boundary-conformance-corpus
 - check-boundary-adversarial-codecs
 - check-boundary-v0-budgets
+- check-boundary-agent-profile
+- check-boundary-agent-modules
+- check-boundary-agent-generated-loaded-parity
+- check-boundary-agent-conformance-corpus
+- check-boundary-agent-profile-receipt-host
+- check-boundary-agent-modules-receipt-host
+- check-boundary-agent-generated-loaded-parity-receipt-host
+- check-boundary-agent-conformance-corpus-receipt-host
 - check-boundary-loaded-v2-receipt-host
 - check-boundary-loaded-session-receipt-host
 - check-boundary-loaded-parity-receipt-host
 - update-boundary-conformance-corpus
+- update-boundary-agent-conformance-corpus
 - emit-boundary-proof-receipts
 - dist-boundary-protocol

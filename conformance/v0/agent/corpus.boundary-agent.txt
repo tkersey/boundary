@@ -1,0 +1,163 @@
+Boundary Agent Profile v0 conformance corpus
+format: boundary-agent-conformance-corpus-v0
+profile_format_version: 0
+profile_fingerprint_version: 1
+profile_fingerprint: 0xedab928f2ab15706
+max_iterations: 5
+max_model_calls: 5
+max_tool_calls: 4
+max_observation_bytes: 1024
+max_action_bytes: 256
+max_tool_result_bytes: 1024
+max_trace_entries: 8
+tool_variants:
+- index: 0
+  label: actuate
+- index: 1
+  label: read_file
+- index: 2
+  label: write_file
+
+value_schemas:
+- name: Agent.Goal
+  codec: string
+  fingerprint: 0x97dd2f4479adf7eb
+- name: Agent.Observation
+  codec: string
+  fingerprint: 0x19966cbbe1f09f9e
+- name: Agent.Budget
+  codec: product(max_iterations:u32,max_model_calls:u32,max_tool_calls:u32,remaining_iterations:u32,remaining_model_calls:u32,remaining_tool_calls:u32)
+  fingerprint: 0xf310e7383087c8a3
+- name: Agent.TraceSummary
+  codec: product(entry_count:u32,last_event:string,last_fingerprint:u64)
+  fingerprint: 0x6288da61bf1ab2f4
+- name: Agent.State
+  codec: product(goal:string,current_observation:string,prior_observation_summary:string,iteration_index:u32,remaining_budget:Agent.Budget,model_call_count:u32,tool_call_count:u32,terminal_status:enum(running=0,completed=1,failed=2),trace_summary:Agent.TraceSummary)
+  fingerprint: 0x178c0989d351a520
+- name: Agent.DecisionPrompt
+  codec: product(goal:string,observation:string,trace_summary:Agent.TraceSummary,budget:Agent.Budget)
+  fingerprint: 0x06522581f185e215
+- name: Agent.Action
+  codec: sum(final=0:string,tool=1:Agent.ToolRequest,fail=2:string)
+  fingerprint: 0x19593bde6dfe12fe
+- name: Agent.ToolId
+  codec: product(index:u16,diagnostic_label:string)
+  fingerprint: 0xcaeb5b75962fb878
+- name: Agent.ToolPayload
+  codec: string
+  fingerprint: 0x1473bb162d57c43b
+- name: Agent.ToolRequest
+  codec: product(tool_id:Agent.ToolId,payload:Agent.ToolPayload)
+  fingerprint: 0xcb644f13c9de31f0
+- name: Agent.ToolResult
+  codec: product(tool_id:Agent.ToolId,bytes:string)
+  fingerprint: 0xf3d8b9ea5064daf0
+- name: Agent.FinalResult
+  codec: product(text:string)
+  fingerprint: 0xbbda2384ae9427d7
+- name: Agent.Failure
+  codec: product(reason:string)
+  fingerprint: 0xf47dac6b2cba3cfe
+
+scenarios:
+- id: skeleton-one-tool
+  kind: positive
+  initial_observation: goal=invoke
+  scenario_max_iterations: 5
+  scenario_max_model_calls: 5
+  scenario_max_tool_calls: 4
+  scenario_max_observation_bytes: 1024
+  scenario_max_action_bytes: 256
+  scenario_max_tool_result_bytes: 1024
+  scenario_max_trace_entries: 8
+  expected_terminal_status: completed
+  expected_model_calls: 2
+  expected_tool_calls: 1
+  expected_final: final=actuate skeleton complete
+  expected_final_fingerprint: 0x674ecedb0a3db921
+  replay: zig build check-boundary-agent-conformance-corpus -- --test-filter 'skeleton one-tool'
+- id: fixture-read-write
+  kind: positive
+  initial_observation: goal=fixture
+  scenario_max_iterations: 5
+  scenario_max_model_calls: 5
+  scenario_max_tool_calls: 4
+  scenario_max_observation_bytes: 1024
+  scenario_max_action_bytes: 256
+  scenario_max_tool_result_bytes: 1024
+  scenario_max_trace_entries: 8
+  expected_terminal_status: completed
+  expected_model_calls: 3
+  expected_tool_calls: 2
+  expected_final: final=fixture updated
+  expected_final_fingerprint: 0xf304cc7232d7cedb
+  replay: zig build check-boundary-agent-conformance-corpus -- --test-filter 'fixture read write'
+- id: budget-exhaustion
+  kind: negative
+  initial_observation: goal=invoke
+  scenario_max_iterations: 1
+  scenario_max_model_calls: 1
+  scenario_max_tool_calls: 1
+  scenario_max_observation_bytes: 1024
+  scenario_max_action_bytes: 256
+  scenario_max_tool_result_bytes: 1024
+  scenario_max_trace_entries: 8
+  expected_terminal_status: failed
+  expected_model_calls: 1
+  expected_tool_calls: 1
+  expected_failure: AgentBudgetExhausted
+  expected_failure_fingerprint: 0xde3aa5ff2f1ebf9a
+  replay: zig build check-boundary-agent-conformance-corpus -- --test-filter 'budget exhaustion'
+- id: malformed-action
+  kind: negative
+  initial_observation: goal=invoke
+  scenario_max_iterations: 5
+  scenario_max_model_calls: 5
+  scenario_max_tool_calls: 4
+  scenario_max_observation_bytes: 1024
+  scenario_max_action_bytes: 256
+  scenario_max_tool_result_bytes: 1024
+  scenario_max_trace_entries: 8
+  expected_terminal_status: failed
+  expected_model_calls: 1
+  expected_tool_calls: 0
+  expected_failure: MalformedAgentAction
+  expected_failure_fingerprint: 0x90efbf223325e900
+  replay: zig build check-boundary-agent-conformance-corpus -- --test-filter 'malformed action'
+- id: unknown-tool-id
+  kind: negative
+  initial_observation: goal=invoke
+  scenario_max_iterations: 5
+  scenario_max_model_calls: 5
+  scenario_max_tool_calls: 4
+  scenario_max_observation_bytes: 1024
+  scenario_max_action_bytes: 256
+  scenario_max_tool_result_bytes: 1024
+  scenario_max_trace_entries: 8
+  expected_terminal_status: failed
+  expected_model_calls: 1
+  expected_tool_calls: 0
+  expected_failure: UnknownToolId
+  expected_failure_fingerprint: 0x4d01b489d908f385
+  replay: zig build check-boundary-agent-conformance-corpus -- --test-filter 'unknown tool id'
+- id: generated-loaded-parity
+  kind: parity
+  initial_observation: agent-module-manifest
+  scenario_max_iterations: 5
+  scenario_max_model_calls: 5
+  scenario_max_tool_calls: 4
+  scenario_max_observation_bytes: 1024
+  scenario_max_action_bytes: 256
+  scenario_max_tool_result_bytes: 1024
+  scenario_max_trace_entries: 8
+  expected_terminal_status: completed
+  expected_model_calls: 0
+  expected_tool_calls: 0
+  expected_final: approved:7
+  expected_final_fingerprint: 0x21a051b902ee120c
+  replay: zig build check-boundary-agent-generated-loaded-parity
+
+validation:
+- check-boundary-agent-conformance-corpus compares this catalog and executes the scenario tests
+- check-boundary-agent-generated-loaded-parity covers the Agent module generated-versus-loaded parity fixture
+- model and tools are deterministic fixtures; no network, credentials, host registry, or real LLM is used

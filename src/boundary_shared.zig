@@ -1,4 +1,5 @@
 // zlinter-disable declaration_naming
+const agent = @import("agent.zig");
 const effect_root = @import("effect/root.zig");
 const ir_api = @import("ir_api.zig");
 const lowered_machine = @import("lowered_machine");
@@ -7,6 +8,8 @@ const protocol = @import("protocol.zig");
 
 /// Public effect family and handler constructors.
 pub const effect = effect_root;
+/// Public Agent Profile v0 construction namespace.
+pub const Agent = agent;
 /// Public ProgramPlan builder namespace.
 pub const ir = ir_api;
 /// Canonical lowered runtime retained at the root surface for repeated local execution.
@@ -24,6 +27,7 @@ test "shared public surface exposes only the local execution front door" {
     const std = @import("std");
 
     try std.testing.expect(@hasDecl(@This(), "effect"));
+    try std.testing.expect(@hasDecl(@This(), "Agent"));
     try std.testing.expect(@hasDecl(@This(), "ir"));
     try std.testing.expect(@hasDecl(@This(), "Runtime"));
     try std.testing.expect(@hasDecl(@This(), "program"));

@@ -8,6 +8,8 @@ bench/state_effect_bench.zig
 bench/writer_effect_decompose_bench.zig
 bench/zprof_hotspots.zig
 examples/agent_loop.zig
+examples/agent_module_manifest.zig
+examples/agent_profile_conformance.zig
 examples/boundary_closure_nested.zig
 examples/boundary_closure_strict.zig
 examples/boundary_closure_world_port.zig
@@ -61,6 +63,8 @@ examples/world_surface_nested.zig
 examples/world_surface_ports.zig
 examples/world_surface_strict.zig
 src/algebraic.zig
+src/agent.zig
+src/agent_artifacts.zig
 src/bench_support.zig
 src/boundary_shared.zig
 src/decision_api.zig
