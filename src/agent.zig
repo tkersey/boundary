@@ -309,7 +309,7 @@ pub fn validateAction(comptime ToolSet: type, config: Config, action: Action) Ac
         .fail => |reason| if (reason.len > config.max_action_bytes) return error.AgentActionTooLarge,
         .tool => |request| {
             if (!ToolSet.contains(request.tool_id)) return error.UnknownToolId;
-            if (request.payload.len > config.max_action_bytes) return error.AgentActionTooLarge;
+            if (exceedsCombinedByteLimit(request.tool_id.label.len, request.payload.len, config.max_action_bytes)) return error.AgentActionTooLarge;
         },
     }
 }
@@ -317,10 +317,15 @@ pub fn validateAction(comptime ToolSet: type, config: Config, action: Action) Ac
 /// Promote a tool result into the next observation.
 pub fn observeToolResult(comptime ToolSet: type, config: Config, state: *State, result: ToolResult) ObservationError!void {
     if (!ToolSet.contains(result.tool_id)) return error.UnknownToolId;
-    if (result.bytes.len > config.max_tool_result_bytes) return error.AgentToolResultTooLarge;
+    if (exceedsCombinedByteLimit(result.tool_id.label.len, result.bytes.len, config.max_tool_result_bytes)) return error.AgentToolResultTooLarge;
     if (result.bytes.len > config.max_observation_bytes) return error.AgentObservationTooLarge;
     state.prior_observation_summary = state.current_observation;
     state.current_observation = result.bytes;
+}
+
+fn exceedsCombinedByteLimit(first_len: usize, second_len: usize, limit: u32) bool {
+    const limit_usize: usize = @intCast(limit);
+    return first_len > limit_usize or second_len > limit_usize - first_len;
 }
 
 /// Prompt payload sent to the model-decision boundary.
@@ -823,6 +828,12 @@ test "Agent action validation rejects malformed tags, unknown tools, and oversiz
         .tool = .{ .tool_id = .{ .index = 4, .label = "shell" }, .payload = "" },
     }));
     try std.testing.expectError(error.AgentActionTooLarge, validateAction(tools, config, .{ .final = "too-large" }));
+    try std.testing.expectError(error.AgentActionTooLarge, validateAction(tools, config, .{
+        .tool = .{ .tool_id = .{ .index = 0, .label = "too-large" }, .payload = "" },
+    }));
+    try std.testing.expectError(error.AgentActionTooLarge, validateAction(tools, config, .{
+        .tool = .{ .tool_id = tools.id(0), .payload = "xx" },
+    }));
 }
 
 test "Agent module artifact binds profile and full module byte identity" {
@@ -921,7 +932,7 @@ test "Agent tool observations obey the observation byte cap" {
         .max_tool_calls = 2,
         .max_observation_bytes = 4,
         .max_action_bytes = 16,
-        .max_tool_result_bytes = 8,
+        .max_tool_result_bytes = 16,
         .max_trace_entries = 2,
     };
     var state = try State.init("goal", "seed", config);
@@ -929,6 +940,11 @@ test "Agent tool observations obey the observation byte cap" {
     try std.testing.expectError(error.UnknownToolId, observeToolResult(tools, config, &state, .{
         .tool_id = .{ .index = 9, .label = "shell" },
         .bytes = "1234",
+    }));
+    try std.testing.expectEqualStrings("seed", state.current_observation);
+    try std.testing.expectError(error.AgentToolResultTooLarge, observeToolResult(tools, config, &state, .{
+        .tool_id = .{ .index = 0, .label = "tool-label-too-large" },
+        .bytes = "",
     }));
     try std.testing.expectEqualStrings("seed", state.current_observation);
     try std.testing.expectError(error.AgentObservationTooLarge, observeToolResult(tools, config, &state, .{
