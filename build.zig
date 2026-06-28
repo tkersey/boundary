@@ -1438,6 +1438,7 @@ pub fn build(b: *std.Build) void {
     check_boundary_agent_runtime.step.dependOn(&emit_boundary_agent_runtime.step);
     const check_runtime_step = b.step("check-boundary-agent-runtime-artifacts", "Check Boundary Agent Runtime pack-ready artifacts.");
     check_runtime_step.dependOn(&check_boundary_agent_runtime.step);
+    check_step.dependOn(check_runtime_step);
 
     const bench_check_step = b.step("bench-check", "Compile retained benchmark programs.");
     test_step.dependOn(bench_check_step);

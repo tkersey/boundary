@@ -1499,30 +1499,77 @@ fn agentProfileJson(
     root_artifact: BoundaryAgent.ModuleArtifact,
     toolbox_artifact: BoundaryAgent.ModuleArtifact,
 ) ![]const u8 {
-    return std.fmt.allocPrint(allocator,
+    var out: std.ArrayList(u8) = .empty;
+    errdefer out.deinit(allocator);
+    try appendJsonFmt(&out, allocator,
         \\{{
         \\  "profile_format_version": {d},
         \\  "profile_fingerprint_version": {d},
         \\  "profile_fingerprint": "0x{x:0>16}",
+        \\  "max_iterations": {d},
+        \\  "max_model_calls": {d},
+        \\  "max_tool_calls": {d},
+        \\  "max_observation_bytes": {d},
+        \\  "max_action_bytes": {d},
+        \\  "max_tool_result_bytes": {d},
+        \\  "max_trace_entries": {d},
         \\  "boundary_protocol_manifest_fingerprint": "0x{x:0>16}",
         \\  "agent_root_module_fingerprint": "0x{x:0>16}",
         \\  "agent_root_full_module_byte_fingerprint": "0x{x:0>16}",
         \\  "toolbox_module_fingerprint": "0x{x:0>16}",
         \\  "toolbox_full_module_byte_fingerprint": "0x{x:0>16}",
-        \\  "tool_ids": ["actuate", "read_file", "write_file"],
-        \\  "metadata": "agent-root-module"
-        \\}}
         \\
     , .{
         profile_value.format_version,
         profile_value.fingerprint_version,
         profile_value.profile_fingerprint,
+        profile_value.max_iterations,
+        profile_value.max_model_calls,
+        profile_value.max_tool_calls,
+        profile_value.max_observation_bytes,
+        profile_value.max_action_bytes,
+        profile_value.max_tool_result_bytes,
+        profile_value.max_trace_entries,
         protocol_manifest_fingerprint,
         root_artifact.module_fingerprint,
         root_artifact.byte_fingerprint,
         toolbox_artifact.module_fingerprint,
         toolbox_artifact.byte_fingerprint,
     });
+    try out.appendSlice(allocator, "  \"supported_action_variants\": [");
+    for (profile_value.supported_action_variants, 0..) |variant, index| {
+        if (index != 0) try out.appendSlice(allocator, ", ");
+        try appendJsonFmt(&out, allocator, "{{\"tag\":\"{s}\",\"value\":{d}}}", .{ @tagName(variant), @intFromEnum(variant) });
+    }
+    try out.appendSlice(allocator, "],\n  \"tool_ids\": [");
+    for (profile_value.supported_tool_variants, 0..) |tool_id, index| {
+        if (index != 0) try out.appendSlice(allocator, ", ");
+        try appendJsonFmt(&out, allocator, "\"{s}\"", .{tool_id.diagnostic_label});
+    }
+    try out.appendSlice(allocator, "],\n  \"supported_tool_variants\": [");
+    for (profile_value.supported_tool_variants, 0..) |tool_id, index| {
+        if (index != 0) try out.appendSlice(allocator, ", ");
+        try appendJsonFmt(&out, allocator, "{{\"index\":{d},\"label\":\"{s}\"}}", .{ tool_id.index, tool_id.diagnostic_label });
+    }
+    try out.appendSlice(allocator, "],\n  \"value_schema_fingerprints\": [");
+    for (profile_value.value_schema_fingerprints, 0..) |fingerprint, index| {
+        if (index != 0) try out.appendSlice(allocator, ", ");
+        try appendJsonFmt(&out, allocator, "\"0x{x:0>16}\"", .{fingerprint});
+    }
+    try appendJsonFmt(&out, allocator,
+        \\],
+        \\  "metadata_bytes": "{s}",
+        \\  "metadata": "{s}"
+        \\}}
+        \\
+    , .{ profile_value.metadata_bytes, profile_value.metadata_bytes });
+    return out.toOwnedSlice(allocator);
+}
+
+fn appendJsonFmt(out: *std.ArrayList(u8), allocator: std.mem.Allocator, comptime fmt: []const u8, args: anytype) !void {
+    const text = try std.fmt.allocPrint(allocator, fmt, args);
+    defer allocator.free(text);
+    try out.appendSlice(allocator, text);
 }
 
 test "agent loop skeleton scenario mirrors actuate skeleton coverage" {
