@@ -31,10 +31,10 @@ const proof_commands = [_]struct {
     .{ .proof_id = "proof-007", .command = "zig build check-boundary-loaded-v2-receipt-host", .input_corpus_path = corpus_manifest_path },
     .{ .proof_id = "proof-008", .command = "zig build check-boundary-loaded-session-receipt-host", .input_corpus_path = corpus_manifest_path },
     .{ .proof_id = "proof-009", .command = "zig build check-boundary-loaded-parity-receipt-host", .input_corpus_path = corpus_manifest_path },
-    .{ .proof_id = "proof-010", .command = "zig build check-boundary-agent-profile", .input_corpus_path = agent_corpus_manifest_path },
-    .{ .proof_id = "proof-011", .command = "zig build check-boundary-agent-modules", .input_corpus_path = agent_corpus_manifest_path },
-    .{ .proof_id = "proof-012", .command = "zig build check-boundary-agent-generated-loaded-parity", .input_corpus_path = agent_corpus_manifest_path },
-    .{ .proof_id = "proof-013", .command = "zig build check-boundary-agent-conformance-corpus", .input_corpus_path = agent_corpus_manifest_path },
+    .{ .proof_id = "proof-010", .command = "zig build check-boundary-agent-profile-receipt-host", .input_corpus_path = agent_corpus_manifest_path },
+    .{ .proof_id = "proof-011", .command = "zig build check-boundary-agent-modules-receipt-host", .input_corpus_path = agent_corpus_manifest_path },
+    .{ .proof_id = "proof-012", .command = "zig build check-boundary-agent-generated-loaded-parity-receipt-host", .input_corpus_path = agent_corpus_manifest_path },
+    .{ .proof_id = "proof-013", .command = "zig build check-boundary-agent-conformance-corpus-receipt-host", .input_corpus_path = agent_corpus_manifest_path },
 };
 
 pub fn main(init: std.process.Init) !void {
