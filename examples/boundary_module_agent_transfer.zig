@@ -31,7 +31,7 @@ fn runLoadedFixture(allocator: std.mem.Allocator, loaded: *Target.Module.LoadedM
     var session = try Target.Module.LoadedModule.Session.startExecutable(
         allocator,
         loaded,
-        Target.Module.LoadedExecutionProfile.portableV1(),
+        Target.Module.LoadedExecutionProfile.portableV2(),
     );
     defer session.deinit();
 
