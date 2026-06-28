@@ -386,6 +386,7 @@ pub const builder = struct {
             const_i32,
             const_string,
             const_usize,
+            product_extract_field,
             sub_one,
             sum_extract_payload,
             sum_variant_is,
@@ -520,6 +521,11 @@ pub const builder = struct {
         /// Extract a sum variant payload into a payload-typed local.
         pub fn sumExtractPayload(comptime dst: []const u8, comptime source: []const u8, comptime variant_ordinal: u16) NamedInstruction(.sum_extract_payload) {
             return .{ .dst = dst, .operand = source, .aux = variant_ordinal };
+        }
+
+        /// Extract a product field into a field-typed local.
+        pub fn productExtractField(comptime dst: []const u8, comptime source: []const u8, comptime field_ordinal: u16) NamedInstruction(.product_extract_field) {
+            return .{ .dst = dst, .operand = source, .aux = field_ordinal };
         }
 
         /// Call a schema.Protocol row operation descriptor.
@@ -680,27 +686,31 @@ pub const builder = struct {
             };
         }
 
+        fn surfaceValueRefFromTypeField(comptime spec: anytype, comptime T: type) program_plan.ValueRef {
+            if (T == u64) @compileError("semantic builder u64 is supported only as a schema field, not as a function surface value type");
+            return valueRefForType(spec, T);
+        }
+
         fn valueRefFromLocalSpec(comptime spec: anytype, comptime local_spec: anytype) program_plan.ValueRef {
             const LocalSpecType = @TypeOf(local_spec);
+            if (comptime LocalSpecType.is_param and @hasDecl(LocalSpecType, "Type") and LocalSpecType.Type == u64) {
+                @compileError("semantic builder u64 is supported only as a schema field, not as a parameter type");
+            }
             if (@hasField(LocalSpecType, "ref")) return local_spec.ref;
             return valueRefForType(spec, LocalSpecType.Type);
         }
 
-        fn valueRefFromTypeField(comptime spec: anytype, comptime T: type) program_plan.ValueRef {
-            return valueRefForType(spec, T);
-        }
-
         fn functionValueRef(comptime spec: anytype, comptime function_spec: anytype) program_plan.ValueRef {
             if (comptime hasField(function_spec, "value_ref")) return function_spec.value_ref;
-            if (comptime hasField(function_spec, "value")) return valueRefFromTypeField(spec, function_spec.value);
+            if (comptime hasField(function_spec, "value")) return surfaceValueRefFromTypeField(spec, function_spec.value);
             if (comptime hasField(function_spec, "result_ref")) return function_spec.result_ref;
-            if (comptime hasField(function_spec, "result")) return valueRefFromTypeField(spec, function_spec.result);
+            if (comptime hasField(function_spec, "result")) return surfaceValueRefFromTypeField(spec, function_spec.result);
             return .{ .codec = .unit };
         }
 
         fn functionResultRef(comptime spec: anytype, comptime function_spec: anytype) ?program_plan.ValueRef {
             if (comptime hasField(function_spec, "result_ref")) return function_spec.result_ref;
-            if (comptime hasField(function_spec, "result")) return valueRefFromTypeField(spec, function_spec.result);
+            if (comptime hasField(function_spec, "result")) return surfaceValueRefFromTypeField(spec, function_spec.result);
             return null;
         }
 
@@ -901,6 +911,12 @@ pub const builder = struct {
                     const source = localInfo(spec, function_spec, instruction.operand);
                     if (source.ref.codec != .sum) @compileError("semantic builder sumExtractPayload source must be sum");
                     return .{ .kind = .sum_extract_payload, .dst = dst.index, .operand = source.index, .aux = instruction.aux };
+                },
+                .product_extract_field => {
+                    const dst = localInfo(spec, function_spec, instruction.dst);
+                    const source = localInfo(spec, function_spec, instruction.operand);
+                    if (source.ref.codec != .product) @compileError("semantic builder productExtractField source must be product");
+                    return .{ .kind = .product_extract_field, .dst = dst.index, .operand = source.index, .aux = instruction.aux };
                 },
                 .call => {
                     const Op = @TypeOf(instruction).Op;
@@ -1517,6 +1533,7 @@ pub const schema = struct {
             pub const schema_refs = Refs;
 
             pub fn valueRef(comptime T: type) ?program_plan.ValueRef {
+                if (T == u64) return null;
                 const codec = comptime program_plan.codecForType(T) catch return null;
                 return switch (codec) {
                     .product, .sum => Refs.valueRef(T),
@@ -2012,6 +2029,10 @@ pub const schema = struct {
         comptime role: []const u8,
         comptime schema_refs: type,
     ) program_plan.ValueRef {
+        if (T == u64) @compileError(standard.fmt.comptimePrint(
+            "schema.LowerBinding u64 is supported only as a schema field, not as a standalone {s} type",
+            .{role},
+        ));
         const codec = comptime program_plan.codecForType(T) catch |err| @compileError(standard.fmt.comptimePrint(
             "schema.LowerBinding unsupported {s} type '{s}': {s}",
             .{ role, @typeName(T), @errorName(err) },
@@ -2030,6 +2051,10 @@ pub const schema = struct {
         comptime role: []const u8,
         comptime schema_refs: type,
     ) program_plan.ValueRef {
+        if (T == u64) @compileError(standard.fmt.comptimePrint(
+            "schema.Protocol operation u64 is supported only as a schema field, not as a standalone {s} type",
+            .{role},
+        ));
         const codec = comptime program_plan.codecForType(T) catch |err| @compileError(standard.fmt.comptimePrint(
             "schema.Protocol operation unsupported {s} type '{s}': {s}",
             .{ role, @typeName(T), @errorName(err) },
@@ -2981,6 +3006,17 @@ test "schema Registry refs are accepted by Protocol.Rows" {
     try standard.testing.expectEqual(@as(?u16, 0), Rows.ops[0].payload_schema_index);
     try standard.testing.expectEqual(program_plan.ValueCodec.sum, Rows.ops[0].resume_codec);
     try standard.testing.expectEqual(@as(?u16, 1), Rows.ops[0].resume_schema_index);
+}
+
+test "schema Registry rejects standalone u64 while preserving u64 fields" {
+    const RequestPayload = struct {
+        id: u64,
+    };
+    const Schemas = schema.Registry(.{RequestPayload});
+
+    try standard.testing.expect(Schemas.valueRef(u64) == null);
+    try standard.testing.expectEqual(program_plan.ValueCodec.product, Schemas.valueRef(RequestPayload).?.codec);
+    try standard.testing.expectEqual(program_plan.ValueCodec.usize, Schemas.value_fields[0].codec);
 }
 
 test "semantic builder emits valid scalar plan and computes spans" {

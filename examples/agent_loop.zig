@@ -2,9 +2,24 @@
 const boundary = @import("boundary");
 const std = @import("std");
 
-const Action = union(enum) {
-    final: []const u8,
-    tool: []const u8,
+const BoundaryAgent = boundary.Agent;
+
+const Action = BoundaryAgent.Action;
+
+const BoundaryTools = BoundaryAgent.ClosedToolSet(&.{ "actuate", "read_file", "write_file" });
+const boundary_tool_ids = [_]BoundaryAgent.ToolId{
+    BoundaryTools.id(0),
+    BoundaryTools.id(1),
+    BoundaryTools.id(2),
+};
+const boundary_agent_config = BoundaryAgent.Config{
+    .max_iterations = 5,
+    .max_model_calls = 5,
+    .max_tool_calls = 4,
+    .max_observation_bytes = 1024,
+    .max_action_bytes = 256,
+    .max_tool_result_bytes = 1024,
+    .max_trace_entries = 8,
 };
 
 const AgentHandlers = struct {
@@ -12,7 +27,7 @@ const AgentHandlers = struct {
     initial_observation: []const u8,
 };
 
-const AgentSchemas = boundary.ir.schema.Registry(.{Action});
+const AgentSchemas = boundary.ir.schema.Registry(.{ BoundaryAgent.ToolId, BoundaryAgent.ToolRequest, Action });
 
 const AgentProtocol = boundary.ir.schema.Protocol(.{
     .label = "agent",
@@ -24,7 +39,7 @@ const AgentProtocol = boundary.ir.schema.Protocol(.{
 const ToolProtocol = boundary.ir.schema.Protocol(.{
     .label = "tool",
     .ops = .{
-        boundary.ir.schema.transform("call", []const u8, []const u8),
+        boundary.ir.schema.transform("call", BoundaryAgent.ToolRequest, []const u8),
     },
 });
 
@@ -84,8 +99,11 @@ const InvokeOutcome = struct {
 };
 
 const Scenario = enum {
+    budget_exhaustion,
     fixture,
+    malformed_action,
     skeleton,
+    unknown_tool,
 };
 
 const RecordedResponse = struct {
@@ -123,8 +141,7 @@ const fixture_output_path = fixture_dir ++ "/output.txt";
 const fixture_input_contents = "rewrite this file through the agent loop\n";
 const fixture_observation = "rewrite this file through the agent loop";
 const fixture_write_contents = "actuate updated the fixture";
-const fixture_read_command = "read:" ++ fixture_input_path;
-const fixture_write_command = "write:" ++ fixture_output_path ++ "=" ++ fixture_write_contents;
+const fixture_write_payload = fixture_output_path ++ "=" ++ fixture_write_contents;
 
 fn recordEvent(record: *RunRecord, event: SessionEvent) void {
     record.event_count += 1;
@@ -153,6 +170,10 @@ fn runRecordsEqual(a: RunRecord, b: RunRecord) bool {
 
 fn initialObservation(scenario: Scenario) []const u8 {
     return switch (scenario) {
+        .budget_exhaustion,
+        .malformed_action,
+        .unknown_tool,
+        => "goal=invoke",
         .skeleton => "goal=invoke",
         .fixture => "goal=fixture",
     };
@@ -160,6 +181,7 @@ fn initialObservation(scenario: Scenario) []const u8 {
 
 fn expectedFinalText(scenario: Scenario) []const u8 {
     return switch (scenario) {
+        .budget_exhaustion, .malformed_action, .unknown_tool => "",
         .skeleton => "final=actuate skeleton complete",
         .fixture => "final=fixture updated",
     };
@@ -167,27 +189,39 @@ fn expectedFinalText(scenario: Scenario) []const u8 {
 
 fn expectedRecordedResponseCount(scenario: Scenario) usize {
     return switch (scenario) {
+        .budget_exhaustion => 2,
+        .malformed_action, .unknown_tool => 1,
         .skeleton => 3,
         .fixture => 5,
     };
 }
 
-fn decideAction(scenario: Scenario, observation: []const u8) Action {
+fn toolRequest(comptime tool_index: usize, payload: []const u8) BoundaryAgent.ToolRequest {
+    return .{
+        .tool_id = BoundaryTools.id(tool_index),
+        .payload = payload,
+    };
+}
+
+fn decideAction(scenario: Scenario, observation: []const u8) !Action {
     return switch (scenario) {
+        .budget_exhaustion => .{ .tool = toolRequest(0, "") },
+        .malformed_action => error.MalformedAgentAction,
         .skeleton => if (std.mem.eql(u8, observation, "goal=invoke"))
-            Action{ .tool = @as([]const u8, "actuate") }
+            .{ .tool = toolRequest(0, "") }
         else if (std.mem.eql(u8, observation, "actuate"))
-            Action{ .final = @as([]const u8, "final=actuate skeleton complete") }
+            .{ .final = "final=actuate skeleton complete" }
         else
-            Action{ .final = @as([]const u8, "final=unexpected-tool-output") },
+            .{ .final = "final=unexpected-tool-output" },
         .fixture => if (std.mem.eql(u8, observation, "goal=fixture"))
-            Action{ .tool = @as([]const u8, fixture_read_command) }
+            .{ .tool = toolRequest(1, fixture_input_path) }
         else if (std.mem.eql(u8, observation, fixture_observation))
-            Action{ .tool = @as([]const u8, fixture_write_command) }
+            .{ .tool = toolRequest(2, fixture_write_payload) }
         else if (std.mem.eql(u8, observation, "write=ok"))
-            Action{ .final = @as([]const u8, "final=fixture updated") }
+            .{ .final = "final=fixture updated" }
         else
-            Action{ .final = @as([]const u8, "final=fixture update failed") },
+            .{ .final = "final=fixture update failed" },
+        .unknown_tool => .{ .tool = .{ .tool_id = .{ .index = std.math.maxInt(u64), .diagnostic_label = "missing" }, .payload = "" } },
     };
 }
 
@@ -204,25 +238,25 @@ fn prepareFixtureWorkspace() !void {
     };
 }
 
-fn callTool(allocator: std.mem.Allocator, scenario: Scenario, command: []const u8) ![]const u8 {
+fn callTool(allocator: std.mem.Allocator, scenario: Scenario, request: BoundaryAgent.ToolRequest) ![]const u8 {
     switch (scenario) {
-        .skeleton => return if (std.mem.eql(u8, command, "actuate")) "actuate" else "tool=unsupported",
+        .budget_exhaustion, .skeleton => return if (request.tool_id.eql(BoundaryTools.id(0)) and request.payload.len == 0) "actuate" else "tool=unsupported",
+        .malformed_action, .unknown_tool => return error.UnexpectedToolCall,
         .fixture => {
             const io = std.Io.Threaded.global_single_threaded.io();
-            if (std.mem.startsWith(u8, command, "read:")) {
-                const path = command["read:".len..];
+            if (request.tool_id.eql(BoundaryTools.id(1))) {
+                const path = request.payload;
                 const bytes = try std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(1024));
                 defer allocator.free(bytes);
                 const trimmed = std.mem.trim(u8, bytes, "\r\n");
                 if (!std.mem.eql(u8, trimmed, fixture_observation)) return error.UnexpectedFixtureInput;
                 return fixture_observation;
             }
-            if (std.mem.startsWith(u8, command, "write:")) {
-                const payload = command["write:".len..];
-                const split = std.mem.findScalar(u8, payload, '=') orelse return "write=invalid";
+            if (request.tool_id.eql(BoundaryTools.id(2))) {
+                const split = std.mem.findScalar(u8, request.payload, '=') orelse return "write=invalid";
                 try std.Io.Dir.cwd().writeFile(io, .{
-                    .sub_path = payload[0..split],
-                    .data = payload[split + 1 ..],
+                    .sub_path = request.payload[0..split],
+                    .data = request.payload[split + 1 ..],
                 });
                 return "write=ok";
             }
@@ -254,8 +288,16 @@ const agent_loop_semantic_spec = blk: {
                 semantic.local("budget_empty", bool),
                 semantic.local("action", Action),
                 semantic.local("is_final", bool),
+                semantic.local("is_tool", bool),
+                semantic.local("is_fail", bool),
+                semantic.local("is_actuate_tool", bool),
+                semantic.local("is_read_tool", bool),
+                semantic.local("is_write_tool", bool),
                 semantic.local("answer", []const u8),
-                semantic.local("tool_name", []const u8),
+                semantic.local("tool_request", BoundaryAgent.ToolRequest),
+                semantic.local("tool_id", BoundaryAgent.ToolId),
+                semantic.local("tool_index", u64),
+                semantic.local("tool_selector", u64),
             },
             .result = []const u8,
             .blocks = .{
@@ -272,7 +314,7 @@ const agent_loop_semantic_spec = blk: {
                         semantic.call(Decide, .{ .dst = "action", .payload = "observation", .label = "agent.decide" }),
                         semantic.sumVariantIs("is_final", "action", 0),
                     },
-                    .terminator = semantic.branchIf("is_final", .{ .then = "final", .@"else" = "tool" }),
+                    .terminator = semantic.branchIf("is_final", .{ .then = "final", .@"else" = "check_tool" }),
                 },
                 .{
                     .name = "final",
@@ -282,30 +324,91 @@ const agent_loop_semantic_spec = blk: {
                     .terminator = semantic.returnValue("answer"),
                 },
                 .{
+                    .name = "check_tool",
+                    .instructions = .{
+                        semantic.sumVariantIs("is_tool", "action", 1),
+                    },
+                    .terminator = semantic.branchIf("is_tool", .{ .then = "extract_tool", .@"else" = "check_fail" }),
+                },
+                .{
+                    .name = "extract_tool",
+                    .instructions = .{
+                        semantic.sumExtractPayload("tool_request", "action", 1),
+                        semantic.productExtractField("tool_id", "tool_request", 0),
+                        semantic.productExtractField("tool_index", "tool_id", 0),
+                        semantic.compareEqZero("is_actuate_tool", "tool_index"),
+                    },
+                    .terminator = semantic.branchIf("is_actuate_tool", .{ .then = "tool", .@"else" = "check_read_tool" }),
+                },
+                .{
+                    .name = "check_read_tool",
+                    .instructions = .{
+                        semantic.subOne("tool_selector", "tool_index"),
+                        semantic.compareEqZero("is_read_tool", "tool_selector"),
+                    },
+                    .terminator = semantic.branchIf("is_read_tool", .{ .then = "tool", .@"else" = "check_write_tool" }),
+                },
+                .{
+                    .name = "check_write_tool",
+                    .instructions = .{
+                        semantic.subOne("tool_selector", "tool_selector"),
+                        semantic.compareEqZero("is_write_tool", "tool_selector"),
+                    },
+                    .terminator = semantic.branchIf("is_write_tool", .{ .then = "tool", .@"else" = "unknown_tool" }),
+                },
+                .{
+                    .name = "unknown_tool",
+                    .instructions = .{},
+                    .terminator = semantic.returnError("UnknownToolId"),
+                },
+                .{
+                    .name = "check_fail",
+                    .instructions = .{
+                        semantic.sumVariantIs("is_fail", "action", 2),
+                    },
+                    .terminator = semantic.branchIf("is_fail", .{ .then = "fail", .@"else" = "malformed_action" }),
+                },
+                .{
+                    .name = "fail",
+                    .instructions = .{},
+                    .terminator = semantic.returnError("AgentActionFailed"),
+                },
+                .{
+                    .name = "malformed_action",
+                    .instructions = .{},
+                    .terminator = semantic.returnError("MalformedAgentAction"),
+                },
+                .{
                     .name = "tool",
                     .instructions = .{
-                        semantic.sumExtractPayload("tool_name", "action", 1),
-                        semantic.call(Tool, .{ .dst = "observation", .payload = "tool_name", .label = "agent.tool" }),
+                        semantic.call(Tool, .{ .dst = "observation", .payload = "tool_request", .label = "agent.tool" }),
                         semantic.subOne("remaining", "remaining"),
                     },
                     .terminator = semantic.jump("entry"),
                 },
                 .{
                     .name = "exhausted",
-                    .instructions = .{
-                        semantic.constString("answer", "budget exhausted"),
-                    },
-                    .terminator = semantic.returnValue("answer"),
+                    .instructions = .{},
+                    .terminator = semantic.returnError("AgentBudgetExhausted"),
                 },
             },
         }},
     };
 };
 
-const agent_loop_compiled = boundary.ir.builder.semantic.finish(agent_loop_semantic_spec) catch |err|
-    @compileError("invalid agent loop semantic plan: " ++ @errorName(err));
+const agent_loop_compiled = blk: {
+    @setEvalBranchQuota(2_000_000);
+    break :blk boundary.ir.builder.semantic.finish(agent_loop_semantic_spec) catch |err|
+        @compileError("invalid agent loop semantic plan: " ++ @errorName(err));
+};
 
 const AgentBody = struct {
+    pub const Error = error{
+        AgentActionFailed,
+        AgentBudgetExhausted,
+        MalformedAgentAction,
+        UnknownToolId,
+    };
     pub const value_schema_types = AgentSchemas.value_schema_types;
     pub const site_metadata = agent_loop_compiled.site_metadata;
     pub const compiled_plan = agent_loop_compiled.plan;
@@ -313,6 +416,285 @@ const AgentBody = struct {
     pub fn encodeArgs(handlers: AgentHandlers) struct { usize, []const u8 } {
         return .{ handlers.initial_remaining, handlers.initial_observation };
     }
+};
+
+pub const Program = boundary.program("agent-loop-session", AgentHandlers, AgentBody);
+pub const AgentDecision = Program.protocol.operationSite("agent", "decide", 0);
+pub const ToolboxCall = Program.protocol.operationSite("tool", "call", 0);
+
+fn worldPortForSite(comptime label: []const u8, comptime port_label: []const u8, comptime Site: anytype) Program.BoundaryClosure.WorldPort {
+    const Closure = Program.BoundaryClosure;
+    @setEvalBranchQuota(2_000_000);
+    const source_shape = Closure.EffectShape.init(.{
+        .program_label = Program.contract.label,
+        .plan_hash = Program.compiled_plan.hash(),
+        .kind = .operation,
+        .site_index = Site.index,
+        .protocol_label = label,
+        .protocol_op_fingerprint = Site.fingerprint,
+        .semantic_label = Site.semantic_label,
+        .name = Site.op_name,
+        .mode = "transform",
+        .value_ref = Program.Evidence.BoundaryValueRef.fromValueRef(Site.payload_ref),
+        .expected_resume_ref = Program.Evidence.BoundaryValueRef.fromValueRef(Site.resume_ref),
+        .result_ref = Program.Evidence.BoundaryValueRef.fromValueRef(Site.result_ref),
+    });
+    return Closure.WorldPort.init(.{
+        .label = port_label,
+        .kind = .test_fixture,
+        .effect_shape_ref = source_shape.evidenceRef(),
+        .effect_shape_witness = source_shape,
+        .supported_protocol_labels = &.{label},
+        .supported_site_indexes = &.{Site.index},
+        .supported_protocol_op_fingerprints = &.{Site.fingerprint},
+    });
+}
+
+const agent_source_ref = blk: {
+    @setEvalBranchQuota(2_000_000);
+    break :blk Program.Evidence.refFor(
+        Program.Evidence.domains.program_plan,
+        Program.compiled_plan.hash(),
+        .{ .label = Program.contract.label },
+    );
+};
+const model_world_port = worldPortForSite("agent", "agent-model-decision-port", AgentDecision);
+const toolbox_world_port = worldPortForSite("tool", "agent-toolbox-call-port", ToolboxCall);
+const agent_closure_graph = Program.BoundaryClosure.Graph.init("agent-root-module-graph", &.{}, &.{}, &.{});
+const agent_closure_report = blk: {
+    @setEvalBranchQuota(2_000_000);
+    break :blk Program.BoundaryClosure.Report.init(.{
+        .graph_fingerprint = agent_closure_graph.fingerprint,
+        .root_program_refs = &.{agent_source_ref},
+        .effect_shape_count = 2,
+        .world_port_refs = &.{ model_world_port.evidenceRef(), toolbox_world_port.evidenceRef() },
+        .open_world_port_count = 2,
+    });
+};
+const agent_closure_certificate = blk: {
+    @setEvalBranchQuota(2_000_000);
+    break :blk Program.BoundaryClosure.Certificate.init(
+        agent_closure_report,
+        agent_closure_graph,
+        Program.BoundaryClosure.Policy.auditOnly(),
+        &.{},
+    );
+};
+const agent_elaboration_input = Program.BoundaryClosure.Elaboration.Input{
+    .closure_graph = agent_closure_graph,
+    .closure_report = agent_closure_report,
+    .closure_certificate = agent_closure_certificate,
+    .source_program_ref = agent_source_ref,
+    .world_ports = &.{ model_world_port, toolbox_world_port },
+    .policy = Program.BoundaryClosure.Elaboration.Policy.auditOnly(),
+};
+
+pub const RootTarget = blk: {
+    @setEvalBranchQuota(2_000_000);
+    break :blk Program.BoundaryClosure.Elaboration.Target.compileComptime(.{
+        .label = "agent-root-module-target",
+        .input = agent_elaboration_input,
+        .residual_program = Program,
+        .policy = Program.BoundaryClosure.Elaboration.Target.Policy.auditOnly(),
+    });
+};
+
+const ToolboxHandlers = struct {
+    tool_index: usize,
+    payload: []const u8,
+};
+
+const FileProtocol = boundary.ir.schema.Protocol(.{
+    .label = "file",
+    .ops = .{
+        boundary.ir.schema.transform("read", []const u8, []const u8),
+        boundary.ir.schema.transform("write", []const u8, []const u8),
+    },
+});
+const FileRows = FileProtocol.Rows(ToolboxHandlers, .{
+    .requirement_index = 0,
+    .first_op = 0,
+    .schema_refs = AgentSchemas.schema_refs,
+});
+const file_requirements = [_]boundary.ir.plan.Requirement{FileRows.requirement};
+const file_ops = FileRows.ops;
+
+const toolbox_semantic_spec = blk: {
+    const semantic = boundary.ir.builder.semantic;
+    const ReadOp = FileRows.op("read");
+    const WriteOp = FileRows.op("write");
+
+    break :blk .{
+        .label = "agent-toolbox-provider",
+        .ir_hash = 102,
+        .entry = "toolbox",
+        .schemas = AgentSchemas,
+        .requirements = &file_requirements,
+        .ops = &file_ops,
+        .functions = .{.{
+            .symbol_name = "toolbox",
+            .requirements = semantic.span(0, file_requirements.len),
+            .params = .{
+                semantic.param("tool_index", usize),
+                semantic.param("payload", []const u8),
+            },
+            .locals = .{
+                semantic.local("is_actuate", bool),
+                semantic.local("is_read", bool),
+                semantic.local("is_write", bool),
+                semantic.local("selector", usize),
+                semantic.local("result", []const u8),
+            },
+            .result = []const u8,
+            .blocks = .{
+                .{
+                    .name = "entry",
+                    .instructions = .{
+                        semantic.compareEqZero("is_actuate", "tool_index"),
+                    },
+                    .terminator = semantic.branchIf("is_actuate", .{ .then = "actuate", .@"else" = "check_read" }),
+                },
+                .{
+                    .name = "check_read",
+                    .instructions = .{
+                        semantic.subOne("selector", "tool_index"),
+                        semantic.compareEqZero("is_read", "selector"),
+                    },
+                    .terminator = semantic.branchIf("is_read", .{ .then = "read_file", .@"else" = "check_write" }),
+                },
+                .{
+                    .name = "check_write",
+                    .instructions = .{
+                        semantic.subOne("selector", "selector"),
+                        semantic.compareEqZero("is_write", "selector"),
+                    },
+                    .terminator = semantic.branchIf("is_write", .{ .then = "write_file", .@"else" = "unsupported" }),
+                },
+                .{
+                    .name = "actuate",
+                    .instructions = .{
+                        semantic.constString("result", "actuate"),
+                    },
+                    .terminator = semantic.returnValue("result"),
+                },
+                .{
+                    .name = "read_file",
+                    .instructions = .{
+                        semantic.call(ReadOp, .{ .dst = "result", .payload = "payload", .label = "toolbox.file.read" }),
+                    },
+                    .terminator = semantic.returnValue("result"),
+                },
+                .{
+                    .name = "write_file",
+                    .instructions = .{
+                        semantic.call(WriteOp, .{ .dst = "result", .payload = "payload", .label = "toolbox.file.write" }),
+                    },
+                    .terminator = semantic.returnValue("result"),
+                },
+                .{
+                    .name = "unsupported",
+                    .instructions = .{
+                        semantic.constString("result", "tool=unsupported"),
+                    },
+                    .terminator = semantic.returnValue("result"),
+                },
+            },
+        }},
+    };
+};
+
+const toolbox_compiled = boundary.ir.builder.semantic.finish(toolbox_semantic_spec) catch |err|
+    @compileError("invalid agent toolbox semantic plan: " ++ @errorName(err));
+
+const ToolboxBody = struct {
+    pub const value_schema_types = AgentSchemas.value_schema_types;
+    pub const site_metadata = toolbox_compiled.site_metadata;
+    pub const compiled_plan = toolbox_compiled.plan;
+
+    pub fn encodeArgs(handlers: ToolboxHandlers) struct { usize, []const u8 } {
+        return .{ handlers.tool_index, handlers.payload };
+    }
+};
+
+pub const ToolboxProgram = boundary.program("agent-toolbox-provider", ToolboxHandlers, ToolboxBody);
+pub const FileRead = ToolboxProgram.protocol.operationSite("file", "read", 0);
+pub const FileWrite = ToolboxProgram.protocol.operationSite("file", "write", 0);
+
+fn toolboxWorldPortForSite(comptime label: []const u8, comptime port_label: []const u8, comptime Site: anytype) ToolboxProgram.BoundaryClosure.WorldPort {
+    const Closure = ToolboxProgram.BoundaryClosure;
+    @setEvalBranchQuota(2_000_000);
+    const source_shape = Closure.EffectShape.init(.{
+        .program_label = ToolboxProgram.contract.label,
+        .plan_hash = ToolboxProgram.compiled_plan.hash(),
+        .kind = .operation,
+        .site_index = Site.index,
+        .protocol_label = label,
+        .protocol_op_fingerprint = Site.fingerprint,
+        .semantic_label = Site.semantic_label,
+        .name = Site.op_name,
+        .mode = "transform",
+        .value_ref = ToolboxProgram.Evidence.BoundaryValueRef.fromValueRef(Site.payload_ref),
+        .expected_resume_ref = ToolboxProgram.Evidence.BoundaryValueRef.fromValueRef(Site.resume_ref),
+        .result_ref = ToolboxProgram.Evidence.BoundaryValueRef.fromValueRef(Site.result_ref),
+    });
+    return Closure.WorldPort.init(.{
+        .label = port_label,
+        .kind = .test_fixture,
+        .effect_shape_ref = source_shape.evidenceRef(),
+        .effect_shape_witness = source_shape,
+        .supported_protocol_labels = &.{label},
+        .supported_site_indexes = &.{Site.index},
+        .supported_protocol_op_fingerprints = &.{Site.fingerprint},
+    });
+}
+
+const toolbox_source_ref = blk: {
+    @setEvalBranchQuota(2_000_000);
+    break :blk ToolboxProgram.Evidence.refFor(
+        ToolboxProgram.Evidence.domains.program_plan,
+        ToolboxProgram.compiled_plan.hash(),
+        .{ .label = ToolboxProgram.contract.label },
+    );
+};
+const file_read_world_port = toolboxWorldPortForSite("file", "agent-toolbox-file-read-port", FileRead);
+const file_write_world_port = toolboxWorldPortForSite("file", "agent-toolbox-file-write-port", FileWrite);
+const toolbox_closure_graph = ToolboxProgram.BoundaryClosure.Graph.init("agent-toolbox-module-graph", &.{}, &.{}, &.{});
+const toolbox_closure_report = blk: {
+    @setEvalBranchQuota(2_000_000);
+    break :blk ToolboxProgram.BoundaryClosure.Report.init(.{
+        .graph_fingerprint = toolbox_closure_graph.fingerprint,
+        .root_program_refs = &.{toolbox_source_ref},
+        .effect_shape_count = 2,
+        .world_port_refs = &.{ file_read_world_port.evidenceRef(), file_write_world_port.evidenceRef() },
+        .open_world_port_count = 2,
+    });
+};
+const toolbox_closure_certificate = blk: {
+    @setEvalBranchQuota(2_000_000);
+    break :blk ToolboxProgram.BoundaryClosure.Certificate.init(
+        toolbox_closure_report,
+        toolbox_closure_graph,
+        ToolboxProgram.BoundaryClosure.Policy.auditOnly(),
+        &.{},
+    );
+};
+const toolbox_elaboration_input = ToolboxProgram.BoundaryClosure.Elaboration.Input{
+    .closure_graph = toolbox_closure_graph,
+    .closure_report = toolbox_closure_report,
+    .closure_certificate = toolbox_closure_certificate,
+    .source_program_ref = toolbox_source_ref,
+    .world_ports = &.{ file_read_world_port, file_write_world_port },
+    .policy = ToolboxProgram.BoundaryClosure.Elaboration.Policy.auditOnly(),
+};
+
+pub const ToolboxTarget = blk: {
+    @setEvalBranchQuota(2_000_000);
+    break :blk ToolboxProgram.BoundaryClosure.Elaboration.Target.compileComptime(.{
+        .label = "agent-toolbox-module-target",
+        .input = toolbox_elaboration_input,
+        .residual_program = ToolboxProgram,
+        .policy = ToolboxProgram.BoundaryClosure.Elaboration.Target.Policy.auditOnly(),
+    });
 };
 
 const host_between_turns_semantic_spec = .{
@@ -343,6 +725,521 @@ const HostBetweenTurnsBody = struct {
     pub const compiled_plan = host_between_turns_compiled.plan;
 };
 
+fn boundaryAgentProfile() BoundaryAgent.Profile {
+    return BoundaryAgent.Profile.fromConfig(
+        boundary_agent_config,
+        &boundary_tool_ids,
+        BoundaryAgent.canonicalValueSchemaFingerprints(),
+        "agent-root-module",
+    );
+}
+
+fn loadedSchemaSet() RootTarget.Module.LoadedValueSchemaSet {
+    return .{
+        .schemas = RootTarget.Program.compiled_plan.value_schemas,
+        .fields = RootTarget.Program.compiled_plan.value_fields,
+        .variants = RootTarget.Program.compiled_plan.value_variants,
+    };
+}
+
+fn toolboxLoadedSchemaSet() ToolboxTarget.Module.LoadedValueSchemaSet {
+    return .{
+        .schemas = ToolboxTarget.Program.compiled_plan.value_schemas,
+        .fields = ToolboxTarget.Program.compiled_plan.value_fields,
+        .variants = ToolboxTarget.Program.compiled_plan.value_variants,
+    };
+}
+
+fn encodeLoadedString(allocator: std.mem.Allocator, text: []const u8) ![]u8 {
+    return RootTarget.Module.LoadedExecution.encodeLoadedValueImageBytes(
+        allocator,
+        loadedSchemaSet(),
+        .{ .codec = .string },
+        .{ .bytes = text },
+        .{},
+    );
+}
+
+fn encodeLoadedAction(allocator: std.mem.Allocator, action: Action) ![]u8 {
+    const action_ref = AgentSchemas.valueRef(Action).?;
+    return switch (action) {
+        .final => |text| blk: {
+            const payload = RootTarget.Module.LoadedValue{ .bytes = text };
+            const sum = RootTarget.Module.LoadedValue{ .sum = .{
+                .variant_index = 0,
+                .payload = &payload,
+            } };
+            break :blk try RootTarget.Module.LoadedExecution.encodeLoadedValueImageBytes(
+                allocator,
+                loadedSchemaSet(),
+                .{ .codec = .sum, .schema_index = action_ref.schema_index },
+                sum,
+                .{},
+            );
+        },
+        .tool => |request| blk: {
+            const tool_id_fields = [_]RootTarget.Module.LoadedValue{
+                .{ .word_u64 = request.tool_id.index },
+                .{ .bytes = request.tool_id.diagnostic_label },
+            };
+            const tool_id = RootTarget.Module.LoadedValue{ .product = tool_id_fields[0..] };
+            const request_fields = [_]RootTarget.Module.LoadedValue{
+                tool_id,
+                .{ .bytes = request.payload },
+            };
+            const payload = RootTarget.Module.LoadedValue{ .product = request_fields[0..] };
+            const sum = RootTarget.Module.LoadedValue{ .sum = .{
+                .variant_index = 1,
+                .payload = &payload,
+            } };
+            break :blk try RootTarget.Module.LoadedExecution.encodeLoadedValueImageBytes(
+                allocator,
+                loadedSchemaSet(),
+                .{ .codec = .sum, .schema_index = action_ref.schema_index },
+                sum,
+                .{},
+            );
+        },
+        .fail => |reason| blk: {
+            const payload = RootTarget.Module.LoadedValue{ .bytes = reason };
+            const sum = RootTarget.Module.LoadedValue{ .sum = .{
+                .variant_index = 2,
+                .payload = &payload,
+            } };
+            break :blk try RootTarget.Module.LoadedExecution.encodeLoadedValueImageBytes(
+                allocator,
+                loadedSchemaSet(),
+                .{ .codec = .sum, .schema_index = action_ref.schema_index },
+                sum,
+                .{},
+            );
+        },
+    };
+}
+
+fn decodeLoadedToolRequest(allocator: std.mem.Allocator, arena: *RootTarget.Module.LoadedValueArena, image: []const u8) !BoundaryAgent.ToolRequest {
+    const request_ref = AgentSchemas.valueRef(BoundaryAgent.ToolRequest).?;
+    const decoded = try RootTarget.Module.LoadedExecution.decodeLoadedValueImage(
+        allocator,
+        arena,
+        loadedSchemaSet(),
+        .{ .codec = .product, .schema_index = request_ref.schema_index },
+        image,
+        .{},
+    );
+    const fields = switch (decoded) {
+        .product => |fields| fields,
+        else => return error.UnexpectedLoadedToolRequest,
+    };
+    if (fields.len != 2) return error.UnexpectedLoadedToolRequest;
+    const tool_id_fields = switch (fields[0]) {
+        .product => |tool_id_fields| tool_id_fields,
+        else => return error.UnexpectedLoadedToolRequest,
+    };
+    if (tool_id_fields.len != 2) return error.UnexpectedLoadedToolRequest;
+    const index = switch (tool_id_fields[0]) {
+        .word_u64 => |word| word,
+        else => return error.UnexpectedLoadedToolRequest,
+    };
+    const diagnostic_label = switch (tool_id_fields[1]) {
+        .bytes => |bytes| bytes,
+        else => return error.UnexpectedLoadedToolRequest,
+    };
+    const payload = switch (fields[1]) {
+        .bytes => |bytes| bytes,
+        else => return error.UnexpectedLoadedToolRequest,
+    };
+    return .{
+        .tool_id = .{ .index = index, .diagnostic_label = diagnostic_label },
+        .payload = payload,
+    };
+}
+
+fn expectToolRequestsEqual(expected: BoundaryAgent.ToolRequest, actual: BoundaryAgent.ToolRequest) !void {
+    try std.testing.expectEqual(expected.tool_id.index, actual.tool_id.index);
+    try std.testing.expectEqualStrings(expected.tool_id.diagnostic_label, actual.tool_id.diagnostic_label);
+    try std.testing.expectEqualStrings(expected.payload, actual.payload);
+}
+
+fn decodeLoadedString(allocator: std.mem.Allocator, arena: *RootTarget.Module.LoadedValueArena, image: []const u8) ![]const u8 {
+    const value = try RootTarget.Module.LoadedExecution.decodeLoadedValueImage(
+        allocator,
+        arena,
+        loadedSchemaSet(),
+        .{ .codec = .string },
+        image,
+        .{},
+    );
+    return value.bytes;
+}
+
+fn encodeToolboxLoadedString(allocator: std.mem.Allocator, text: []const u8) ![]u8 {
+    return ToolboxTarget.Module.LoadedExecution.encodeLoadedValueImageBytes(
+        allocator,
+        toolboxLoadedSchemaSet(),
+        .{ .codec = .string },
+        .{ .bytes = text },
+        .{},
+    );
+}
+
+fn decodeToolboxLoadedString(allocator: std.mem.Allocator, arena: *ToolboxTarget.Module.LoadedValueArena, image: []const u8) ![]const u8 {
+    const value = try ToolboxTarget.Module.LoadedExecution.decodeLoadedValueImage(
+        allocator,
+        arena,
+        toolboxLoadedSchemaSet(),
+        .{ .codec = .string },
+        image,
+        .{},
+    );
+    return value.bytes;
+}
+
+fn runToolboxProviderParityScenario(
+    allocator: std.mem.Allocator,
+    tool_index: usize,
+    payload_text: []const u8,
+    expected_final: []const u8,
+) ![]u8 {
+    const full = try ToolboxTarget.Module.fullImage(allocator);
+    defer allocator.free(full);
+    var loaded = try ToolboxTarget.Module.decode(allocator, full);
+    defer loaded.deinit();
+
+    var runtime = boundary.Runtime.init(allocator);
+    defer runtime.deinit();
+    var generated_session = try ToolboxProgram.Session.start(&runtime, .{
+        .tool_index = tool_index,
+        .payload = payload_text,
+    });
+    defer generated_session.deinit();
+
+    var entry_args = [_]ToolboxTarget.Module.LoadedValue{
+        .{ .word_u64 = tool_index },
+        .{ .bytes = payload_text },
+    };
+    var loaded_session = try ToolboxTarget.Module.LoadedModule.Session.startExecutableWithArgs(
+        allocator,
+        &loaded,
+        ToolboxTarget.Module.LoadedExecutionProfile.portableV2(),
+        entry_args[0..],
+    );
+    defer loaded_session.deinit();
+
+    const read_response_text = try allocator.dupe(u8, fixture_observation);
+    defer allocator.free(read_response_text);
+    const read_response_const: []const u8 = read_response_text;
+    const write_response_text = try allocator.dupe(u8, "write=ok");
+    defer allocator.free(write_response_text);
+    const write_response_const: []const u8 = write_response_text;
+
+    while (true) {
+        const generated_next = try generated_session.next();
+        const loaded_next = loaded_session.next();
+        switch (generated_next) {
+            .after => return error.UnexpectedAfter,
+            .request => |generated_request| {
+                const loaded_request = switch (loaded_next) {
+                    .request => |request| request,
+                    .done => return error.UnexpectedLoadedDone,
+                    .failed => return error.UnexpectedLoadedFailure,
+                };
+                try std.testing.expectEqual(
+                    ToolboxTarget.WorldDispatchTable.lookup(generated_request.operation_site_index).?,
+                    loaded_request.world_port_id,
+                );
+                try std.testing.expectEqual(generated_request.operation_site_index, loaded_request.residual_site_index);
+                try std.testing.expectEqual(generated_request.operation_site_fingerprint, loaded_request.residual_site_fingerprint);
+
+                var payload_arena = ToolboxTarget.Module.LoadedValueArena.init(allocator);
+                defer payload_arena.deinit();
+                const loaded_payload = try decodeToolboxLoadedString(allocator, &payload_arena, loaded_request.canonical_payload_image);
+
+                if (generated_request.matches(FileRead)) {
+                    const typed = try generated_request.as(FileRead);
+                    const path: FileRead.Payload = try typed.payload();
+                    try std.testing.expectEqualStrings(path, loaded_payload);
+                    try std.testing.expectEqualStrings(payload_text, path);
+                    const loaded_response = try encodeToolboxLoadedString(allocator, read_response_const);
+                    defer allocator.free(loaded_response);
+                    try generated_session.resumeTyped(typed, read_response_const);
+                    try loaded_session.@"resume"(loaded_request, loaded_response);
+                } else if (generated_request.matches(FileWrite)) {
+                    const typed = try generated_request.as(FileWrite);
+                    const payload: FileWrite.Payload = try typed.payload();
+                    try std.testing.expectEqualStrings(payload, loaded_payload);
+                    try std.testing.expectEqualStrings(payload_text, payload);
+                    const loaded_response = try encodeToolboxLoadedString(allocator, write_response_const);
+                    defer allocator.free(loaded_response);
+                    try generated_session.resumeTyped(typed, write_response_const);
+                    try loaded_session.@"resume"(loaded_request, loaded_response);
+                } else {
+                    return error.UnknownToolboxRequest;
+                }
+            },
+            .done => |done| {
+                var generated_done = done;
+                defer generated_done.deinit();
+                const loaded_done = switch (loaded_next) {
+                    .done => |value| value,
+                    .request => return error.UnexpectedLoadedRequest,
+                    .failed => return error.UnexpectedLoadedFailure,
+                };
+                var result_arena = ToolboxTarget.Module.LoadedValueArena.init(allocator);
+                defer result_arena.deinit();
+                const loaded_result = try decodeToolboxLoadedString(allocator, &result_arena, loaded_done.canonical_result_image);
+                try std.testing.expectEqualStrings(generated_done.value, loaded_result);
+                try std.testing.expectEqualStrings(expected_final, loaded_result);
+                return allocator.dupe(u8, loaded_result);
+            },
+        }
+    }
+}
+
+fn runLoadedFailureParityScenario(
+    allocator: std.mem.Allocator,
+    scenario: Scenario,
+    initial_remaining: usize,
+    expected_error: []const u8,
+) !void {
+    if (scenario == .malformed_action) return error.InvalidFailureParityScenario;
+
+    const full = try RootTarget.Module.fullImage(allocator);
+    defer allocator.free(full);
+    var loaded = try RootTarget.Module.decode(allocator, full);
+    defer loaded.deinit();
+
+    var runtime = boundary.Runtime.init(allocator);
+    defer runtime.deinit();
+    var generated_session = try Program.Session.start(&runtime, .{
+        .initial_remaining = initial_remaining,
+        .initial_observation = initialObservation(scenario),
+    });
+    defer generated_session.deinit();
+
+    var entry_args = [_]RootTarget.Module.LoadedValue{
+        .{ .word_u64 = initial_remaining },
+        .{ .bytes = initialObservation(scenario) },
+    };
+    var loaded_session = try RootTarget.Module.LoadedModule.Session.startExecutableWithArgs(
+        allocator,
+        &loaded,
+        RootTarget.Module.LoadedExecutionProfile.portableV2(),
+        entry_args[0..],
+    );
+    defer loaded_session.deinit();
+
+    while (true) {
+        const generated_next = generated_session.next() catch |err| {
+            const loaded_failure = switch (loaded_session.next()) {
+                .failed => |failure| failure,
+                .request => return error.UnexpectedLoadedRequest,
+                .done => return error.UnexpectedLoadedDone,
+            };
+            try std.testing.expectEqualStrings(expected_error, @errorName(err));
+            try std.testing.expectEqual(RootTarget.Module.LoadedExecution.ExecutionFailureKind.declared_error, loaded_failure.kind);
+            try std.testing.expectEqual(RootTarget.Module.LoadedExecution.loadedDeclaredErrorRef(expected_error), loaded_failure.declared_error_ref.?);
+            try std.testing.expectEqualStrings(expected_error, loaded_failure.diagnostic_summary);
+            return;
+        };
+        const loaded_next = loaded_session.next();
+        switch (generated_next) {
+            .after => return error.UnexpectedAfter,
+            .request => |generated_request| {
+                const loaded_request = switch (loaded_next) {
+                    .request => |request| request,
+                    .done => return error.UnexpectedLoadedDone,
+                    .failed => return error.UnexpectedLoadedFailure,
+                };
+                try std.testing.expectEqual(
+                    RootTarget.WorldDispatchTable.lookup(generated_request.operation_site_index).?,
+                    loaded_request.world_port_id,
+                );
+                try std.testing.expectEqual(generated_request.operation_site_index, loaded_request.residual_site_index);
+                try std.testing.expectEqual(generated_request.operation_site_fingerprint, loaded_request.residual_site_fingerprint);
+
+                if (generated_request.matches(AgentDecision)) {
+                    var payload_arena = RootTarget.Module.LoadedValueArena.init(allocator);
+                    defer payload_arena.deinit();
+                    const loaded_payload = try decodeLoadedString(allocator, &payload_arena, loaded_request.canonical_payload_image);
+                    const typed = try generated_request.as(AgentDecision);
+                    const observation: AgentDecision.Payload = try typed.payload();
+                    try std.testing.expectEqualStrings(observation, loaded_payload);
+                    const action = try decideAction(scenario, observation);
+                    const loaded_response = try encodeLoadedAction(allocator, action);
+                    defer allocator.free(loaded_response);
+                    try generated_session.resumeTyped(typed, action);
+                    try loaded_session.@"resume"(loaded_request, loaded_response);
+                } else if (generated_request.matches(ToolboxCall)) {
+                    var capsule = try generated_session.capture(allocator);
+                    defer capsule.deinit();
+                    var payload_arena = RootTarget.Module.LoadedValueArena.init(allocator);
+                    defer payload_arena.deinit();
+                    const typed = try generated_request.as(ToolboxCall);
+                    const request: ToolboxCall.Payload = try typed.payload();
+                    const loaded_request_payload = try decodeLoadedToolRequest(allocator, &payload_arena, loaded_request.canonical_payload_image);
+                    try expectToolRequestsEqual(request, loaded_request_payload);
+                    const text = try callTool(allocator, scenario, request);
+                    const loaded_response = try encodeLoadedString(allocator, text);
+                    defer allocator.free(loaded_response);
+                    try generated_session.resumeTyped(typed, text);
+                    try loaded_session.@"resume"(loaded_request, loaded_response);
+                } else {
+                    return error.UnknownAgentRequest;
+                }
+            },
+            .done => return error.UnexpectedGeneratedDone,
+        }
+    }
+}
+
+fn runMalformedLoadedActionImageScenario(allocator: std.mem.Allocator) !void {
+    const full = try RootTarget.Module.fullImage(allocator);
+    defer allocator.free(full);
+    var loaded = try RootTarget.Module.decode(allocator, full);
+    defer loaded.deinit();
+
+    var runtime = boundary.Runtime.init(allocator);
+    defer runtime.deinit();
+    var generated_session = try Program.Session.start(&runtime, .{
+        .initial_remaining = 3,
+        .initial_observation = initialObservation(.malformed_action),
+    });
+    defer generated_session.deinit();
+
+    var entry_args = [_]RootTarget.Module.LoadedValue{
+        .{ .word_u64 = 3 },
+        .{ .bytes = initialObservation(.malformed_action) },
+    };
+    var loaded_session = try RootTarget.Module.LoadedModule.Session.startExecutableWithArgs(
+        allocator,
+        &loaded,
+        RootTarget.Module.LoadedExecutionProfile.portableV2(),
+        entry_args[0..],
+    );
+    defer loaded_session.deinit();
+
+    const generated_request = switch (try generated_session.next()) {
+        .request => |request| request,
+        .after => return error.UnexpectedAfter,
+        .done => return error.UnexpectedGeneratedDone,
+    };
+    const loaded_request = switch (loaded_session.next()) {
+        .request => |request| request,
+        .done => return error.UnexpectedLoadedDone,
+        .failed => return error.UnexpectedLoadedFailure,
+    };
+
+    try std.testing.expect(generated_request.matches(AgentDecision));
+    try std.testing.expectEqual(
+        RootTarget.WorldDispatchTable.lookup(generated_request.operation_site_index).?,
+        loaded_request.world_port_id,
+    );
+    try std.testing.expectEqual(generated_request.operation_site_index, loaded_request.residual_site_index);
+    try std.testing.expectEqual(generated_request.operation_site_fingerprint, loaded_request.residual_site_fingerprint);
+
+    var payload_arena = RootTarget.Module.LoadedValueArena.init(allocator);
+    defer payload_arena.deinit();
+    const loaded_payload = try decodeLoadedString(allocator, &payload_arena, loaded_request.canonical_payload_image);
+    const typed = try generated_request.as(AgentDecision);
+    const observation: AgentDecision.Payload = try typed.payload();
+    try std.testing.expectEqualStrings(observation, loaded_payload);
+    try std.testing.expectError(error.MalformedAgentAction, decideAction(.malformed_action, observation));
+    try std.testing.expectError(error.InvalidResume, loaded_session.@"resume"(loaded_request, "malformed-action-image"));
+}
+
+fn runLoadedParityScenario(allocator: std.mem.Allocator, scenario: Scenario) ![]u8 {
+    if (scenario == .fixture) try prepareFixtureWorkspace();
+
+    const full = try RootTarget.Module.fullImage(allocator);
+    defer allocator.free(full);
+    var loaded = try RootTarget.Module.decode(allocator, full);
+    defer loaded.deinit();
+
+    var runtime = boundary.Runtime.init(allocator);
+    defer runtime.deinit();
+    var generated_session = try Program.Session.start(&runtime, .{
+        .initial_remaining = 3,
+        .initial_observation = initialObservation(scenario),
+    });
+    defer generated_session.deinit();
+
+    var entry_args = [_]RootTarget.Module.LoadedValue{
+        .{ .word_u64 = 3 },
+        .{ .bytes = initialObservation(scenario) },
+    };
+    var loaded_session = try RootTarget.Module.LoadedModule.Session.startExecutableWithArgs(
+        allocator,
+        &loaded,
+        RootTarget.Module.LoadedExecutionProfile.portableV2(),
+        entry_args[0..],
+    );
+    defer loaded_session.deinit();
+
+    while (true) {
+        const generated_next = try generated_session.next();
+        const loaded_next = loaded_session.next();
+        switch (generated_next) {
+            .after => return error.UnexpectedAfter,
+            .request => |generated_request| {
+                const loaded_request = switch (loaded_next) {
+                    .request => |request| request,
+                    .done => return error.UnexpectedLoadedDone,
+                    .failed => return error.UnexpectedLoadedFailure,
+                };
+                try std.testing.expectEqual(
+                    RootTarget.WorldDispatchTable.lookup(generated_request.operation_site_index).?,
+                    loaded_request.world_port_id,
+                );
+                try std.testing.expectEqual(generated_request.operation_site_index, loaded_request.residual_site_index);
+                try std.testing.expectEqual(generated_request.operation_site_fingerprint, loaded_request.residual_site_fingerprint);
+
+                if (generated_request.matches(AgentDecision)) {
+                    var payload_arena = RootTarget.Module.LoadedValueArena.init(allocator);
+                    defer payload_arena.deinit();
+                    const loaded_payload = try decodeLoadedString(allocator, &payload_arena, loaded_request.canonical_payload_image);
+                    const typed = try generated_request.as(AgentDecision);
+                    const observation: AgentDecision.Payload = try typed.payload();
+                    try std.testing.expectEqualStrings(observation, loaded_payload);
+                    const action = try decideAction(scenario, observation);
+                    const loaded_response = try encodeLoadedAction(allocator, action);
+                    defer allocator.free(loaded_response);
+                    try generated_session.resumeTyped(typed, action);
+                    try loaded_session.@"resume"(loaded_request, loaded_response);
+                } else if (generated_request.matches(ToolboxCall)) {
+                    var payload_arena = RootTarget.Module.LoadedValueArena.init(allocator);
+                    defer payload_arena.deinit();
+                    const typed = try generated_request.as(ToolboxCall);
+                    const request: ToolboxCall.Payload = try typed.payload();
+                    const loaded_request_payload = try decodeLoadedToolRequest(allocator, &payload_arena, loaded_request.canonical_payload_image);
+                    try expectToolRequestsEqual(request, loaded_request_payload);
+                    const text = try callTool(allocator, scenario, request);
+                    const loaded_response = try encodeLoadedString(allocator, text);
+                    defer allocator.free(loaded_response);
+                    try generated_session.resumeTyped(typed, text);
+                    try loaded_session.@"resume"(loaded_request, loaded_response);
+                } else {
+                    return error.UnknownAgentRequest;
+                }
+            },
+            .done => |done| {
+                var generated_done = done;
+                defer generated_done.deinit();
+                const loaded_done = switch (loaded_next) {
+                    .done => |value| value,
+                    .request => return error.UnexpectedLoadedRequest,
+                    .failed => return error.UnexpectedLoadedFailure,
+                };
+                var result_arena = RootTarget.Module.LoadedValueArena.init(allocator);
+                defer result_arena.deinit();
+                const loaded_result = try decodeLoadedString(allocator, &result_arena, loaded_done.canonical_result_image);
+                try std.testing.expectEqualStrings(generated_done.value, loaded_result);
+                return allocator.dupe(u8, loaded_result);
+            },
+        }
+    }
+}
+
 fn runSession(
     writer: anytype,
     allocator: std.mem.Allocator,
@@ -353,10 +1250,9 @@ fn runSession(
     var runtime = boundary.Runtime.init(allocator);
     defer runtime.deinit();
 
-    const Program = boundary.program("agent-loop-session", AgentHandlers, AgentBody);
     const HostBetweenTurns = boundary.program("agent-loop-host-between-turns", struct {}, HostBetweenTurnsBody);
-    const Decide = Program.protocol.operationSite("agent", "decide", 0);
-    const Tool = Program.protocol.operationSite("tool", "call", 0);
+    const Decide = AgentDecision;
+    const Tool = ToolboxCall;
     comptime {
         Program.protocol.assertOperationSitesCovered(.{ Decide, Tool });
         Program.protocol.assertAfterSitesCovered(.{});
@@ -397,7 +1293,7 @@ fn runSession(
                         .record => action: {
                             const observation: Decide.Payload = try typed_request.payload();
                             try writer.print("{s} decide observation={s}\n", .{ phase, observation });
-                            break :action decideAction(scenario, observation);
+                            break :action try decideAction(scenario, observation);
                         },
                         .replay => action: {
                             const recorded = try recording.at(replay_index);
@@ -435,9 +1331,13 @@ fn runSession(
                     const typed_request = try request.as(Tool);
                     const text = switch (mode) {
                         .record => text: {
-                            const tool_name: Tool.Payload = try typed_request.payload();
-                            try writer.print("{s} tool name={s}\n", .{ phase, tool_name });
-                            break :text try callTool(allocator, scenario, tool_name);
+                            const request_payload: Tool.Payload = try typed_request.payload();
+                            try writer.print("{s} tool name={s} payload={s}\n", .{
+                                phase,
+                                request_payload.tool_id.diagnostic_label,
+                                request_payload.payload,
+                            });
+                            break :text try callTool(allocator, scenario, request_payload);
                         },
                         .replay => text: {
                             const recorded = try recording.at(replay_index);
@@ -569,4 +1469,91 @@ test "agent loop fixture scenario mirrors actuate fixture coverage" {
     const bytes = try std.Io.Dir.cwd().readFileAlloc(io, fixture_output_path, std.testing.allocator, .limited(1024));
     defer std.testing.allocator.free(bytes);
     try std.testing.expectEqualStrings("actuate updated the fixture", bytes);
+}
+
+test "agent root module full image binds model and toolbox residual ports" {
+    const allocator = std.testing.allocator;
+    var built = try BoundaryAgent.buildRootModule(RootTarget, allocator, boundaryAgentProfile());
+    defer built.deinit(allocator);
+    try built.artifact.validate(RootTarget, .{
+        .allocator = allocator,
+        .profile = boundaryAgentProfile(),
+        .expected_role = .root,
+        .bytes = built.bytes,
+    });
+    try std.testing.expectEqual(BoundaryAgent.ModuleRole.root, built.artifact.role);
+    try std.testing.expectEqual(@as(u32, 2), built.artifact.import_count);
+
+    var loaded = try RootTarget.Module.decode(allocator, built.bytes);
+    defer loaded.deinit();
+    try std.testing.expectEqual(@as(usize, 2), loaded.imports().len);
+    try std.testing.expectEqual(@as(u32, 0), loaded.worldPortForSite(AgentDecision.index).?);
+    try std.testing.expectEqual(@as(u32, 1), loaded.worldPortForSite(ToolboxCall.index).?);
+}
+
+test "agent toolbox module full image binds file residual ports" {
+    const allocator = std.testing.allocator;
+    var built = try BoundaryAgent.buildToolboxModule(ToolboxTarget, allocator, boundaryAgentProfile());
+    defer built.deinit(allocator);
+    try built.artifact.validate(ToolboxTarget, .{
+        .allocator = allocator,
+        .profile = boundaryAgentProfile(),
+        .expected_role = .toolbox,
+        .bytes = built.bytes,
+    });
+    try std.testing.expectEqual(BoundaryAgent.ModuleRole.toolbox, built.artifact.role);
+    try std.testing.expectEqual(@as(u32, 2), built.artifact.import_count);
+
+    var loaded = try ToolboxTarget.Module.decode(allocator, built.bytes);
+    defer loaded.deinit();
+    try std.testing.expectEqual(@as(usize, 2), loaded.imports().len);
+    try std.testing.expectEqual(@as(u32, 0), loaded.worldPortForSite(FileRead.index).?);
+    try std.testing.expectEqual(@as(u32, 1), loaded.worldPortForSite(FileWrite.index).?);
+}
+
+test "agent root generated-loaded parity skeleton one-tool flow" {
+    const final_text = try runLoadedParityScenario(std.testing.allocator, .skeleton);
+    defer std.testing.allocator.free(final_text);
+    try std.testing.expectEqualStrings("final=actuate skeleton complete", final_text);
+}
+
+test "agent root generated-loaded parity fixture read write flow" {
+    const final_text = try runLoadedParityScenario(std.testing.allocator, .fixture);
+    defer std.testing.allocator.free(final_text);
+    try std.testing.expectEqualStrings("final=fixture updated", final_text);
+
+    const io = std.Io.Threaded.global_single_threaded.io();
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, fixture_output_path, std.testing.allocator, .limited(1024));
+    defer std.testing.allocator.free(bytes);
+    try std.testing.expectEqualStrings("actuate updated the fixture", bytes);
+}
+
+test "agent root generated-loaded parity budget exhaustion failure" {
+    try runLoadedFailureParityScenario(std.testing.allocator, .budget_exhaustion, 1, "AgentBudgetExhausted");
+}
+
+test "agent root rejects malformed loaded action image" {
+    try runMalformedLoadedActionImageScenario(std.testing.allocator);
+}
+
+test "agent root generated-loaded parity unknown tool failure" {
+    try runLoadedFailureParityScenario(std.testing.allocator, .unknown_tool, 3, "UnknownToolId");
+}
+
+test "agent toolbox generated-loaded parity actuate pure helper" {
+    const result = try runToolboxProviderParityScenario(std.testing.allocator, 0, "", "actuate");
+    defer std.testing.allocator.free(result);
+    try std.testing.expectEqualStrings("actuate", result);
+}
+
+test "agent toolbox generated-loaded parity read file residual" {
+    const result = try runToolboxProviderParityScenario(std.testing.allocator, 1, fixture_input_path, fixture_observation);
+    defer std.testing.allocator.free(result);
+    try std.testing.expectEqualStrings(fixture_observation, result);
+}
+
+test "agent toolbox generated-loaded parity write file residual" {
+    const result = try runToolboxProviderParityScenario(std.testing.allocator, 2, fixture_write_payload, "write=ok");
+    defer std.testing.allocator.free(result);
+    try std.testing.expectEqualStrings("write=ok", result);
 }

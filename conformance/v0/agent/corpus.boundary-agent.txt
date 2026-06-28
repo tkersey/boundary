@@ -2,7 +2,7 @@ Boundary Agent Profile v0 conformance corpus
 format: boundary-agent-conformance-corpus-v0
 profile_format_version: 0
 profile_fingerprint_version: 1
-profile_fingerprint: 0xedab928f2ab15706
+profile_fingerprint: 0x93e76a6083279734
 max_iterations: 5
 max_model_calls: 5
 max_tool_calls: 4
@@ -41,8 +41,8 @@ value_schemas:
   codec: sum(final=0:string,tool=1:Agent.ToolRequest,fail=2:string)
   fingerprint: 0x19593bde6dfe12fe
 - name: Agent.ToolId
-  codec: product(index:u16,diagnostic_label:string)
-  fingerprint: 0xcaeb5b75962fb878
+  codec: product(index:u64,diagnostic_label:string)
+  fingerprint: 0xa0c5e7c8a6b29dbd
 - name: Agent.ToolPayload
   codec: string
   fingerprint: 0x1473bb162d57c43b
@@ -156,8 +156,120 @@ scenarios:
   expected_final: approved:7
   expected_final_fingerprint: 0x21a051b902ee120c
   replay: zig build check-boundary-agent-generated-loaded-parity
+- id: agent-root-generated-loaded-skeleton
+  kind: parity
+  initial_observation: goal=invoke
+  scenario_max_iterations: 5
+  scenario_max_model_calls: 5
+  scenario_max_tool_calls: 4
+  scenario_max_observation_bytes: 1024
+  scenario_max_action_bytes: 256
+  scenario_max_tool_result_bytes: 1024
+  scenario_max_trace_entries: 8
+  expected_terminal_status: completed
+  expected_model_calls: 2
+  expected_tool_calls: 1
+  expected_final: final=actuate skeleton complete
+  expected_final_fingerprint: 0x674ecedb0a3db921
+  replay: zig build check-boundary-agent-generated-loaded-parity -- --test-filter 'agent root generated-loaded parity skeleton'
+- id: agent-root-generated-loaded-fixture
+  kind: parity
+  initial_observation: goal=fixture
+  scenario_max_iterations: 5
+  scenario_max_model_calls: 5
+  scenario_max_tool_calls: 4
+  scenario_max_observation_bytes: 1024
+  scenario_max_action_bytes: 256
+  scenario_max_tool_result_bytes: 1024
+  scenario_max_trace_entries: 8
+  expected_terminal_status: completed
+  expected_model_calls: 3
+  expected_tool_calls: 2
+  expected_final: final=fixture updated
+  expected_final_fingerprint: 0xf304cc7232d7cedb
+  replay: zig build check-boundary-agent-generated-loaded-parity -- --test-filter 'agent root generated-loaded parity fixture'
+- id: agent-root-generated-loaded-budget-exhaustion
+  kind: parity
+  initial_observation: goal=invoke
+  scenario_max_iterations: 1
+  scenario_max_model_calls: 1
+  scenario_max_tool_calls: 1
+  scenario_max_observation_bytes: 1024
+  scenario_max_action_bytes: 256
+  scenario_max_tool_result_bytes: 1024
+  scenario_max_trace_entries: 8
+  expected_terminal_status: failed
+  expected_model_calls: 1
+  expected_tool_calls: 1
+  expected_failure: AgentBudgetExhausted
+  expected_failure_fingerprint: 0xde3aa5ff2f1ebf9a
+  replay: zig build check-boundary-agent-generated-loaded-parity -- --test-filter 'agent root generated-loaded parity budget exhaustion'
+- id: agent-root-generated-loaded-unknown-tool
+  kind: parity
+  initial_observation: goal=invoke
+  scenario_max_iterations: 5
+  scenario_max_model_calls: 5
+  scenario_max_tool_calls: 4
+  scenario_max_observation_bytes: 1024
+  scenario_max_action_bytes: 256
+  scenario_max_tool_result_bytes: 1024
+  scenario_max_trace_entries: 8
+  expected_terminal_status: failed
+  expected_model_calls: 1
+  expected_tool_calls: 0
+  expected_failure: UnknownToolId
+  expected_failure_fingerprint: 0x4d01b489d908f385
+  replay: zig build check-boundary-agent-generated-loaded-parity -- --test-filter 'agent root generated-loaded parity unknown tool'
+- id: agent-toolbox-generated-loaded-actuate
+  kind: parity
+  initial_observation: tool_index=0
+  scenario_max_iterations: 5
+  scenario_max_model_calls: 5
+  scenario_max_tool_calls: 4
+  scenario_max_observation_bytes: 1024
+  scenario_max_action_bytes: 256
+  scenario_max_tool_result_bytes: 1024
+  scenario_max_trace_entries: 8
+  expected_terminal_status: completed
+  expected_model_calls: 0
+  expected_tool_calls: 1
+  expected_final: actuate
+  expected_final_fingerprint: 0xcdd910469de099b4
+  replay: zig build check-boundary-agent-generated-loaded-parity -- --test-filter 'agent toolbox generated-loaded parity actuate'
+- id: agent-toolbox-generated-loaded-read-file
+  kind: parity
+  initial_observation: tool_index=1
+  scenario_max_iterations: 5
+  scenario_max_model_calls: 5
+  scenario_max_tool_calls: 4
+  scenario_max_observation_bytes: 1024
+  scenario_max_action_bytes: 256
+  scenario_max_tool_result_bytes: 1024
+  scenario_max_trace_entries: 8
+  expected_terminal_status: completed
+  expected_model_calls: 0
+  expected_tool_calls: 1
+  expected_final: rewrite this file through the agent loop
+  expected_final_fingerprint: 0x6375020f8314dfba
+  replay: zig build check-boundary-agent-generated-loaded-parity -- --test-filter 'agent toolbox generated-loaded parity read'
+- id: agent-toolbox-generated-loaded-write-file
+  kind: parity
+  initial_observation: tool_index=2
+  scenario_max_iterations: 5
+  scenario_max_model_calls: 5
+  scenario_max_tool_calls: 4
+  scenario_max_observation_bytes: 1024
+  scenario_max_action_bytes: 256
+  scenario_max_tool_result_bytes: 1024
+  scenario_max_trace_entries: 8
+  expected_terminal_status: completed
+  expected_model_calls: 0
+  expected_tool_calls: 1
+  expected_final: write=ok
+  expected_final_fingerprint: 0x0ee5db23a162568d
+  replay: zig build check-boundary-agent-generated-loaded-parity -- --test-filter 'agent toolbox generated-loaded parity write'
 
 validation:
 - check-boundary-agent-conformance-corpus compares this catalog and executes the scenario tests
-- check-boundary-agent-generated-loaded-parity covers the Agent module generated-versus-loaded parity fixture
+- check-boundary-agent-generated-loaded-parity covers Agent module transfer plus positive and negative root-agent parity and toolbox-provider parity
 - model and tools are deterministic fixtures; no network, credentials, host registry, or real LLM is used

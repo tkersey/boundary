@@ -179,21 +179,23 @@ pub const FunctionPlan = struct {
 };
 
 /// Serializable instruction tags carried by the runtime-owned plan.
-pub const InstructionKind = enum {
-    add_const_i32,
-    add_i32,
-    call_helper,
-    call_nested_with,
-    call_op,
-    compare_eq_zero,
-    const_i32,
-    const_string,
-    const_usize,
-    return_error,
-    return_value,
-    sub_one,
-    sum_extract_payload,
-    sum_variant_is,
+/// These ordinals are written into v1 executable plan images and must not be renumbered.
+pub const InstructionKind = enum(u8) {
+    add_const_i32 = 0,
+    add_i32 = 1,
+    call_helper = 2,
+    call_nested_with = 3,
+    call_op = 4,
+    compare_eq_zero = 5,
+    const_i32 = 6,
+    const_string = 7,
+    const_usize = 8,
+    product_extract_field = 14,
+    return_error = 9,
+    return_value = 10,
+    sub_one = 11,
+    sum_extract_payload = 12,
+    sum_variant_is = 13,
 };
 
 /// One serializable placeholder instruction in the runtime-owned executable plan.
@@ -204,6 +206,24 @@ pub const Instruction = struct {
     aux: u16 = 0,
     string_literal: []const u8 = "",
 };
+
+test "instruction kind wire tags are stable" {
+    try std.testing.expectEqual(@as(u8, 0), @intFromEnum(InstructionKind.add_const_i32));
+    try std.testing.expectEqual(@as(u8, 1), @intFromEnum(InstructionKind.add_i32));
+    try std.testing.expectEqual(@as(u8, 2), @intFromEnum(InstructionKind.call_helper));
+    try std.testing.expectEqual(@as(u8, 3), @intFromEnum(InstructionKind.call_nested_with));
+    try std.testing.expectEqual(@as(u8, 4), @intFromEnum(InstructionKind.call_op));
+    try std.testing.expectEqual(@as(u8, 5), @intFromEnum(InstructionKind.compare_eq_zero));
+    try std.testing.expectEqual(@as(u8, 6), @intFromEnum(InstructionKind.const_i32));
+    try std.testing.expectEqual(@as(u8, 7), @intFromEnum(InstructionKind.const_string));
+    try std.testing.expectEqual(@as(u8, 8), @intFromEnum(InstructionKind.const_usize));
+    try std.testing.expectEqual(@as(u8, 9), @intFromEnum(InstructionKind.return_error));
+    try std.testing.expectEqual(@as(u8, 10), @intFromEnum(InstructionKind.return_value));
+    try std.testing.expectEqual(@as(u8, 11), @intFromEnum(InstructionKind.sub_one));
+    try std.testing.expectEqual(@as(u8, 12), @intFromEnum(InstructionKind.sum_extract_payload));
+    try std.testing.expectEqual(@as(u8, 13), @intFromEnum(InstructionKind.sum_variant_is));
+    try std.testing.expectEqual(@as(u8, 14), @intFromEnum(InstructionKind.product_extract_field));
+}
 
 /// Serializable block terminator tags carried by the runtime-owned plan.
 pub const TerminatorKind = enum {
@@ -581,6 +601,16 @@ pub const ProgramPlan = struct {
                             return error.InvalidSumVariantOrdinal;
                         if (!hasPayload(payload_ref.codec)) return error.InvalidSumPayloadVariant;
                         if (!functionLocalHasEquivalentValueRef(self, function, instruction.dst, payload_ref)) {
+                            return error.InvalidSumPayloadDestination;
+                        }
+                    },
+                    .product_extract_field => {
+                        const source_ref = functionLocalValueRef(self, function, instruction.operand) orelse
+                            return error.InvalidSumSourceRef;
+                        if (source_ref.codec != .product) return error.InvalidSumSourceRef;
+                        const field_ref = productFieldRef(self, source_ref, instruction.aux) orelse
+                            return error.InvalidSumVariantOrdinal;
+                        if (!functionLocalHasEquivalentValueRef(self, function, instruction.dst, field_ref)) {
                             return error.InvalidSumPayloadDestination;
                         }
                     },
@@ -985,6 +1015,23 @@ pub const program_plan_builder = struct {
         };
     }
 
+    /// Build a product-field extraction whose source and destination are owned by the caller.
+    pub fn productExtractField(
+        caller: FunctionRef,
+        dst: LocalRef,
+        source: LocalRef,
+        field_ordinal: u16,
+    ) ValidationError!Instruction {
+        try expectLocalOwnedBy(caller, dst);
+        try expectLocalOwnedBy(caller, source);
+        return .{
+            .kind = .product_extract_field,
+            .dst = dst.index,
+            .operand = source.index,
+            .aux = field_ordinal,
+        };
+    }
+
     /// Build a return-value instruction from a caller-owned local.
     pub fn returnValue(caller: FunctionRef, local_ref: LocalRef) ValidationError!Instruction {
         try expectLocalOwnedBy(caller, local_ref);
@@ -1112,6 +1159,7 @@ pub fn codecForType(comptime T: type) CodecError!ValueCodec {
     if (T == noreturn) return .unit;
     if (T == bool) return .bool;
     if (T == i32) return .i32;
+    if (T == u64) return .usize;
     if (T == usize) return .usize;
     if (T == []const u8) return .string;
     if (T == [][]const u8) return .string_list;
@@ -1546,6 +1594,11 @@ fn valueRefForTypeInRegistry(comptime schema_types: anytype, comptime T: type) C
         .codec = codec,
         .schema_index = if (valueCodecNeedsSchema(codec)) try valueSchemaIndexForType(schema_types, T) else null,
     };
+}
+
+fn surfaceValueRefForTypeInRegistry(comptime schema_types: anytype, comptime T: type) CodecError!ValueRef {
+    if (T == u64) return error.UnsupportedCodecType;
+    return valueRefForTypeInRegistry(schema_types, T);
 }
 
 fn buildFlatValueSchemas(comptime schema_types: anytype) CodecError![schema_types.len]ValueSchemaPlan {
@@ -2320,6 +2373,22 @@ fn sumVariantRef(self: ProgramPlan, source_ref: ValueRef, variant_ordinal: u16) 
     return .{
         .codec = variant.codec,
         .schema_index = variant.schema_index,
+    };
+}
+
+fn productFieldRef(self: ProgramPlan, source_ref: ValueRef, field_ordinal: u16) ?ValueRef {
+    if (source_ref.codec != .product) return null;
+    const schema_index = source_ref.schema_index orelse return null;
+    if (schema_index >= self.value_schemas.len) return null;
+    const schema = self.value_schemas[schema_index];
+    if (schema.codec != .product) return null;
+    if (field_ordinal >= schema.field_count) return null;
+    const field_index = @as(usize, schema.first_field) + field_ordinal;
+    if (field_index >= self.value_fields.len) return null;
+    const field = self.value_fields[field_index];
+    return .{
+        .codec = field.codec,
+        .schema_index = field.schema_index,
     };
 }
 
@@ -3205,7 +3274,7 @@ fn loweredFunctionResultCodecReachability(
     comptime program: program_frontend.LoweredOpenRowProgram,
     comptime schema_types: anytype,
 ) PlanError![program.functions.len]bool {
-    const program_result_ref = try valueRefForTypeInRegistry(schema_types, program.functions[program.entry_index].ValueType);
+    const program_result_ref = try surfaceValueRefForTypeInRegistry(schema_types, program.functions[program.entry_index].ValueType);
     var completion_reachability = [_]bool{false} ** program.functions.len;
     var terminal_reachability = [_]bool{false} ** program.functions.len;
 
@@ -3235,7 +3304,7 @@ fn loweredFunctionResultCodecReachability(
 
     var result_codec_reachability = [_]bool{false} ** program.functions.len;
     for (program.functions, 0..) |function, function_index| {
-        const value_ref = try valueRefForTypeInRegistry(schema_types, function.ValueType);
+        const value_ref = try surfaceValueRefForTypeInRegistry(schema_types, function.ValueType);
         const completion_codecs = try loweredFunctionCompletionCodecReachability(program, function_index, &completion_reachability);
         if (!valueRefsEqual(value_ref, program_result_ref) and completion_codecs.value_codec and completion_codecs.result_codec) {
             return error.InvalidProgramBodyShape;
@@ -3336,7 +3405,7 @@ fn rowOnlyFunctionSynthesis(
     const function_value_ref: ?ValueRef = if (function.ValueType == void)
         null
     else
-        try valueRefForTypeInRegistry(schema_types, function.ValueType);
+        try surfaceValueRefForTypeInRegistry(schema_types, function.ValueType);
 
     var helper_call_count: usize = 0;
     var forwarded_arg_count: usize = 0;
@@ -3360,7 +3429,7 @@ fn rowOnlyFunctionSynthesis(
 
         if (callee.ValueType == void) continue :call_edge_scan;
         value_returning_helper_count += 1;
-        const callee_value_ref = try valueRefForTypeInRegistry(schema_types, callee.ValueType);
+        const callee_value_ref = try surfaceValueRefForTypeInRegistry(schema_types, callee.ValueType);
         if (value_result_ref == null) {
             value_result_ref = callee_value_ref;
         } else if (!valueRefsEqual(value_result_ref.?, callee_value_ref)) {
@@ -3558,7 +3627,7 @@ pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.P
         var instruction_index: u16 = 0;
         for (program.functions, 0..) |function, index| {
             const synthesis = try rowOnlyFunctionSynthesis(program, index, schema_types);
-            const value_ref = try valueRefForTypeInRegistry(schema_types, function.ValueType);
+            const value_ref = try surfaceValueRefForTypeInRegistry(schema_types, function.ValueType);
             buf[index] = .{
                 .symbol_name = function.symbol.symbol_name,
                 .value_codec = value_ref.codec,
@@ -3608,8 +3677,8 @@ pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.P
         for (program.functions) |function| {
             for (function.row.requirements) |requirement| {
                 for (requirement.ops) |op| {
-                    const payload_ref = try valueRefForTypeInRegistry(schema_types, op.PayloadType);
-                    const resume_ref = try valueRefForTypeInRegistry(schema_types, op.ResumeType);
+                    const payload_ref = try surfaceValueRefForTypeInRegistry(schema_types, op.PayloadType);
+                    const resume_ref = try surfaceValueRefForTypeInRegistry(schema_types, op.ResumeType);
                     buf[op_index] = .{
                         .requirement_index = requirement_index,
                         .op_name = op.op_name,
@@ -3633,7 +3702,7 @@ pub fn planFromProgram(comptime label: []const u8, comptime program: effect_ir.P
         var output_index: usize = 0;
         for (program.functions) |function| {
             for (function.outputs) |output| {
-                const output_ref = try valueRefForTypeInRegistry(schema_types, output.OutputType);
+                const output_ref = try surfaceValueRefForTypeInRegistry(schema_types, output.OutputType);
                 buf[output_index] = .{
                     .label = output.label,
                     .codec = output_ref.codec,
@@ -4064,7 +4133,7 @@ pub fn planFromOpenRowProgram(
     const ir_hash = try irHashForProgram(summary_program);
     const value_schema_registry = ValueSchemaRegistryForProgram(program);
     const schema_types = value_schema_registry.registered_schema_types[0..];
-    const program_result_ref = try valueRefForTypeInRegistry(schema_types, program.functions[program.entry_index].ValueType);
+    const program_result_ref = try surfaceValueRefForTypeInRegistry(schema_types, program.functions[program.entry_index].ValueType);
     const result_codec_reachability = try loweredFunctionResultCodecReachability(program, schema_types);
 
     const functions = comptime blk: {
@@ -4081,7 +4150,7 @@ pub fn planFromOpenRowProgram(
                 for (body.blocks) |block| total += block.instructions.len;
                 break :count total;
             };
-            const value_ref = try valueRefForTypeInRegistry(schema_types, function.ValueType);
+            const value_ref = try surfaceValueRefForTypeInRegistry(schema_types, function.ValueType);
             buf[index] = .{
                 .symbol_name = function.symbol.symbol_name,
                 .value_codec = value_ref.codec,
@@ -4141,8 +4210,8 @@ pub fn planFromOpenRowProgram(
         for (program.functions) |function| {
             for (function.row.requirements) |requirement| {
                 for (requirement.ops) |op| {
-                    const payload_ref = try valueRefForTypeInRegistry(schema_types, op.PayloadType);
-                    const resume_ref = try valueRefForTypeInRegistry(schema_types, op.ResumeType);
+                    const payload_ref = try surfaceValueRefForTypeInRegistry(schema_types, op.PayloadType);
+                    const resume_ref = try surfaceValueRefForTypeInRegistry(schema_types, op.ResumeType);
                     buf[op_index] = .{
                         .requirement_index = requirement_index,
                         .op_name = op.op_name,
@@ -4166,7 +4235,7 @@ pub fn planFromOpenRowProgram(
         var output_index: usize = 0;
         for (program.functions) |function| {
             for (function.outputs) |output| {
-                const output_ref = try valueRefForTypeInRegistry(schema_types, output.OutputType);
+                const output_ref = try surfaceValueRefForTypeInRegistry(schema_types, output.OutputType);
                 buf[output_index] = .{
                     .label = output.label,
                     .codec = output_ref.codec,
@@ -4375,6 +4444,19 @@ test "codecForType covers scalar product and sum shapes" {
     try std.testing.expectError(error.UnsupportedCodecType, codecForType(*const i32));
     try std.testing.expect(!hasPayload(.unit));
     try std.testing.expect(hasPayload(.string));
+}
+
+test "u64 is schema-field only, not a standalone executable surface scalar" {
+    const Product = struct {
+        word: u64,
+    };
+    const schemas = [_]type{Product};
+
+    try std.testing.expectError(error.UnsupportedCodecType, surfaceValueRefForTypeInRegistry(&.{}, u64));
+    try std.testing.expectEqual(ValueCodec.product, try codecForType(Product));
+    const field_ref = try valueRefForTypeInRegistry(&schemas, u64);
+    try std.testing.expectEqual(ValueCodec.usize, field_ref.codec);
+    try std.testing.expectEqual(@as(?u16, null), field_ref.schema_index);
 }
 
 test "ValueCodec preserves legacy serialized numeric tags" {

@@ -7277,6 +7277,33 @@ pub const BoundaryTargetModule = struct {
                                 };
                                 locals[instruction.dst] = payload.*;
                             },
+                            .product_extract_field => {
+                                const source_ref = loadedFunctionLocalRef(program_plan, function, instruction.operand) orelse {
+                                    _ = self.fail(.malformed_plan, function_index, block_index, instruction_index, "loaded executable product_extract_field source ref is invalid");
+                                    return error.LoadedExecutionFailed;
+                                };
+                                const field_ref = loadedProductFieldRef(program_plan, source_ref, instruction.aux) orelse {
+                                    _ = self.fail(.malformed_plan, function_index, block_index, instruction_index, "loaded executable product_extract_field field is invalid");
+                                    return error.LoadedExecutionFailed;
+                                };
+                                const destination_ref = loadedFunctionLocalRef(program_plan, function, instruction.dst) orelse {
+                                    _ = self.fail(.malformed_plan, function_index, block_index, instruction_index, "loaded executable product_extract_field destination ref is invalid");
+                                    return error.LoadedExecutionFailed;
+                                };
+                                if (destination_ref.codec != field_ref.codec or destination_ref.schema_index != field_ref.schema_index) {
+                                    _ = self.fail(.malformed_plan, function_index, block_index, instruction_index, "loaded executable product_extract_field destination does not match field");
+                                    return error.LoadedExecutionFailed;
+                                }
+                                const product = loadedLocalProduct(locals, instruction.operand) orelse {
+                                    _ = self.fail(.invalid_value, function_index, block_index, instruction_index, "loaded executable product_extract_field local is invalid");
+                                    return error.LoadedExecutionFailed;
+                                };
+                                if (instruction.aux >= product.len) {
+                                    _ = self.fail(.invalid_value, function_index, block_index, instruction_index, "loaded executable product_extract_field field is missing");
+                                    return error.LoadedExecutionFailed;
+                                }
+                                locals[instruction.dst] = product[instruction.aux];
+                            },
                             .return_error => {
                                 _ = self.failDeclaredError(function_index, block_index, instruction_index, instruction.string_literal);
                                 return error.LoadedExecutionFailed;
@@ -9044,6 +9071,7 @@ pub const BoundaryTargetModule = struct {
             .const_i32 => profile.instruction_kinds.@"const" and profile.instruction_kinds.const_i32,
             .const_string => profile.instruction_kinds.@"const" and profile.instruction_kinds.const_string,
             .const_usize => profile.instruction_kinds.@"const" and profile.instruction_kinds.const_usize,
+            .product_extract_field => profile.instruction_kinds.get_product_field,
             .return_error => profile.instruction_kinds.return_error,
             .return_value => profile.instruction_kinds.return_value,
             .sum_extract_payload => profile.instruction_kinds.get_sum_payload,
@@ -9156,6 +9184,14 @@ pub const BoundaryTargetModule = struct {
         };
     }
 
+    fn loadedLocalProduct(locals: []const LoadedValue, local_id: u16) ?[]const LoadedValue {
+        const value = loadedLocalValue(locals, local_id) orelse return null;
+        return switch (value) {
+            .product => |actual| actual,
+            else => null,
+        };
+    }
+
     fn loadedSumVariantRef(program_plan: internal_program_plan.ProgramPlan, source_ref: internal_program_plan.ValueRef, variant_ordinal: u16) ?internal_program_plan.ValueRef {
         if (source_ref.codec != .sum) return null;
         const schema_index = source_ref.schema_index orelse return null;
@@ -9167,6 +9203,19 @@ pub const BoundaryTargetModule = struct {
         if (variant_index >= program_plan.value_variants.len) return null;
         const variant = program_plan.value_variants[variant_index];
         return .{ .codec = variant.codec, .schema_index = variant.schema_index };
+    }
+
+    fn loadedProductFieldRef(program_plan: internal_program_plan.ProgramPlan, source_ref: internal_program_plan.ValueRef, field_ordinal: u16) ?internal_program_plan.ValueRef {
+        if (source_ref.codec != .product) return null;
+        const schema_index = source_ref.schema_index orelse return null;
+        if (schema_index >= program_plan.value_schemas.len) return null;
+        const schema = program_plan.value_schemas[schema_index];
+        if (schema.codec != .product) return null;
+        if (field_ordinal >= schema.field_count) return null;
+        const field_index = @as(usize, schema.first_field) + field_ordinal;
+        if (field_index >= program_plan.value_fields.len) return null;
+        const field = program_plan.value_fields[field_index];
+        return .{ .codec = field.codec, .schema_index = field.schema_index };
     }
 
     fn loadedValueCanSurviveResponseArena(value: LoadedValue) bool {
@@ -10372,6 +10421,7 @@ pub const BoundaryTargetModule = struct {
             .sub_one => 11,
             .sum_extract_payload => 12,
             .sum_variant_is => 13,
+            .product_extract_field => 14,
         };
     }
 

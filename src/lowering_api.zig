@@ -467,7 +467,7 @@ pub fn validateExecutablePlanSupport(comptime compiled_plan: program_plan.Progra
                         return error.UnsupportedLocalCodec;
                     }
                 },
-                .sum_variant_is, .sum_extract_payload => return error.UnsupportedLocalCodec,
+                .sum_variant_is, .sum_extract_payload, .product_extract_field => return error.UnsupportedLocalCodec,
                 .return_value => {
                     const owner = instructionOwnerFunction(compiled_plan, instruction_index) orelse return error.UnsupportedLocalCodec;
                     if (!instructionLocalHasExecutableScalarCodec(compiled_plan, owner, instruction.operand)) return error.UnsupportedLocalCodec;
@@ -600,7 +600,7 @@ pub fn validateTypedExecutablePlanSupportWithNestedTargets(
                         return error.UnsupportedLocalCodec;
                     }
                 },
-                .sum_extract_payload => {
+                .sum_extract_payload, .product_extract_field => {
                     const owner = instructionOwnerFunction(compiled_plan, instruction_index) orelse return error.UnsupportedLocalCodec;
                     if (!instructionLocalHasExecutableTypedRef(compiled_plan, schema_types, owner, instruction.dst) or
                         !instructionLocalHasExecutableTypedRef(compiled_plan, schema_types, owner, instruction.operand))
@@ -680,7 +680,7 @@ pub fn executablePlanNeedsBodyValueSchemaTypes(
                     const local_ref = functionLocalRef(compiled_plan, owner, instruction.operand) orelse return false;
                     if (valueRefNeedsSchemaTypes(local_ref)) return true;
                 },
-                .sum_extract_payload, .sum_variant_is => {
+                .sum_extract_payload, .sum_variant_is, .product_extract_field => {
                     const source_ref = functionLocalRef(compiled_plan, owner, instruction.operand) orelse return false;
                     const dst_ref = functionLocalRef(compiled_plan, owner, instruction.dst) orelse return false;
                     if (valueRefNeedsSchemaTypes(source_ref) or valueRefNeedsSchemaTypes(dst_ref)) return true;
@@ -1099,6 +1099,7 @@ const ExecutableValue = union(enum) {
     bool: bool,
     i32: i32,
     usize: usize,
+    word_u64: u64,
     string: []const u8,
     string_list: []const []const u8,
     schema: SchemaValue,
@@ -1239,15 +1240,38 @@ fn typeMatchesRuntimeRef(
     return false;
 }
 
+fn typeMatchesSchemaFieldRuntimeRef(
+    comptime schema_types: anytype,
+    ref: program_plan.ValueRef,
+    comptime T: type,
+) bool {
+    if (T == u64) return ref.eql(.{ .codec = .usize });
+    return typeMatchesRuntimeRef(schema_types, ref, T);
+}
+
+const RuntimeRefMatchMode = enum {
+    strict,
+    schema_field,
+};
+
 fn encodeScalarValue(value: anytype) ExecutableValue {
     if (comptime isStringListCarrier(@TypeOf(value))) return .{ .string_list = value };
     return switch (@TypeOf(value)) {
         void => .none,
         bool => .{ .bool = value },
         i32 => .{ .i32 = value },
+        u64 => .{ .word_u64 = value },
         usize => .{ .usize = value },
         []const u8 => .{ .string = value },
         else => @compileError("unsupported authored scalar result type"),
+    };
+}
+
+fn executableWordU64(value: ExecutableValue) error{ProgramContractViolation}!u64 {
+    return switch (value) {
+        .usize => |typed| @intCast(typed),
+        .word_u64 => |typed| typed,
+        else => error.ProgramContractViolation,
     };
 }
 
@@ -1282,6 +1306,7 @@ fn executableValueRef(codec: program_plan.ValueCodec, value: ExecutableValue) ?p
         },
         .usize => switch (value) {
             .usize => .{ .codec = .usize },
+            .word_u64 => .{ .codec = .usize },
             else => null,
         },
         .string => switch (value) {
@@ -1318,6 +1343,7 @@ fn decodeArg(
         },
         .usize => switch (value) {
             .usize => |typed| typed,
+            .word_u64 => |typed| if (typed <= std.math.maxInt(usize)) @intCast(typed) else error.ProgramContractViolation,
             else => error.ProgramContractViolation,
         },
         .string => switch (value) {
@@ -1386,6 +1412,7 @@ fn valueRefForType(comptime schema_types: anytype, comptime T: type) program_pla
     if (T == void) return .{ .codec = .unit };
     if (T == bool) return .{ .codec = .bool };
     if (T == i32) return .{ .codec = .i32 };
+    if (T == u64) return .{ .codec = .usize };
     if (T == usize) return .{ .codec = .usize };
     if (T == []const u8) return .{ .codec = .string };
     if (isStringListCarrier(T)) return .{ .codec = .string_list };
@@ -1402,6 +1429,7 @@ fn runtimeValueRefForType(comptime schema_types: anytype, comptime T: type) ?pro
     if (T == void) return .{ .codec = .unit };
     if (T == bool) return .{ .codec = .bool };
     if (T == i32) return .{ .codec = .i32 };
+    if (T == u64) return .{ .codec = .usize };
     if (T == usize) return .{ .codec = .usize };
     if (T == []const u8) return .{ .codec = .string };
     if (isStringListCarrier(T)) return .{ .codec = .string_list };
@@ -1411,6 +1439,11 @@ fn runtimeValueRefForType(comptime schema_types: anytype, comptime T: type) ?pro
         .@"enum", .@"union", .optional => .{ .codec = .sum, .schema_index = schema_index },
         else => null,
     };
+}
+
+fn runtimeSurfaceValueRefForType(comptime schema_types: anytype, comptime T: type) ?program_plan.ValueRef {
+    if (T == u64) return null;
+    return runtimeValueRefForType(schema_types, T);
 }
 
 fn ReturnPayloadType(comptime ReturnType: type) type {
@@ -1506,7 +1539,27 @@ fn encodeRuntimeValueForRuntimeRef(
 ) anyerror!ExecutableValue {
     const Value = @TypeOf(value);
     if (!typeMatchesRuntimeRef(schema_types, ref, Value)) return error.ProgramContractViolation;
-    if (comptime Value == void or Value == bool or Value == i32 or Value == usize or Value == []const u8 or isStringListCarrier(Value)) {
+    return encodeRuntimeValueForMatchedRuntimeRef(ref, scratch, value);
+}
+
+fn encodeSchemaFieldRuntimeValueForRuntimeRef(
+    comptime schema_types: anytype,
+    ref: program_plan.ValueRef,
+    scratch: anytype,
+    value: anytype,
+) anyerror!ExecutableValue {
+    const Value = @TypeOf(value);
+    if (!typeMatchesSchemaFieldRuntimeRef(schema_types, ref, Value)) return error.ProgramContractViolation;
+    return encodeRuntimeValueForMatchedRuntimeRef(ref, scratch, value);
+}
+
+fn encodeRuntimeValueForMatchedRuntimeRef(
+    ref: program_plan.ValueRef,
+    scratch: anytype,
+    value: anytype,
+) anyerror!ExecutableValue {
+    const Value = @TypeOf(value);
+    if (comptime Value == void or Value == bool or Value == i32 or Value == u64 or Value == usize or Value == []const u8 or isStringListCarrier(Value)) {
         return encodeScalarValue(value);
     }
     return scratch.storeSchemaValue(
@@ -1535,8 +1588,14 @@ fn decodeRuntimeValueAs(
         .i32 => |typed| typed,
         else => error.ProgramContractViolation,
     };
+    if (T == u64) return switch (value) {
+        .usize => |typed| @intCast(typed),
+        .word_u64 => |typed| typed,
+        else => error.ProgramContractViolation,
+    };
     if (T == usize) return switch (value) {
         .usize => |typed| typed,
+        .word_u64 => |typed| if (typed <= std.math.maxInt(usize)) @intCast(typed) else error.ProgramContractViolation,
         else => error.ProgramContractViolation,
     };
     if (T == []const u8) return switch (value) {
@@ -1683,7 +1742,7 @@ fn extractVariantPayloadForTyped(
                 if (variant_ordinal == field_index) {
                     if (field.type == void) return error.ProgramContractViolation;
                     return .{
-                        .value = try encodeRuntimeValueForRuntimeRef(schema_types, ref, scratch, @field(value, field.name)),
+                        .value = try encodeSchemaFieldRuntimeValueForRuntimeRef(schema_types, ref, scratch, @field(value, field.name)),
                         .ref = ref,
                     };
                 }
@@ -1694,7 +1753,7 @@ fn extractVariantPayloadForTyped(
             _ = optional_info;
             if (variant_ordinal != 1) return error.ProgramContractViolation;
             return .{
-                .value = try encodeRuntimeValueForRuntimeRef(schema_types, ref, scratch, value.?),
+                .value = try encodeSchemaFieldRuntimeValueForRuntimeRef(schema_types, ref, scratch, value.?),
                 .ref = ref,
             };
         },
@@ -1717,6 +1776,50 @@ fn extractVariantPayloadForExecutable(
         if (schema.schema_index == schema_index) {
             const typed: *const SchemaType = @ptrCast(@alignCast(schema.ptr));
             return extractVariantPayloadForTyped(schema_types, ref, scratch, SchemaType, typed.*, variant_ordinal);
+        }
+    }
+    return error.ProgramContractViolation;
+}
+
+fn extractProductFieldForTyped(
+    comptime schema_types: anytype,
+    ref: program_plan.ValueRef,
+    scratch: anytype,
+    comptime T: type,
+    value: T,
+    field_ordinal: u16,
+) anyerror!RuntimeValueWithRef {
+    return switch (@typeInfo(T)) {
+        .@"struct" => |struct_info| {
+            inline for (struct_info.fields, 0..) |field, field_index| {
+                if (field_ordinal == field_index) {
+                    return .{
+                        .value = try encodeSchemaFieldRuntimeValueForRuntimeRef(schema_types, ref, scratch, @field(value, field.name)),
+                        .ref = ref,
+                    };
+                }
+            }
+            return error.ProgramContractViolation;
+        },
+        else => error.ProgramContractViolation,
+    };
+}
+
+fn extractProductFieldForExecutable(
+    comptime schema_types: anytype,
+    ref: program_plan.ValueRef,
+    scratch: anytype,
+    value: ExecutableValue,
+    field_ordinal: u16,
+) anyerror!RuntimeValueWithRef {
+    const schema = switch (value) {
+        .schema => |typed| typed,
+        else => return error.ProgramContractViolation,
+    };
+    inline for (schema_types, 0..) |SchemaType, schema_index| {
+        if (schema.schema_index == schema_index) {
+            const typed: *const SchemaType = @ptrCast(@alignCast(schema.ptr));
+            return extractProductFieldForTyped(schema_types, ref, scratch, SchemaType, typed.*, field_ordinal);
         }
     }
     return error.ProgramContractViolation;
@@ -1771,6 +1874,7 @@ fn codecForScalarValue(value: ExecutableValue) program_plan.ValueCodec {
         .bool => .bool,
         .i32 => .i32,
         .usize => .usize,
+        .word_u64 => .usize,
         .string => .string,
         .string_list => .string_list,
         .schema => unreachable,
@@ -2362,7 +2466,7 @@ pub fn sessionAfterProtocolInputRefForOperationSite(
         const Authored = AfterDispatchHandlerType(compiled_plan, op, HandlersType);
         if (comptime !afterDispatchHasRuntimeShape(Authored)) return null;
         const Input = CallableParamPayloadType(Authored.afterDispatch, 1);
-        return runtimeValueRefForType(schema_types, Input) orelse
+        return runtimeSurfaceValueRefForType(schema_types, Input) orelse
             @compileError("afterDispatch input type is not representable by Program.Session protocol: " ++ @typeName(Input));
     }
     return null;
@@ -2381,7 +2485,7 @@ pub fn sessionAfterProtocolOutputRefForOperationSite(
         const Authored = AfterDispatchHandlerType(compiled_plan, op, HandlersType);
         if (comptime !afterDispatchHasRuntimeShape(Authored)) return operation_site.result_ref;
         const Output = CallableReturnPayloadType(Authored.afterDispatch);
-        return runtimeValueRefForType(schema_types, Output) orelse
+        return runtimeSurfaceValueRefForType(schema_types, Output) orelse
             @compileError("afterDispatch output type is not representable by Program.Session protocol: " ++ @typeName(Output));
     }
     return operation_site.result_ref;
@@ -2436,6 +2540,7 @@ fn applyAfterByIndexForRefInferred(
             if (comptime !afterDispatchAccepts(compiled_plan, schema_types, @TypeOf(authored), input_ref)) return error.ProgramContractViolation;
             const decoded = try decodeTypedValue(compiled_plan, schema_types, input_ref, value);
             const Value = CallableReturnPayloadType(HandlerType(@TypeOf(authored)).afterDispatch);
+            if (comptime Value == u64) return error.ProgramContractViolation;
             var output = try prepareRuntimeValueForType(schema_types, scratch, Value);
             const completed = try authored.afterDispatch(decoded);
             return .{
@@ -2628,7 +2733,7 @@ fn sessionIntermediateAfterOutputRefByIndexForRef(
             const Authored = AfterDispatchHandlerType(compiled_plan, op, HandlersType);
             if (comptime !afterDispatchAccepts(compiled_plan, schema_types, Authored, input_ref)) return error.ProgramContractViolation;
             const Value = CallableReturnPayloadType(Authored.afterDispatch);
-            return runtimeValueRefForType(schema_types, Value) orelse error.ProgramContractViolation;
+            return runtimeSurfaceValueRefForType(schema_types, Value) orelse error.ProgramContractViolation;
         }
     }
     return error.ProgramContractViolation;
@@ -2821,7 +2926,7 @@ fn executeKnownFunction(
                     const is_zero = switch (functionLocalCodec(compiled_plan, function, instruction.operand) orelse return error.ProgramContractViolation) {
                         .bool => !(try decodeArg(.bool, locals[instruction.operand])),
                         .i32 => (try decodeArg(.i32, locals[instruction.operand])) == 0,
-                        .usize => (try decodeArg(.usize, locals[instruction.operand])) == 0,
+                        .usize => (try executableWordU64(locals[instruction.operand])) == 0,
                         else => return error.ProgramContractViolation,
                     };
                     locals[instruction.dst] = .{ .bool = is_zero };
@@ -2838,11 +2943,17 @@ fn executeKnownFunction(
                     if (!valueMatchesRef(dst_ref, extracted.value)) return error.ProgramContractViolation;
                     locals[instruction.dst] = extracted.value;
                 },
+                .product_extract_field => {
+                    const dst_ref = functionLocalRef(compiled_plan, function, instruction.dst) orelse return error.ProgramContractViolation;
+                    const extracted = try extractProductFieldForExecutable(schema_types, dst_ref, scratch, locals[instruction.operand], instruction.aux);
+                    if (!valueMatchesRef(dst_ref, extracted.value)) return error.ProgramContractViolation;
+                    locals[instruction.dst] = extracted.value;
+                },
                 .const_i32 => locals[instruction.dst] = .{ .i32 = try constI32Value(instruction) },
                 .const_string => locals[instruction.dst] = .{ .string = instruction.string_literal },
                 .const_usize => {
                     locals[instruction.dst] = .{
-                        .usize = std.fmt.parseUnsigned(usize, instruction.string_literal, 0) catch return error.ProgramContractViolation,
+                        .word_u64 = std.fmt.parseUnsigned(u64, instruction.string_literal, 0) catch return error.ProgramContractViolation,
                     };
                 },
                 .return_error => return mappedReturnErrorForInstruction(ErrorSet, compiled_plan, instruction_index),
@@ -2850,7 +2961,7 @@ fn executeKnownFunction(
                 .sub_one => {
                     locals[instruction.dst] = switch (functionLocalCodec(compiled_plan, function, instruction.operand) orelse return error.ProgramContractViolation) {
                         .i32 => .{ .i32 = std.math.sub(i32, try decodeArg(.i32, locals[instruction.operand]), 1) catch return error.ProgramContractViolation },
-                        .usize => .{ .usize = std.math.sub(usize, try decodeArg(.usize, locals[instruction.operand]), 1) catch return error.ProgramContractViolation },
+                        .usize => .{ .word_u64 = std.math.sub(u64, try executableWordU64(locals[instruction.operand]), 1) catch return error.ProgramContractViolation },
                         else => return error.ProgramContractViolation,
                     };
                 },
@@ -3293,7 +3404,7 @@ fn executeFunctionWithFrameStack(
                     const is_zero = switch (operand_ref.codec) {
                         .bool => !(try decodeArg(.bool, locals[instruction.operand])),
                         .i32 => (try decodeArg(.i32, locals[instruction.operand])) == 0,
-                        .usize => (try decodeArg(.usize, locals[instruction.operand])) == 0,
+                        .usize => (try executableWordU64(locals[instruction.operand])) == 0,
                         else => return error.ProgramContractViolation,
                     };
                     locals[instruction.dst] = .{ .bool = is_zero };
@@ -3310,11 +3421,17 @@ fn executeFunctionWithFrameStack(
                     if (!valueMatchesRef(dst_ref, extracted.value)) return error.ProgramContractViolation;
                     locals[instruction.dst] = extracted.value;
                 },
+                .product_extract_field => {
+                    const dst_ref = localRefForFunctionIndex(compiled_plan, active.function_index, instruction.dst) orelse return error.ProgramContractViolation;
+                    const extracted = try extractProductFieldForExecutable(schema_types, dst_ref, scratch, locals[instruction.operand], instruction.aux);
+                    if (!valueMatchesRef(dst_ref, extracted.value)) return error.ProgramContractViolation;
+                    locals[instruction.dst] = extracted.value;
+                },
                 .const_i32 => locals[instruction.dst] = .{ .i32 = try constI32Value(instruction) },
                 .const_string => locals[instruction.dst] = .{ .string = instruction.string_literal },
                 .const_usize => {
                     locals[instruction.dst] = .{
-                        .usize = std.fmt.parseUnsigned(usize, instruction.string_literal, 0) catch return error.ProgramContractViolation,
+                        .word_u64 = std.fmt.parseUnsigned(u64, instruction.string_literal, 0) catch return error.ProgramContractViolation,
                     };
                 },
                 .return_error => return mappedReturnErrorForInstruction(ErrorSet, compiled_plan, instruction_index),
@@ -3323,7 +3440,7 @@ fn executeFunctionWithFrameStack(
                     const operand_ref = localRefForFunctionIndex(compiled_plan, active.function_index, instruction.operand) orelse return error.ProgramContractViolation;
                     locals[instruction.dst] = switch (operand_ref.codec) {
                         .i32 => .{ .i32 = std.math.sub(i32, try decodeArg(.i32, locals[instruction.operand]), 1) catch return error.ProgramContractViolation },
-                        .usize => .{ .usize = std.math.sub(usize, try decodeArg(.usize, locals[instruction.operand]), 1) catch return error.ProgramContractViolation },
+                        .usize => .{ .word_u64 = std.math.sub(u64, try executableWordU64(locals[instruction.operand]), 1) catch return error.ProgramContractViolation },
                         else => return error.ProgramContractViolation,
                     };
                 },
@@ -3609,6 +3726,7 @@ pub fn ExecutableSessionForPlan(
             bool: bool,
             i32: i32,
             usize: usize,
+            word_u64: u64,
             string: []const u8,
             string_list: []const []const u8,
             schema_index: u16,
@@ -3758,6 +3876,12 @@ pub fn ExecutableSessionForPlan(
                 };
                 if (T == usize) return switch (self._payload) {
                     .usize => |typed| typed,
+                    .word_u64 => |typed| if (typed <= std.math.maxInt(usize)) @intCast(typed) else error.ProgramContractViolation,
+                    else => error.ProgramContractViolation,
+                };
+                if (T == u64) return switch (self._payload) {
+                    .usize => |typed| @intCast(typed),
+                    .word_u64 => |typed| typed,
                     else => error.ProgramContractViolation,
                 };
                 if (T == []const u8) return switch (self._payload) {
@@ -3872,6 +3996,7 @@ pub fn ExecutableSessionForPlan(
                     .bool => |typed| .{ .bool = typed },
                     .i32 => |typed| .{ .i32 = typed },
                     .usize => |typed| .{ .usize = typed },
+                    .word_u64 => |typed| .{ .word_u64 = typed },
                     .string => |typed| .{ .string = typed },
                     .string_list => |typed| .{ .string_list = typed },
                     .schema => |schema| try self.storeStructuredPayload(schema),
@@ -3933,6 +4058,12 @@ pub fn ExecutableSessionForPlan(
                 };
                 if (T == usize) return switch (self._value) {
                     .usize => |typed| typed,
+                    .word_u64 => |typed| if (typed <= std.math.maxInt(usize)) @intCast(typed) else error.ProgramContractViolation,
+                    else => error.ProgramContractViolation,
+                };
+                if (T == u64) return switch (self._value) {
+                    .usize => |typed| @intCast(typed),
+                    .word_u64 => |typed| typed,
                     else => error.ProgramContractViolation,
                 };
                 if (T == []const u8) return switch (self._value) {
@@ -4033,6 +4164,7 @@ pub fn ExecutableSessionForPlan(
                     .bool => |typed| .{ .bool = typed },
                     .i32 => |typed| .{ .i32 = typed },
                     .usize => |typed| .{ .usize = typed },
+                    .word_u64 => |typed| .{ .word_u64 = typed },
                     .string => |typed| .{ .string = typed },
                     .string_list => |typed| .{ .string_list = typed },
                     .schema => |schema| try self.storeStructuredValue(schema),
@@ -4650,12 +4782,12 @@ pub fn ExecutableSessionForPlan(
             comptime ref: program_plan.ValueRef,
             value: anytype,
         ) anyerror!void {
-            if (!typeMatchesRuntimeRef(schema_types, ref, @TypeOf(value))) return error.ProgramContractViolation;
+            if (!typeMatchesSchemaFieldRuntimeRef(schema_types, ref, @TypeOf(value))) return error.ProgramContractViolation;
             switch (comptime ref.codec) {
                 .unit => {},
                 .bool => try writer.writeBool(value),
                 .i32 => try writer.writeI32(value),
-                .usize => try writer.writeUsize(value),
+                .usize => if (@TypeOf(value) == u64) try writer.writeU64(value) else try writer.writeUsize(value),
                 .string => try writeImageString(writer, context, value),
                 .string_list => try writeImageStringList(writer, context, value),
                 .product => try writeProductValue(writer, context, ref.schema_index orelse return error.ProgramContractViolation, @TypeOf(value), value),
@@ -4780,8 +4912,12 @@ pub fn ExecutableSessionForPlan(
                 if (!std.mem.eql(u8, actual_name, field.name)) return error.ProgramContractViolation;
                 const field_ref: program_plan.ValueRef = .{ .codec = field.codec, .schema_index = field.schema_index };
                 if (!(try readValueRef(reader)).eql(field_ref)) return error.ProgramContractViolation;
-                const decoded_field = try readTypedValue(reader, scratch, context, field_ref);
                 const struct_field = fields[field_offset];
+                if (comptime field.codec == .usize and struct_field.type == u64) {
+                    @field(value, field.name) = try reader.readU64();
+                    continue;
+                }
+                const decoded_field = try readTypedValue(reader, scratch, context, field_ref);
                 if (comptime field.codec == .string_list and struct_field.type == [][]const u8) {
                     @field(value, field.name) = @constCast(decoded_field);
                 } else {
@@ -4826,6 +4962,9 @@ pub fn ExecutableSessionForPlan(
                             _ = try readTypedValue(reader, scratch, context, variant_ref);
                             break :blk null;
                         } else blk: {
+                            if (comptime variant_ref.codec == .usize and optional_info.child == u64) {
+                                break :blk try reader.readU64();
+                            }
                             const decoded_payload = try readTypedValue(reader, scratch, context, variant_ref);
                             if (comptime variant_ref.codec == .string_list and optional_info.child == [][]const u8) {
                                 break :blk @constCast(decoded_payload);
@@ -4839,6 +4978,9 @@ pub fn ExecutableSessionForPlan(
                                     if (field.type == void) {
                                         _ = try readTypedValue(reader, scratch, context, variant_ref);
                                         break :blk @unionInit(T, field.name, {});
+                                    }
+                                    if (comptime variant_ref.codec == .usize and field.type == u64) {
+                                        break :blk @unionInit(T, field.name, try reader.readU64());
                                     }
                                     const decoded_payload = try readTypedValue(reader, scratch, context, variant_ref);
                                     if (comptime variant_ref.codec == .string_list and field.type == [][]const u8) {
@@ -4867,7 +5009,7 @@ pub fn ExecutableSessionForPlan(
                 .unit => {},
                 .bool => try writer.writeBool(try decodeArg(.bool, value)),
                 .i32 => try writer.writeI32(try decodeArg(.i32, value)),
-                .usize => try writer.writeUsize(try decodeArg(.usize, value)),
+                .usize => try writer.writeU64(try executableWordU64(value)),
                 .string => try writeImageString(writer, context, try decodeArg(.string, value)),
                 .string_list => try writeImageStringList(writer, context, try decodeArg(.string_list, value)),
                 .product, .sum => switch (value) {
@@ -4902,7 +5044,7 @@ pub fn ExecutableSessionForPlan(
                 .unit => .none,
                 .bool => .{ .bool = try reader.readBool() },
                 .i32 => .{ .i32 = try reader.readI32() },
-                .usize => .{ .usize = try reader.readUsize() },
+                .usize => .{ .word_u64 = try reader.readU64() },
                 .string => .{ .string = try readImageString(reader, scratch, context) },
                 .string_list => .{ .string_list = try readImageStringList(reader, scratch, context) },
                 .product, .sum => blk: {
@@ -5979,12 +6121,29 @@ pub fn ExecutableSessionForPlan(
         }
 
         fn fingerprintTypedValueForRef(ref: program_plan.ValueRef, value: anytype) error{ProgramContractViolation}!u64 {
-            if (!typeMatchesRuntimeRef(schema_types, ref, @TypeOf(value))) return error.ProgramContractViolation;
+            return fingerprintTypedValueForRefMode(ref, value, .strict);
+        }
+
+        fn fingerprintSchemaFieldTypedValueForRef(ref: program_plan.ValueRef, value: anytype) error{ProgramContractViolation}!u64 {
+            return fingerprintTypedValueForRefMode(ref, value, .schema_field);
+        }
+
+        fn fingerprintTypedValueForRefMode(
+            ref: program_plan.ValueRef,
+            value: anytype,
+            comptime match_mode: RuntimeRefMatchMode,
+        ) error{ProgramContractViolation}!u64 {
+            const Value = @TypeOf(value);
+            const matches_ref = switch (match_mode) {
+                .strict => typeMatchesRuntimeRef(schema_types, ref, Value),
+                .schema_field => typeMatchesSchemaFieldRuntimeRef(schema_types, ref, Value),
+            };
+            if (!matches_ref) return error.ProgramContractViolation;
             var hasher = std.hash.Wyhash.init(0);
             traceHashBytes(&hasher, "boundary.session.value");
             traceHashU32(&hasher, trace_fingerprint_version);
             traceHashValueRef(&hasher, ref);
-            try traceHashTypedValuePayload(&hasher, ref, value);
+            try traceHashTypedValuePayload(&hasher, ref, value, match_mode);
             return hasher.final();
         }
 
@@ -6018,6 +6177,7 @@ pub fn ExecutableSessionForPlan(
                 },
                 .usize => switch (value) {
                     .usize => |typed| traceHashUsize(hasher, typed),
+                    .word_u64 => |typed| traceHashU64(hasher, typed),
                     else => return error.ProgramContractViolation,
                 },
                 .string => switch (value) {
@@ -6054,8 +6214,14 @@ pub fn ExecutableSessionForPlan(
             hasher: *std.hash.Wyhash,
             ref: program_plan.ValueRef,
             value: anytype,
+            comptime match_mode: RuntimeRefMatchMode,
         ) error{ProgramContractViolation}!void {
-            if (!typeMatchesRuntimeRef(schema_types, ref, @TypeOf(value))) return error.ProgramContractViolation;
+            const Value = @TypeOf(value);
+            const matches_ref = switch (match_mode) {
+                .strict => typeMatchesRuntimeRef(schema_types, ref, Value),
+                .schema_field => typeMatchesSchemaFieldRuntimeRef(schema_types, ref, Value),
+            };
+            if (!matches_ref) return error.ProgramContractViolation;
             if (comptime isStringListCarrier(@TypeOf(value))) {
                 if (!ref.eql(.{ .codec = .string_list })) return error.ProgramContractViolation;
                 traceHashUsize(hasher, value.len);
@@ -6073,6 +6239,10 @@ pub fn ExecutableSessionForPlan(
                 i32 => {
                     if (!ref.eql(.{ .codec = .i32 })) return error.ProgramContractViolation;
                     traceHashI32(hasher, value);
+                },
+                u64 => {
+                    if (!ref.eql(.{ .codec = .usize })) return error.ProgramContractViolation;
+                    traceHashU64(hasher, value);
                 },
                 usize => {
                     if (!ref.eql(.{ .codec = .usize })) return error.ProgramContractViolation;
@@ -6132,7 +6302,7 @@ pub fn ExecutableSessionForPlan(
                 traceHashU16(hasher, @intCast(field_offset));
                 traceHashBytes(hasher, field.name);
                 traceHashValueRef(hasher, field_ref);
-                const field_fingerprint = try fingerprintTypedValueForRef(field_ref, @field(value, field.name));
+                const field_fingerprint = try fingerprintSchemaFieldTypedValueForRef(field_ref, @field(value, field.name));
                 traceHashU64(hasher, field_fingerprint);
             }
         }
@@ -6174,16 +6344,16 @@ pub fn ExecutableSessionForPlan(
             value: T,
         ) error{ProgramContractViolation}!u64 {
             return switch (@typeInfo(T)) {
-                .@"enum" => fingerprintTypedValueForRef(variant_ref, {}),
+                .@"enum" => fingerprintSchemaFieldTypedValueForRef(variant_ref, {}),
                 .optional => if (variant_offset == 0)
-                    fingerprintTypedValueForRef(variant_ref, {})
+                    fingerprintSchemaFieldTypedValueForRef(variant_ref, {})
                 else
-                    fingerprintTypedValueForRef(variant_ref, value.?),
+                    fingerprintSchemaFieldTypedValueForRef(variant_ref, value.?),
                 .@"union" => |union_info| blk: {
                     inline for (union_info.fields, 0..) |field, field_index| {
                         if (variant_offset == field_index) {
-                            if (field.type == void) break :blk fingerprintTypedValueForRef(variant_ref, {});
-                            break :blk fingerprintTypedValueForRef(variant_ref, @field(value, field.name));
+                            if (field.type == void) break :blk fingerprintSchemaFieldTypedValueForRef(variant_ref, {});
+                            break :blk fingerprintSchemaFieldTypedValueForRef(variant_ref, @field(value, field.name));
                         }
                     }
                     return error.ProgramContractViolation;
@@ -6198,6 +6368,7 @@ pub fn ExecutableSessionForPlan(
                 .bool => .{ .codec = .bool },
                 .i32 => .{ .codec = .i32 },
                 .usize => .{ .codec = .usize },
+                .word_u64 => .{ .codec = .usize },
                 .string => .{ .codec = .string },
                 .string_list => .{ .codec = .string_list },
                 .schema => |schema| blk: {
@@ -6289,9 +6460,30 @@ pub fn ExecutableSessionForPlan(
             clone_context: *CloneContext,
             value: anytype,
         ) anyerror!@TypeOf(value) {
+            return cloneTypedRuntimeValueForRefMode(ref, clone_context, value, .strict);
+        }
+
+        fn cloneSchemaFieldTypedRuntimeValueForRef(
+            ref: program_plan.ValueRef,
+            clone_context: *CloneContext,
+            value: anytype,
+        ) anyerror!@TypeOf(value) {
+            return cloneTypedRuntimeValueForRefMode(ref, clone_context, value, .schema_field);
+        }
+
+        fn cloneTypedRuntimeValueForRefMode(
+            ref: program_plan.ValueRef,
+            clone_context: *CloneContext,
+            value: anytype,
+            comptime match_mode: RuntimeRefMatchMode,
+        ) anyerror!@TypeOf(value) {
             const ValueT = @TypeOf(value);
-            if (!typeMatchesRuntimeRef(schema_types, ref, ValueT)) return error.ProgramContractViolation;
-            if (ValueT == void or ValueT == bool or ValueT == i32 or ValueT == usize) return value;
+            const matches_ref = switch (match_mode) {
+                .strict => typeMatchesRuntimeRef(schema_types, ref, ValueT),
+                .schema_field => typeMatchesSchemaFieldRuntimeRef(schema_types, ref, ValueT),
+            };
+            if (!matches_ref) return error.ProgramContractViolation;
+            if (ValueT == void or ValueT == bool or ValueT == i32 or ValueT == u64 or ValueT == usize) return value;
             if (ValueT == []const u8) return try clone_context.cloneString(value);
             if (ValueT == []const []const u8) return try clone_context.cloneStringList(value);
             if (ValueT == [][]const u8) return try clone_context.cloneMutableStringList(value);
@@ -6328,7 +6520,7 @@ pub fn ExecutableSessionForPlan(
                     .codec = field.codec,
                     .schema_index = field.schema_index,
                 };
-                @field(cloned, field.name) = try cloneTypedRuntimeValueForRef(
+                @field(cloned, field.name) = try cloneSchemaFieldTypedRuntimeValueForRef(
                     field_ref,
                     clone_context,
                     @field(value, field.name),
@@ -6357,7 +6549,7 @@ pub fn ExecutableSessionForPlan(
                         .codec = variant.codec,
                         .schema_index = variant.schema_index,
                     };
-                    break :blk try cloneTypedRuntimeValueForRef(variant_ref, clone_context, value.?);
+                    break :blk try cloneSchemaFieldTypedRuntimeValueForRef(variant_ref, clone_context, value.?);
                 },
                 .@"union" => |union_info| blk: {
                     const Tag = union_info.tag_type orelse return error.ProgramContractViolation;
@@ -6373,7 +6565,7 @@ pub fn ExecutableSessionForPlan(
                             break :blk @unionInit(
                                 T,
                                 field.name,
-                                try cloneTypedRuntimeValueForRef(variant_ref, clone_context, @field(value, field.name)),
+                                try cloneSchemaFieldTypedRuntimeValueForRef(variant_ref, clone_context, @field(value, field.name)),
                             );
                         }
                     }
@@ -6393,7 +6585,11 @@ pub fn ExecutableSessionForPlan(
                 .unit => .none,
                 .bool => .{ .bool = try decodeArg(.bool, value) },
                 .i32 => .{ .i32 = try decodeArg(.i32, value) },
-                .usize => .{ .usize = try decodeArg(.usize, value) },
+                .usize => switch (value) {
+                    .usize => |typed| .{ .usize = typed },
+                    .word_u64 => |typed| .{ .word_u64 = typed },
+                    else => error.ProgramContractViolation,
+                },
                 .string => .{ .string = try clone_context.cloneString(try decodeArg(.string, value)) },
                 .string_list => .{ .string_list = try clone_context.cloneStringList(try decodeArg(.string_list, value)) },
                 .product, .sum => switch (value) {
@@ -6656,7 +6852,7 @@ pub fn ExecutableSessionForPlan(
                             const is_zero = switch (operand_ref.codec) {
                                 .bool => !(try decodeArg(.bool, locals[instruction.operand])),
                                 .i32 => (try decodeArg(.i32, locals[instruction.operand])) == 0,
-                                .usize => (try decodeArg(.usize, locals[instruction.operand])) == 0,
+                                .usize => (try executableWordU64(locals[instruction.operand])) == 0,
                                 else => return error.ProgramContractViolation,
                             };
                             locals[instruction.dst] = .{ .bool = is_zero };
@@ -6673,11 +6869,17 @@ pub fn ExecutableSessionForPlan(
                             if (!valueMatchesRef(dst_ref, extracted.value)) return error.ProgramContractViolation;
                             locals[instruction.dst] = extracted.value;
                         },
+                        .product_extract_field => {
+                            const dst_ref = localRefForFunctionIndex(compiled_plan, active.function_index, instruction.dst) orelse return error.ProgramContractViolation;
+                            const extracted = try extractProductFieldForExecutable(schema_types, dst_ref, &self.scratch, locals[instruction.operand], instruction.aux);
+                            if (!valueMatchesRef(dst_ref, extracted.value)) return error.ProgramContractViolation;
+                            locals[instruction.dst] = extracted.value;
+                        },
                         .const_i32 => locals[instruction.dst] = .{ .i32 = try constI32Value(instruction) },
                         .const_string => locals[instruction.dst] = .{ .string = instruction.string_literal },
                         .const_usize => {
                             locals[instruction.dst] = .{
-                                .usize = std.fmt.parseUnsigned(usize, instruction.string_literal, 0) catch return error.ProgramContractViolation,
+                                .word_u64 = std.fmt.parseUnsigned(u64, instruction.string_literal, 0) catch return error.ProgramContractViolation,
                             };
                         },
                         .return_error => return mappedReturnErrorForInstruction(ErrorSet, compiled_plan, instruction_index),
@@ -6686,7 +6888,7 @@ pub fn ExecutableSessionForPlan(
                             const operand_ref = localRefForFunctionIndex(compiled_plan, active.function_index, instruction.operand) orelse return error.ProgramContractViolation;
                             locals[instruction.dst] = switch (operand_ref.codec) {
                                 .i32 => .{ .i32 = std.math.sub(i32, try decodeArg(.i32, locals[instruction.operand]), 1) catch return error.ProgramContractViolation },
-                                .usize => .{ .usize = std.math.sub(usize, try decodeArg(.usize, locals[instruction.operand]), 1) catch return error.ProgramContractViolation },
+                                .usize => .{ .word_u64 = std.math.sub(u64, try executableWordU64(locals[instruction.operand]), 1) catch return error.ProgramContractViolation },
                                 else => return error.ProgramContractViolation,
                             };
                         },
@@ -8340,6 +8542,54 @@ fn supportOpPlan(comptime payload_codec: program_plan.ValueCodec, comptime resum
     }) catch |err| supportPlanError(err);
 }
 
+fn supportStandaloneUsizeOpPlan() program_plan.ProgramPlan {
+    const root = program_plan.program_plan_builder.function(0);
+    const payload = program_plan.program_plan_builder.local(root, 0);
+    const resumed = program_plan.program_plan_builder.local(root, 1);
+    const instructions = [_]program_plan.Instruction{
+        program_plan.program_plan_builder.callOp(root, resumed, program_plan.program_plan_builder.op(root, 0), payload) catch |err| supportPlanError(err),
+    };
+    const functions = [_]program_plan.FunctionPlan{.{
+        .symbol_name = "run",
+        .value_codec = .unit,
+        .parameter_count = 1,
+        .first_requirement = 0,
+        .requirement_count = 1,
+        .first_output = 0,
+        .output_count = 0,
+        .first_local = 0,
+        .local_count = 2,
+        .first_block = 0,
+        .entry_block = 0,
+        .block_count = 1,
+        .first_instruction = 0,
+        .instruction_count = @intCast(instructions.len),
+    }};
+    const requirements = [_]program_plan.RequirementPlan{.{ .label = "usize", .first_op = 0, .op_count = 1 }};
+    const ops = [_]program_plan.OpPlan{.{
+        .requirement_index = 0,
+        .op_name = "usize",
+        .mode = .transform,
+        .payload_codec = .usize,
+        .resume_codec = .usize,
+    }};
+    const blocks = [_]program_plan.BlockPlan{.{ .first_instruction = 0, .instruction_count = @intCast(instructions.len), .terminator_index = 0 }};
+    const terminators = [_]program_plan.Terminator{.{ .kind = .return_unit }};
+    return program_plan.program_plan_builder.finish(.{
+        .label = "standalone-usize-op",
+        .ir_hash = 124,
+        .entry = root,
+        .functions = &functions,
+        .requirements = &requirements,
+        .ops = &ops,
+        .outputs = &.{},
+        .locals = &.{ .{ .codec = .usize }, .{ .codec = .usize } },
+        .blocks = &blocks,
+        .terminators = &terminators,
+        .instructions = &instructions,
+    }) catch |err| supportPlanError(err);
+}
+
 fn supportNestedWithPlan() program_plan.ProgramPlan {
     const root = program_plan.program_plan_builder.function(0);
     const instructions = [_]program_plan.Instruction{.{
@@ -9439,6 +9689,34 @@ test "Program.Session cloneState preserves last_return aliases into cloned scrat
         frame.last_return,
     );
     try std.testing.expectEqualStrings("restored", last_return.items[0]);
+}
+
+test "Program.Session rejects u64 typed access to standalone usize sites" {
+    const compiled_plan = supportStandaloneUsizeOpPlan();
+    const Core = ExecutableSessionForPlan(
+        error{ProgramContractViolation},
+        "session-standalone-usize-u64-boundary",
+        compiled_plan,
+        .{},
+        &.{},
+        struct {},
+        struct {},
+    );
+
+    var core = try Core.start(std.testing.allocator, .{@as(usize, 7)});
+    defer core.deinit();
+
+    const request = switch (try core.next()) {
+        .request => |request| request,
+        .done => return error.UnexpectedDone,
+        .after => return error.UnexpectedAfter,
+    };
+
+    try std.testing.expectEqual(@as(usize, 7), try request.payload(usize));
+    try std.testing.expectError(error.ProgramContractViolation, request.payload(u64));
+    _ = try request.responseTrace(.@"resume", @as(usize, 11));
+    try std.testing.expectError(error.ProgramContractViolation, request.responseTrace(.@"resume", @as(u64, 11)));
+    try core.@"resume"(request, @as(usize, 11));
 }
 
 test "Program.Session decoded operation pending requires a resumable active frame" {
