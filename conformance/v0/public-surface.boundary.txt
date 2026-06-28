@@ -2,8 +2,8 @@ Boundary v0 public surface
 package: boundary 0.5.0
 manifest_format_version: 1
 manifest_fingerprint_version: 1
-manifest_fingerprint: 0xe51167f7a810fbdd
-public_surface_fingerprint: 0x8bc2e2f5347d0941
+manifest_fingerprint: 0xcfa1a030f76cbf38
+public_surface_fingerprint: 0xc3bf2a740ecf5a5d
 
 stable_format_constants:
 - boundary_protocol_manifest_format_version = 1
@@ -108,6 +108,7 @@ effect_ir_terminator_tags:
 - return_value = 3
 
 supported_build_gates:
+- check
 - check-boundary-protocol-manifest
 - check-boundary-public-surface
 - check-boundary-format-drift

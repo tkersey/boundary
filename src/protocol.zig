@@ -26,6 +26,7 @@ pub const Protocol = struct {
             "boundary_protocol_manifest_fingerprint_version",
         };
         pub const supported_build_gates = &.{
+            "check",
             "check-boundary-protocol-manifest",
             "check-boundary-public-surface",
             "check-boundary-format-drift",

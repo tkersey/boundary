@@ -371,6 +371,8 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(lib_check);
 
     const test_step = b.step("test", "Run the boundary test suite.");
+    const check_step = b.step("check", "Run the full Boundary validation suite.");
+    check_step.dependOn(test_step);
     addTestArtifact(b, test_step, boundary, test_args);
     addTestArtifact(b, test_step, boundary_shared, test_args);
     addTestArtifact(b, test_step, core.effect_ir, test_args);
@@ -1426,4 +1428,42 @@ pub fn build(b: *std.Build) void {
     }
     defer b.graph.global_cache_root.path = saved_global_cache_path;
     lint_step.dependOn(builder.build());
+
+    for (&[_]*std.Build.Step{
+        protocol_manifest_step,
+        public_surface_step,
+        corpus_step,
+        agent_profile_step,
+        agent_modules_step,
+        agent_conformance_corpus_step,
+        agent_parity_step,
+        format_drift_step,
+        adversarial_codecs_step,
+        budgets_step,
+        proof_receipts_step,
+        executable_module_step,
+        executable_plan_step,
+        loaded_value_step,
+        loaded_session_step,
+        loaded_v2_step,
+        loaded_profile_codecs_step,
+        loaded_reachability_step,
+        loaded_continuation_step,
+        loaded_session_image_step,
+        loaded_forged_session_step,
+        loaded_resource_ledger_step,
+        loaded_frame_stack_step,
+        loaded_parity_required_step,
+        receipt_loaded_v2_step,
+        receipt_loaded_session_step,
+        receipt_loaded_parity_step,
+        loaded_import_bindings_step,
+        loaded_response_safety_step,
+        loaded_malformed_step,
+        loaded_payload_result_step,
+        loaded_fuzz_step,
+        lint_step,
+    }) |validation_step| {
+        check_step.dependOn(validation_step);
+    }
 }

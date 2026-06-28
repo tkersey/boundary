@@ -1,17 +1,17 @@
 Boundary v0 conformance artifact catalog
 format: boundary-conformance-artifact-catalog-v0
-manifest_fingerprint: 0xe51167f7a810fbdd
-protocol_manifest_sha256: sha256:49605b621ee793f4aeec3fc66ea7dca33d6e2259a99c69142e47dd00285e3e83
-public_surface_fingerprint: 0x8bc2e2f5347d0941
-public_surface_sha256: sha256:5e722326fc0c82654de944bba0e76145f0d427fc1458c6a5e1a6f36a8e6c5ac4
+manifest_fingerprint: 0xcfa1a030f76cbf38
+protocol_manifest_sha256: sha256:b58b0aba5e6d73b6f53018733751284602608fdae716ab5cc1fe14aa21fba587
+public_surface_fingerprint: 0xc3bf2a740ecf5a5d
+public_surface_sha256: sha256:5a3f15e6eb96a0955edee9aabe12c42ddea698dd6c21543f2da0a8f830f6dabe
 artifacts:
 - id: protocol-manifest
   path: conformance/v0/boundary/protocol-manifest.bin
-  sha256: sha256:49605b621ee793f4aeec3fc66ea7dca33d6e2259a99c69142e47dd00285e3e83
+  sha256: sha256:b58b0aba5e6d73b6f53018733751284602608fdae716ab5cc1fe14aa21fba587
   replay: zig build check-boundary-format-drift
 - id: public-surface
   path: conformance/v0/public-surface.boundary.txt
-  sha256: sha256:5e722326fc0c82654de944bba0e76145f0d427fc1458c6a5e1a6f36a8e6c5ac4
+  sha256: sha256:5a3f15e6eb96a0955edee9aabe12c42ddea698dd6c21543f2da0a8f830f6dabe
   replay: zig build check-boundary-public-surface
 
 validation:
