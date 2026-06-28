@@ -1435,6 +1435,7 @@ pub fn run(writer: anytype, allocator: std.mem.Allocator) !void {
 
 pub fn main(init: std.process.Init) !void {
     var args = std.process.Args.Iterator.init(init.minimal.args);
+    defer args.deinit();
     _ = args.next();
     if (args.next()) |command| {
         if (std.mem.eql(u8, command, "export-agent-runtime")) {
@@ -1486,7 +1487,7 @@ fn exportAgentRuntimeArtifacts(init: std.process.Init, allocator: std.mem.Alloca
 }
 
 fn writeJoined(io: std.Io, allocator: std.mem.Allocator, dir: []const u8, file: []const u8, bytes: []const u8) !void {
-    const path = try std.fs.path.join(allocator, &.{ dir, file });
+    const path = try std.Io.Dir.path.join(allocator, &.{ dir, file });
     defer allocator.free(path);
     try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = path, .data = bytes });
 }
