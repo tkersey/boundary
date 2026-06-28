@@ -1223,6 +1223,7 @@ fn typeMatchesRuntimeRef(
     if (T == void) return ref.eql(.{ .codec = .unit });
     if (T == bool) return ref.eql(.{ .codec = .bool });
     if (T == i32) return ref.eql(.{ .codec = .i32 });
+    if (T == u64) return ref.eql(.{ .codec = .usize });
     if (T == usize) return ref.eql(.{ .codec = .usize });
     if (T == []const u8) return ref.eql(.{ .codec = .string });
     if (comptime isStringListCarrier(T)) return ref.eql(.{ .codec = .string_list });
@@ -1245,6 +1246,7 @@ fn encodeScalarValue(value: anytype) ExecutableValue {
         void => .none,
         bool => .{ .bool = value },
         i32 => .{ .i32 = value },
+        u64 => .{ .usize = @intCast(value) },
         usize => .{ .usize = value },
         []const u8 => .{ .string = value },
         else => @compileError("unsupported authored scalar result type"),
@@ -1386,6 +1388,7 @@ fn valueRefForType(comptime schema_types: anytype, comptime T: type) program_pla
     if (T == void) return .{ .codec = .unit };
     if (T == bool) return .{ .codec = .bool };
     if (T == i32) return .{ .codec = .i32 };
+    if (T == u64) return .{ .codec = .usize };
     if (T == usize) return .{ .codec = .usize };
     if (T == []const u8) return .{ .codec = .string };
     if (isStringListCarrier(T)) return .{ .codec = .string_list };
@@ -1402,6 +1405,7 @@ fn runtimeValueRefForType(comptime schema_types: anytype, comptime T: type) ?pro
     if (T == void) return .{ .codec = .unit };
     if (T == bool) return .{ .codec = .bool };
     if (T == i32) return .{ .codec = .i32 };
+    if (T == u64) return .{ .codec = .usize };
     if (T == usize) return .{ .codec = .usize };
     if (T == []const u8) return .{ .codec = .string };
     if (isStringListCarrier(T)) return .{ .codec = .string_list };
@@ -1506,7 +1510,7 @@ fn encodeRuntimeValueForRuntimeRef(
 ) anyerror!ExecutableValue {
     const Value = @TypeOf(value);
     if (!typeMatchesRuntimeRef(schema_types, ref, Value)) return error.ProgramContractViolation;
-    if (comptime Value == void or Value == bool or Value == i32 or Value == usize or Value == []const u8 or isStringListCarrier(Value)) {
+    if (comptime Value == void or Value == bool or Value == i32 or Value == u64 or Value == usize or Value == []const u8 or isStringListCarrier(Value)) {
         return encodeScalarValue(value);
     }
     return scratch.storeSchemaValue(
@@ -1533,6 +1537,10 @@ fn decodeRuntimeValueAs(
     };
     if (T == i32) return switch (value) {
         .i32 => |typed| typed,
+        else => error.ProgramContractViolation,
+    };
+    if (T == u64) return switch (value) {
+        .usize => |typed| @intCast(typed),
         else => error.ProgramContractViolation,
     };
     if (T == usize) return switch (value) {
@@ -6073,6 +6081,10 @@ pub fn ExecutableSessionForPlan(
                 i32 => {
                     if (!ref.eql(.{ .codec = .i32 })) return error.ProgramContractViolation;
                     traceHashI32(hasher, value);
+                },
+                u64 => {
+                    if (!ref.eql(.{ .codec = .usize })) return error.ProgramContractViolation;
+                    traceHashU64(hasher, value);
                 },
                 usize => {
                     if (!ref.eql(.{ .codec = .usize })) return error.ProgramContractViolation;

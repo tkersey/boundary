@@ -1112,6 +1112,7 @@ pub fn codecForType(comptime T: type) CodecError!ValueCodec {
     if (T == noreturn) return .unit;
     if (T == bool) return .bool;
     if (T == i32) return .i32;
+    if (T == u64) return .usize;
     if (T == usize) return .usize;
     if (T == []const u8) return .string;
     if (T == [][]const u8) return .string_list;

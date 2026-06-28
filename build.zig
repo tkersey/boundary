@@ -958,6 +958,14 @@ pub fn build(b: *std.Build) void {
     };
     const agent_loop_parity_tests = b.addTest(.{ .root_module = agent_loop_tests_mod, .filters = agent_loop_parity_args.filters });
     agent_parity_step.dependOn(&addRunArtifactWithArgs(b, agent_loop_parity_tests, agent_loop_parity_args.passthrough).step);
+    const receipt_agent_loop_tests_mod = b.createModule(.{
+        .root_source_file = b.path("examples/agent_loop.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+    });
+    receipt_agent_loop_tests_mod.addImport("boundary", host_boundary);
+    const receipt_loop_tests = b.addTest(.{ .root_module = receipt_agent_loop_tests_mod, .filters = agent_loop_parity_args.filters });
+    receipt_agent_parity_step.dependOn(&addRunArtifactWithArgs(b, receipt_loop_tests, agent_loop_parity_args.passthrough).step);
 
     const program_api_tests_mod = b.createModule(.{
         .root_source_file = b.path("test/program_api_test.zig"),

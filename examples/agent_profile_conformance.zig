@@ -54,7 +54,7 @@ fn modelDecision(scenario: Scenario, observation: []const u8) !Agent.Action {
         else
             .{ .fail = "unexpected fixture observation" },
         .budget_exhaustion => .{ .tool = .{ .tool_id = Tools.id(0), .payload = "" } },
-        .unknown_tool => .{ .tool = .{ .tool_id = .{ .index = 99, .label = "shell" }, .payload = "" } },
+        .unknown_tool => .{ .tool = .{ .tool_id = .{ .index = 99, .diagnostic_label = "shell" }, .payload = "" } },
         .malformed_action => {
             _ = try Agent.decodeActionTag(99);
             return error.ExpectedMalformedAction;

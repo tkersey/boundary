@@ -1,3 +1,4 @@
+// zlinter-disable field_ordering
 const std = @import("std");
 
 /// Agent Profile v0 is a construction profile over existing Boundary programs.
@@ -41,9 +42,9 @@ pub const ModuleArtifactValidationError = anyerror;
 
 /// Agent action discriminant encoded as the closed Action sum tag.
 pub const ActionTag = enum(u8) {
-    fail = 2,
     final = 0,
     tool = 1,
+    fail = 2,
 };
 
 /// Terminal status stored in the portable Agent state.
@@ -81,10 +82,10 @@ pub const ModuleRole = enum(u8) {
 /// Canonical Agent Action variants in portable sum tag order.
 pub const canonical_action_variants = [_]ActionTag{ .final, .tool, .fail };
 
-/// Closed tool identifier; `index` is semantic and `label` is diagnostic.
+/// Closed tool identifier; `index` is semantic and `diagnostic_label` is diagnostic.
 pub const ToolId = struct {
-    index: u16,
-    label: []const u8,
+    index: u64,
+    diagnostic_label: []const u8,
 
     /// Compare ToolIds by generated semantic index.
     pub fn eql(self: ToolId, other: ToolId) bool {
@@ -96,7 +97,7 @@ pub const ToolId = struct {
 pub fn ClosedToolSet(comptime labels: []const []const u8) type {
     comptime {
         if (labels.len == 0) @compileError("Agent ToolId set must contain at least one variant");
-        if (labels.len > std.math.maxInt(u16) + 1) @compileError("Agent ToolId set exceeds u16 variant space");
+        if (labels.len - 1 > std.math.maxInt(u64)) @compileError("Agent ToolId set exceeds u64 variant space");
         for (labels, 0..) |label, index| {
             if (label.len == 0) @compileError("Agent ToolId labels must be non-empty");
             for (labels[0..index]) |prior| {
@@ -112,14 +113,14 @@ pub fn ClosedToolSet(comptime labels: []const []const u8) type {
         /// Return the closed ToolId for a compile-time variant index.
         pub fn id(comptime index: usize) ToolId {
             if (index >= labels.len) @compileError("Agent ToolId index out of range");
-            return .{ .index = @intCast(index), .label = labels[index] };
+            return .{ .index = @intCast(index), .diagnostic_label = labels[index] };
         }
 
         /// Find a ToolId by diagnostic label for builder/test convenience.
         pub fn find(search_label: []const u8) ?ToolId {
             inline for (labels, 0..) |candidate, index| {
                 if (std.mem.eql(u8, search_label, candidate)) {
-                    return .{ .index = @intCast(index), .label = candidate };
+                    return .{ .index = @intCast(index), .diagnostic_label = candidate };
                 }
             }
             return null;
@@ -127,13 +128,13 @@ pub fn ClosedToolSet(comptime labels: []const []const u8) type {
 
         /// Return true when the semantic ToolId index is in the closed set.
         pub fn contains(tool_id: ToolId) bool {
-            return tool_id.index < labels.len;
+            return tool_id.index < @as(u64, @intCast(labels.len));
         }
 
         /// Return the diagnostic label for a closed ToolId.
         pub fn label(tool_id: ToolId) ![]const u8 {
             if (!contains(tool_id)) return error.UnknownToolId;
-            return labels[tool_id.index];
+            return labels[@intCast(tool_id.index)];
         }
 
         /// Return all diagnostic labels in semantic variant order.
@@ -287,9 +288,9 @@ pub const ToolResult = struct {
 
 /// Closed Agent action sum returned by the decision boundary.
 pub const Action = union(ActionTag) {
-    fail: []const u8,
     final: []const u8,
     tool: ToolRequest,
+    fail: []const u8,
 };
 
 /// Decode a portable Action tag byte, failing closed on unknown tags.
@@ -309,7 +310,7 @@ pub fn validateAction(comptime ToolSet: type, config: Config, action: Action) Ac
         .fail => |reason| if (reason.len > config.max_action_bytes) return error.AgentActionTooLarge,
         .tool => |request| {
             if (!ToolSet.contains(request.tool_id)) return error.UnknownToolId;
-            if (exceedsCombinedByteLimit(request.tool_id.label.len, request.payload.len, config.max_action_bytes)) return error.AgentActionTooLarge;
+            if (exceedsCombinedByteLimit(request.tool_id.diagnostic_label.len, request.payload.len, config.max_action_bytes)) return error.AgentActionTooLarge;
         },
     }
 }
@@ -317,7 +318,7 @@ pub fn validateAction(comptime ToolSet: type, config: Config, action: Action) Ac
 /// Promote a tool result into the next observation.
 pub fn observeToolResult(comptime ToolSet: type, config: Config, state: *State, result: ToolResult) ObservationError!void {
     if (!ToolSet.contains(result.tool_id)) return error.UnknownToolId;
-    if (exceedsCombinedByteLimit(result.tool_id.label.len, result.bytes.len, config.max_tool_result_bytes)) return error.AgentToolResultTooLarge;
+    if (exceedsCombinedByteLimit(result.tool_id.diagnostic_label.len, result.bytes.len, config.max_tool_result_bytes)) return error.AgentToolResultTooLarge;
     if (result.bytes.len > config.max_observation_bytes) return error.AgentObservationTooLarge;
     state.prior_observation_summary = state.current_observation;
     state.current_observation = result.bytes;
@@ -377,7 +378,7 @@ pub const canonical_value_schemas = [_]ValueSchema{
     schema("Agent.State", "product(goal:string,current_observation:string,prior_observation_summary:string,iteration_index:u32,remaining_budget:Agent.Budget,model_call_count:u32,tool_call_count:u32,terminal_status:" ++ terminal_status_codec ++ ",trace_summary:Agent.TraceSummary)"),
     schema("Agent.DecisionPrompt", "product(goal:string,observation:string,trace_summary:Agent.TraceSummary,budget:Agent.Budget)"),
     schema("Agent.Action", action_tag_codec),
-    schema("Agent.ToolId", "product(index:u16,diagnostic_label:string)"),
+    schema("Agent.ToolId", "product(index:u64,diagnostic_label:string)"),
     schema("Agent.ToolPayload", "string"),
     schema("Agent.ToolRequest", "product(tool_id:Agent.ToolId,payload:Agent.ToolPayload)"),
     schema("Agent.ToolResult", "product(tool_id:Agent.ToolId,bytes:string)"),
@@ -636,7 +637,7 @@ pub const Profile = struct {
         hashInt(&hasher, @as(u32, @intCast(self.supported_tool_variants.len)));
         for (self.supported_tool_variants) |tool_id| {
             hashInt(&hasher, tool_id.index);
-            hashBytes(&hasher, tool_id.label);
+            hashBytes(&hasher, tool_id.diagnostic_label);
         }
         hashInt(&hasher, @as(u32, @intCast(self.value_schema_fingerprints.len)));
         for (self.value_schema_fingerprints) |fingerprint| hashInt(&hasher, fingerprint);
@@ -661,10 +662,10 @@ pub const Profile = struct {
         }
         if (self.supported_tool_variants.len == 0) return error.AgentProfileToolSurfaceMismatch;
         for (self.supported_tool_variants, 0..) |tool_id, index| {
-            if (@as(usize, tool_id.index) != index) return error.AgentProfileToolSurfaceMismatch;
-            if (tool_id.label.len == 0) return error.AgentProfileToolSurfaceMismatch;
+            if (tool_id.index != @as(u64, @intCast(index))) return error.AgentProfileToolSurfaceMismatch;
+            if (tool_id.diagnostic_label.len == 0) return error.AgentProfileToolSurfaceMismatch;
             for (self.supported_tool_variants[0..index]) |prior| {
-                if (std.mem.eql(u8, tool_id.label, prior.label)) return error.AgentProfileToolSurfaceMismatch;
+                if (std.mem.eql(u8, tool_id.diagnostic_label, prior.diagnostic_label)) return error.AgentProfileToolSurfaceMismatch;
             }
         }
         if (!std.mem.eql(u64, self.value_schema_fingerprints, &canonical_schema_fingerprints)) {
@@ -795,7 +796,7 @@ test "Agent profile validation requires complete tool and schema surfaces" {
     profile = Profile.fromConfig(config, &.{ tools.id(1), tools.id(0) }, canonicalValueSchemaFingerprints(), "profile-surface-test");
     try std.testing.expectError(error.AgentProfileToolSurfaceMismatch, profile.validate());
 
-    profile = Profile.fromConfig(config, &.{ tools.id(0), .{ .index = 1, .label = "actuate" } }, canonicalValueSchemaFingerprints(), "profile-surface-test");
+    profile = Profile.fromConfig(config, &.{ tools.id(0), .{ .index = 1, .diagnostic_label = "actuate" } }, canonicalValueSchemaFingerprints(), "profile-surface-test");
     profile.profile_fingerprint = profile.computeFingerprint();
     try std.testing.expectError(error.AgentProfileToolSurfaceMismatch, profile.validate());
 }
@@ -806,9 +807,9 @@ test "Agent closed ToolId set dispatches by generated index, not diagnostic labe
     try std.testing.expect(tools.contains(actuate));
     try std.testing.expectEqualStrings("actuate", try tools.label(actuate));
     try std.testing.expect(tools.find("shell") == null);
-    try std.testing.expect(tools.contains(.{ .index = 0, .label = "shell" }));
-    try std.testing.expectEqualStrings("actuate", try tools.label(.{ .index = 0, .label = "shell" }));
-    try std.testing.expectError(error.UnknownToolId, tools.label(.{ .index = 9, .label = "shell" }));
+    try std.testing.expect(tools.contains(.{ .index = 0, .diagnostic_label = "shell" }));
+    try std.testing.expectEqualStrings("actuate", try tools.label(.{ .index = 0, .diagnostic_label = "shell" }));
+    try std.testing.expectError(error.UnknownToolId, tools.label(.{ .index = 9, .diagnostic_label = "shell" }));
 }
 
 test "Agent action validation rejects malformed tags, unknown tools, and oversized payloads" {
@@ -825,11 +826,11 @@ test "Agent action validation rejects malformed tags, unknown tools, and oversiz
     try std.testing.expectError(error.MalformedAgentAction, decodeActionTag(99));
     try validateAction(tools, config, .{ .tool = .{ .tool_id = tools.id(0), .payload = "" } });
     try std.testing.expectError(error.UnknownToolId, validateAction(tools, config, .{
-        .tool = .{ .tool_id = .{ .index = 4, .label = "shell" }, .payload = "" },
+        .tool = .{ .tool_id = .{ .index = 4, .diagnostic_label = "shell" }, .payload = "" },
     }));
     try std.testing.expectError(error.AgentActionTooLarge, validateAction(tools, config, .{ .final = "too-large" }));
     try std.testing.expectError(error.AgentActionTooLarge, validateAction(tools, config, .{
-        .tool = .{ .tool_id = .{ .index = 0, .label = "too-large" }, .payload = "" },
+        .tool = .{ .tool_id = .{ .index = 0, .diagnostic_label = "too-large" }, .payload = "" },
     }));
     try std.testing.expectError(error.AgentActionTooLarge, validateAction(tools, config, .{
         .tool = .{ .tool_id = tools.id(0), .payload = "xx" },
@@ -938,23 +939,23 @@ test "Agent tool observations obey the observation byte cap" {
     var state = try State.init("goal", "seed", config);
     try std.testing.expectError(error.AgentObservationTooLarge, State.init("goal", "12345", config));
     try std.testing.expectError(error.UnknownToolId, observeToolResult(tools, config, &state, .{
-        .tool_id = .{ .index = 9, .label = "shell" },
+        .tool_id = .{ .index = 9, .diagnostic_label = "shell" },
         .bytes = "1234",
     }));
     try std.testing.expectEqualStrings("seed", state.current_observation);
     try std.testing.expectError(error.AgentToolResultTooLarge, observeToolResult(tools, config, &state, .{
-        .tool_id = .{ .index = 0, .label = "tool-label-too-large" },
+        .tool_id = .{ .index = 0, .diagnostic_label = "tool-label-too-large" },
         .bytes = "",
     }));
     try std.testing.expectEqualStrings("seed", state.current_observation);
     try std.testing.expectError(error.AgentObservationTooLarge, observeToolResult(tools, config, &state, .{
-        .tool_id = .{ .index = 0, .label = "actuate" },
+        .tool_id = .{ .index = 0, .diagnostic_label = "actuate" },
         .bytes = "12345",
     }));
     try std.testing.expectEqualStrings("seed", state.current_observation);
 
     try observeToolResult(tools, config, &state, .{
-        .tool_id = .{ .index = 0, .label = "actuate" },
+        .tool_id = .{ .index = 0, .diagnostic_label = "actuate" },
         .bytes = "1234",
     });
     try std.testing.expectEqualStrings("1234", state.current_observation);

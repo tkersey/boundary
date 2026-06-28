@@ -145,7 +145,7 @@ const scenarios = [_]Scenario{
         .kind = "parity",
         .initial_observation = "goal=invoke",
         .expected_terminal_status = .failed,
-        .expected_failure = "MalformedAgentAction",
+        .expected_failure = "AgentActionFailed",
         .expected_model_calls = 1,
         .expected_tool_calls = 0,
         .replay = "zig build check-boundary-agent-generated-loaded-parity -- --test-filter 'agent root generated-loaded parity malformed action'",
@@ -155,7 +155,7 @@ const scenarios = [_]Scenario{
         .kind = "parity",
         .initial_observation = "goal=invoke",
         .expected_terminal_status = .failed,
-        .expected_failure = "UnknownToolId",
+        .expected_failure = "AgentActionFailed",
         .expected_model_calls = 1,
         .expected_tool_calls = 0,
         .replay = "zig build check-boundary-agent-generated-loaded-parity -- --test-filter 'agent root generated-loaded parity unknown tool'",
@@ -255,7 +255,7 @@ fn corpusManifestAlloc(allocator: std.mem.Allocator) ![]u8 {
 
     try appendLine(&out, allocator, "tool_variants:");
     for (tool_ids) |tool_id| {
-        try appendFmt(&out, allocator, "- index: {d}\n  label: {s}\n", .{ tool_id.index, tool_id.label });
+        try appendFmt(&out, allocator, "- index: {d}\n  label: {s}\n", .{ tool_id.index, tool_id.diagnostic_label });
     }
     try appendLine(&out, allocator, "");
     try appendLine(&out, allocator, "value_schemas:");

@@ -2,7 +2,7 @@ Boundary Agent Profile v0 conformance corpus
 format: boundary-agent-conformance-corpus-v0
 profile_format_version: 0
 profile_fingerprint_version: 1
-profile_fingerprint: 0xedab928f2ab15706
+profile_fingerprint: 0x93e76a6083279734
 max_iterations: 5
 max_model_calls: 5
 max_tool_calls: 4
@@ -41,8 +41,8 @@ value_schemas:
   codec: sum(final=0:string,tool=1:Agent.ToolRequest,fail=2:string)
   fingerprint: 0x19593bde6dfe12fe
 - name: Agent.ToolId
-  codec: product(index:u16,diagnostic_label:string)
-  fingerprint: 0xcaeb5b75962fb878
+  codec: product(index:u64,diagnostic_label:string)
+  fingerprint: 0xa0c5e7c8a6b29dbd
 - name: Agent.ToolPayload
   codec: string
   fingerprint: 0x1473bb162d57c43b
@@ -217,8 +217,8 @@ scenarios:
   expected_terminal_status: failed
   expected_model_calls: 1
   expected_tool_calls: 0
-  expected_failure: MalformedAgentAction
-  expected_failure_fingerprint: 0x90efbf223325e900
+  expected_failure: AgentActionFailed
+  expected_failure_fingerprint: 0xc1b1c3b062bcc2bd
   replay: zig build check-boundary-agent-generated-loaded-parity -- --test-filter 'agent root generated-loaded parity malformed action'
 - id: agent-root-generated-loaded-unknown-tool
   kind: parity
@@ -233,8 +233,8 @@ scenarios:
   expected_terminal_status: failed
   expected_model_calls: 1
   expected_tool_calls: 0
-  expected_failure: UnknownToolId
-  expected_failure_fingerprint: 0x4d01b489d908f385
+  expected_failure: AgentActionFailed
+  expected_failure_fingerprint: 0xc1b1c3b062bcc2bd
   replay: zig build check-boundary-agent-generated-loaded-parity -- --test-filter 'agent root generated-loaded parity unknown tool'
 - id: agent-toolbox-generated-loaded-actuate
   kind: parity

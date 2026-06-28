@@ -4,12 +4,7 @@ const std = @import("std");
 
 const BoundaryAgent = boundary.Agent;
 
-const Action = union(enum) {
-    final: []const u8,
-    malformed_action: void,
-    tool: []const u8,
-    unknown_tool: void,
-};
+const Action = BoundaryAgent.Action;
 
 const BoundaryTools = BoundaryAgent.ClosedToolSet(&.{ "actuate", "read_file", "write_file" });
 const boundary_tool_ids = [_]BoundaryAgent.ToolId{
@@ -32,7 +27,7 @@ const AgentHandlers = struct {
     initial_observation: []const u8,
 };
 
-const AgentSchemas = boundary.ir.schema.Registry(.{Action});
+const AgentSchemas = boundary.ir.schema.Registry(.{ BoundaryAgent.ToolId, BoundaryAgent.ToolRequest, Action });
 
 const AgentProtocol = boundary.ir.schema.Protocol(.{
     .label = "agent",
@@ -44,7 +39,7 @@ const AgentProtocol = boundary.ir.schema.Protocol(.{
 const ToolProtocol = boundary.ir.schema.Protocol(.{
     .label = "tool",
     .ops = .{
-        boundary.ir.schema.transform("call", []const u8, []const u8),
+        boundary.ir.schema.transform("call", BoundaryAgent.ToolRequest, []const u8),
     },
 });
 
@@ -146,9 +141,7 @@ const fixture_output_path = fixture_dir ++ "/output.txt";
 const fixture_input_contents = "rewrite this file through the agent loop\n";
 const fixture_observation = "rewrite this file through the agent loop";
 const fixture_write_contents = "actuate updated the fixture";
-const fixture_read_command = "read:" ++ fixture_input_path;
 const fixture_write_payload = fixture_output_path ++ "=" ++ fixture_write_contents;
-const fixture_write_command = "write:" ++ fixture_write_payload;
 
 fn recordEvent(record: *RunRecord, event: SessionEvent) void {
     record.event_count += 1;
@@ -203,25 +196,32 @@ fn expectedRecordedResponseCount(scenario: Scenario) usize {
     };
 }
 
+fn toolRequest(comptime tool_index: usize, payload: []const u8) BoundaryAgent.ToolRequest {
+    return .{
+        .tool_id = BoundaryTools.id(tool_index),
+        .payload = payload,
+    };
+}
+
 fn decideAction(scenario: Scenario, observation: []const u8) Action {
     return switch (scenario) {
-        .budget_exhaustion => Action{ .tool = @as([]const u8, "actuate") },
-        .malformed_action => Action{ .malformed_action = {} },
+        .budget_exhaustion => .{ .tool = toolRequest(0, "") },
+        .malformed_action => .{ .fail = "MalformedAgentAction" },
         .skeleton => if (std.mem.eql(u8, observation, "goal=invoke"))
-            Action{ .tool = @as([]const u8, "actuate") }
+            .{ .tool = toolRequest(0, "") }
         else if (std.mem.eql(u8, observation, "actuate"))
-            Action{ .final = @as([]const u8, "final=actuate skeleton complete") }
+            .{ .final = "final=actuate skeleton complete" }
         else
-            Action{ .final = @as([]const u8, "final=unexpected-tool-output") },
+            .{ .final = "final=unexpected-tool-output" },
         .fixture => if (std.mem.eql(u8, observation, "goal=fixture"))
-            Action{ .tool = @as([]const u8, fixture_read_command) }
+            .{ .tool = toolRequest(1, fixture_input_path) }
         else if (std.mem.eql(u8, observation, fixture_observation))
-            Action{ .tool = @as([]const u8, fixture_write_command) }
+            .{ .tool = toolRequest(2, fixture_write_payload) }
         else if (std.mem.eql(u8, observation, "write=ok"))
-            Action{ .final = @as([]const u8, "final=fixture updated") }
+            .{ .final = "final=fixture updated" }
         else
-            Action{ .final = @as([]const u8, "final=fixture update failed") },
-        .unknown_tool => Action{ .unknown_tool = {} },
+            .{ .final = "final=fixture update failed" },
+        .unknown_tool => .{ .fail = "UnknownToolId" },
     };
 }
 
@@ -238,26 +238,25 @@ fn prepareFixtureWorkspace() !void {
     };
 }
 
-fn callTool(allocator: std.mem.Allocator, scenario: Scenario, command: []const u8) ![]const u8 {
+fn callTool(allocator: std.mem.Allocator, scenario: Scenario, request: BoundaryAgent.ToolRequest) ![]const u8 {
     switch (scenario) {
-        .budget_exhaustion, .skeleton => return if (std.mem.eql(u8, command, "actuate")) "actuate" else "tool=unsupported",
+        .budget_exhaustion, .skeleton => return if (request.tool_id.eql(BoundaryTools.id(0)) and request.payload.len == 0) "actuate" else "tool=unsupported",
         .malformed_action, .unknown_tool => return error.UnexpectedToolCall,
         .fixture => {
             const io = std.Io.Threaded.global_single_threaded.io();
-            if (std.mem.startsWith(u8, command, "read:")) {
-                const path = command["read:".len..];
+            if (request.tool_id.eql(BoundaryTools.id(1))) {
+                const path = request.payload;
                 const bytes = try std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(1024));
                 defer allocator.free(bytes);
                 const trimmed = std.mem.trim(u8, bytes, "\r\n");
                 if (!std.mem.eql(u8, trimmed, fixture_observation)) return error.UnexpectedFixtureInput;
                 return fixture_observation;
             }
-            if (std.mem.startsWith(u8, command, "write:")) {
-                const payload = command["write:".len..];
-                const split = std.mem.findScalar(u8, payload, '=') orelse return "write=invalid";
+            if (request.tool_id.eql(BoundaryTools.id(2))) {
+                const split = std.mem.findScalar(u8, request.payload, '=') orelse return "write=invalid";
                 try std.Io.Dir.cwd().writeFile(io, .{
-                    .sub_path = payload[0..split],
-                    .data = payload[split + 1 ..],
+                    .sub_path = request.payload[0..split],
+                    .data = request.payload[split + 1 ..],
                 });
                 return "write=ok";
             }
@@ -289,10 +288,10 @@ const agent_loop_semantic_spec = blk: {
                 semantic.local("budget_empty", bool),
                 semantic.local("action", Action),
                 semantic.local("is_final", bool),
-                semantic.local("is_malformed_action", bool),
-                semantic.local("is_unknown_tool", bool),
+                semantic.local("is_tool", bool),
+                semantic.local("is_fail", bool),
                 semantic.local("answer", []const u8),
-                semantic.local("tool_name", []const u8),
+                semantic.local("tool_request", BoundaryAgent.ToolRequest),
             },
             .result = []const u8,
             .blocks = .{
@@ -309,7 +308,7 @@ const agent_loop_semantic_spec = blk: {
                         semantic.call(Decide, .{ .dst = "action", .payload = "observation", .label = "agent.decide" }),
                         semantic.sumVariantIs("is_final", "action", 0),
                     },
-                    .terminator = semantic.branchIf("is_final", .{ .then = "final", .@"else" = "check_malformed_action" }),
+                    .terminator = semantic.branchIf("is_final", .{ .then = "final", .@"else" = "check_tool" }),
                 },
                 .{
                     .name = "final",
@@ -319,11 +318,23 @@ const agent_loop_semantic_spec = blk: {
                     .terminator = semantic.returnValue("answer"),
                 },
                 .{
-                    .name = "check_malformed_action",
+                    .name = "check_tool",
                     .instructions = .{
-                        semantic.sumVariantIs("is_malformed_action", "action", 1),
+                        semantic.sumVariantIs("is_tool", "action", 1),
                     },
-                    .terminator = semantic.branchIf("is_malformed_action", .{ .then = "malformed_action", .@"else" = "check_unknown_tool" }),
+                    .terminator = semantic.branchIf("is_tool", .{ .then = "tool", .@"else" = "check_fail" }),
+                },
+                .{
+                    .name = "check_fail",
+                    .instructions = .{
+                        semantic.sumVariantIs("is_fail", "action", 2),
+                    },
+                    .terminator = semantic.branchIf("is_fail", .{ .then = "fail", .@"else" = "malformed_action" }),
+                },
+                .{
+                    .name = "fail",
+                    .instructions = .{},
+                    .terminator = semantic.returnError("AgentActionFailed"),
                 },
                 .{
                     .name = "malformed_action",
@@ -331,22 +342,10 @@ const agent_loop_semantic_spec = blk: {
                     .terminator = semantic.returnError("MalformedAgentAction"),
                 },
                 .{
-                    .name = "check_unknown_tool",
-                    .instructions = .{
-                        semantic.sumVariantIs("is_unknown_tool", "action", 3),
-                    },
-                    .terminator = semantic.branchIf("is_unknown_tool", .{ .then = "unknown_tool", .@"else" = "tool" }),
-                },
-                .{
-                    .name = "unknown_tool",
-                    .instructions = .{},
-                    .terminator = semantic.returnError("UnknownToolId"),
-                },
-                .{
                     .name = "tool",
                     .instructions = .{
-                        semantic.sumExtractPayload("tool_name", "action", 2),
-                        semantic.call(Tool, .{ .dst = "observation", .payload = "tool_name", .label = "agent.tool" }),
+                        semantic.sumExtractPayload("tool_request", "action", 1),
+                        semantic.call(Tool, .{ .dst = "observation", .payload = "tool_request", .label = "agent.tool" }),
                         semantic.subOne("remaining", "remaining"),
                     },
                     .terminator = semantic.jump("entry"),
@@ -369,6 +368,7 @@ const agent_loop_compiled = blk: {
 
 const AgentBody = struct {
     pub const Error = error{
+        AgentActionFailed,
         AgentBudgetExhausted,
         MalformedAgentAction,
         UnknownToolId,
@@ -465,6 +465,7 @@ pub const RootTarget = blk: {
 
 const ToolboxHandlers = struct {
     tool_index: usize,
+    payload: []const u8,
 };
 
 const FileProtocol = boundary.ir.schema.Protocol(.{
@@ -499,13 +500,13 @@ const toolbox_semantic_spec = blk: {
             .requirements = semantic.span(0, file_requirements.len),
             .params = .{
                 semantic.param("tool_index", usize),
+                semantic.param("payload", []const u8),
             },
             .locals = .{
                 semantic.local("is_actuate", bool),
                 semantic.local("is_read", bool),
                 semantic.local("is_write", bool),
                 semantic.local("selector", usize),
-                semantic.local("payload", []const u8),
                 semantic.local("result", []const u8),
             },
             .result = []const u8,
@@ -543,7 +544,6 @@ const toolbox_semantic_spec = blk: {
                 .{
                     .name = "read_file",
                     .instructions = .{
-                        semantic.constString("payload", fixture_input_path),
                         semantic.call(ReadOp, .{ .dst = "result", .payload = "payload", .label = "toolbox.file.read" }),
                     },
                     .terminator = semantic.returnValue("result"),
@@ -551,7 +551,6 @@ const toolbox_semantic_spec = blk: {
                 .{
                     .name = "write_file",
                     .instructions = .{
-                        semantic.constString("payload", fixture_write_payload),
                         semantic.call(WriteOp, .{ .dst = "result", .payload = "payload", .label = "toolbox.file.write" }),
                     },
                     .terminator = semantic.returnValue("result"),
@@ -576,8 +575,8 @@ const ToolboxBody = struct {
     pub const site_metadata = toolbox_compiled.site_metadata;
     pub const compiled_plan = toolbox_compiled.plan;
 
-    pub fn encodeArgs(handlers: ToolboxHandlers) struct { usize } {
-        return .{handlers.tool_index};
+    pub fn encodeArgs(handlers: ToolboxHandlers) struct { usize, []const u8 } {
+        return .{ handlers.tool_index, handlers.payload };
     }
 };
 
@@ -742,9 +741,20 @@ fn encodeLoadedAction(allocator: std.mem.Allocator, action: Action) ![]u8 {
                 .{},
             );
         },
-        .malformed_action => blk: {
+        .tool => |request| blk: {
+            const tool_id_fields = [_]RootTarget.Module.LoadedValue{
+                .{ .word_u64 = request.tool_id.index },
+                .{ .bytes = request.tool_id.diagnostic_label },
+            };
+            const tool_id = RootTarget.Module.LoadedValue{ .product = tool_id_fields[0..] };
+            const request_fields = [_]RootTarget.Module.LoadedValue{
+                tool_id,
+                .{ .bytes = request.payload },
+            };
+            const payload = RootTarget.Module.LoadedValue{ .product = request_fields[0..] };
             const sum = RootTarget.Module.LoadedValue{ .sum = .{
                 .variant_index = 1,
+                .payload = &payload,
             } };
             break :blk try RootTarget.Module.LoadedExecution.encodeLoadedValueImageBytes(
                 allocator,
@@ -754,8 +764,8 @@ fn encodeLoadedAction(allocator: std.mem.Allocator, action: Action) ![]u8 {
                 .{},
             );
         },
-        .tool => |text| blk: {
-            const payload = RootTarget.Module.LoadedValue{ .bytes = text };
+        .fail => |reason| blk: {
+            const payload = RootTarget.Module.LoadedValue{ .bytes = reason };
             const sum = RootTarget.Module.LoadedValue{ .sum = .{
                 .variant_index = 2,
                 .payload = &payload,
@@ -768,19 +778,51 @@ fn encodeLoadedAction(allocator: std.mem.Allocator, action: Action) ![]u8 {
                 .{},
             );
         },
-        .unknown_tool => blk: {
-            const sum = RootTarget.Module.LoadedValue{ .sum = .{
-                .variant_index = 3,
-            } };
-            break :blk try RootTarget.Module.LoadedExecution.encodeLoadedValueImageBytes(
-                allocator,
-                loadedSchemaSet(),
-                .{ .codec = .sum, .schema_index = action_ref.schema_index },
-                sum,
-                .{},
-            );
-        },
     };
+}
+
+fn decodeLoadedToolRequest(allocator: std.mem.Allocator, arena: *RootTarget.Module.LoadedValueArena, image: []const u8) !BoundaryAgent.ToolRequest {
+    const request_ref = AgentSchemas.valueRef(BoundaryAgent.ToolRequest).?;
+    const decoded = try RootTarget.Module.LoadedExecution.decodeLoadedValueImage(
+        allocator,
+        arena,
+        loadedSchemaSet(),
+        .{ .codec = .product, .schema_index = request_ref.schema_index },
+        image,
+        .{},
+    );
+    const fields = switch (decoded) {
+        .product => |fields| fields,
+        else => return error.UnexpectedLoadedToolRequest,
+    };
+    if (fields.len != 2) return error.UnexpectedLoadedToolRequest;
+    const tool_id_fields = switch (fields[0]) {
+        .product => |tool_id_fields| tool_id_fields,
+        else => return error.UnexpectedLoadedToolRequest,
+    };
+    if (tool_id_fields.len != 2) return error.UnexpectedLoadedToolRequest;
+    const index = switch (tool_id_fields[0]) {
+        .word_u64 => |word| word,
+        else => return error.UnexpectedLoadedToolRequest,
+    };
+    const diagnostic_label = switch (tool_id_fields[1]) {
+        .bytes => |bytes| bytes,
+        else => return error.UnexpectedLoadedToolRequest,
+    };
+    const payload = switch (fields[1]) {
+        .bytes => |bytes| bytes,
+        else => return error.UnexpectedLoadedToolRequest,
+    };
+    return .{
+        .tool_id = .{ .index = index, .diagnostic_label = diagnostic_label },
+        .payload = payload,
+    };
+}
+
+fn expectToolRequestsEqual(expected: BoundaryAgent.ToolRequest, actual: BoundaryAgent.ToolRequest) !void {
+    try std.testing.expectEqual(expected.tool_id.index, actual.tool_id.index);
+    try std.testing.expectEqualStrings(expected.tool_id.diagnostic_label, actual.tool_id.diagnostic_label);
+    try std.testing.expectEqualStrings(expected.payload, actual.payload);
 }
 
 fn decodeLoadedString(allocator: std.mem.Allocator, arena: *RootTarget.Module.LoadedValueArena, image: []const u8) ![]const u8 {
@@ -830,11 +872,15 @@ fn runToolboxProviderParityScenario(
 
     var runtime = boundary.Runtime.init(allocator);
     defer runtime.deinit();
-    var generated_session = try ToolboxProgram.Session.start(&runtime, .{ .tool_index = tool_index });
+    var generated_session = try ToolboxProgram.Session.start(&runtime, .{
+        .tool_index = tool_index,
+        .payload = payload_text,
+    });
     defer generated_session.deinit();
 
     var entry_args = [_]ToolboxTarget.Module.LoadedValue{
         .{ .word_u64 = tool_index },
+        .{ .bytes = payload_text },
     };
     var loaded_session = try ToolboxTarget.Module.LoadedModule.Session.startExecutableWithArgs(
         allocator,
@@ -990,10 +1036,10 @@ fn runLoadedFailureParityScenario(
                     var payload_arena = RootTarget.Module.LoadedValueArena.init(allocator);
                     defer payload_arena.deinit();
                     const typed = try generated_request.as(ToolboxCall);
-                    const command: ToolboxCall.Payload = try typed.payload();
-                    const loaded_payload = try decodeLoadedString(allocator, &payload_arena, loaded_request.canonical_payload_image);
-                    try std.testing.expectEqualStrings(command, loaded_payload);
-                    const text = try callTool(allocator, scenario, command);
+                    const request: ToolboxCall.Payload = try typed.payload();
+                    const loaded_request_payload = try decodeLoadedToolRequest(allocator, &payload_arena, loaded_request.canonical_payload_image);
+                    try expectToolRequestsEqual(request, loaded_request_payload);
+                    const text = try callTool(allocator, scenario, request);
                     const loaded_response = try encodeLoadedString(allocator, text);
                     defer allocator.free(loaded_response);
                     try generated_session.resumeTyped(typed, text);
@@ -1069,10 +1115,10 @@ fn runLoadedParityScenario(allocator: std.mem.Allocator, scenario: Scenario) ![]
                     var payload_arena = RootTarget.Module.LoadedValueArena.init(allocator);
                     defer payload_arena.deinit();
                     const typed = try generated_request.as(ToolboxCall);
-                    const command: ToolboxCall.Payload = try typed.payload();
-                    const loaded_payload = try decodeLoadedString(allocator, &payload_arena, loaded_request.canonical_payload_image);
-                    try std.testing.expectEqualStrings(command, loaded_payload);
-                    const text = try callTool(allocator, scenario, command);
+                    const request: ToolboxCall.Payload = try typed.payload();
+                    const loaded_request_payload = try decodeLoadedToolRequest(allocator, &payload_arena, loaded_request.canonical_payload_image);
+                    try expectToolRequestsEqual(request, loaded_request_payload);
+                    const text = try callTool(allocator, scenario, request);
                     const loaded_response = try encodeLoadedString(allocator, text);
                     defer allocator.free(loaded_response);
                     try generated_session.resumeTyped(typed, text);
@@ -1190,9 +1236,13 @@ fn runSession(
                     const typed_request = try request.as(Tool);
                     const text = switch (mode) {
                         .record => text: {
-                            const command: Tool.Payload = try typed_request.payload();
-                            try writer.print("{s} tool name={s}\n", .{ phase, command });
-                            break :text try callTool(allocator, scenario, command);
+                            const request_payload: Tool.Payload = try typed_request.payload();
+                            try writer.print("{s} tool name={s} payload={s}\n", .{
+                                phase,
+                                request_payload.tool_id.diagnostic_label,
+                                request_payload.payload,
+                            });
+                            break :text try callTool(allocator, scenario, request_payload);
                         },
                         .replay => text: {
                             const recorded = try recording.at(replay_index);
@@ -1388,11 +1438,11 @@ test "agent root generated-loaded parity budget exhaustion failure" {
 }
 
 test "agent root generated-loaded parity malformed action failure" {
-    try runLoadedFailureParityScenario(std.testing.allocator, .malformed_action, 3, "MalformedAgentAction");
+    try runLoadedFailureParityScenario(std.testing.allocator, .malformed_action, 3, "AgentActionFailed");
 }
 
 test "agent root generated-loaded parity unknown tool failure" {
-    try runLoadedFailureParityScenario(std.testing.allocator, .unknown_tool, 3, "UnknownToolId");
+    try runLoadedFailureParityScenario(std.testing.allocator, .unknown_tool, 3, "AgentActionFailed");
 }
 
 test "agent toolbox generated-loaded parity actuate pure helper" {
