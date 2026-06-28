@@ -1099,6 +1099,7 @@ const ExecutableValue = union(enum) {
     bool: bool,
     i32: i32,
     usize: usize,
+    word_u64: u64,
     string: []const u8,
     string_list: []const []const u8,
     schema: SchemaValue,
@@ -1246,10 +1247,18 @@ fn encodeScalarValue(value: anytype) ExecutableValue {
         void => .none,
         bool => .{ .bool = value },
         i32 => .{ .i32 = value },
-        u64 => .{ .usize = @intCast(value) },
+        u64 => .{ .word_u64 = value },
         usize => .{ .usize = value },
         []const u8 => .{ .string = value },
         else => @compileError("unsupported authored scalar result type"),
+    };
+}
+
+fn executableWordU64(value: ExecutableValue) error{ProgramContractViolation}!u64 {
+    return switch (value) {
+        .usize => |typed| @intCast(typed),
+        .word_u64 => |typed| typed,
+        else => error.ProgramContractViolation,
     };
 }
 
@@ -1284,6 +1293,7 @@ fn executableValueRef(codec: program_plan.ValueCodec, value: ExecutableValue) ?p
         },
         .usize => switch (value) {
             .usize => .{ .codec = .usize },
+            .word_u64 => .{ .codec = .usize },
             else => null,
         },
         .string => switch (value) {
@@ -1320,6 +1330,7 @@ fn decodeArg(
         },
         .usize => switch (value) {
             .usize => |typed| typed,
+            .word_u64 => |typed| if (typed <= std.math.maxInt(usize)) @intCast(typed) else error.ProgramContractViolation,
             else => error.ProgramContractViolation,
         },
         .string => switch (value) {
@@ -1541,10 +1552,12 @@ fn decodeRuntimeValueAs(
     };
     if (T == u64) return switch (value) {
         .usize => |typed| @intCast(typed),
+        .word_u64 => |typed| typed,
         else => error.ProgramContractViolation,
     };
     if (T == usize) return switch (value) {
         .usize => |typed| typed,
+        .word_u64 => |typed| if (typed <= std.math.maxInt(usize)) @intCast(typed) else error.ProgramContractViolation,
         else => error.ProgramContractViolation,
     };
     if (T == []const u8) return switch (value) {
@@ -1823,6 +1836,7 @@ fn codecForScalarValue(value: ExecutableValue) program_plan.ValueCodec {
         .bool => .bool,
         .i32 => .i32,
         .usize => .usize,
+        .word_u64 => .usize,
         .string => .string,
         .string_list => .string_list,
         .schema => unreachable,
@@ -2873,7 +2887,7 @@ fn executeKnownFunction(
                     const is_zero = switch (functionLocalCodec(compiled_plan, function, instruction.operand) orelse return error.ProgramContractViolation) {
                         .bool => !(try decodeArg(.bool, locals[instruction.operand])),
                         .i32 => (try decodeArg(.i32, locals[instruction.operand])) == 0,
-                        .usize => (try decodeArg(.usize, locals[instruction.operand])) == 0,
+                        .usize => (try executableWordU64(locals[instruction.operand])) == 0,
                         else => return error.ProgramContractViolation,
                     };
                     locals[instruction.dst] = .{ .bool = is_zero };
@@ -2900,7 +2914,7 @@ fn executeKnownFunction(
                 .const_string => locals[instruction.dst] = .{ .string = instruction.string_literal },
                 .const_usize => {
                     locals[instruction.dst] = .{
-                        .usize = std.fmt.parseUnsigned(usize, instruction.string_literal, 0) catch return error.ProgramContractViolation,
+                        .word_u64 = std.fmt.parseUnsigned(u64, instruction.string_literal, 0) catch return error.ProgramContractViolation,
                     };
                 },
                 .return_error => return mappedReturnErrorForInstruction(ErrorSet, compiled_plan, instruction_index),
@@ -2908,7 +2922,7 @@ fn executeKnownFunction(
                 .sub_one => {
                     locals[instruction.dst] = switch (functionLocalCodec(compiled_plan, function, instruction.operand) orelse return error.ProgramContractViolation) {
                         .i32 => .{ .i32 = std.math.sub(i32, try decodeArg(.i32, locals[instruction.operand]), 1) catch return error.ProgramContractViolation },
-                        .usize => .{ .usize = std.math.sub(usize, try decodeArg(.usize, locals[instruction.operand]), 1) catch return error.ProgramContractViolation },
+                        .usize => .{ .word_u64 = std.math.sub(u64, try executableWordU64(locals[instruction.operand]), 1) catch return error.ProgramContractViolation },
                         else => return error.ProgramContractViolation,
                     };
                 },
@@ -3351,7 +3365,7 @@ fn executeFunctionWithFrameStack(
                     const is_zero = switch (operand_ref.codec) {
                         .bool => !(try decodeArg(.bool, locals[instruction.operand])),
                         .i32 => (try decodeArg(.i32, locals[instruction.operand])) == 0,
-                        .usize => (try decodeArg(.usize, locals[instruction.operand])) == 0,
+                        .usize => (try executableWordU64(locals[instruction.operand])) == 0,
                         else => return error.ProgramContractViolation,
                     };
                     locals[instruction.dst] = .{ .bool = is_zero };
@@ -3378,7 +3392,7 @@ fn executeFunctionWithFrameStack(
                 .const_string => locals[instruction.dst] = .{ .string = instruction.string_literal },
                 .const_usize => {
                     locals[instruction.dst] = .{
-                        .usize = std.fmt.parseUnsigned(usize, instruction.string_literal, 0) catch return error.ProgramContractViolation,
+                        .word_u64 = std.fmt.parseUnsigned(u64, instruction.string_literal, 0) catch return error.ProgramContractViolation,
                     };
                 },
                 .return_error => return mappedReturnErrorForInstruction(ErrorSet, compiled_plan, instruction_index),
@@ -3387,7 +3401,7 @@ fn executeFunctionWithFrameStack(
                     const operand_ref = localRefForFunctionIndex(compiled_plan, active.function_index, instruction.operand) orelse return error.ProgramContractViolation;
                     locals[instruction.dst] = switch (operand_ref.codec) {
                         .i32 => .{ .i32 = std.math.sub(i32, try decodeArg(.i32, locals[instruction.operand]), 1) catch return error.ProgramContractViolation },
-                        .usize => .{ .usize = std.math.sub(usize, try decodeArg(.usize, locals[instruction.operand]), 1) catch return error.ProgramContractViolation },
+                        .usize => .{ .word_u64 = std.math.sub(u64, try executableWordU64(locals[instruction.operand]), 1) catch return error.ProgramContractViolation },
                         else => return error.ProgramContractViolation,
                     };
                 },
@@ -3673,6 +3687,7 @@ pub fn ExecutableSessionForPlan(
             bool: bool,
             i32: i32,
             usize: usize,
+            word_u64: u64,
             string: []const u8,
             string_list: []const []const u8,
             schema_index: u16,
@@ -3822,6 +3837,12 @@ pub fn ExecutableSessionForPlan(
                 };
                 if (T == usize) return switch (self._payload) {
                     .usize => |typed| typed,
+                    .word_u64 => |typed| if (typed <= std.math.maxInt(usize)) @intCast(typed) else error.ProgramContractViolation,
+                    else => error.ProgramContractViolation,
+                };
+                if (T == u64) return switch (self._payload) {
+                    .usize => |typed| @intCast(typed),
+                    .word_u64 => |typed| typed,
                     else => error.ProgramContractViolation,
                 };
                 if (T == []const u8) return switch (self._payload) {
@@ -3936,6 +3957,7 @@ pub fn ExecutableSessionForPlan(
                     .bool => |typed| .{ .bool = typed },
                     .i32 => |typed| .{ .i32 = typed },
                     .usize => |typed| .{ .usize = typed },
+                    .word_u64 => |typed| .{ .word_u64 = typed },
                     .string => |typed| .{ .string = typed },
                     .string_list => |typed| .{ .string_list = typed },
                     .schema => |schema| try self.storeStructuredPayload(schema),
@@ -3997,6 +4019,12 @@ pub fn ExecutableSessionForPlan(
                 };
                 if (T == usize) return switch (self._value) {
                     .usize => |typed| typed,
+                    .word_u64 => |typed| if (typed <= std.math.maxInt(usize)) @intCast(typed) else error.ProgramContractViolation,
+                    else => error.ProgramContractViolation,
+                };
+                if (T == u64) return switch (self._value) {
+                    .usize => |typed| @intCast(typed),
+                    .word_u64 => |typed| typed,
                     else => error.ProgramContractViolation,
                 };
                 if (T == []const u8) return switch (self._value) {
@@ -4097,6 +4125,7 @@ pub fn ExecutableSessionForPlan(
                     .bool => |typed| .{ .bool = typed },
                     .i32 => |typed| .{ .i32 = typed },
                     .usize => |typed| .{ .usize = typed },
+                    .word_u64 => |typed| .{ .word_u64 = typed },
                     .string => |typed| .{ .string = typed },
                     .string_list => |typed| .{ .string_list = typed },
                     .schema => |schema| try self.storeStructuredValue(schema),
@@ -4719,7 +4748,7 @@ pub fn ExecutableSessionForPlan(
                 .unit => {},
                 .bool => try writer.writeBool(value),
                 .i32 => try writer.writeI32(value),
-                .usize => try writer.writeUsize(value),
+                .usize => if (@TypeOf(value) == u64) try writer.writeU64(value) else try writer.writeUsize(value),
                 .string => try writeImageString(writer, context, value),
                 .string_list => try writeImageStringList(writer, context, value),
                 .product => try writeProductValue(writer, context, ref.schema_index orelse return error.ProgramContractViolation, @TypeOf(value), value),
@@ -4844,8 +4873,12 @@ pub fn ExecutableSessionForPlan(
                 if (!std.mem.eql(u8, actual_name, field.name)) return error.ProgramContractViolation;
                 const field_ref: program_plan.ValueRef = .{ .codec = field.codec, .schema_index = field.schema_index };
                 if (!(try readValueRef(reader)).eql(field_ref)) return error.ProgramContractViolation;
-                const decoded_field = try readTypedValue(reader, scratch, context, field_ref);
                 const struct_field = fields[field_offset];
+                if (comptime field.codec == .usize and struct_field.type == u64) {
+                    @field(value, field.name) = try reader.readU64();
+                    continue;
+                }
+                const decoded_field = try readTypedValue(reader, scratch, context, field_ref);
                 if (comptime field.codec == .string_list and struct_field.type == [][]const u8) {
                     @field(value, field.name) = @constCast(decoded_field);
                 } else {
@@ -4931,7 +4964,7 @@ pub fn ExecutableSessionForPlan(
                 .unit => {},
                 .bool => try writer.writeBool(try decodeArg(.bool, value)),
                 .i32 => try writer.writeI32(try decodeArg(.i32, value)),
-                .usize => try writer.writeUsize(try decodeArg(.usize, value)),
+                .usize => try writer.writeU64(try executableWordU64(value)),
                 .string => try writeImageString(writer, context, try decodeArg(.string, value)),
                 .string_list => try writeImageStringList(writer, context, try decodeArg(.string_list, value)),
                 .product, .sum => switch (value) {
@@ -4966,7 +4999,7 @@ pub fn ExecutableSessionForPlan(
                 .unit => .none,
                 .bool => .{ .bool = try reader.readBool() },
                 .i32 => .{ .i32 = try reader.readI32() },
-                .usize => .{ .usize = try reader.readUsize() },
+                .usize => .{ .word_u64 = try reader.readU64() },
                 .string => .{ .string = try readImageString(reader, scratch, context) },
                 .string_list => .{ .string_list = try readImageStringList(reader, scratch, context) },
                 .product, .sum => blk: {
@@ -6082,6 +6115,7 @@ pub fn ExecutableSessionForPlan(
                 },
                 .usize => switch (value) {
                     .usize => |typed| traceHashUsize(hasher, typed),
+                    .word_u64 => |typed| traceHashU64(hasher, typed),
                     else => return error.ProgramContractViolation,
                 },
                 .string => switch (value) {
@@ -6266,6 +6300,7 @@ pub fn ExecutableSessionForPlan(
                 .bool => .{ .codec = .bool },
                 .i32 => .{ .codec = .i32 },
                 .usize => .{ .codec = .usize },
+                .word_u64 => .{ .codec = .usize },
                 .string => .{ .codec = .string },
                 .string_list => .{ .codec = .string_list },
                 .schema => |schema| blk: {
@@ -6461,7 +6496,11 @@ pub fn ExecutableSessionForPlan(
                 .unit => .none,
                 .bool => .{ .bool = try decodeArg(.bool, value) },
                 .i32 => .{ .i32 = try decodeArg(.i32, value) },
-                .usize => .{ .usize = try decodeArg(.usize, value) },
+                .usize => switch (value) {
+                    .usize => |typed| .{ .usize = typed },
+                    .word_u64 => |typed| .{ .word_u64 = typed },
+                    else => error.ProgramContractViolation,
+                },
                 .string => .{ .string = try clone_context.cloneString(try decodeArg(.string, value)) },
                 .string_list => .{ .string_list = try clone_context.cloneStringList(try decodeArg(.string_list, value)) },
                 .product, .sum => switch (value) {
@@ -6724,7 +6763,7 @@ pub fn ExecutableSessionForPlan(
                             const is_zero = switch (operand_ref.codec) {
                                 .bool => !(try decodeArg(.bool, locals[instruction.operand])),
                                 .i32 => (try decodeArg(.i32, locals[instruction.operand])) == 0,
-                                .usize => (try decodeArg(.usize, locals[instruction.operand])) == 0,
+                                .usize => (try executableWordU64(locals[instruction.operand])) == 0,
                                 else => return error.ProgramContractViolation,
                             };
                             locals[instruction.dst] = .{ .bool = is_zero };
@@ -6751,7 +6790,7 @@ pub fn ExecutableSessionForPlan(
                         .const_string => locals[instruction.dst] = .{ .string = instruction.string_literal },
                         .const_usize => {
                             locals[instruction.dst] = .{
-                                .usize = std.fmt.parseUnsigned(usize, instruction.string_literal, 0) catch return error.ProgramContractViolation,
+                                .word_u64 = std.fmt.parseUnsigned(u64, instruction.string_literal, 0) catch return error.ProgramContractViolation,
                             };
                         },
                         .return_error => return mappedReturnErrorForInstruction(ErrorSet, compiled_plan, instruction_index),
@@ -6760,7 +6799,7 @@ pub fn ExecutableSessionForPlan(
                             const operand_ref = localRefForFunctionIndex(compiled_plan, active.function_index, instruction.operand) orelse return error.ProgramContractViolation;
                             locals[instruction.dst] = switch (operand_ref.codec) {
                                 .i32 => .{ .i32 = std.math.sub(i32, try decodeArg(.i32, locals[instruction.operand]), 1) catch return error.ProgramContractViolation },
-                                .usize => .{ .usize = std.math.sub(usize, try decodeArg(.usize, locals[instruction.operand]), 1) catch return error.ProgramContractViolation },
+                                .usize => .{ .word_u64 = std.math.sub(u64, try executableWordU64(locals[instruction.operand]), 1) catch return error.ProgramContractViolation },
                                 else => return error.ProgramContractViolation,
                             };
                         },

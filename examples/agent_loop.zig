@@ -221,7 +221,7 @@ fn decideAction(scenario: Scenario, observation: []const u8) !Action {
             .{ .final = "final=fixture updated" }
         else
             .{ .final = "final=fixture update failed" },
-        .unknown_tool => .{ .tool = .{ .tool_id = .{ .index = 99, .diagnostic_label = "missing" }, .payload = "" } },
+        .unknown_tool => .{ .tool = .{ .tool_id = .{ .index = std.math.maxInt(u64), .diagnostic_label = "missing" }, .payload = "" } },
     };
 }
 
