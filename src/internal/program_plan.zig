@@ -179,22 +179,23 @@ pub const FunctionPlan = struct {
 };
 
 /// Serializable instruction tags carried by the runtime-owned plan.
-pub const InstructionKind = enum {
-    add_const_i32,
-    add_i32,
-    call_helper,
-    call_nested_with,
-    call_op,
-    compare_eq_zero,
-    const_i32,
-    const_string,
-    const_usize,
-    product_extract_field,
-    return_error,
-    return_value,
-    sub_one,
-    sum_extract_payload,
-    sum_variant_is,
+/// These ordinals are written into v1 executable plan images and must not be renumbered.
+pub const InstructionKind = enum(u8) {
+    add_const_i32 = 0,
+    add_i32 = 1,
+    call_helper = 2,
+    call_nested_with = 3,
+    call_op = 4,
+    compare_eq_zero = 5,
+    const_i32 = 6,
+    const_string = 7,
+    const_usize = 8,
+    product_extract_field = 14,
+    return_error = 9,
+    return_value = 10,
+    sub_one = 11,
+    sum_extract_payload = 12,
+    sum_variant_is = 13,
 };
 
 /// One serializable placeholder instruction in the runtime-owned executable plan.
@@ -205,6 +206,24 @@ pub const Instruction = struct {
     aux: u16 = 0,
     string_literal: []const u8 = "",
 };
+
+test "instruction kind wire tags are stable" {
+    try std.testing.expectEqual(@as(u8, 0), @intFromEnum(InstructionKind.add_const_i32));
+    try std.testing.expectEqual(@as(u8, 1), @intFromEnum(InstructionKind.add_i32));
+    try std.testing.expectEqual(@as(u8, 2), @intFromEnum(InstructionKind.call_helper));
+    try std.testing.expectEqual(@as(u8, 3), @intFromEnum(InstructionKind.call_nested_with));
+    try std.testing.expectEqual(@as(u8, 4), @intFromEnum(InstructionKind.call_op));
+    try std.testing.expectEqual(@as(u8, 5), @intFromEnum(InstructionKind.compare_eq_zero));
+    try std.testing.expectEqual(@as(u8, 6), @intFromEnum(InstructionKind.const_i32));
+    try std.testing.expectEqual(@as(u8, 7), @intFromEnum(InstructionKind.const_string));
+    try std.testing.expectEqual(@as(u8, 8), @intFromEnum(InstructionKind.const_usize));
+    try std.testing.expectEqual(@as(u8, 9), @intFromEnum(InstructionKind.return_error));
+    try std.testing.expectEqual(@as(u8, 10), @intFromEnum(InstructionKind.return_value));
+    try std.testing.expectEqual(@as(u8, 11), @intFromEnum(InstructionKind.sub_one));
+    try std.testing.expectEqual(@as(u8, 12), @intFromEnum(InstructionKind.sum_extract_payload));
+    try std.testing.expectEqual(@as(u8, 13), @intFromEnum(InstructionKind.sum_variant_is));
+    try std.testing.expectEqual(@as(u8, 14), @intFromEnum(InstructionKind.product_extract_field));
+}
 
 /// Serializable block terminator tags carried by the runtime-owned plan.
 pub const TerminatorKind = enum {
