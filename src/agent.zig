@@ -537,9 +537,10 @@ pub fn valueRefFingerprint(ref: anytype) u64 {
     var hasher = std.hash.Wyhash.init(0x4147454e545f5256);
     hashBytes(&hasher, ref.codec);
     if (ref.schema_index) |index| {
+        hashInt(&hasher, @as(u8, 1));
         hashInt(&hasher, index);
     } else {
-        hashInt(&hasher, @as(u16, std.math.maxInt(u16)));
+        hashInt(&hasher, @as(u8, 0));
     }
     return hasher.final();
 }
@@ -852,6 +853,12 @@ test "Agent module artifact binds profile and full module byte identity" {
         .import_count = artifact.import_count,
         .export_result_fingerprint = artifact.export_result_fingerprint,
     }));
+}
+
+test "Agent value reference fingerprint binds schema-index presence" {
+    const absent = valueRefFingerprint(.{ .codec = "json", .schema_index = @as(?u16, null) });
+    const max_index = valueRefFingerprint(.{ .codec = "json", .schema_index = @as(?u16, std.math.maxInt(u16)) });
+    try std.testing.expect(absent != max_index);
 }
 
 test "Agent state budget fails closed before extra model or tool calls" {
