@@ -1477,7 +1477,7 @@ fn exportAgentRuntimeArtifacts(init: std.process.Init, allocator: std.mem.Alloca
 
     const protocol_manifest = try boundary.Protocol.Manifest.encodeAlloc(allocator);
     defer allocator.free(protocol_manifest);
-    const profile_json = try agentProfileJson(allocator, boundaryAgentProfile(), root.artifact, toolbox.artifact);
+    const profile_json = try agentProfileJson(allocator, boundaryAgentProfile(), boundary.Protocol.Manifest.manifestFingerprint(), root.artifact, toolbox.artifact);
     defer allocator.free(profile_json);
 
     try writeJoined(io, allocator, output_dir, "agent-root.full-module", root.bytes);
@@ -1495,6 +1495,7 @@ fn writeJoined(io: std.Io, allocator: std.mem.Allocator, dir: []const u8, file: 
 fn agentProfileJson(
     allocator: std.mem.Allocator,
     profile_value: BoundaryAgent.Profile,
+    protocol_manifest_fingerprint: u64,
     root_artifact: BoundaryAgent.ModuleArtifact,
     toolbox_artifact: BoundaryAgent.ModuleArtifact,
 ) ![]const u8 {
@@ -1516,7 +1517,7 @@ fn agentProfileJson(
         profile_value.format_version,
         profile_value.fingerprint_version,
         profile_value.profile_fingerprint,
-        root_artifact.manifest_fingerprint,
+        protocol_manifest_fingerprint,
         root_artifact.module_fingerprint,
         root_artifact.byte_fingerprint,
         toolbox_artifact.module_fingerprint,

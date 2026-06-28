@@ -1408,7 +1408,7 @@ pub fn build(b: *std.Build) void {
         }
     }
 
-    const runtime_dist_dir = "zig-out/dist/boundary-v0.6.2-agent-runtime";
+    const runtime_dist_dir = b.getInstallPath(.prefix, "dist/boundary-v" ++ package.version ++ "-agent-runtime");
     const boundary_agent_runtime_mod = b.createModule(.{
         .root_source_file = b.path("examples/agent_loop.zig"),
         .target = b.graph.host,
@@ -1428,7 +1428,12 @@ pub fn build(b: *std.Build) void {
     const check_boundary_agent_runtime = b.addSystemCommand(&.{
         "sh",
         "-c",
-        "test -s zig-out/dist/boundary-v0.6.2-agent-runtime/agent-root.full-module && test -s zig-out/dist/boundary-v0.6.2-agent-runtime/toolbox-provider.full-module && test -s zig-out/dist/boundary-v0.6.2-agent-runtime/boundary-protocol-manifest.bin && test -s zig-out/dist/boundary-v0.6.2-agent-runtime/agent-profile.json",
+        b.fmt("test -s {s}/agent-root.full-module && test -s {s}/toolbox-provider.full-module && test -s {s}/boundary-protocol-manifest.bin && test -s {s}/agent-profile.json", .{
+            runtime_dist_dir,
+            runtime_dist_dir,
+            runtime_dist_dir,
+            runtime_dist_dir,
+        }),
     });
     check_boundary_agent_runtime.step.dependOn(&emit_boundary_agent_runtime.step);
     const check_runtime_step = b.step("check-boundary-agent-runtime-artifacts", "Check Boundary Agent Runtime pack-ready artifacts.");
