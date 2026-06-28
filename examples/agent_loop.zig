@@ -1479,7 +1479,7 @@ test "agent root generated-loaded parity budget exhaustion failure" {
     try runLoadedFailureParityScenario(std.testing.allocator, .budget_exhaustion, 1, "AgentBudgetExhausted");
 }
 
-test "agent root generated-loaded parity malformed action failure" {
+test "agent root rejects malformed loaded action image" {
     try runLoadedFailureParityScenario(std.testing.allocator, .malformed_action, 3, "MalformedAgentAction");
 }
 

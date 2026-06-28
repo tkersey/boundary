@@ -141,16 +141,6 @@ const scenarios = [_]Scenario{
         .replay = "zig build check-boundary-agent-generated-loaded-parity -- --test-filter 'agent root generated-loaded parity budget exhaustion'",
     },
     .{
-        .scenario_id = "agent-root-generated-loaded-malformed-action",
-        .kind = "parity",
-        .initial_observation = "goal=invoke",
-        .expected_terminal_status = .failed,
-        .expected_failure = "MalformedAgentAction",
-        .expected_model_calls = 1,
-        .expected_tool_calls = 0,
-        .replay = "zig build check-boundary-agent-generated-loaded-parity -- --test-filter 'agent root generated-loaded parity malformed action'",
-    },
-    .{
         .scenario_id = "agent-root-generated-loaded-unknown-tool",
         .kind = "parity",
         .initial_observation = "goal=invoke",
