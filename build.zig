@@ -952,6 +952,12 @@ pub fn build(b: *std.Build) void {
     });
     agent_loop_tests_mod.addImport("boundary", boundary);
     addTestArtifact(b, test_step, agent_loop_tests_mod, test_args);
+    const agent_loop_parity_args = TestArgs{
+        .filters = &.{ "agent root", "agent toolbox" },
+        .passthrough = &.{},
+    };
+    const agent_loop_parity_tests = b.addTest(.{ .root_module = agent_loop_tests_mod, .filters = agent_loop_parity_args.filters });
+    agent_parity_step.dependOn(&addRunArtifactWithArgs(b, agent_loop_parity_tests, agent_loop_parity_args.passthrough).step);
 
     const program_api_tests_mod = b.createModule(.{
         .root_source_file = b.path("test/program_api_test.zig"),

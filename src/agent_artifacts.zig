@@ -101,6 +101,95 @@ const scenarios = [_]Scenario{
         .expected_tool_calls = 0,
         .replay = "zig build check-boundary-agent-generated-loaded-parity",
     },
+    .{
+        .scenario_id = "agent-root-generated-loaded-skeleton",
+        .kind = "parity",
+        .initial_observation = "goal=invoke",
+        .expected_terminal_status = .completed,
+        .expected_final = "final=actuate skeleton complete",
+        .expected_model_calls = 2,
+        .expected_tool_calls = 1,
+        .replay = "zig build check-boundary-agent-generated-loaded-parity -- --test-filter 'agent root generated-loaded parity skeleton'",
+    },
+    .{
+        .scenario_id = "agent-root-generated-loaded-fixture",
+        .kind = "parity",
+        .initial_observation = "goal=fixture",
+        .expected_terminal_status = .completed,
+        .expected_final = "final=fixture updated",
+        .expected_model_calls = 3,
+        .expected_tool_calls = 2,
+        .replay = "zig build check-boundary-agent-generated-loaded-parity -- --test-filter 'agent root generated-loaded parity fixture'",
+    },
+    .{
+        .scenario_id = "agent-root-generated-loaded-budget-exhaustion",
+        .kind = "parity",
+        .initial_observation = "goal=invoke",
+        .expected_terminal_status = .failed,
+        .expected_failure = "AgentBudgetExhausted",
+        .expected_model_calls = 1,
+        .expected_tool_calls = 1,
+        .run_config = .{
+            .max_iterations = 1,
+            .max_model_calls = 1,
+            .max_tool_calls = 1,
+            .max_observation_bytes = config.max_observation_bytes,
+            .max_action_bytes = config.max_action_bytes,
+            .max_tool_result_bytes = config.max_tool_result_bytes,
+            .max_trace_entries = config.max_trace_entries,
+        },
+        .replay = "zig build check-boundary-agent-generated-loaded-parity -- --test-filter 'agent root generated-loaded parity budget exhaustion'",
+    },
+    .{
+        .scenario_id = "agent-root-generated-loaded-malformed-action",
+        .kind = "parity",
+        .initial_observation = "goal=invoke",
+        .expected_terminal_status = .failed,
+        .expected_failure = "MalformedAgentAction",
+        .expected_model_calls = 1,
+        .expected_tool_calls = 0,
+        .replay = "zig build check-boundary-agent-generated-loaded-parity -- --test-filter 'agent root generated-loaded parity malformed action'",
+    },
+    .{
+        .scenario_id = "agent-root-generated-loaded-unknown-tool",
+        .kind = "parity",
+        .initial_observation = "goal=invoke",
+        .expected_terminal_status = .failed,
+        .expected_failure = "UnknownToolId",
+        .expected_model_calls = 1,
+        .expected_tool_calls = 0,
+        .replay = "zig build check-boundary-agent-generated-loaded-parity -- --test-filter 'agent root generated-loaded parity unknown tool'",
+    },
+    .{
+        .scenario_id = "agent-toolbox-generated-loaded-actuate",
+        .kind = "parity",
+        .initial_observation = "tool_index=0",
+        .expected_terminal_status = .completed,
+        .expected_final = "actuate",
+        .expected_model_calls = 0,
+        .expected_tool_calls = 1,
+        .replay = "zig build check-boundary-agent-generated-loaded-parity -- --test-filter 'agent toolbox generated-loaded parity actuate'",
+    },
+    .{
+        .scenario_id = "agent-toolbox-generated-loaded-read-file",
+        .kind = "parity",
+        .initial_observation = "tool_index=1",
+        .expected_terminal_status = .completed,
+        .expected_final = "rewrite this file through the agent loop",
+        .expected_model_calls = 0,
+        .expected_tool_calls = 1,
+        .replay = "zig build check-boundary-agent-generated-loaded-parity -- --test-filter 'agent toolbox generated-loaded parity read'",
+    },
+    .{
+        .scenario_id = "agent-toolbox-generated-loaded-write-file",
+        .kind = "parity",
+        .initial_observation = "tool_index=2",
+        .expected_terminal_status = .completed,
+        .expected_final = "write=ok",
+        .expected_model_calls = 0,
+        .expected_tool_calls = 1,
+        .replay = "zig build check-boundary-agent-generated-loaded-parity -- --test-filter 'agent toolbox generated-loaded parity write'",
+    },
 };
 
 fn profile() Agent.Profile {
@@ -184,7 +273,7 @@ fn corpusManifestAlloc(allocator: std.mem.Allocator) ![]u8 {
     try appendLine(&out, allocator, "");
     try appendLine(&out, allocator, "validation:");
     try appendLine(&out, allocator, "- check-boundary-agent-conformance-corpus compares this catalog and executes the scenario tests");
-    try appendLine(&out, allocator, "- check-boundary-agent-generated-loaded-parity covers the Agent module generated-versus-loaded parity fixture");
+    try appendLine(&out, allocator, "- check-boundary-agent-generated-loaded-parity covers Agent module transfer plus positive and negative root-agent parity and toolbox-provider parity");
     try appendLine(&out, allocator, "- model and tools are deterministic fixtures; no network, credentials, host registry, or real LLM is used");
     return out.toOwnedSlice(allocator);
 }

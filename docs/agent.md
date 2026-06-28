@@ -119,9 +119,18 @@ deterministic failure, not a host policy decision.
 ## Generated/Loaded Parity
 
 Agent Profile v0 is intended to be exercised through both generated
-`Program.Session` and target-neutral `LoadedModule.Session` surfaces. The first
-Boundary slice adds profile and module-transfer gates; full root/toolbox parity
-cases extend those gates as the module builders land.
+`Program.Session` and target-neutral `LoadedModule.Session` surfaces. The root
+agent module now has skeleton, fixture, budget-exhaustion, malformed-action,
+and unknown-tool parity coverage: the same Boundary program is executed through
+generated session semantics and through loaded full-module bytes, with residual
+identity compared at each model/tool site and declared failure identity compared
+for negative cases.
+
+The toolbox-provider module also has generated/loaded parity coverage for the
+actuate, read-file, and write-file fixture tools. The fixture module dispatches
+inside Boundary module bytes from a closed generated tool index and compares
+file residual identity, canonical payload bytes, and final results across
+generated and loaded execution.
 
 ## Conformance Cases
 
@@ -134,19 +143,22 @@ Agent Closure v0 conformance grows around:
 - unknown tool id;
 - generated-versus-loaded parity.
 
-The current profile foundation provides the public namespace, deterministic
-profile fingerprinting, closed tool-id checks, action validation, malformed tag
+The current Boundary slice provides the public namespace, deterministic profile
+fingerprinting, closed tool-id checks, action validation, malformed tag
 rejection, budget checks, bounded trace summaries, skeleton/fixture flow
-accounting, full-module byte provenance, and named build gates used by later
-module-builder cases.
+accounting, full-module byte provenance, root and toolbox module bytes, and
+generated/loaded parity for skeleton/fixture root-agent executions plus
+budget/malformed/unknown-tool root-agent failures and actuate/read/write
+toolbox-provider executions.
 
 The tracked corpus catalog lives at
 `conformance/v0/agent/corpus.boundary-agent.txt`. The
 `check-boundary-agent-conformance-corpus` gate compares that catalog against the
 generated corpus text and runs the scenario tests.
 `check-boundary-agent-generated-loaded-parity` also runs the Agent module
-transfer fixture, comparing generated `Program.Session` output with loaded
-full-module execution.
+transfer fixture and the root-agent/toolbox-provider parity tests, comparing
+generated `Program.Session` output, declared failures, and loaded full-module
+execution.
 
 ## Non-Goals
 
