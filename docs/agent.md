@@ -31,8 +31,8 @@ capacity, action-surface mismatch, and fingerprint drift.
 `Agent.canonical_value_schemas` defines the Agent-owned portable value schemas
 and fingerprints for `Agent.Goal`, `Agent.Observation`,
 `Agent.Budget`, `Agent.TraceSummary`, `Agent.State`, `Agent.DecisionPrompt`,
-`Agent.Action`, `Agent.ToolId`, `Agent.ToolPayload`, `Agent.ToolResult`,
-`Agent.FinalResult`, and `Agent.Failure`.
+`Agent.Action`, `Agent.ToolId`, `Agent.ToolPayload`, `Agent.ToolRequest`,
+`Agent.ToolResult`, `Agent.FinalResult`, and `Agent.Failure`.
 `Agent.canonicalValueSchemaFingerprints()` returns that fingerprint list for
 `Agent.Profile` construction.
 

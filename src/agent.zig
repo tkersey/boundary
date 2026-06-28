@@ -28,6 +28,7 @@ pub const ActionValidationError = error{
 
 /// Errors raised while promoting a tool result into Agent state.
 pub const ObservationError = error{
+    AgentObservationTooLarge,
     AgentToolResultTooLarge,
 };
 
@@ -57,6 +58,9 @@ pub const ModuleRole = enum(u8) {
     root = 0,
     toolbox = 1,
 };
+
+/// Canonical Agent Action variants in portable sum tag order.
+pub const canonical_action_variants = [_]ActionTag{ .final, .tool, .fail };
 
 /// Closed tool identifier; `index` is semantic and `label` is diagnostic.
 pub const ToolId = struct {
@@ -291,6 +295,7 @@ pub fn validateAction(comptime ToolSet: type, config: Config, action: Action) Ac
 /// Promote a tool result into the next observation.
 pub fn observeToolResult(config: Config, state: *State, result: ToolResult) ObservationError!void {
     if (result.bytes.len > config.max_tool_result_bytes) return error.AgentToolResultTooLarge;
+    if (result.bytes.len > config.max_observation_bytes) return error.AgentObservationTooLarge;
     state.prior_observation_summary = state.current_observation;
     state.current_observation = result.bytes;
 }
@@ -346,6 +351,7 @@ pub const canonical_value_schemas = [_]ValueSchema{
     schema("Agent.Action", "sum(final:string,tool:Agent.ToolRequest,fail:string)"),
     schema("Agent.ToolId", "product(index:u16,diagnostic_label:string)"),
     schema("Agent.ToolPayload", "string"),
+    schema("Agent.ToolRequest", "product(tool_id:Agent.ToolId,payload:Agent.ToolPayload)"),
     schema("Agent.ToolResult", "product(tool_id:Agent.ToolId,bytes:string)"),
     schema("Agent.FinalResult", "product(text:string)"),
     schema("Agent.Failure", "product(reason:string)"),
@@ -528,7 +534,7 @@ pub const Profile = struct {
             .max_action_bytes = config.max_action_bytes,
             .max_tool_result_bytes = config.max_tool_result_bytes,
             .max_trace_entries = config.max_trace_entries,
-            .supported_action_variants = &.{ .final, .tool, .fail },
+            .supported_action_variants = &canonical_action_variants,
             .supported_tool_variants = supported_tool_variants,
             .value_schema_fingerprints = value_schema_fingerprints,
             .metadata_bytes = metadata_bytes,
@@ -571,7 +577,9 @@ pub const Profile = struct {
         if (self.max_model_calls == 0) return error.AgentProfileEmptyBudget;
         if (self.max_tool_calls == 0) return error.AgentProfileEmptyBudget;
         if (self.max_trace_entries == 0) return error.AgentProfileEmptyTrace;
-        if (self.supported_action_variants.len != 3) return error.AgentProfileActionSurfaceMismatch;
+        if (!std.mem.eql(ActionTag, self.supported_action_variants, &canonical_action_variants)) {
+            return error.AgentProfileActionSurfaceMismatch;
+        }
     }
 };
 
@@ -615,11 +623,12 @@ test "Agent Profile v0 fingerprint is deterministic and bound to tool variants" 
 }
 
 test "Agent canonical value schema fingerprints are stable profile inputs" {
-    try std.testing.expect(canonicalValueSchemaFingerprints().len >= 10);
+    try std.testing.expect(canonicalValueSchemaFingerprints().len >= 11);
     try std.testing.expectEqualStrings("Agent.Goal", canonical_value_schemas[0].name);
     try std.testing.expectEqualStrings("Agent.Budget", canonical_value_schemas[2].name);
     try std.testing.expectEqualStrings("Agent.State", canonical_value_schemas[4].name);
     try std.testing.expectEqualStrings("Agent.ToolPayload", canonical_value_schemas[8].name);
+    try std.testing.expectEqualStrings("Agent.ToolRequest", canonical_value_schemas[9].name);
     try std.testing.expect(canonical_value_schemas[0].fingerprint != schemaFingerprint("Agent.Goal", "bytes"));
 
     const tools = ClosedToolSet(&.{"actuate"});
@@ -636,6 +645,28 @@ test "Agent canonical value schema fingerprints are stable profile inputs" {
     const profile = Profile.fromConfig(config, &tool_ids, canonicalValueSchemaFingerprints(), "canonical-schema-test");
     try profile.validate();
     try std.testing.expectEqual(canonical_value_schemas.len, profile.value_schema_fingerprints.len);
+}
+
+test "Agent profile validation requires the exact closed action surface" {
+    const tools = ClosedToolSet(&.{"actuate"});
+    const tool_ids = [_]ToolId{tools.id(0)};
+    const config = Config{
+        .max_iterations = 2,
+        .max_model_calls = 2,
+        .max_tool_calls = 2,
+        .max_observation_bytes = 128,
+        .max_action_bytes = 128,
+        .max_tool_result_bytes = 128,
+        .max_trace_entries = 2,
+    };
+    var profile = Profile.fromConfig(config, &tool_ids, canonicalValueSchemaFingerprints(), "action-surface-test");
+    profile.supported_action_variants = &.{ .final, .final, .final };
+    profile.profile_fingerprint = profile.computeFingerprint();
+    try std.testing.expectError(error.AgentProfileActionSurfaceMismatch, profile.validate());
+
+    profile.supported_action_variants = &.{ .tool, .final, .fail };
+    profile.profile_fingerprint = profile.computeFingerprint();
+    try std.testing.expectError(error.AgentProfileActionSurfaceMismatch, profile.validate());
 }
 
 test "Agent closed ToolId set dispatches by generated index, not diagnostic labels" {
@@ -712,6 +743,30 @@ test "Agent state budget fails closed before extra model or tool calls" {
     try std.testing.expectError(error.AgentBudgetExhausted, state.beginModelDecision());
     try state.beginToolCall();
     try std.testing.expectError(error.AgentBudgetExhausted, state.beginToolCall());
+}
+
+test "Agent tool observations obey the observation byte cap" {
+    const config = Config{
+        .max_iterations = 2,
+        .max_model_calls = 2,
+        .max_tool_calls = 2,
+        .max_observation_bytes = 4,
+        .max_action_bytes = 16,
+        .max_tool_result_bytes = 8,
+        .max_trace_entries = 2,
+    };
+    var state = State.init("goal", "seed", config);
+    try std.testing.expectError(error.AgentObservationTooLarge, observeToolResult(config, &state, .{
+        .tool_id = .{ .index = 0, .label = "actuate" },
+        .bytes = "12345",
+    }));
+    try std.testing.expectEqualStrings("seed", state.current_observation);
+
+    try observeToolResult(config, &state, .{
+        .tool_id = .{ .index = 0, .label = "actuate" },
+        .bytes = "1234",
+    });
+    try std.testing.expectEqualStrings("1234", state.current_observation);
 }
 
 test "Agent trace summary is bounded" {

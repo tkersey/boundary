@@ -2,7 +2,7 @@ Boundary Agent Profile v0 conformance corpus
 format: boundary-agent-conformance-corpus-v0
 profile_format_version: 0
 profile_fingerprint_version: 1
-profile_fingerprint: 0x39c66ae3adfe8fe6
+profile_fingerprint: 0x0bad5b8f7ee4261a
 max_iterations: 5
 max_model_calls: 5
 max_tool_calls: 4
@@ -46,6 +46,9 @@ value_schemas:
 - name: Agent.ToolPayload
   codec: string
   fingerprint: 0x1473bb162d57c43b
+- name: Agent.ToolRequest
+  codec: product(tool_id:Agent.ToolId,payload:Agent.ToolPayload)
+  fingerprint: 0xcb644f13c9de31f0
 - name: Agent.ToolResult
   codec: product(tool_id:Agent.ToolId,bytes:string)
   fingerprint: 0xf3d8b9ea5064daf0
