@@ -5,33 +5,71 @@ pub const profile_format_version: u32 = 0;
 /// Fingerprint version for deterministic Agent Profile v0 identity.
 pub const profile_fingerprint_version: u32 = 1;
 
+/// Errors raised while consuming Agent budget counters.
+pub const BudgetError = error{
+    AgentBudgetExhausted,
+};
+
+/// Errors raised while recording bounded trace events.
+pub const TraceSummaryError = error{
+    AgentTraceSummaryFull,
+};
+
+/// Errors raised while decoding an Agent action tag.
+pub const ActionDecodeError = error{
+    MalformedAgentAction,
+};
+
+/// Errors raised while validating an Agent action.
+pub const ActionValidationError = error{
+    AgentActionTooLarge,
+    UnknownToolId,
+};
+
+/// Errors raised while promoting a tool result into Agent state.
+pub const ObservationError = error{
+    AgentToolResultTooLarge,
+};
+
+/// Errors raised while validating an Agent profile.
+pub const ProfileValidationError = anyerror;
+
+/// Errors raised while validating Agent module provenance.
+pub const ModuleArtifactValidationError = anyerror;
+
+/// Agent action discriminant encoded as the closed Action sum tag.
 pub const ActionTag = enum(u8) {
+    fail = 2,
     final = 0,
     tool = 1,
-    fail = 2,
 };
 
+/// Terminal status stored in the portable Agent state.
 pub const TerminalStatus = enum(u8) {
-    running = 0,
     completed = 1,
     failed = 2,
+    running = 0,
 };
 
+/// Role assigned to an Agent-related Certified Boundary Module artifact.
 pub const ModuleRole = enum(u8) {
+    fixture_model = 2,
     root = 0,
     toolbox = 1,
-    fixture_model = 2,
 };
 
+/// Closed tool identifier; `index` is semantic and `label` is diagnostic.
 pub const ToolId = struct {
     index: u16,
     label: []const u8,
 
+    /// Compare ToolIds by generated semantic index.
     pub fn eql(self: ToolId, other: ToolId) bool {
         return self.index == other.index;
     }
 };
 
+/// Build a closed ToolId set from compile-time diagnostic labels.
 pub fn ClosedToolSet(comptime labels: []const []const u8) type {
     comptime {
         if (labels.len == 0) @compileError("Agent ToolId set must contain at least one variant");
@@ -45,13 +83,16 @@ pub fn ClosedToolSet(comptime labels: []const []const u8) type {
     }
 
     return struct {
+        /// Number of closed ToolId variants.
         pub const count = labels.len;
 
+        /// Return the closed ToolId for a compile-time variant index.
         pub fn id(comptime index: usize) ToolId {
             if (index >= labels.len) @compileError("Agent ToolId index out of range");
             return .{ .index = @intCast(index), .label = labels[index] };
         }
 
+        /// Find a ToolId by diagnostic label for builder/test convenience.
         pub fn find(search_label: []const u8) ?ToolId {
             inline for (labels, 0..) |candidate, index| {
                 if (std.mem.eql(u8, search_label, candidate)) {
@@ -61,21 +102,25 @@ pub fn ClosedToolSet(comptime labels: []const []const u8) type {
             return null;
         }
 
+        /// Return true when the semantic ToolId index is in the closed set.
         pub fn contains(tool_id: ToolId) bool {
             return tool_id.index < labels.len;
         }
 
+        /// Return the diagnostic label for a closed ToolId.
         pub fn label(tool_id: ToolId) ![]const u8 {
             if (!contains(tool_id)) return error.UnknownToolId;
             return labels[tool_id.index];
         }
 
+        /// Return all diagnostic labels in semantic variant order.
         pub fn variants() []const []const u8 {
             return &labels;
         }
     };
 }
 
+/// Agent execution budget and remaining counters.
 pub const Budget = struct {
     max_iterations: u32,
     max_model_calls: u32,
@@ -84,6 +129,7 @@ pub const Budget = struct {
     remaining_model_calls: u32,
     remaining_tool_calls: u32,
 
+    /// Initialize remaining counters from profile configuration limits.
     pub fn init(config: Config) Budget {
         return .{
             .max_iterations = config.max_iterations,
@@ -95,22 +141,26 @@ pub const Budget = struct {
         };
     }
 
-    pub fn consumeIteration(self: *Budget) !void {
+    /// Consume one loop iteration budget unit.
+    pub fn consumeIteration(self: *Budget) BudgetError!void {
         if (self.remaining_iterations == 0) return error.AgentBudgetExhausted;
         self.remaining_iterations -= 1;
     }
 
-    pub fn consumeModelCall(self: *Budget) !void {
+    /// Consume one model-decision budget unit.
+    pub fn consumeModelCall(self: *Budget) BudgetError!void {
         if (self.remaining_model_calls == 0) return error.AgentBudgetExhausted;
         self.remaining_model_calls -= 1;
     }
 
-    pub fn consumeToolCall(self: *Budget) !void {
+    /// Consume one tool-call budget unit.
+    pub fn consumeToolCall(self: *Budget) BudgetError!void {
         if (self.remaining_tool_calls == 0) return error.AgentBudgetExhausted;
         self.remaining_tool_calls -= 1;
     }
 };
 
+/// Static Agent Profile v0 capacity limits.
 pub const Config = struct {
     max_iterations: u32,
     max_model_calls: u32,
@@ -121,12 +171,14 @@ pub const Config = struct {
     max_trace_entries: u32,
 };
 
+/// Bounded summary of the latest trace event.
 pub const TraceSummary = struct {
     entry_count: u32 = 0,
     last_event: []const u8 = "",
     last_fingerprint: u64 = 0,
 
-    pub fn record(self: *TraceSummary, max_trace_entries: u32, event: []const u8, fingerprint: u64) !void {
+    /// Record one trace event if capacity remains.
+    pub fn record(self: *TraceSummary, max_trace_entries: u32, event: []const u8, fingerprint: u64) TraceSummaryError!void {
         if (self.entry_count >= max_trace_entries) return error.AgentTraceSummaryFull;
         self.entry_count += 1;
         self.last_event = event;
@@ -134,6 +186,7 @@ pub const TraceSummary = struct {
     }
 };
 
+/// Portable Agent loop state shape.
 pub const State = struct {
     goal: []const u8,
     current_observation: []const u8,
@@ -145,6 +198,7 @@ pub const State = struct {
     terminal_status: TerminalStatus = .running,
     trace_summary: TraceSummary = .{},
 
+    /// Initialize state from a goal, initial observation, and config.
     pub fn init(goal: []const u8, initial_observation: []const u8, config: Config) State {
         return .{
             .goal = goal,
@@ -153,22 +207,26 @@ pub const State = struct {
         };
     }
 
-    pub fn beginModelDecision(self: *State) !void {
+    /// Begin a model decision step, consuming iteration and model budgets.
+    pub fn beginModelDecision(self: *State) BudgetError!void {
         try self.remaining_budget.consumeIteration();
         try self.remaining_budget.consumeModelCall();
         self.iteration_index += 1;
         self.model_call_count += 1;
     }
 
-    pub fn beginToolCall(self: *State) !void {
+    /// Begin a tool call step, consuming tool-call budget.
+    pub fn beginToolCall(self: *State) BudgetError!void {
         try self.remaining_budget.consumeToolCall();
         self.tool_call_count += 1;
     }
 
+    /// Mark the agent state as completed.
     pub fn complete(self: *State) void {
         self.terminal_status = .completed;
     }
 
+    /// Mark the agent state as failed.
     pub fn fail(self: *State) void {
         self.terminal_status = .failed;
     }
@@ -189,23 +247,27 @@ pub const ToolPayload = struct {
     bytes: []const u8,
 };
 
+/// Request to call a closed Agent tool with portable payload bytes.
 pub const ToolRequest = struct {
     tool_id: ToolId,
     payload: []const u8,
 };
 
+/// Result returned by a closed Agent tool.
 pub const ToolResult = struct {
     tool_id: ToolId,
     bytes: []const u8,
 };
 
+/// Closed Agent action sum returned by the decision boundary.
 pub const Action = union(ActionTag) {
+    fail: []const u8,
     final: []const u8,
     tool: ToolRequest,
-    fail: []const u8,
 };
 
-pub fn decodeActionTag(tag: u8) !ActionTag {
+/// Decode a portable Action tag byte, failing closed on unknown tags.
+pub fn decodeActionTag(tag: u8) ActionDecodeError!ActionTag {
     return switch (tag) {
         @intFromEnum(ActionTag.final) => .final,
         @intFromEnum(ActionTag.tool) => .tool,
@@ -214,7 +276,8 @@ pub fn decodeActionTag(tag: u8) !ActionTag {
     };
 }
 
-pub fn validateAction(comptime ToolSet: type, config: Config, action: Action) !void {
+/// Validate an Agent action against capacity limits and closed ToolIds.
+pub fn validateAction(comptime ToolSet: type, config: Config, action: Action) ActionValidationError!void {
     switch (action) {
         .final => |text| if (text.len > config.max_action_bytes) return error.AgentActionTooLarge,
         .fail => |reason| if (reason.len > config.max_action_bytes) return error.AgentActionTooLarge,
@@ -225,12 +288,14 @@ pub fn validateAction(comptime ToolSet: type, config: Config, action: Action) !v
     }
 }
 
-pub fn observeToolResult(config: Config, state: *State, result: ToolResult) !void {
+/// Promote a tool result into the next observation.
+pub fn observeToolResult(config: Config, state: *State, result: ToolResult) ObservationError!void {
     if (result.bytes.len > config.max_tool_result_bytes) return error.AgentToolResultTooLarge;
     state.prior_observation_summary = state.current_observation;
     state.current_observation = result.bytes;
 }
 
+/// Prompt payload sent to the model-decision boundary.
 pub const DecisionPrompt = struct {
     goal: []const u8,
     observation: []const u8,
@@ -238,22 +303,27 @@ pub const DecisionPrompt = struct {
     budget: Budget,
 };
 
+/// Model-decision request wrapper.
 pub const DecisionRequest = struct {
     prompt: DecisionPrompt,
 };
 
+/// Model-decision response wrapper.
 pub const DecisionResponse = struct {
     action: Action,
 };
 
+/// Successful Agent final result.
 pub const FinalResult = struct {
     text: []const u8,
 };
 
+/// Deterministic Agent failure result.
 pub const Failure = struct {
     reason: []const u8,
 };
 
+/// Agent Program handle tying a profile to ordinary Boundary program bytes.
 pub const Program = struct {
     profile: Profile,
 };
@@ -295,6 +365,7 @@ pub fn canonicalValueSchemaFingerprints() []const u64 {
     return &canonical_schema_fingerprints;
 }
 
+/// Provenance record for an Agent-related Certified Boundary Module.
 pub const ModuleArtifact = struct {
     role: ModuleRole,
     profile_fingerprint: u64,
@@ -306,6 +377,7 @@ pub const ModuleArtifact = struct {
     byte_len: u64,
     byte_fingerprint: u64,
 
+    /// Construct provenance from a profile, decoded module facts, and bytes.
     pub fn init(args: struct {
         role: ModuleRole,
         profile: Profile,
@@ -329,7 +401,8 @@ pub const ModuleArtifact = struct {
         };
     }
 
-    pub fn validate(self: ModuleArtifact, profile: Profile, expected_role: ModuleRole) !void {
+    /// Validate that the module artifact matches the expected profile and role.
+    pub fn validate(self: ModuleArtifact, profile: Profile, expected_role: ModuleRole) ModuleArtifactValidationError!void {
         try profile.validate();
         if (self.role != expected_role) return error.AgentModuleRoleMismatch;
         if (self.profile_fingerprint != profile.profile_fingerprint) return error.AgentProfileFingerprintMismatch;
@@ -342,25 +415,30 @@ pub const ModuleArtifact = struct {
     }
 };
 
+/// Owned module bytes plus their Agent provenance record.
 pub const BuiltModule = struct {
     artifact: ModuleArtifact,
     bytes: []u8,
 
+    /// Release owned module bytes.
     pub fn deinit(self: *BuiltModule, allocator: std.mem.Allocator) void {
         allocator.free(self.bytes);
         self.bytes = &.{};
     }
 };
 
-pub fn buildRootModule(comptime Target: type, allocator: std.mem.Allocator, profile: Profile) !BuiltModule {
+/// Build Agent root full-module bytes for an existing Boundary target.
+pub fn buildRootModule(comptime Target: type, allocator: std.mem.Allocator, profile: Profile) anyerror!BuiltModule {
     return buildModule(.root, Target, allocator, profile);
 }
 
-pub fn buildToolboxModule(comptime Target: type, allocator: std.mem.Allocator, profile: Profile) !BuiltModule {
+/// Build Agent toolbox provider full-module bytes for an existing Boundary target.
+pub fn buildToolboxModule(comptime Target: type, allocator: std.mem.Allocator, profile: Profile) anyerror!BuiltModule {
     return buildModule(.toolbox, Target, allocator, profile);
 }
 
-pub fn buildFixtureModelModule(comptime Target: type, allocator: std.mem.Allocator, profile: Profile) !BuiltModule {
+/// Build fixture model full-module bytes for conformance-only targets.
+pub fn buildFixtureModelModule(comptime Target: type, allocator: std.mem.Allocator, profile: Profile) anyerror!BuiltModule {
     return buildModule(.fixture_model, Target, allocator, profile);
 }
 
@@ -389,6 +467,7 @@ fn buildModule(comptime role: ModuleRole, comptime Target: type, allocator: std.
     };
 }
 
+/// Fingerprint a loaded module value reference for Agent provenance.
 pub fn valueRefFingerprint(ref: anytype) u64 {
     var hasher = std.hash.Wyhash.init(0x4147454e545f5256);
     hashBytes(&hasher, ref.codec);
@@ -417,6 +496,7 @@ fn schema(comptime name: []const u8, comptime codec: []const u8) ValueSchema {
     };
 }
 
+/// Agent Profile v0 capacity, schema, variant, and metadata identity.
 pub const Profile = struct {
     format_version: u32 = profile_format_version,
     fingerprint_version: u32 = profile_fingerprint_version,
@@ -433,6 +513,7 @@ pub const Profile = struct {
     value_schema_fingerprints: []const u64,
     metadata_bytes: []const u8 = "",
 
+    /// Construct a Profile from config, closed ToolIds, schema fingerprints, and metadata.
     pub fn fromConfig(
         config: Config,
         supported_tool_variants: []const ToolId,
@@ -456,6 +537,7 @@ pub const Profile = struct {
         return profile;
     }
 
+    /// Compute the deterministic Agent Profile fingerprint.
     pub fn computeFingerprint(self: Profile) u64 {
         var hasher = std.hash.Wyhash.init(0x4147454e545f7630);
         hashInt(&hasher, self.format_version);
@@ -480,7 +562,8 @@ pub const Profile = struct {
         return hasher.final();
     }
 
-    pub fn validate(self: Profile) !void {
+    /// Validate profile format, fingerprint, and required non-empty capacities.
+    pub fn validate(self: Profile) ProfileValidationError!void {
         if (self.format_version != profile_format_version) return error.UnsupportedAgentProfileFormat;
         if (self.fingerprint_version != profile_fingerprint_version) return error.UnsupportedAgentProfileFingerprint;
         if (self.profile_fingerprint != self.computeFingerprint()) return error.AgentProfileFingerprintMismatch;
@@ -497,6 +580,7 @@ fn hashBytes(hasher: *std.hash.Wyhash, bytes: []const u8) void {
     hasher.update(bytes);
 }
 
+/// Fingerprint arbitrary Agent-owned bytes.
 pub fn fingerprintBytes(bytes: []const u8) u64 {
     var hasher = std.hash.Wyhash.init(0x4147454e545f4d4f);
     hashBytes(&hasher, bytes);
