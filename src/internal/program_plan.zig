@@ -189,6 +189,7 @@ pub const InstructionKind = enum {
     const_i32,
     const_string,
     const_usize,
+    product_extract_field,
     return_error,
     return_value,
     sub_one,
@@ -581,6 +582,16 @@ pub const ProgramPlan = struct {
                             return error.InvalidSumVariantOrdinal;
                         if (!hasPayload(payload_ref.codec)) return error.InvalidSumPayloadVariant;
                         if (!functionLocalHasEquivalentValueRef(self, function, instruction.dst, payload_ref)) {
+                            return error.InvalidSumPayloadDestination;
+                        }
+                    },
+                    .product_extract_field => {
+                        const source_ref = functionLocalValueRef(self, function, instruction.operand) orelse
+                            return error.InvalidSumSourceRef;
+                        if (source_ref.codec != .product) return error.InvalidSumSourceRef;
+                        const field_ref = productFieldRef(self, source_ref, instruction.aux) orelse
+                            return error.InvalidSumVariantOrdinal;
+                        if (!functionLocalHasEquivalentValueRef(self, function, instruction.dst, field_ref)) {
                             return error.InvalidSumPayloadDestination;
                         }
                     },
@@ -982,6 +993,23 @@ pub const program_plan_builder = struct {
             .dst = dst.index,
             .operand = source.index,
             .aux = variant_ordinal,
+        };
+    }
+
+    /// Build a product-field extraction whose source and destination are owned by the caller.
+    pub fn productExtractField(
+        caller: FunctionRef,
+        dst: LocalRef,
+        source: LocalRef,
+        field_ordinal: u16,
+    ) ValidationError!Instruction {
+        try expectLocalOwnedBy(caller, dst);
+        try expectLocalOwnedBy(caller, source);
+        return .{
+            .kind = .product_extract_field,
+            .dst = dst.index,
+            .operand = source.index,
+            .aux = field_ordinal,
         };
     }
 
@@ -2321,6 +2349,22 @@ fn sumVariantRef(self: ProgramPlan, source_ref: ValueRef, variant_ordinal: u16) 
     return .{
         .codec = variant.codec,
         .schema_index = variant.schema_index,
+    };
+}
+
+fn productFieldRef(self: ProgramPlan, source_ref: ValueRef, field_ordinal: u16) ?ValueRef {
+    if (source_ref.codec != .product) return null;
+    const schema_index = source_ref.schema_index orelse return null;
+    if (schema_index >= self.value_schemas.len) return null;
+    const schema = self.value_schemas[schema_index];
+    if (schema.codec != .product) return null;
+    if (field_ordinal >= schema.field_count) return null;
+    const field_index = @as(usize, schema.first_field) + field_ordinal;
+    if (field_index >= self.value_fields.len) return null;
+    const field = self.value_fields[field_index];
+    return .{
+        .codec = field.codec,
+        .schema_index = field.schema_index,
     };
 }
 

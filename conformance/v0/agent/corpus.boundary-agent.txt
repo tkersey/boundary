@@ -217,8 +217,8 @@ scenarios:
   expected_terminal_status: failed
   expected_model_calls: 1
   expected_tool_calls: 0
-  expected_failure: AgentActionFailed
-  expected_failure_fingerprint: 0xc1b1c3b062bcc2bd
+  expected_failure: MalformedAgentAction
+  expected_failure_fingerprint: 0x90efbf223325e900
   replay: zig build check-boundary-agent-generated-loaded-parity -- --test-filter 'agent root generated-loaded parity malformed action'
 - id: agent-root-generated-loaded-unknown-tool
   kind: parity
@@ -233,8 +233,8 @@ scenarios:
   expected_terminal_status: failed
   expected_model_calls: 1
   expected_tool_calls: 0
-  expected_failure: AgentActionFailed
-  expected_failure_fingerprint: 0xc1b1c3b062bcc2bd
+  expected_failure: UnknownToolId
+  expected_failure_fingerprint: 0x4d01b489d908f385
   replay: zig build check-boundary-agent-generated-loaded-parity -- --test-filter 'agent root generated-loaded parity unknown tool'
 - id: agent-toolbox-generated-loaded-actuate
   kind: parity

@@ -467,7 +467,7 @@ pub fn validateExecutablePlanSupport(comptime compiled_plan: program_plan.Progra
                         return error.UnsupportedLocalCodec;
                     }
                 },
-                .sum_variant_is, .sum_extract_payload => return error.UnsupportedLocalCodec,
+                .sum_variant_is, .sum_extract_payload, .product_extract_field => return error.UnsupportedLocalCodec,
                 .return_value => {
                     const owner = instructionOwnerFunction(compiled_plan, instruction_index) orelse return error.UnsupportedLocalCodec;
                     if (!instructionLocalHasExecutableScalarCodec(compiled_plan, owner, instruction.operand)) return error.UnsupportedLocalCodec;
@@ -600,7 +600,7 @@ pub fn validateTypedExecutablePlanSupportWithNestedTargets(
                         return error.UnsupportedLocalCodec;
                     }
                 },
-                .sum_extract_payload => {
+                .sum_extract_payload, .product_extract_field => {
                     const owner = instructionOwnerFunction(compiled_plan, instruction_index) orelse return error.UnsupportedLocalCodec;
                     if (!instructionLocalHasExecutableTypedRef(compiled_plan, schema_types, owner, instruction.dst) or
                         !instructionLocalHasExecutableTypedRef(compiled_plan, schema_types, owner, instruction.operand))
@@ -680,7 +680,7 @@ pub fn executablePlanNeedsBodyValueSchemaTypes(
                     const local_ref = functionLocalRef(compiled_plan, owner, instruction.operand) orelse return false;
                     if (valueRefNeedsSchemaTypes(local_ref)) return true;
                 },
-                .sum_extract_payload, .sum_variant_is => {
+                .sum_extract_payload, .sum_variant_is, .product_extract_field => {
                     const source_ref = functionLocalRef(compiled_plan, owner, instruction.operand) orelse return false;
                     const dst_ref = functionLocalRef(compiled_plan, owner, instruction.dst) orelse return false;
                     if (valueRefNeedsSchemaTypes(source_ref) or valueRefNeedsSchemaTypes(dst_ref)) return true;
@@ -1725,6 +1725,50 @@ fn extractVariantPayloadForExecutable(
         if (schema.schema_index == schema_index) {
             const typed: *const SchemaType = @ptrCast(@alignCast(schema.ptr));
             return extractVariantPayloadForTyped(schema_types, ref, scratch, SchemaType, typed.*, variant_ordinal);
+        }
+    }
+    return error.ProgramContractViolation;
+}
+
+fn extractProductFieldForTyped(
+    comptime schema_types: anytype,
+    ref: program_plan.ValueRef,
+    scratch: anytype,
+    comptime T: type,
+    value: T,
+    field_ordinal: u16,
+) anyerror!RuntimeValueWithRef {
+    return switch (@typeInfo(T)) {
+        .@"struct" => |struct_info| {
+            inline for (struct_info.fields, 0..) |field, field_index| {
+                if (field_ordinal == field_index) {
+                    return .{
+                        .value = try encodeRuntimeValueForRuntimeRef(schema_types, ref, scratch, @field(value, field.name)),
+                        .ref = ref,
+                    };
+                }
+            }
+            return error.ProgramContractViolation;
+        },
+        else => error.ProgramContractViolation,
+    };
+}
+
+fn extractProductFieldForExecutable(
+    comptime schema_types: anytype,
+    ref: program_plan.ValueRef,
+    scratch: anytype,
+    value: ExecutableValue,
+    field_ordinal: u16,
+) anyerror!RuntimeValueWithRef {
+    const schema = switch (value) {
+        .schema => |typed| typed,
+        else => return error.ProgramContractViolation,
+    };
+    inline for (schema_types, 0..) |SchemaType, schema_index| {
+        if (schema.schema_index == schema_index) {
+            const typed: *const SchemaType = @ptrCast(@alignCast(schema.ptr));
+            return extractProductFieldForTyped(schema_types, ref, scratch, SchemaType, typed.*, field_ordinal);
         }
     }
     return error.ProgramContractViolation;
@@ -2846,6 +2890,12 @@ fn executeKnownFunction(
                     if (!valueMatchesRef(dst_ref, extracted.value)) return error.ProgramContractViolation;
                     locals[instruction.dst] = extracted.value;
                 },
+                .product_extract_field => {
+                    const dst_ref = functionLocalRef(compiled_plan, function, instruction.dst) orelse return error.ProgramContractViolation;
+                    const extracted = try extractProductFieldForExecutable(schema_types, dst_ref, scratch, locals[instruction.operand], instruction.aux);
+                    if (!valueMatchesRef(dst_ref, extracted.value)) return error.ProgramContractViolation;
+                    locals[instruction.dst] = extracted.value;
+                },
                 .const_i32 => locals[instruction.dst] = .{ .i32 = try constI32Value(instruction) },
                 .const_string => locals[instruction.dst] = .{ .string = instruction.string_literal },
                 .const_usize => {
@@ -3315,6 +3365,12 @@ fn executeFunctionWithFrameStack(
                 .sum_extract_payload => {
                     const dst_ref = localRefForFunctionIndex(compiled_plan, active.function_index, instruction.dst) orelse return error.ProgramContractViolation;
                     const extracted = try extractVariantPayloadForExecutable(schema_types, dst_ref, scratch, locals[instruction.operand], instruction.aux);
+                    if (!valueMatchesRef(dst_ref, extracted.value)) return error.ProgramContractViolation;
+                    locals[instruction.dst] = extracted.value;
+                },
+                .product_extract_field => {
+                    const dst_ref = localRefForFunctionIndex(compiled_plan, active.function_index, instruction.dst) orelse return error.ProgramContractViolation;
+                    const extracted = try extractProductFieldForExecutable(schema_types, dst_ref, scratch, locals[instruction.operand], instruction.aux);
                     if (!valueMatchesRef(dst_ref, extracted.value)) return error.ProgramContractViolation;
                     locals[instruction.dst] = extracted.value;
                 },
@@ -6682,6 +6738,12 @@ pub fn ExecutableSessionForPlan(
                         .sum_extract_payload => {
                             const dst_ref = localRefForFunctionIndex(compiled_plan, active.function_index, instruction.dst) orelse return error.ProgramContractViolation;
                             const extracted = try extractVariantPayloadForExecutable(schema_types, dst_ref, &self.scratch, locals[instruction.operand], instruction.aux);
+                            if (!valueMatchesRef(dst_ref, extracted.value)) return error.ProgramContractViolation;
+                            locals[instruction.dst] = extracted.value;
+                        },
+                        .product_extract_field => {
+                            const dst_ref = localRefForFunctionIndex(compiled_plan, active.function_index, instruction.dst) orelse return error.ProgramContractViolation;
+                            const extracted = try extractProductFieldForExecutable(schema_types, dst_ref, &self.scratch, locals[instruction.operand], instruction.aux);
                             if (!valueMatchesRef(dst_ref, extracted.value)) return error.ProgramContractViolation;
                             locals[instruction.dst] = extracted.value;
                         },

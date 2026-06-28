@@ -386,6 +386,7 @@ pub const builder = struct {
             const_i32,
             const_string,
             const_usize,
+            product_extract_field,
             sub_one,
             sum_extract_payload,
             sum_variant_is,
@@ -520,6 +521,11 @@ pub const builder = struct {
         /// Extract a sum variant payload into a payload-typed local.
         pub fn sumExtractPayload(comptime dst: []const u8, comptime source: []const u8, comptime variant_ordinal: u16) NamedInstruction(.sum_extract_payload) {
             return .{ .dst = dst, .operand = source, .aux = variant_ordinal };
+        }
+
+        /// Extract a product field into a field-typed local.
+        pub fn productExtractField(comptime dst: []const u8, comptime source: []const u8, comptime field_ordinal: u16) NamedInstruction(.product_extract_field) {
+            return .{ .dst = dst, .operand = source, .aux = field_ordinal };
         }
 
         /// Call a schema.Protocol row operation descriptor.
@@ -901,6 +907,12 @@ pub const builder = struct {
                     const source = localInfo(spec, function_spec, instruction.operand);
                     if (source.ref.codec != .sum) @compileError("semantic builder sumExtractPayload source must be sum");
                     return .{ .kind = .sum_extract_payload, .dst = dst.index, .operand = source.index, .aux = instruction.aux };
+                },
+                .product_extract_field => {
+                    const dst = localInfo(spec, function_spec, instruction.dst);
+                    const source = localInfo(spec, function_spec, instruction.operand);
+                    if (source.ref.codec != .product) @compileError("semantic builder productExtractField source must be product");
+                    return .{ .kind = .product_extract_field, .dst = dst.index, .operand = source.index, .aux = instruction.aux };
                 },
                 .call => {
                     const Op = @TypeOf(instruction).Op;

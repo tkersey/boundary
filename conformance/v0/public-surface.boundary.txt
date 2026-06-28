@@ -2,8 +2,8 @@ Boundary v0 public surface
 package: boundary 0.6.0
 manifest_format_version: 1
 manifest_fingerprint_version: 1
-manifest_fingerprint: 0xbc48f87b7134db15
-public_surface_fingerprint: 0x9ec7df70840c902b
+manifest_fingerprint: 0xb8bca432844b4977
+public_surface_fingerprint: 0xe925749419313a69
 
 stable_format_constants:
 - boundary_protocol_manifest_format_version = 1
@@ -40,11 +40,12 @@ instruction_tags:
 - const_i32 = 6
 - const_string = 7
 - const_usize = 8
-- return_error = 9
-- return_value = 10
-- sub_one = 11
-- sum_extract_payload = 12
-- sum_variant_is = 13
+- product_extract_field = 9
+- return_error = 10
+- return_value = 11
+- sub_one = 12
+- sum_extract_payload = 13
+- sum_variant_is = 14
 
 terminator_tags:
 - branch_if = 0

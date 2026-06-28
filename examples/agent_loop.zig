@@ -203,10 +203,10 @@ fn toolRequest(comptime tool_index: usize, payload: []const u8) BoundaryAgent.To
     };
 }
 
-fn decideAction(scenario: Scenario, observation: []const u8) Action {
+fn decideAction(scenario: Scenario, observation: []const u8) !Action {
     return switch (scenario) {
         .budget_exhaustion => .{ .tool = toolRequest(0, "") },
-        .malformed_action => .{ .fail = "MalformedAgentAction" },
+        .malformed_action => error.MalformedAgentAction,
         .skeleton => if (std.mem.eql(u8, observation, "goal=invoke"))
             .{ .tool = toolRequest(0, "") }
         else if (std.mem.eql(u8, observation, "actuate"))
@@ -221,7 +221,7 @@ fn decideAction(scenario: Scenario, observation: []const u8) Action {
             .{ .final = "final=fixture updated" }
         else
             .{ .final = "final=fixture update failed" },
-        .unknown_tool => .{ .fail = "UnknownToolId" },
+        .unknown_tool => .{ .tool = .{ .tool_id = .{ .index = 99, .diagnostic_label = "missing" }, .payload = "" } },
     };
 }
 
@@ -290,8 +290,14 @@ const agent_loop_semantic_spec = blk: {
                 semantic.local("is_final", bool),
                 semantic.local("is_tool", bool),
                 semantic.local("is_fail", bool),
+                semantic.local("is_actuate_tool", bool),
+                semantic.local("is_read_tool", bool),
+                semantic.local("is_write_tool", bool),
                 semantic.local("answer", []const u8),
                 semantic.local("tool_request", BoundaryAgent.ToolRequest),
+                semantic.local("tool_id", BoundaryAgent.ToolId),
+                semantic.local("tool_index", u64),
+                semantic.local("tool_selector", u64),
             },
             .result = []const u8,
             .blocks = .{
@@ -322,7 +328,38 @@ const agent_loop_semantic_spec = blk: {
                     .instructions = .{
                         semantic.sumVariantIs("is_tool", "action", 1),
                     },
-                    .terminator = semantic.branchIf("is_tool", .{ .then = "tool", .@"else" = "check_fail" }),
+                    .terminator = semantic.branchIf("is_tool", .{ .then = "extract_tool", .@"else" = "check_fail" }),
+                },
+                .{
+                    .name = "extract_tool",
+                    .instructions = .{
+                        semantic.sumExtractPayload("tool_request", "action", 1),
+                        semantic.productExtractField("tool_id", "tool_request", 0),
+                        semantic.productExtractField("tool_index", "tool_id", 0),
+                        semantic.compareEqZero("is_actuate_tool", "tool_index"),
+                    },
+                    .terminator = semantic.branchIf("is_actuate_tool", .{ .then = "tool", .@"else" = "check_read_tool" }),
+                },
+                .{
+                    .name = "check_read_tool",
+                    .instructions = .{
+                        semantic.subOne("tool_selector", "tool_index"),
+                        semantic.compareEqZero("is_read_tool", "tool_selector"),
+                    },
+                    .terminator = semantic.branchIf("is_read_tool", .{ .then = "tool", .@"else" = "check_write_tool" }),
+                },
+                .{
+                    .name = "check_write_tool",
+                    .instructions = .{
+                        semantic.subOne("tool_selector", "tool_selector"),
+                        semantic.compareEqZero("is_write_tool", "tool_selector"),
+                    },
+                    .terminator = semantic.branchIf("is_write_tool", .{ .then = "tool", .@"else" = "unknown_tool" }),
+                },
+                .{
+                    .name = "unknown_tool",
+                    .instructions = .{},
+                    .terminator = semantic.returnError("UnknownToolId"),
                 },
                 .{
                     .name = "check_fail",
@@ -344,7 +381,6 @@ const agent_loop_semantic_spec = blk: {
                 .{
                     .name = "tool",
                     .instructions = .{
-                        semantic.sumExtractPayload("tool_request", "action", 1),
                         semantic.call(Tool, .{ .dst = "observation", .payload = "tool_request", .label = "agent.tool" }),
                         semantic.subOne("remaining", "remaining"),
                     },
@@ -1027,7 +1063,13 @@ fn runLoadedFailureParityScenario(
                     const typed = try generated_request.as(AgentDecision);
                     const observation: AgentDecision.Payload = try typed.payload();
                     try std.testing.expectEqualStrings(observation, loaded_payload);
-                    const action = decideAction(scenario, observation);
+                    if (scenario == .malformed_action) {
+                        try std.testing.expectError(error.MalformedAgentAction, decideAction(scenario, observation));
+                        try std.testing.expectEqualStrings(expected_error, "MalformedAgentAction");
+                        try std.testing.expectError(error.InvalidResume, loaded_session.@"resume"(loaded_request, "malformed-action-image"));
+                        return;
+                    }
+                    const action = try decideAction(scenario, observation);
                     const loaded_response = try encodeLoadedAction(allocator, action);
                     defer allocator.free(loaded_response);
                     try generated_session.resumeTyped(typed, action);
@@ -1106,7 +1148,7 @@ fn runLoadedParityScenario(allocator: std.mem.Allocator, scenario: Scenario) ![]
                     const typed = try generated_request.as(AgentDecision);
                     const observation: AgentDecision.Payload = try typed.payload();
                     try std.testing.expectEqualStrings(observation, loaded_payload);
-                    const action = decideAction(scenario, observation);
+                    const action = try decideAction(scenario, observation);
                     const loaded_response = try encodeLoadedAction(allocator, action);
                     defer allocator.free(loaded_response);
                     try generated_session.resumeTyped(typed, action);
@@ -1198,7 +1240,7 @@ fn runSession(
                         .record => action: {
                             const observation: Decide.Payload = try typed_request.payload();
                             try writer.print("{s} decide observation={s}\n", .{ phase, observation });
-                            break :action decideAction(scenario, observation);
+                            break :action try decideAction(scenario, observation);
                         },
                         .replay => action: {
                             const recorded = try recording.at(replay_index);
@@ -1438,11 +1480,11 @@ test "agent root generated-loaded parity budget exhaustion failure" {
 }
 
 test "agent root generated-loaded parity malformed action failure" {
-    try runLoadedFailureParityScenario(std.testing.allocator, .malformed_action, 3, "AgentActionFailed");
+    try runLoadedFailureParityScenario(std.testing.allocator, .malformed_action, 3, "MalformedAgentAction");
 }
 
 test "agent root generated-loaded parity unknown tool failure" {
-    try runLoadedFailureParityScenario(std.testing.allocator, .unknown_tool, 3, "AgentActionFailed");
+    try runLoadedFailureParityScenario(std.testing.allocator, .unknown_tool, 3, "UnknownToolId");
 }
 
 test "agent toolbox generated-loaded parity actuate pure helper" {
