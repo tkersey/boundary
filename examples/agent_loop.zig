@@ -1002,6 +1002,8 @@ fn runLoadedFailureParityScenario(
     initial_remaining: usize,
     expected_error: []const u8,
 ) !void {
+    if (scenario == .malformed_action) return error.InvalidFailureParityScenario;
+
     const full = try RootTarget.Module.fullImage(allocator);
     defer allocator.free(full);
     var loaded = try RootTarget.Module.decode(allocator, full);
@@ -1063,12 +1065,6 @@ fn runLoadedFailureParityScenario(
                     const typed = try generated_request.as(AgentDecision);
                     const observation: AgentDecision.Payload = try typed.payload();
                     try std.testing.expectEqualStrings(observation, loaded_payload);
-                    if (scenario == .malformed_action) {
-                        try std.testing.expectError(error.MalformedAgentAction, decideAction(scenario, observation));
-                        try std.testing.expectEqualStrings(expected_error, "MalformedAgentAction");
-                        try std.testing.expectError(error.InvalidResume, loaded_session.@"resume"(loaded_request, "malformed-action-image"));
-                        return;
-                    }
                     const action = try decideAction(scenario, observation);
                     const loaded_response = try encodeLoadedAction(allocator, action);
                     defer allocator.free(loaded_response);
@@ -1095,6 +1091,61 @@ fn runLoadedFailureParityScenario(
             .done => return error.UnexpectedGeneratedDone,
         }
     }
+}
+
+fn runMalformedLoadedActionImageScenario(allocator: std.mem.Allocator) !void {
+    const full = try RootTarget.Module.fullImage(allocator);
+    defer allocator.free(full);
+    var loaded = try RootTarget.Module.decode(allocator, full);
+    defer loaded.deinit();
+
+    var runtime = boundary.Runtime.init(allocator);
+    defer runtime.deinit();
+    var generated_session = try Program.Session.start(&runtime, .{
+        .initial_remaining = 3,
+        .initial_observation = initialObservation(.malformed_action),
+    });
+    defer generated_session.deinit();
+
+    var entry_args = [_]RootTarget.Module.LoadedValue{
+        .{ .word_u64 = 3 },
+        .{ .bytes = initialObservation(.malformed_action) },
+    };
+    var loaded_session = try RootTarget.Module.LoadedModule.Session.startExecutableWithArgs(
+        allocator,
+        &loaded,
+        RootTarget.Module.LoadedExecutionProfile.portableV2(),
+        entry_args[0..],
+    );
+    defer loaded_session.deinit();
+
+    const generated_request = switch (try generated_session.next()) {
+        .request => |request| request,
+        .after => return error.UnexpectedAfter,
+        .done => return error.UnexpectedGeneratedDone,
+    };
+    const loaded_request = switch (loaded_session.next()) {
+        .request => |request| request,
+        .done => return error.UnexpectedLoadedDone,
+        .failed => return error.UnexpectedLoadedFailure,
+    };
+
+    try std.testing.expect(generated_request.matches(AgentDecision));
+    try std.testing.expectEqual(
+        RootTarget.WorldDispatchTable.lookup(generated_request.operation_site_index).?,
+        loaded_request.world_port_id,
+    );
+    try std.testing.expectEqual(generated_request.operation_site_index, loaded_request.residual_site_index);
+    try std.testing.expectEqual(generated_request.operation_site_fingerprint, loaded_request.residual_site_fingerprint);
+
+    var payload_arena = RootTarget.Module.LoadedValueArena.init(allocator);
+    defer payload_arena.deinit();
+    const loaded_payload = try decodeLoadedString(allocator, &payload_arena, loaded_request.canonical_payload_image);
+    const typed = try generated_request.as(AgentDecision);
+    const observation: AgentDecision.Payload = try typed.payload();
+    try std.testing.expectEqualStrings(observation, loaded_payload);
+    try std.testing.expectError(error.MalformedAgentAction, decideAction(.malformed_action, observation));
+    try std.testing.expectError(error.InvalidResume, loaded_session.@"resume"(loaded_request, "malformed-action-image"));
 }
 
 fn runLoadedParityScenario(allocator: std.mem.Allocator, scenario: Scenario) ![]u8 {
@@ -1482,7 +1533,7 @@ test "agent root generated-loaded parity budget exhaustion failure" {
 }
 
 test "agent root rejects malformed loaded action image" {
-    try runLoadedFailureParityScenario(std.testing.allocator, .malformed_action, 3, "MalformedAgentAction");
+    try runMalformedLoadedActionImageScenario(std.testing.allocator);
 }
 
 test "agent root generated-loaded parity unknown tool failure" {
