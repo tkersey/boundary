@@ -37,7 +37,6 @@ pub const Protocol = struct {
             "check-boundary-agent-modules",
             "check-boundary-agent-generated-loaded-parity",
             "check-boundary-agent-conformance-corpus",
-            "update-boundary-agent-conformance-corpus",
             "check-boundary-agent-profile-receipt-host",
             "check-boundary-agent-modules-receipt-host",
             "check-boundary-agent-generated-loaded-parity-receipt-host",
