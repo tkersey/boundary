@@ -1434,11 +1434,93 @@ pub fn run(writer: anytype, allocator: std.mem.Allocator) !void {
 }
 
 pub fn main(init: std.process.Init) !void {
+    var args = std.process.Args.Iterator.init(init.minimal.args);
+    _ = args.next();
+    if (args.next()) |command| {
+        if (std.mem.eql(u8, command, "export-agent-runtime")) {
+            const output_dir = args.next() orelse return error.InvalidArguments;
+            if (args.next() != null) return error.InvalidArguments;
+            return exportAgentRuntimeArtifacts(init, std.heap.page_allocator, output_dir);
+        }
+        return error.InvalidArguments;
+    }
+
     var stdout_buffer: [512]u8 = undefined;
     var stdout_writer = std.Io.File.stdout().writer(init.io, &stdout_buffer);
     const stdout = &stdout_writer.interface;
     try run(stdout, std.heap.page_allocator);
     try stdout.flush();
+}
+
+fn exportAgentRuntimeArtifacts(init: std.process.Init, allocator: std.mem.Allocator, output_dir: []const u8) !void {
+    const io = init.io;
+    try std.Io.Dir.cwd().createDirPath(io, output_dir);
+
+    var root = try BoundaryAgent.buildRootModule(RootTarget, allocator, boundaryAgentProfile());
+    defer root.deinit(allocator);
+    try root.artifact.validate(RootTarget, .{
+        .allocator = allocator,
+        .profile = boundaryAgentProfile(),
+        .expected_role = .root,
+        .bytes = root.bytes,
+    });
+
+    var toolbox = try BoundaryAgent.buildToolboxModule(ToolboxTarget, allocator, boundaryAgentProfile());
+    defer toolbox.deinit(allocator);
+    try toolbox.artifact.validate(ToolboxTarget, .{
+        .allocator = allocator,
+        .profile = boundaryAgentProfile(),
+        .expected_role = .toolbox,
+        .bytes = toolbox.bytes,
+    });
+
+    const protocol_manifest = try boundary.Protocol.Manifest.encodeAlloc(allocator);
+    defer allocator.free(protocol_manifest);
+    const profile_json = try agentProfileJson(allocator, boundaryAgentProfile(), root.artifact, toolbox.artifact);
+    defer allocator.free(profile_json);
+
+    try writeJoined(io, allocator, output_dir, "agent-root.full-module", root.bytes);
+    try writeJoined(io, allocator, output_dir, "toolbox-provider.full-module", toolbox.bytes);
+    try writeJoined(io, allocator, output_dir, "boundary-protocol-manifest.bin", protocol_manifest);
+    try writeJoined(io, allocator, output_dir, "agent-profile.json", profile_json);
+}
+
+fn writeJoined(io: std.Io, allocator: std.mem.Allocator, dir: []const u8, file: []const u8, bytes: []const u8) !void {
+    const path = try std.fs.path.join(allocator, &.{ dir, file });
+    defer allocator.free(path);
+    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = path, .data = bytes });
+}
+
+fn agentProfileJson(
+    allocator: std.mem.Allocator,
+    profile_value: BoundaryAgent.Profile,
+    root_artifact: BoundaryAgent.ModuleArtifact,
+    toolbox_artifact: BoundaryAgent.ModuleArtifact,
+) ![]const u8 {
+    return std.fmt.allocPrint(allocator,
+        \\{{
+        \\  "profile_format_version": {d},
+        \\  "profile_fingerprint_version": {d},
+        \\  "profile_fingerprint": "0x{x:0>16}",
+        \\  "boundary_protocol_manifest_fingerprint": "0x{x:0>16}",
+        \\  "agent_root_module_fingerprint": "0x{x:0>16}",
+        \\  "agent_root_full_module_byte_fingerprint": "0x{x:0>16}",
+        \\  "toolbox_module_fingerprint": "0x{x:0>16}",
+        \\  "toolbox_full_module_byte_fingerprint": "0x{x:0>16}",
+        \\  "tool_ids": ["actuate", "read_file", "write_file"],
+        \\  "metadata": "agent-root-module"
+        \\}}
+        \\
+    , .{
+        profile_value.format_version,
+        profile_value.fingerprint_version,
+        profile_value.profile_fingerprint,
+        root_artifact.manifest_fingerprint,
+        root_artifact.module_fingerprint,
+        root_artifact.byte_fingerprint,
+        toolbox_artifact.module_fingerprint,
+        toolbox_artifact.byte_fingerprint,
+    });
 }
 
 test "agent loop skeleton scenario mirrors actuate skeleton coverage" {

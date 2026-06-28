@@ -1408,6 +1408,32 @@ pub fn build(b: *std.Build) void {
         }
     }
 
+    const boundary_agent_runtime_dist_dir = "zig-out/dist/boundary-v0.6.2-agent-runtime";
+    const boundary_agent_runtime_mod = b.createModule(.{
+        .root_source_file = b.path("examples/agent_loop.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+    });
+    boundary_agent_runtime_mod.addImport("boundary", host_boundary);
+    const boundary_agent_runtime_exe = b.addExecutable(.{
+        .name = "boundary-agent-runtime-artifacts",
+        .root_module = boundary_agent_runtime_mod,
+    });
+    const emit_boundary_agent_runtime = b.addRunArtifact(boundary_agent_runtime_exe);
+    emit_boundary_agent_runtime.addArgs(&.{ "export-agent-runtime", boundary_agent_runtime_dist_dir });
+    emit_boundary_agent_runtime.step.dependOn(agent_modules_step);
+    emit_boundary_agent_runtime.step.dependOn(agent_parity_step);
+    const emit_boundary_agent_runtime_step = b.step("emit-boundary-agent-runtime-artifacts", "Emit Boundary Agent Runtime pack-ready module artifacts.");
+    emit_boundary_agent_runtime_step.dependOn(&emit_boundary_agent_runtime.step);
+    const check_boundary_agent_runtime = b.addSystemCommand(&.{
+        "sh",
+        "-c",
+        "test -s zig-out/dist/boundary-v0.6.2-agent-runtime/agent-root.full-module && test -s zig-out/dist/boundary-v0.6.2-agent-runtime/toolbox-provider.full-module && test -s zig-out/dist/boundary-v0.6.2-agent-runtime/boundary-protocol-manifest.bin && test -s zig-out/dist/boundary-v0.6.2-agent-runtime/agent-profile.json",
+    });
+    check_boundary_agent_runtime.step.dependOn(&emit_boundary_agent_runtime.step);
+    const check_boundary_agent_runtime_step = b.step("check-boundary-agent-runtime-artifacts", "Check Boundary Agent Runtime pack-ready artifacts.");
+    check_boundary_agent_runtime_step.dependOn(&check_boundary_agent_runtime.step);
+
     const bench_check_step = b.step("bench-check", "Compile retained benchmark programs.");
     test_step.dependOn(bench_check_step);
 
