@@ -385,6 +385,25 @@ pub fn canonicalValueSchemaFingerprints() []const u64 {
 
 /// Provenance record for an Agent-related Certified Boundary Module.
 pub const ModuleArtifact = struct {
+    const DecodedFacts = struct {
+        module_fingerprint: u64,
+        manifest_fingerprint: u64,
+        world_surface_fingerprint: u64,
+        import_count: usize,
+        export_result_fingerprint: u64,
+    };
+
+    /// Arguments for validating an Agent module artifact against decoded target bytes.
+    pub fn ValidateArgs(comptime Target: type) type {
+        _ = Target;
+        return struct {
+            allocator: std.mem.Allocator,
+            profile: Profile,
+            expected_role: ModuleRole,
+            bytes: []const u8,
+        };
+    }
+
     role: ModuleRole,
     profile_fingerprint: u64,
     module_fingerprint: u64,
@@ -419,8 +438,24 @@ pub const ModuleArtifact = struct {
         };
     }
 
-    /// Validate that the module artifact matches the expected profile, role, and bytes.
-    pub fn validate(self: ModuleArtifact, profile: Profile, expected_role: ModuleRole, bytes: []const u8) ModuleArtifactValidationError!void {
+    /// Validate that the module artifact matches the expected profile, role, bytes, and decoded module facts.
+    pub fn validate(
+        self: ModuleArtifact,
+        comptime Target: type,
+        args: ValidateArgs(Target),
+    ) ModuleArtifactValidationError!void {
+        var loaded = try Target.Module.decode(args.allocator, args.bytes);
+        defer loaded.deinit();
+        try self.validateDecodedFacts(args.profile, args.expected_role, args.bytes, .{
+            .module_fingerprint = loaded.moduleFingerprint(),
+            .manifest_fingerprint = loaded.manifest().manifest_fingerprint,
+            .world_surface_fingerprint = loaded.worldSurfaceFingerprint(),
+            .import_count = loaded.imports().len,
+            .export_result_fingerprint = valueRefFingerprint(loaded.exportMain().result_ref),
+        });
+    }
+
+    fn validateDecodedFacts(self: ModuleArtifact, profile: Profile, expected_role: ModuleRole, bytes: []const u8, facts: DecodedFacts) ModuleArtifactValidationError!void {
         try profile.validate();
         if (self.role != expected_role) return error.AgentModuleRoleMismatch;
         if (self.profile_fingerprint != profile.profile_fingerprint) return error.AgentProfileFingerprintMismatch;
@@ -432,6 +467,11 @@ pub const ModuleArtifact = struct {
         if (self.byte_fingerprint == 0) return error.AgentModuleFingerprintMissing;
         if (self.byte_len != bytes.len) return error.AgentModuleByteLengthMismatch;
         if (self.byte_fingerprint != fingerprintBytes(bytes)) return error.AgentModuleByteFingerprintMismatch;
+        if (self.module_fingerprint != facts.module_fingerprint) return error.AgentModuleFingerprintMismatch;
+        if (self.manifest_fingerprint != facts.manifest_fingerprint) return error.AgentModuleManifestFingerprintMismatch;
+        if (self.world_surface_fingerprint != facts.world_surface_fingerprint) return error.AgentModuleWorldSurfaceFingerprintMismatch;
+        if (self.import_count != facts.import_count) return error.AgentModuleImportCountMismatch;
+        if (self.export_result_fingerprint != facts.export_result_fingerprint) return error.AgentModuleExportResultFingerprintMismatch;
     }
 };
 
@@ -479,7 +519,12 @@ fn buildModule(comptime role: ModuleRole, comptime Target: type, allocator: std.
         .export_result_fingerprint = valueRefFingerprint(loaded.exportMain().result_ref),
         .bytes = bytes,
     });
-    try artifact.validate(profile, role, bytes);
+    try artifact.validate(Target, .{
+        .allocator = allocator,
+        .profile = profile,
+        .expected_role = role,
+        .bytes = bytes,
+    });
 
     return .{
         .artifact = artifact,
@@ -789,10 +834,24 @@ test "Agent module artifact binds profile and full module byte identity" {
         .export_result_fingerprint = 0x4444,
         .bytes = bytes,
     });
-    try artifact.validate(profile, .toolbox, bytes);
+    const facts: ModuleArtifact.DecodedFacts = .{
+        .module_fingerprint = artifact.module_fingerprint,
+        .manifest_fingerprint = artifact.manifest_fingerprint,
+        .world_surface_fingerprint = artifact.world_surface_fingerprint,
+        .import_count = artifact.import_count,
+        .export_result_fingerprint = artifact.export_result_fingerprint,
+    };
+    try artifact.validateDecodedFacts(profile, .toolbox, bytes, facts);
     try std.testing.expectEqual(fingerprintBytes(bytes), artifact.byte_fingerprint);
-    try std.testing.expectError(error.AgentModuleRoleMismatch, artifact.validate(profile, .root, bytes));
-    try std.testing.expectError(error.AgentModuleByteFingerprintMismatch, artifact.validate(profile, .toolbox, "certified-boundary-module-forgery"));
+    try std.testing.expectError(error.AgentModuleRoleMismatch, artifact.validateDecodedFacts(profile, .root, bytes, facts));
+    try std.testing.expectError(error.AgentModuleByteFingerprintMismatch, artifact.validateDecodedFacts(profile, .toolbox, "certified-boundary-module-forgery", facts));
+    try std.testing.expectError(error.AgentModuleFingerprintMismatch, artifact.validateDecodedFacts(profile, .toolbox, bytes, .{
+        .module_fingerprint = 0x5555,
+        .manifest_fingerprint = artifact.manifest_fingerprint,
+        .world_surface_fingerprint = artifact.world_surface_fingerprint,
+        .import_count = artifact.import_count,
+        .export_result_fingerprint = artifact.export_result_fingerprint,
+    }));
 }
 
 test "Agent state budget fails closed before extra model or tool calls" {
