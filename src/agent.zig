@@ -30,6 +30,7 @@ pub const ActionValidationError = error{
 pub const ObservationError = error{
     AgentObservationTooLarge,
     AgentToolResultTooLarge,
+    UnknownToolId,
 };
 
 /// Errors raised while validating an Agent profile.
@@ -305,7 +306,8 @@ pub fn validateAction(comptime ToolSet: type, config: Config, action: Action) Ac
 }
 
 /// Promote a tool result into the next observation.
-pub fn observeToolResult(config: Config, state: *State, result: ToolResult) ObservationError!void {
+pub fn observeToolResult(comptime ToolSet: type, config: Config, state: *State, result: ToolResult) ObservationError!void {
+    if (!ToolSet.contains(result.tool_id)) return error.UnknownToolId;
     if (result.bytes.len > config.max_tool_result_bytes) return error.AgentToolResultTooLarge;
     if (result.bytes.len > config.max_observation_bytes) return error.AgentObservationTooLarge;
     state.prior_observation_summary = state.current_observation;
@@ -900,6 +902,7 @@ test "Agent model decision budget failure does not consume iteration" {
 }
 
 test "Agent tool observations obey the observation byte cap" {
+    const tools = ClosedToolSet(&.{"actuate"});
     const config = Config{
         .max_iterations = 2,
         .max_model_calls = 2,
@@ -911,13 +914,18 @@ test "Agent tool observations obey the observation byte cap" {
     };
     var state = try State.init("goal", "seed", config);
     try std.testing.expectError(error.AgentObservationTooLarge, State.init("goal", "12345", config));
-    try std.testing.expectError(error.AgentObservationTooLarge, observeToolResult(config, &state, .{
+    try std.testing.expectError(error.UnknownToolId, observeToolResult(tools, config, &state, .{
+        .tool_id = .{ .index = 9, .label = "shell" },
+        .bytes = "1234",
+    }));
+    try std.testing.expectEqualStrings("seed", state.current_observation);
+    try std.testing.expectError(error.AgentObservationTooLarge, observeToolResult(tools, config, &state, .{
         .tool_id = .{ .index = 0, .label = "actuate" },
         .bytes = "12345",
     }));
     try std.testing.expectEqualStrings("seed", state.current_observation);
 
-    try observeToolResult(config, &state, .{
+    try observeToolResult(tools, config, &state, .{
         .tool_id = .{ .index = 0, .label = "actuate" },
         .bytes = "1234",
     });

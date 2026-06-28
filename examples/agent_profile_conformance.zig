@@ -151,7 +151,7 @@ fn runScenario(scenario: Scenario, initial_observation: []const u8, run_config: 
                         .terminal_status = state.terminal_status,
                     };
                 };
-                try Agent.observeToolResult(run_config, &state, result);
+                try Agent.observeToolResult(Tools, run_config, &state, result);
             },
         }
     }
