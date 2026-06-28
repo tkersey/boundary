@@ -22,11 +22,12 @@ const Scenario = struct {
     scenario_id: []const u8,
     kind: []const u8,
     initial_observation: []const u8,
-    expected_terminal_status: Agent.TerminalStatus,
+    expected_terminal_status: ?Agent.TerminalStatus,
     expected_final: []const u8 = "",
     expected_failure: []const u8 = "",
-    expected_model_calls: u32,
-    expected_tool_calls: u32,
+    expected_rejection: []const u8 = "",
+    expected_model_calls: ?u32,
+    expected_tool_calls: ?u32,
     run_config: Agent.Config = config,
     replay: []const u8,
 };
@@ -139,6 +140,16 @@ const scenarios = [_]Scenario{
             .max_trace_entries = config.max_trace_entries,
         },
         .replay = "zig build check-boundary-agent-generated-loaded-parity -- --test-filter 'agent root generated-loaded parity budget exhaustion'",
+    },
+    .{
+        .scenario_id = "agent-root-generated-loaded-malformed-action",
+        .kind = "parity",
+        .initial_observation = "goal=invoke",
+        .expected_terminal_status = null,
+        .expected_rejection = "generated=ProgramContractViolation loaded=InvalidResume before_tool_dispatch=true",
+        .expected_model_calls = null,
+        .expected_tool_calls = null,
+        .replay = "zig build check-boundary-agent-generated-loaded-parity -- --test-filter 'agent root generated-loaded parity malformed action'",
     },
     .{
         .scenario_id = "agent-root-generated-loaded-unknown-tool",
@@ -280,9 +291,6 @@ fn appendScenario(out: *std.ArrayList(u8), allocator: std.mem.Allocator, scenari
         \\  scenario_max_action_bytes: {d}
         \\  scenario_max_tool_result_bytes: {d}
         \\  scenario_max_trace_entries: {d}
-        \\  expected_terminal_status: {s}
-        \\  expected_model_calls: {d}
-        \\  expected_tool_calls: {d}
         \\
     , .{
         scenario.scenario_id,
@@ -295,10 +303,16 @@ fn appendScenario(out: *std.ArrayList(u8), allocator: std.mem.Allocator, scenari
         scenario.run_config.max_action_bytes,
         scenario.run_config.max_tool_result_bytes,
         scenario.run_config.max_trace_entries,
-        @tagName(scenario.expected_terminal_status),
-        scenario.expected_model_calls,
-        scenario.expected_tool_calls,
     });
+    if (scenario.expected_terminal_status) |terminal_status| {
+        try appendFmt(out, allocator, "  expected_terminal_status: {s}\n", .{@tagName(terminal_status)});
+    }
+    if (scenario.expected_model_calls) |model_calls| {
+        try appendFmt(out, allocator, "  expected_model_calls: {d}\n", .{model_calls});
+    }
+    if (scenario.expected_tool_calls) |tool_calls| {
+        try appendFmt(out, allocator, "  expected_tool_calls: {d}\n", .{tool_calls});
+    }
     if (scenario.expected_final.len != 0) {
         try appendFmt(out, allocator,
             \\  expected_final: {s}
@@ -312,6 +326,9 @@ fn appendScenario(out: *std.ArrayList(u8), allocator: std.mem.Allocator, scenari
             \\  expected_failure_fingerprint: 0x{x:0>16}
             \\
         , .{ scenario.expected_failure, Agent.fingerprintBytes(scenario.expected_failure) });
+    }
+    if (scenario.expected_rejection.len != 0) {
+        try appendFmt(out, allocator, "  expected_rejection: {s}\n", .{scenario.expected_rejection});
     }
     try appendFmt(out, allocator, "  replay: {s}\n", .{scenario.replay});
 }

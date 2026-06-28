@@ -204,6 +204,18 @@ scenarios:
   expected_failure: AgentBudgetExhausted
   expected_failure_fingerprint: 0xde3aa5ff2f1ebf9a
   replay: zig build check-boundary-agent-generated-loaded-parity -- --test-filter 'agent root generated-loaded parity budget exhaustion'
+- id: agent-root-generated-loaded-malformed-action
+  kind: parity
+  initial_observation: goal=invoke
+  scenario_max_iterations: 5
+  scenario_max_model_calls: 5
+  scenario_max_tool_calls: 4
+  scenario_max_observation_bytes: 1024
+  scenario_max_action_bytes: 256
+  scenario_max_tool_result_bytes: 1024
+  scenario_max_trace_entries: 8
+  expected_rejection: generated=ProgramContractViolation loaded=InvalidResume before_tool_dispatch=true
+  replay: zig build check-boundary-agent-generated-loaded-parity -- --test-filter 'agent root generated-loaded parity malformed action'
 - id: agent-root-generated-loaded-unknown-tool
   kind: parity
   initial_observation: goal=invoke

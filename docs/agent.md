@@ -123,8 +123,10 @@ Agent Profile v0 is intended to be exercised through both generated
 agent module now has skeleton, fixture, budget-exhaustion, malformed-action,
 and unknown-tool parity coverage: the same Boundary program is executed through
 generated session semantics and through loaded full-module bytes, with residual
-identity compared at each model/tool site and declared failure identity compared
-for negative cases.
+identity compared at each model/tool site. Budget exhaustion and unknown-tool
+cases compare declared failure identity; malformed-action coverage compares the
+same model request identity and requires both execution surfaces to reject the
+malformed action image before any tool dispatch.
 
 The toolbox-provider module also has generated/loaded parity coverage for the
 actuate, read-file, and write-file fixture tools. The fixture module dispatches
@@ -148,7 +150,8 @@ fingerprinting, closed tool-id checks, action validation, malformed tag
 rejection, budget checks, bounded trace summaries, skeleton/fixture flow
 accounting, full-module byte provenance, root and toolbox module bytes, and
 generated/loaded parity for skeleton/fixture root-agent executions plus
-budget/malformed/unknown-tool root-agent failures and actuate/read/write
+budget/unknown-tool root-agent declared failures, malformed action-image
+rejection on both root-agent execution surfaces, and actuate/read/write
 toolbox-provider executions.
 
 The tracked corpus catalog lives at

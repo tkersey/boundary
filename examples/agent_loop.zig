@@ -1144,8 +1144,10 @@ fn runMalformedLoadedActionImageScenario(allocator: std.mem.Allocator) !void {
     const typed = try generated_request.as(AgentDecision);
     const observation: AgentDecision.Payload = try typed.payload();
     try std.testing.expectEqualStrings(observation, loaded_payload);
+    const malformed_action_image: []const u8 = "malformed-action-image";
     try std.testing.expectError(error.MalformedAgentAction, decideAction(.malformed_action, observation));
-    try std.testing.expectError(error.InvalidResume, loaded_session.@"resume"(loaded_request, "malformed-action-image"));
+    try std.testing.expectError(error.ProgramContractViolation, generated_session.@"resume"(generated_request, malformed_action_image));
+    try std.testing.expectError(error.InvalidResume, loaded_session.@"resume"(loaded_request, malformed_action_image));
 }
 
 fn runLoadedParityScenario(allocator: std.mem.Allocator, scenario: Scenario) ![]u8 {
@@ -1532,7 +1534,7 @@ test "agent root generated-loaded parity budget exhaustion failure" {
     try runLoadedFailureParityScenario(std.testing.allocator, .budget_exhaustion, 1, "AgentBudgetExhausted");
 }
 
-test "agent root rejects malformed loaded action image" {
+test "agent root generated-loaded parity malformed action image rejection" {
     try runMalformedLoadedActionImageScenario(std.testing.allocator);
 }
 
