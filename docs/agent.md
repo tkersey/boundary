@@ -25,8 +25,8 @@ The framing is:
 
 The fingerprint binds the limit fields, supported action variants, closed tool
 variants, value-schema fingerprints, and metadata bytes. Validation rejects
-unsupported format/fingerprint versions, empty execution budgets, empty trace
-capacity, action-surface mismatch, and fingerprint drift.
+unsupported format/fingerprint versions, empty capacities, incomplete tool or
+schema surfaces, action-surface mismatch, and fingerprint drift.
 
 `Agent.canonical_value_schemas` defines the Agent-owned portable value schemas
 and fingerprints for `Agent.Goal`, `Agent.Observation`,

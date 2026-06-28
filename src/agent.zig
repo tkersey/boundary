@@ -213,8 +213,10 @@ pub const State = struct {
 
     /// Begin a model decision step, consuming iteration and model budgets.
     pub fn beginModelDecision(self: *State) BudgetError!void {
-        try self.remaining_budget.consumeIteration();
-        try self.remaining_budget.consumeModelCall();
+        if (self.remaining_budget.remaining_iterations == 0) return error.AgentBudgetExhausted;
+        if (self.remaining_budget.remaining_model_calls == 0) return error.AgentBudgetExhausted;
+        self.remaining_budget.remaining_iterations -= 1;
+        self.remaining_budget.remaining_model_calls -= 1;
         self.iteration_index += 1;
         self.model_call_count += 1;
     }
@@ -576,9 +578,20 @@ pub const Profile = struct {
         if (self.max_iterations == 0) return error.AgentProfileEmptyBudget;
         if (self.max_model_calls == 0) return error.AgentProfileEmptyBudget;
         if (self.max_tool_calls == 0) return error.AgentProfileEmptyBudget;
+        if (self.max_observation_bytes == 0) return error.AgentProfileEmptyCapacity;
+        if (self.max_action_bytes == 0) return error.AgentProfileEmptyCapacity;
+        if (self.max_tool_result_bytes == 0) return error.AgentProfileEmptyCapacity;
         if (self.max_trace_entries == 0) return error.AgentProfileEmptyTrace;
         if (!std.mem.eql(ActionTag, self.supported_action_variants, &canonical_action_variants)) {
             return error.AgentProfileActionSurfaceMismatch;
+        }
+        if (self.supported_tool_variants.len == 0) return error.AgentProfileToolSurfaceMismatch;
+        for (self.supported_tool_variants, 0..) |tool_id, index| {
+            if (@as(usize, tool_id.index) != index) return error.AgentProfileToolSurfaceMismatch;
+            if (tool_id.label.len == 0) return error.AgentProfileToolSurfaceMismatch;
+        }
+        if (!std.mem.eql(u64, self.value_schema_fingerprints, &canonical_schema_fingerprints)) {
+            return error.AgentProfileSchemaSurfaceMismatch;
         }
     }
 };
@@ -613,12 +626,12 @@ test "Agent Profile v0 fingerprint is deterministic and bound to tool variants" 
         .max_tool_result_bytes = 1024,
         .max_trace_entries = 8,
     };
-    const profile = Profile.fromConfig(config, &tool_ids, &.{ 0x1111, 0x2222 }, "fixture-agent");
+    const profile = Profile.fromConfig(config, &tool_ids, canonicalValueSchemaFingerprints(), "fixture-agent");
     try profile.validate();
     try std.testing.expectEqual(profile.profile_fingerprint, profile.computeFingerprint());
 
     const shorter_tool_ids = [_]ToolId{tools.id(0)};
-    const changed = Profile.fromConfig(config, &shorter_tool_ids, &.{ 0x1111, 0x2222 }, "fixture-agent");
+    const changed = Profile.fromConfig(config, &shorter_tool_ids, canonicalValueSchemaFingerprints(), "fixture-agent");
     try std.testing.expect(profile.profile_fingerprint != changed.profile_fingerprint);
 }
 
@@ -669,6 +682,29 @@ test "Agent profile validation requires the exact closed action surface" {
     try std.testing.expectError(error.AgentProfileActionSurfaceMismatch, profile.validate());
 }
 
+test "Agent profile validation requires complete tool and schema surfaces" {
+    const tools = ClosedToolSet(&.{ "actuate", "read_file" });
+    const tool_ids = [_]ToolId{ tools.id(0), tools.id(1) };
+    const config = Config{
+        .max_iterations = 2,
+        .max_model_calls = 2,
+        .max_tool_calls = 2,
+        .max_observation_bytes = 128,
+        .max_action_bytes = 128,
+        .max_tool_result_bytes = 128,
+        .max_trace_entries = 2,
+    };
+    var profile = Profile.fromConfig(config, &.{}, canonicalValueSchemaFingerprints(), "profile-surface-test");
+    try std.testing.expectError(error.AgentProfileToolSurfaceMismatch, profile.validate());
+
+    profile = Profile.fromConfig(config, &tool_ids, &.{}, "profile-surface-test");
+    profile.profile_fingerprint = profile.computeFingerprint();
+    try std.testing.expectError(error.AgentProfileSchemaSurfaceMismatch, profile.validate());
+
+    profile = Profile.fromConfig(config, &.{ tools.id(1), tools.id(0) }, canonicalValueSchemaFingerprints(), "profile-surface-test");
+    try std.testing.expectError(error.AgentProfileToolSurfaceMismatch, profile.validate());
+}
+
 test "Agent closed ToolId set dispatches by generated index, not diagnostic labels" {
     const tools = ClosedToolSet(&.{ "actuate", "read_file", "write_file" });
     const actuate = tools.find("actuate") orelse return error.MissingToolId;
@@ -711,7 +747,7 @@ test "Agent module artifact binds profile and full module byte identity" {
         .max_tool_result_bytes = 128,
         .max_trace_entries = 2,
     };
-    const profile = Profile.fromConfig(config, &tool_ids, &.{0xaaaa}, "module-artifact-test");
+    const profile = Profile.fromConfig(config, &tool_ids, canonicalValueSchemaFingerprints(), "module-artifact-test");
     const bytes = "certified-boundary-module-fixture";
     const artifact = ModuleArtifact.init(.{
         .role = .toolbox,
@@ -743,6 +779,27 @@ test "Agent state budget fails closed before extra model or tool calls" {
     try std.testing.expectError(error.AgentBudgetExhausted, state.beginModelDecision());
     try state.beginToolCall();
     try std.testing.expectError(error.AgentBudgetExhausted, state.beginToolCall());
+}
+
+test "Agent model decision budget failure does not consume iteration" {
+    const config = Config{
+        .max_iterations = 2,
+        .max_model_calls = 1,
+        .max_tool_calls = 1,
+        .max_observation_bytes = 128,
+        .max_action_bytes = 128,
+        .max_tool_result_bytes = 128,
+        .max_trace_entries = 2,
+    };
+    var state = State.init("goal=fixture", "goal=fixture", config);
+    try state.beginModelDecision();
+    try std.testing.expectEqual(@as(u32, 1), state.remaining_budget.remaining_iterations);
+    try std.testing.expectEqual(@as(u32, 0), state.remaining_budget.remaining_model_calls);
+    try std.testing.expectError(error.AgentBudgetExhausted, state.beginModelDecision());
+    try std.testing.expectEqual(@as(u32, 1), state.remaining_budget.remaining_iterations);
+    try std.testing.expectEqual(@as(u32, 0), state.remaining_budget.remaining_model_calls);
+    try std.testing.expectEqual(@as(u32, 1), state.iteration_index);
+    try std.testing.expectEqual(@as(u32, 1), state.model_call_count);
 }
 
 test "Agent tool observations obey the observation byte cap" {
