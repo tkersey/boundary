@@ -62,6 +62,15 @@ const terminal_status_codec = std.fmt.comptimePrint(
     },
 );
 
+const action_tag_codec = std.fmt.comptimePrint(
+    "sum(final={d}:string,tool={d}:Agent.ToolRequest,fail={d}:string)",
+    .{
+        @intFromEnum(ActionTag.final),
+        @intFromEnum(ActionTag.tool),
+        @intFromEnum(ActionTag.fail),
+    },
+);
+
 /// Role assigned to an Agent-related Certified Boundary Module artifact.
 pub const ModuleRole = enum(u8) {
     fixture_model = 2,
@@ -362,7 +371,7 @@ pub const canonical_value_schemas = [_]ValueSchema{
     schema("Agent.TraceSummary", "product(entry_count:u32,last_event:string,last_fingerprint:u64)"),
     schema("Agent.State", "product(goal:string,current_observation:string,prior_observation_summary:string,iteration_index:u32,remaining_budget:Agent.Budget,model_call_count:u32,tool_call_count:u32,terminal_status:" ++ terminal_status_codec ++ ",trace_summary:Agent.TraceSummary)"),
     schema("Agent.DecisionPrompt", "product(goal:string,observation:string,trace_summary:Agent.TraceSummary,budget:Agent.Budget)"),
-    schema("Agent.Action", "sum(final:string,tool:Agent.ToolRequest,fail:string)"),
+    schema("Agent.Action", action_tag_codec),
     schema("Agent.ToolId", "product(index:u16,diagnostic_label:string)"),
     schema("Agent.ToolPayload", "string"),
     schema("Agent.ToolRequest", "product(tool_id:Agent.ToolId,payload:Agent.ToolPayload)"),
@@ -714,6 +723,9 @@ test "Agent canonical value schema fingerprints are stable profile inputs" {
     try std.testing.expectEqualStrings("Agent.State", canonical_value_schemas[4].name);
     try std.testing.expect(std.mem.find(u8, canonical_value_schemas[4].codec, "terminal_status:enum(running=0,completed=1,failed=2)") != null);
     try std.testing.expect(canonical_value_schemas[4].fingerprint != schemaFingerprint("Agent.State", "product(goal:string,current_observation:string,prior_observation_summary:string,iteration_index:u32,remaining_budget:Agent.Budget,model_call_count:u32,tool_call_count:u32,terminal_status:u8,trace_summary:Agent.TraceSummary)"));
+    try std.testing.expectEqualStrings("Agent.Action", canonical_value_schemas[6].name);
+    try std.testing.expect(std.mem.find(u8, canonical_value_schemas[6].codec, "sum(final=0:string,tool=1:Agent.ToolRequest,fail=2:string)") != null);
+    try std.testing.expect(canonical_value_schemas[6].fingerprint != schemaFingerprint("Agent.Action", "sum(final:string,tool:Agent.ToolRequest,fail:string)"));
     try std.testing.expectEqualStrings("Agent.ToolPayload", canonical_value_schemas[8].name);
     try std.testing.expectEqualStrings("Agent.ToolRequest", canonical_value_schemas[9].name);
     try std.testing.expect(canonical_value_schemas[0].fingerprint != schemaFingerprint("Agent.Goal", "bytes"));

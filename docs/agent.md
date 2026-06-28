@@ -27,8 +27,9 @@ The fingerprint binds the limit fields, supported action variants, closed tool
 variants, value-schema fingerprints, and metadata bytes. Validation rejects
 unsupported format/fingerprint versions, empty capacities, incomplete tool or
 schema surfaces, action-surface mismatch, and fingerprint drift. The
-`Agent.State` schema binds the concrete `TerminalStatus` tag mapping, so
-renumbering terminal states changes the profile/corpus fingerprint surface.
+`Agent.State` schema binds the concrete `TerminalStatus` tag mapping, and
+`Agent.Action` schema binds the concrete closed sum tag mapping, so renumbering
+terminal states or actions changes the profile/corpus fingerprint surface.
 
 `Agent.canonical_value_schemas` defines the Agent-owned portable value schemas
 and fingerprints for `Agent.Goal`, `Agent.Observation`,
