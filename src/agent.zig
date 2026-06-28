@@ -119,7 +119,7 @@ pub fn ClosedToolSet(comptime labels: []const []const u8) type {
 
         /// Return all diagnostic labels in semantic variant order.
         pub fn variants() []const []const u8 {
-            return &labels;
+            return labels;
         }
     };
 }
@@ -637,6 +637,15 @@ test "Agent Profile v0 fingerprint is deterministic and bound to tool variants" 
     const shorter_tool_ids = [_]ToolId{tools.id(0)};
     const changed = Profile.fromConfig(config, &shorter_tool_ids, canonicalValueSchemaFingerprints(), "fixture-agent");
     try std.testing.expect(profile.profile_fingerprint != changed.profile_fingerprint);
+}
+
+test "ClosedToolSet variants exposes diagnostic labels in order" {
+    const tools = ClosedToolSet(&.{ "actuate", "read_file", "write_file" });
+    const variants = tools.variants();
+    try std.testing.expectEqual(@as(usize, 3), variants.len);
+    try std.testing.expectEqualStrings("actuate", variants[0]);
+    try std.testing.expectEqualStrings("read_file", variants[1]);
+    try std.testing.expectEqualStrings("write_file", variants[2]);
 }
 
 test "Agent canonical value schema fingerprints are stable profile inputs" {
