@@ -6400,7 +6400,7 @@ pub fn ExecutableSessionForPlan(
         ) anyerror!@TypeOf(value) {
             const ValueT = @TypeOf(value);
             if (!typeMatchesRuntimeRef(schema_types, ref, ValueT)) return error.ProgramContractViolation;
-            if (ValueT == void or ValueT == bool or ValueT == i32 or ValueT == usize) return value;
+            if (ValueT == void or ValueT == bool or ValueT == i32 or ValueT == u64 or ValueT == usize) return value;
             if (ValueT == []const u8) return try clone_context.cloneString(value);
             if (ValueT == []const []const u8) return try clone_context.cloneStringList(value);
             if (ValueT == [][]const u8) return try clone_context.cloneMutableStringList(value);

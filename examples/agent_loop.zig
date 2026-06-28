@@ -1075,6 +1075,8 @@ fn runLoadedFailureParityScenario(
                     try generated_session.resumeTyped(typed, action);
                     try loaded_session.@"resume"(loaded_request, loaded_response);
                 } else if (generated_request.matches(ToolboxCall)) {
+                    var capsule = try generated_session.capture(allocator);
+                    defer capsule.deinit();
                     var payload_arena = RootTarget.Module.LoadedValueArena.init(allocator);
                     defer payload_arena.deinit();
                     const typed = try generated_request.as(ToolboxCall);
