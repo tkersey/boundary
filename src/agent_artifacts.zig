@@ -27,6 +27,7 @@ const Scenario = struct {
     expected_failure: []const u8 = "",
     expected_model_calls: u32,
     expected_tool_calls: u32,
+    run_config: Agent.Config = config,
     replay: []const u8,
 };
 
@@ -59,6 +60,15 @@ const scenarios = [_]Scenario{
         .expected_failure = "AgentBudgetExhausted",
         .expected_model_calls = 1,
         .expected_tool_calls = 1,
+        .run_config = .{
+            .max_iterations = 1,
+            .max_model_calls = 1,
+            .max_tool_calls = 1,
+            .max_observation_bytes = config.max_observation_bytes,
+            .max_action_bytes = config.max_action_bytes,
+            .max_tool_result_bytes = config.max_tool_result_bytes,
+            .max_trace_entries = config.max_trace_entries,
+        },
         .replay = "zig build check-boundary-agent-conformance-corpus -- --test-filter 'budget exhaustion'",
     },
     .{
@@ -86,7 +96,7 @@ const scenarios = [_]Scenario{
         .kind = "parity",
         .initial_observation = "agent-module-manifest",
         .expected_terminal_status = .completed,
-        .expected_final = "full-module bytes and loaded module provenance match",
+        .expected_final = "approved:7",
         .expected_model_calls = 0,
         .expected_tool_calls = 0,
         .replay = "zig build check-boundary-agent-generated-loaded-parity",
@@ -184,6 +194,13 @@ fn appendScenario(out: *std.ArrayList(u8), allocator: std.mem.Allocator, scenari
         \\- id: {s}
         \\  kind: {s}
         \\  initial_observation: {s}
+        \\  scenario_max_iterations: {d}
+        \\  scenario_max_model_calls: {d}
+        \\  scenario_max_tool_calls: {d}
+        \\  scenario_max_observation_bytes: {d}
+        \\  scenario_max_action_bytes: {d}
+        \\  scenario_max_tool_result_bytes: {d}
+        \\  scenario_max_trace_entries: {d}
         \\  expected_terminal_status: {s}
         \\  expected_model_calls: {d}
         \\  expected_tool_calls: {d}
@@ -192,6 +209,13 @@ fn appendScenario(out: *std.ArrayList(u8), allocator: std.mem.Allocator, scenari
         scenario.scenario_id,
         scenario.kind,
         scenario.initial_observation,
+        scenario.run_config.max_iterations,
+        scenario.run_config.max_model_calls,
+        scenario.run_config.max_tool_calls,
+        scenario.run_config.max_observation_bytes,
+        scenario.run_config.max_action_bytes,
+        scenario.run_config.max_tool_result_bytes,
+        scenario.run_config.max_trace_entries,
         @tagName(scenario.expected_terminal_status),
         scenario.expected_model_calls,
         scenario.expected_tool_calls,

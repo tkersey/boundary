@@ -63,6 +63,13 @@ scenarios:
 - id: skeleton-one-tool
   kind: positive
   initial_observation: goal=invoke
+  scenario_max_iterations: 5
+  scenario_max_model_calls: 5
+  scenario_max_tool_calls: 4
+  scenario_max_observation_bytes: 1024
+  scenario_max_action_bytes: 256
+  scenario_max_tool_result_bytes: 1024
+  scenario_max_trace_entries: 8
   expected_terminal_status: completed
   expected_model_calls: 2
   expected_tool_calls: 1
@@ -72,6 +79,13 @@ scenarios:
 - id: fixture-read-write
   kind: positive
   initial_observation: goal=fixture
+  scenario_max_iterations: 5
+  scenario_max_model_calls: 5
+  scenario_max_tool_calls: 4
+  scenario_max_observation_bytes: 1024
+  scenario_max_action_bytes: 256
+  scenario_max_tool_result_bytes: 1024
+  scenario_max_trace_entries: 8
   expected_terminal_status: completed
   expected_model_calls: 3
   expected_tool_calls: 2
@@ -81,6 +95,13 @@ scenarios:
 - id: budget-exhaustion
   kind: negative
   initial_observation: goal=invoke
+  scenario_max_iterations: 1
+  scenario_max_model_calls: 1
+  scenario_max_tool_calls: 1
+  scenario_max_observation_bytes: 1024
+  scenario_max_action_bytes: 256
+  scenario_max_tool_result_bytes: 1024
+  scenario_max_trace_entries: 8
   expected_terminal_status: failed
   expected_model_calls: 1
   expected_tool_calls: 1
@@ -90,6 +111,13 @@ scenarios:
 - id: malformed-action
   kind: negative
   initial_observation: goal=invoke
+  scenario_max_iterations: 5
+  scenario_max_model_calls: 5
+  scenario_max_tool_calls: 4
+  scenario_max_observation_bytes: 1024
+  scenario_max_action_bytes: 256
+  scenario_max_tool_result_bytes: 1024
+  scenario_max_trace_entries: 8
   expected_terminal_status: failed
   expected_model_calls: 1
   expected_tool_calls: 0
@@ -99,6 +127,13 @@ scenarios:
 - id: unknown-tool-id
   kind: negative
   initial_observation: goal=invoke
+  scenario_max_iterations: 5
+  scenario_max_model_calls: 5
+  scenario_max_tool_calls: 4
+  scenario_max_observation_bytes: 1024
+  scenario_max_action_bytes: 256
+  scenario_max_tool_result_bytes: 1024
+  scenario_max_trace_entries: 8
   expected_terminal_status: failed
   expected_model_calls: 1
   expected_tool_calls: 0
@@ -108,11 +143,18 @@ scenarios:
 - id: generated-loaded-parity
   kind: parity
   initial_observation: agent-module-manifest
+  scenario_max_iterations: 5
+  scenario_max_model_calls: 5
+  scenario_max_tool_calls: 4
+  scenario_max_observation_bytes: 1024
+  scenario_max_action_bytes: 256
+  scenario_max_tool_result_bytes: 1024
+  scenario_max_trace_entries: 8
   expected_terminal_status: completed
   expected_model_calls: 0
   expected_tool_calls: 0
-  expected_final: full-module bytes and loaded module provenance match
-  expected_final_fingerprint: 0x1ecdad2829de77f5
+  expected_final: approved:7
+  expected_final_fingerprint: 0x21a051b902ee120c
   replay: zig build check-boundary-agent-generated-loaded-parity
 
 validation:
