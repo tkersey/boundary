@@ -37,6 +37,7 @@ pub const Protocol = struct {
             "check-boundary-agent-modules",
             "check-boundary-agent-generated-loaded-parity",
             "check-boundary-agent-conformance-corpus",
+            "check-boundary-agent-runtime-artifacts",
             "check-boundary-agent-profile-receipt-host",
             "check-boundary-agent-modules-receipt-host",
             "check-boundary-agent-generated-loaded-parity-receipt-host",
@@ -47,6 +48,7 @@ pub const Protocol = struct {
             "update-boundary-conformance-corpus",
             "update-boundary-agent-conformance-corpus",
             "emit-boundary-proof-receipts",
+            "emit-boundary-agent-runtime-artifacts",
             "dist-boundary-protocol",
         };
         pub const required_feature_flags = &.{

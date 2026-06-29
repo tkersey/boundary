@@ -1408,6 +1408,38 @@ pub fn build(b: *std.Build) void {
         }
     }
 
+    const runtime_dist_dir = b.getInstallPath(.prefix, "dist/boundary-v" ++ package.version ++ "-agent-runtime");
+    const boundary_agent_runtime_mod = b.createModule(.{
+        .root_source_file = b.path("examples/agent_loop.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+    });
+    boundary_agent_runtime_mod.addImport("boundary", host_boundary);
+    const boundary_agent_runtime_exe = b.addExecutable(.{
+        .name = "boundary-agent-runtime-artifacts",
+        .root_module = boundary_agent_runtime_mod,
+    });
+    const emit_boundary_agent_runtime = b.addRunArtifact(boundary_agent_runtime_exe);
+    emit_boundary_agent_runtime.addArgs(&.{ "export-agent-runtime", runtime_dist_dir });
+    emit_boundary_agent_runtime.step.dependOn(receipt_agent_modules_step);
+    emit_boundary_agent_runtime.step.dependOn(receipt_agent_parity_step);
+    const emit_runtime_step = b.step("emit-boundary-agent-runtime-artifacts", "Emit Boundary Agent Runtime pack-ready module artifacts.");
+    emit_runtime_step.dependOn(&emit_boundary_agent_runtime.step);
+    const check_runtime_step = b.step("check-boundary-agent-runtime-artifacts", "Check Boundary Agent Runtime pack-ready artifacts.");
+    const check_agent_root = b.addSystemCommand(&.{ "test", "-s", b.fmt("{s}/agent-root.full-module", .{runtime_dist_dir}) });
+    check_agent_root.step.dependOn(&emit_boundary_agent_runtime.step);
+    check_runtime_step.dependOn(&check_agent_root.step);
+    const check_toolbox = b.addSystemCommand(&.{ "test", "-s", b.fmt("{s}/toolbox-provider.full-module", .{runtime_dist_dir}) });
+    check_toolbox.step.dependOn(&emit_boundary_agent_runtime.step);
+    check_runtime_step.dependOn(&check_toolbox.step);
+    const check_protocol = b.addSystemCommand(&.{ "test", "-s", b.fmt("{s}/boundary-protocol-manifest.bin", .{runtime_dist_dir}) });
+    check_protocol.step.dependOn(&emit_boundary_agent_runtime.step);
+    check_runtime_step.dependOn(&check_protocol.step);
+    const check_profile = b.addSystemCommand(&.{ "test", "-s", b.fmt("{s}/agent-profile.json", .{runtime_dist_dir}) });
+    check_profile.step.dependOn(&emit_boundary_agent_runtime.step);
+    check_runtime_step.dependOn(&check_profile.step);
+    check_step.dependOn(check_runtime_step);
+
     const bench_check_step = b.step("bench-check", "Compile retained benchmark programs.");
     test_step.dependOn(bench_check_step);
 
