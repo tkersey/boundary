@@ -2,4 +2,5 @@
 test {
     _ = @import("root.zig");
     _ = @import("source/tests.zig");
+    _ = @import("source/capture_tests.zig");
 }

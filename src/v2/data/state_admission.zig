@@ -74,6 +74,7 @@ pub fn validate(allocator: std.mem.Allocator, program: p.Program, state: g.State
         .loan_resources = try temporary.alloc(?g.NodeRef, state.nodes.len),
         .captured_delimiters = try temporary.alloc(?p.Id, state.nodes.len),
         .frame_children = try temporary.alloc(?g.NodeRef, state.nodes.len),
+        .normal_return = try temporary.alloc(bool, state.nodes.len),
         .enter = try temporary.alloc(usize, state.nodes.len),
         .leave = try temporary.alloc(usize, state.nodes.len),
     };
@@ -142,6 +143,13 @@ pub fn validate(allocator: std.mem.Allocator, program: p.Program, state: g.State
     for (state.nodes, context.custody) |record, count| if (isFrame(record) and count != 1) return error.InvalidOwnership;
     for (state.nodes, context.region_owners) |record, count| if (record == .region and count != 1) return error.InvalidOwnership;
     try context.frameForest();
+    const returning = switch (state.status) {
+        .active, .yielded => state.roots.current,
+        .parked => (try node(state, state.roots.pending.?)).pending.continuation,
+        .unwinding => null,
+    };
+    if (returning) |ref| if (!context.normal_return[@intCast(ref.id)])
+        return error.InvalidState;
     try context.exits();
     context.effect_check = try state_effects.Check.init(
         temporary,
@@ -194,6 +202,7 @@ const Context = struct {
     loan_resources: []?g.NodeRef,
     captured_delimiters: []?p.Id,
     frame_children: []?g.NodeRef,
+    normal_return: []bool,
     effect_check: ?state_effects.Check = null,
     enter: []usize,
     leave: []usize,
@@ -247,6 +256,7 @@ const Context = struct {
         var pending: std.ArrayList(Task) = .empty;
         @memset(self.enter, std.math.maxInt(usize));
         @memset(self.leave, std.math.maxInt(usize));
+        @memset(self.normal_return, false);
         for (self.state.nodes, 0..) |record, id| if ((isFrame(record) or record == .region) and treeParent(record) == null)
             try pending.append(self.allocator, .{ .id = id, .leaving = false });
         var clock: usize = 0;
@@ -259,6 +269,17 @@ const Context = struct {
             if (self.enter[task.id] != std.math.maxInt(usize)) return error.InvalidState;
             self.enter[task.id] = clock;
             clock += 1;
+            const record = self.state.nodes[task.id];
+            self.normal_return[task.id] = switch (record) {
+                // These frames switch from normal return to structured unwinding.
+                .protection, .cleanup_return => true,
+                .control, .continuation, .attachment, .region_scope, .injection => if (frameParent(record)) |parent|
+                    self.normal_return[@intCast(parent.id)]
+                else
+                    true,
+                // A disposal marker continues an existing unwind; it has no answer.
+                else => false,
+            };
             try pending.append(self.allocator, .{ .id = task.id, .leaving = true });
             for (children[task.id].items) |id| try pending.append(self.allocator, .{ .id = id, .leaving = false });
         }
@@ -466,11 +487,13 @@ const Context = struct {
                         try self.value(value_item, value_item.schema);
                         const after = try node(self.state, exit.stop orelse return error.InvalidState);
                         if (after != .continuation or after.continuation.source_block >= self.program.blocks.len or self.program.blocks[@intCast(after.continuation.source_block)].terminator != .protect) return error.InvalidState;
+                        if (!self.normal_return[@intCast(exit.stop.?.id)]) return error.InvalidState;
                         try self.checkParent(exit.stop, value_item.schema);
                     },
                     .abandoned => {
                         const after = try node(self.state, exit.stop orelse return error.InvalidState);
                         if (after != .continuation or after.continuation.source_block >= self.program.blocks.len or self.program.blocks[@intCast(after.continuation.source_block)].terminator != .dispose) return error.InvalidState;
+                        if (!self.normal_return[@intCast(exit.stop.?.id)]) return error.InvalidState;
                     },
                     .failure => |failure| {
                         try self.value(failure, self.program.roots.failure);
@@ -1153,9 +1176,19 @@ const Context = struct {
         while (cursor) |ref| {
             if (ref.id == token.delimiter.id) return;
             const frame = try node(self.state, ref);
-            if (frame == .continuation) for (frame.continuation.arguments) |argument| if (argument) |item_value| {
-                if (std.mem.indexOfScalar(p.Id, signature.capture_bound, item_value.schema) == null) return error.InvalidOwnership;
-            };
+            switch (frame) {
+                .continuation => |saved_frame| for (saved_frame.arguments) |argument| {
+                    if (argument) |item| try self.capturedValue(signature, item);
+                },
+                .attachment => |attachment| {
+                    const handler = (try node(self.state, attachment.handler)).handler;
+                    for (handler.state) |item| try self.capturedValue(signature, item);
+                },
+                .disposal_return => |disposal| {
+                    for (disposal.values) |item| try self.capturedValue(signature, item);
+                },
+                else => {},
+            }
             if (frame == .region_scope) {
                 const region_node = (try node(self.state, frame.region_scope.region)).region;
                 if (std.mem.indexOfScalar(p.Id, signature.owned_regions, region_node.descriptor) == null) return error.InvalidOwnership;
@@ -1168,5 +1201,10 @@ const Context = struct {
             cursor = frameParent(frame);
         }
         return error.InvalidScope;
+    }
+
+    fn capturedValue(_: Context, signature: p.ResumptionType, item: g.Value) Error!void {
+        if (std.mem.indexOfScalar(p.Id, signature.capture_bound, item.schema) == null)
+            return error.InvalidOwnership;
     }
 };

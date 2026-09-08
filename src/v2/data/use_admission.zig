@@ -101,7 +101,10 @@ pub fn block(allocator: std.mem.Allocator, image: p.Program, code: p.Block, slot
             const handler = image.handlers[@intCast(handle.handler)];
             const signature = try contracts.computation(image, slots[@intCast(handle.body)]);
             for (signature.effects) |effect| {
-                if (!effect_scope.discharged(image, effect_facts, handler, signature, effect)) try check.control(&.{effect}, handle.next);
+                if (!effect_scope.discharged(image, effect_facts, handler, signature, effect)) {
+                    try check.control(&.{effect}, handle.next);
+                    for (handle.state) |slot| try check.captureSlot(effect, slot);
+                }
             }
             try check.control(handler.effects, handle.next);
             try check.edge(handle.next, handler.answer);
@@ -119,7 +122,14 @@ pub fn block(allocator: std.mem.Allocator, image: p.Program, code: p.Block, slot
             for (resuming.state) |slot| try check.consume(slot);
             const signature = try contracts.resumption(image, slots[@intCast(resuming.resumption)]);
             const successor = image.handlers[@intCast(resuming.handler)];
-            for (signature.effects) |effect| if (std.mem.indexOfScalar(p.Id, signature.handled, effect) == null or std.mem.indexOfScalar(p.Id, signature.escaping, effect) != null) try check.control(&.{effect}, resuming.next);
+            for (signature.effects) |effect| {
+                const escapes = std.mem.indexOfScalar(p.Id, signature.handled, effect) == null or
+                    std.mem.indexOfScalar(p.Id, signature.escaping, effect) != null;
+                if (escapes) {
+                    try check.control(&.{effect}, resuming.next);
+                    for (resuming.state) |slot| try check.captureSlot(effect, slot);
+                }
+            }
             try check.control(successor.effects, resuming.next);
             try check.edge(resuming.next, successor.answer);
         },
@@ -205,21 +215,28 @@ const Check = struct {
     fn control(self: Check, effects: []const p.Id, target: p.Edge) a.Error!void {
         for (effects) |effect| {
             for (target.arguments) |argument| if (argument == .slot) {
-                const schema = self.slots[@intCast(argument.slot)];
-                if (self.image.effects[@intCast(effect)].control_use == .multi and !self.facts.clone[@intCast(schema)]) {
-                    if (self.diagnostic) |d| {
-                        d.slot = argument.slot;
-                        d.effect = effect;
-                    }
-                    return error.InvalidOwnership;
-                }
-                // Capture bounds are checked at every call edge that may carry the
-                // effect, including edges in recursive strongly connected components.
-                for (self.image.handlers) |handler| for (handler.clauses) |clause| if (clause.effect == effect) {
-                    const signature = try contracts.resumption(self.image, clause.resumption);
-                    if (std.mem.indexOfScalar(p.Id, signature.capture_bound, schema) == null) return error.InvalidOwnership;
-                };
+                try self.captureSlot(effect, argument.slot);
             };
         }
+    }
+
+    fn captureSlot(self: Check, effect: p.Id, slot: p.Id) a.Error!void {
+        const schema = self.slots[@intCast(slot)];
+        if (self.image.effects[@intCast(effect)].control_use == .multi and
+            !self.facts.clone[@intCast(schema)])
+        {
+            if (self.diagnostic) |d| {
+                d.slot = slot;
+                d.effect = effect;
+            }
+            return error.InvalidOwnership;
+        }
+        // Both continuation arguments and crossed handler state belong to the capture.
+        for (self.image.handlers) |handler| for (handler.clauses) |clause| {
+            if (clause.effect != effect) continue;
+            const signature = try contracts.resumption(self.image, clause.resumption);
+            if (std.mem.indexOfScalar(p.Id, signature.capture_bound, schema) == null)
+                return error.InvalidOwnership;
+        };
     }
 };
