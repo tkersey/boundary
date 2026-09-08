@@ -271,9 +271,16 @@ const Context = struct {
             clock += 1;
             const record = self.state.nodes[task.id];
             self.normal_return[task.id] = switch (record) {
-                // These frames switch from normal return to structured unwinding.
-                .protection, .cleanup_return => true,
-                .control, .continuation, .attachment, .region_scope, .injection => if (frameParent(record)) |parent|
+                // Completing cleanup resumes an existing, independently checked exit.
+                .cleanup_return => true,
+                // Protection creates a normal exit that must eventually return here.
+                .control,
+                .continuation,
+                .attachment,
+                .region_scope,
+                .injection,
+                .protection,
+                => if (frameParent(record)) |parent|
                     self.normal_return[@intCast(parent.id)]
                 else
                     true,
@@ -1152,6 +1159,7 @@ const Context = struct {
     fn capture(self: *Context, token: anytype) Error!void {
         const signature = try contracts.resumption(self.program, token.schema);
         if (token.capture == null) return error.InvalidState;
+        if (!self.normal_return[@intCast(token.capture.?.id)]) return error.InvalidState;
         const saved = try node(self.state, token.capture.?);
         const delimiter = try node(self.state, token.delimiter);
         if (saved != .continuation or delimiter != .attachment or delimiter.attachment.phase != .suspended) return error.InvalidState;
