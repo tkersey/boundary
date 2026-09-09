@@ -1,5 +1,5 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
-pub const package_version = "2.0.0-dev.0";
+pub const package_version = "2.0.0";
 pub const computation = @import("source.zig");
 pub const source = computation;
 pub const effect = @import("effect.zig");

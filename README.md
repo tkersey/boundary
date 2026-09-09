@@ -4,7 +4,7 @@ Boundary checks staged Zig computations and handlers and compiles them into
 complete, portable BPI2 program data. World 5 executes that data with one generic
 native/WASM interpreter. Boundary contains no production evaluator.
 
-The current development version is `2.0.0-dev.0`, using Zig `0.16.0`.
+Boundary `2.0.0` uses Zig `0.16.0`.
 
 ## Author and compile
 

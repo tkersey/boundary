@@ -1,6 +1,6 @@
 .{
     .name = .boundary,
-    .version = "2.0.0-dev.0",
+    .version = "2.0.0",
     .dependencies = .{},
     .minimum_zig_version = "0.16.0",
     .paths = .{
