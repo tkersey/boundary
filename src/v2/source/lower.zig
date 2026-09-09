@@ -893,9 +893,8 @@ fn cacheableValues(allocator: std.mem.Allocator, source: ast.Module, traits: dat
             }
             for (primitive.operands) |operand| {
                 if (!cacheable[@intCast(operand)]) break :blk false;
-                if (!primitive.opcode.borrowsOperands() and
-                    !traits.copy[@intCast(source.values[@intCast(operand)].schema)])
-                    break :blk false;
+                // Even a borrow requires its owner to remain live at this occurrence.
+                if (!traits.copy[@intCast(source.values[@intCast(operand)].schema)]) break :blk false;
             }
             break :blk true;
         },
