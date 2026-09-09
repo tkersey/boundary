@@ -83,6 +83,7 @@ src/v2/source/shallow_resume_example.zig
 src/v2/source/state_choice_example.zig
 src/v2/source/tests.zig
 src/v2/source/capture_tests.zig
+src/v2/source/projection_tests.zig
 src/v2/source/unwind_example.zig
 src/v2/source/writer_raise_example.zig
 src/v2/test_root.zig

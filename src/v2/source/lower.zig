@@ -891,7 +891,12 @@ fn cacheableValues(allocator: std.mem.Allocator, source: ast.Module, traits: dat
                 .cell_new, .cell_get, .cell_set, .clone_resumption, .package, .unpack, .resource_pack, .resource_unpack => break :blk false,
                 else => {},
             }
-            for (primitive.operands) |operand| if (!cacheable[@intCast(operand)]) break :blk false;
+            for (primitive.operands) |operand| {
+                if (!cacheable[@intCast(operand)]) break :blk false;
+                if (!primitive.opcode.borrowsOperands() and
+                    !traits.copy[@intCast(source.values[@intCast(operand)].schema)])
+                    break :blk false;
+            }
             break :blk true;
         },
     };

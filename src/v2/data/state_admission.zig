@@ -109,6 +109,12 @@ pub fn validate(allocator: std.mem.Allocator, program: p.Program, state: g.State
     for (state.nodes, 0..) |record, id| {
         try context.custodian(frameParent(record), .{ .id = id });
         switch (record) {
+            .attachment => |attachment| {
+                // Every semantic traversal may follow this link, regardless of node order.
+                const activation = try node(state, attachment.handler);
+                if (activation != .handler or activation.handler.definition >= program.handlers.len)
+                    return error.InvalidState;
+            },
             .one_shot, .multi_template => |v| {
                 try context.custodian(v.capture, .{ .id = id });
                 if (try node(state, v.delimiter) != .attachment) return error.InvalidState;
@@ -402,9 +408,8 @@ const Context = struct {
                 if (result_type != try self.expectedResult(self.program.blocks[@intCast(saved.source_block)])) return error.TypeMismatch;
             },
             .attachment => |attachment| {
-                const activation = try node(self.state, attachment.handler);
-                if (activation != .handler or activation.handler.definition >= self.program.handlers.len) return error.InvalidState;
-                if (result_type != self.program.handlers[@intCast(activation.handler.definition)].input) return error.TypeMismatch;
+                const activation = (try node(self.state, attachment.handler)).handler;
+                if (result_type != self.program.handlers[@intCast(activation.definition)].input) return error.TypeMismatch;
             },
             .region_scope => |scope| {
                 if (scope.source_block >= self.program.blocks.len or result_type != try self.expectedResult(self.program.blocks[@intCast(scope.source_block)])) return error.TypeMismatch;
@@ -562,7 +567,6 @@ const Context = struct {
             },
             .attachment => |attachment| {
                 const activation = try node(self.state, attachment.handler);
-                if (activation != .handler or activation.handler.definition >= self.program.handlers.len) return error.InvalidState;
                 if (!std.meta.eql(attachment.outer, activation.handler.evidence)) return error.InvalidScope;
                 try self.evidence(attachment.outer);
                 if (attachment.phase == .active) try self.checkParent(attachment.return_to, self.program.handlers[@intCast(activation.handler.definition)].answer) else if (attachment.return_to != null) return error.InvalidState;
@@ -1167,7 +1171,6 @@ const Context = struct {
         const source = self.program.blocks[@intCast(saved.continuation.source_block)].terminator;
         if (source != .perform or source.perform.effect != signature.effect or source.perform.capability == null) return error.InvalidState;
         const activation = try node(self.state, delimiter.attachment.handler);
-        if (activation != .handler or activation.handler.definition >= self.program.handlers.len) return error.InvalidState;
         var matching = false;
         for (self.program.handlers[@intCast(activation.handler.definition)].clauses) |clause| if (clause.effect == signature.effect and (clause.resumption == token.schema or try contracts.cloneCompatible(self.program, clause.resumption, token.schema))) {
             matching = true;
