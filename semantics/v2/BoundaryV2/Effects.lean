@@ -342,9 +342,16 @@ def Machine.Valid (machine : Machine A outside result) : Prop :=
   | .pending pending => machine.ownership.live = [pending.token]
   | _ => machine.ownership.live = []
 
+/-- Reserve above every ambient identity. The requested supply is a lower bound;
+an already sufficient supply is unchanged. Empty environments allocate nothing. -/
+def reserveAttachments : List Nat → Nat → Nat
+  | [], fresh => fresh
+  | identity :: rest, fresh => max (identity + 1) (reserveAttachments rest fresh)
+
 def initial (body : Flow A 0 caps [] result) (capabilities : Capabilities caps)
     (fresh : Nat) : Machine A 0 result :=
-  ⟨.empty, fresh, .running ⟨0, result, .code body .nil capabilities, .nil, .done⟩⟩
+  ⟨.empty, reserveAttachments capabilities.toList fresh,
+    .running ⟨0, result, .code body .nil capabilities, .nil, .done⟩⟩
 
 theorem initial_is_well_owned (body : Flow A 0 caps [] result)
     (capabilities : Capabilities caps) (fresh : Nat) : (initial body capabilities fresh).Valid :=

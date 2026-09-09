@@ -133,14 +133,10 @@ pub fn build(b: *std.Build) void {
     semantics.dependOn(&oracleScopeChecks(b, boundary, optimize).step);
     semantics.dependOn(&borrowReturnChecks(b, boundary, optimize).step);
     semantics.dependOn(&b.addRunArtifact(authoring).step);
-    const formal = b.addSystemCommand(&.{ "lake", "build" });
-    formal.setCwd(b.path("semantics/v2"));
+    const formal = b.addSystemCommand(&.{"node"});
+    formal.addFileArg(b.path("semantics/v2/check.mjs"));
     formal.has_side_effects = true;
-    const trust = b.addSystemCommand(&.{ "lake", "env", "lean", "Trust.lean" });
-    trust.setCwd(b.path("semantics/v2"));
-    trust.has_side_effects = true;
-    trust.step.dependOn(&formal.step);
-    semantics.dependOn(&trust.step);
+    semantics.dependOn(&formal.step);
     const aggregate = b.step("check-v2", "Check compiler, source semantics, formal core, data and economy without a runtime");
     aggregate.dependOn(data_step);
     aggregate.dependOn(historical_step);

@@ -23,4 +23,4 @@ run_cmd do
       unless #[`propext, `Quot.sound, `Classical.choice].contains axiomName do
         throwError "trust audit: unapproved axiom {axiomName} in {name} (module {owner})"
   if theorems == 0 then throwError "trust audit: no BoundaryV2 theorems discovered"
-  logInfo m!"trust audit: checked {declarations} declarations ({theorems} theorems); only propext, Quot.sound, Classical.choice permitted"
+  Lean.logInfo m!"trust audit: checked {declarations} declarations ({theorems} theorems); only propext, Quot.sound, Classical.choice permitted"

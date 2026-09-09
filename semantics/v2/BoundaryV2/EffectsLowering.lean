@@ -301,10 +301,11 @@ theorem effectful_step_simulation (machine : Machine Expr outside result) (input
       (transition Expr.eval machine input).map compileMachine :=
   map_preserves_transition compileAtom Expr.eval evaluateBlock compile_atom_preserves_evaluation machine input
 
-/-- Equality of the complete observable trace implies weak trace agreement
-after discarding internal transitions. It covers effectful bind, branches,
-deep/shallow capture, both non-tail callers, repeated template activation,
-region reads/writes, and residual linear resume/dispose/transfer. -/
+/-- Equality of state-observation samples for every finite input script. This
+API samples parked states again on internal polls; it is not an event stream.
+`EffectsTrace.driveEvents` separately proves event-trace preservation and
+silence of parked polling. Both cover effectful bind, branches, deep/shallow
+capture, non-tail callers, repeated templates, regions, and residual custody. -/
 theorem effectful_trace_simulation (machine : Machine Expr outside result) (inputs : List Input) :
     drive evaluateBlock (compileMachine machine) inputs =
       (drive Expr.eval machine inputs).map (fun (last, trace) => (compileMachine last, trace)) :=

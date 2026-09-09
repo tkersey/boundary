@@ -4,11 +4,13 @@ on:
   pull_request:
     paths:
       - 'semantics/v2/**'
+      - 'build.zig'
       - '.github/workflows/lean.yml'
   push:
     branches: [main]
     paths:
       - 'semantics/v2/**'
+      - 'build.zig'
       - '.github/workflows/lean.yml'
 
 permissions:
@@ -21,11 +23,15 @@ concurrency:
 jobs:
   formal-core:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '26.8.1'
+          package-manager-cache: false
       - name: Install the pinned Lean distribution
         shell: bash
         run: |
@@ -37,31 +43,17 @@ jobs:
           mkdir "$RUNNER_TEMP/lean"
           tar --zstd -xf "$RUNNER_TEMP/lean.tar.zst" --strip-components=1 -C "$RUNNER_TEMP/lean"
           echo "$RUNNER_TEMP/lean/bin" >> "$GITHUB_PATH"
-      - name: Export the offline validation workspace
-        if: github.head_ref == 'codex/lean-proof-boundary-hardening'
+      - name: Install Zig 0.16.0
+        shell: bash
         run: |
-          git archive --format=tar.gz --output="$RUNNER_TEMP/boundary-source.tar.gz" HEAD
-          split -b 300M "$RUNNER_TEMP/lean.tar.zst" "$RUNNER_TEMP/lean-part-"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        if: github.head_ref == 'codex/lean-proof-boundary-hardening'
-        with:
-          name: linux-proof-workspace-a
-          path: |
-            ${{ runner.temp }}/lean-part-aa
-            ${{ runner.temp }}/boundary-source.tar.gz
-          compression-level: 0
-          retention-days: 1
-          if-no-files-found: error
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        if: github.head_ref == 'codex/lean-proof-boundary-hardening'
-        with:
-          name: linux-proof-workspace-b
-          path: ${{ runner.temp }}/lean-part-ab
-          compression-level: 0
-          retention-days: 1
-          if-no-files-found: error
-      - name: Check the formal core and trust boundary
-        working-directory: semantics/v2
-        run: |
-          lake build
-          lake env lean Trust.lean
+          set -euo pipefail
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/zig.tar.xz" \
+            https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz
+          echo "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00  $RUNNER_TEMP/zig.tar.xz" | sha256sum --check
+          mkdir "$RUNNER_TEMP/zig"
+          tar -xf "$RUNNER_TEMP/zig.tar.xz" --strip-components=1 -C "$RUNNER_TEMP/zig"
+          echo "$RUNNER_TEMP/zig" >> "$GITHUB_PATH"
+      - name: Check the formal core and trust-policy mutations
+        run: node semantics/v2/check.mjs --self-test
+      - name: Check repository integration
+        run: zig build check-v2 -Doptimize=ReleaseSafe -j2 --summary all
