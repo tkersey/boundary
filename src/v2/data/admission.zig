@@ -1,0 +1,462 @@
+// Copyright (c) 2026 Boundary contributors. MIT license.
+const std = @import("std");
+const p = @import("program.zig");
+const wire = @import("wire.zig");
+pub const Diagnostic = @import("diagnostic.zig").Diagnostic;
+
+pub const Error = wire.Error || std.mem.Allocator.Error || error{
+    InvalidSchema,
+    InvalidValue,
+    InvalidProgram,
+    InvalidReference,
+    TypeMismatch,
+    InvalidEffect,
+    UnsupportedProfile,
+    UnsupportedInstruction,
+    InvalidOwnership,
+};
+
+pub const SchemaFacts = struct { minimum: []u64, exportable: []bool };
+
+pub fn schemaAt(catalog: []const p.Schema, id: p.Id) Error!p.Schema {
+    if (id >= catalog.len) return error.InvalidSchema;
+    return catalog[@intCast(id)];
+}
+
+/// Least fixed points admit productive recursive data, never unguarded cycles.
+pub fn schemas(allocator: std.mem.Allocator, catalog: []const p.Schema) Error!SchemaFacts {
+    const minimum = try allocator.alloc(u64, catalog.len);
+    errdefer allocator.free(minimum);
+    const exportable = try allocator.alloc(bool, catalog.len);
+    errdefer allocator.free(exportable);
+    @memset(minimum, std.math.maxInt(u64));
+    @memset(exportable, true);
+    for (catalog) |schema| try references(catalog, schema);
+    var changed = true;
+    while (changed) {
+        changed = false;
+        for (catalog, 0..) |schema, index| {
+            const width = minimumWidth(schema, minimum);
+            const public = exportableSchema(schema, exportable);
+            if (width < minimum[index]) {
+                minimum[index] = width;
+                changed = true;
+            }
+            if (!public and exportable[index]) {
+                exportable[index] = false;
+                changed = true;
+            }
+        }
+    }
+    for (minimum) |width| if (width == std.math.maxInt(u64)) return error.InvalidSchema;
+    return .{ .minimum = minimum, .exportable = exportable };
+}
+
+pub fn references(catalog: []const p.Schema, schema: p.Schema) Error!void {
+    switch (schema) {
+        .enumeration => |tags| {
+            for (tags, 0..) |tag, index| if (index != 0 and tags[index - 1] >= tag) return error.InvalidSchema;
+        },
+        .product, .sum => |fields| {
+            for (fields) |id| _ = try schemaAt(catalog, id);
+            if (schema == .sum and fields.len == 0) return error.InvalidSchema;
+        },
+        .seq => |id| {
+            _ = try schemaAt(catalog, id);
+        },
+        .vector => |vector| {
+            _ = try schemaAt(catalog, vector.element);
+        },
+        .array => |array| {
+            _ = try schemaAt(catalog, array.element);
+        },
+        .internal => |internal| switch (internal) {
+            .computation => |computation| {
+                for (computation.parameters) |id| _ = try schemaAt(catalog, id);
+                for (computation.capture_bound) |id| _ = try schemaAt(catalog, id);
+                _ = try schemaAt(catalog, computation.result);
+            },
+            .resumption => |resumption| {
+                _ = try schemaAt(catalog, resumption.input);
+                _ = try schemaAt(catalog, resumption.answer);
+                for (resumption.capture_bound) |id| _ = try schemaAt(catalog, id);
+            },
+            .cell => |cell| {
+                _ = try schemaAt(catalog, cell.element);
+            },
+            .suspension_package => |id| {
+                const inner = try schemaAt(catalog, id);
+                if (inner != .internal or inner.internal != .resumption or (inner.internal.resumption.use != .linear and inner.internal.resumption.use != .affine)) return error.InvalidSchema;
+            },
+            .borrowed => |borrowed| {
+                _ = try schemaAt(catalog, borrowed.value);
+            },
+            else => {},
+        },
+        else => {},
+    }
+}
+
+fn minimumWidth(schema: p.Schema, minimum: []const u64) u64 {
+    return switch (schema) {
+        .unit, .internal => 0,
+        .boolean, .i8, .u8 => 1,
+        .i16, .u16 => 2,
+        .i32, .u32, .enumeration => 4,
+        .i64, .u64 => 8,
+        .bytes, .text, .bounded_bytes, .bounded_text, .seq, .vector => 1,
+        .array => |array| if (array.length == 0) 0 else std.math.mul(u64, minimum[@intCast(array.element)], array.length) catch std.math.maxInt(u64),
+        .product => |fields| blk: {
+            var size: u64 = 0;
+            for (fields) |id| size = std.math.add(u64, size, minimum[@intCast(id)]) catch
+                break :blk std.math.maxInt(u64);
+            break :blk size;
+        },
+        .sum => |fields| blk: {
+            var size: u64 = std.math.maxInt(u64);
+            for (fields) |id| size = @min(size, minimum[@intCast(id)]);
+            break :blk std.math.add(u64, size, 1) catch std.math.maxInt(u64);
+        },
+    };
+}
+
+fn exportableSchema(schema: p.Schema, public: []const bool) bool {
+    return switch (schema) {
+        .internal => false,
+        .product, .sum => |fields| blk: {
+            for (fields) |id| if (!public[@intCast(id)]) break :blk false;
+            break :blk true;
+        },
+        .seq => |id| public[@intCast(id)],
+        .vector => |vector| public[@intCast(vector.element)],
+        .array => |array| public[@intCast(array.element)],
+        else => true,
+    };
+}
+
+pub fn value(
+    allocator: std.mem.Allocator,
+    catalog: []const p.Schema,
+    facts: SchemaFacts,
+    literal: p.Literal,
+) Error!void {
+    var reader: wire.Reader = .{ .input = literal.bytes };
+    _ = try readValue(allocator, catalog, facts, literal.schema, &reader);
+    try reader.finish();
+}
+
+/// Reads one canonical value from a sequence of schema-directed arguments.
+/// The returned bytes borrow the reader's input. No computation is evaluated.
+pub fn readValue(
+    allocator: std.mem.Allocator,
+    catalog: []const p.Schema,
+    facts: SchemaFacts,
+    schema: p.Id,
+    reader: *wire.Reader,
+) Error![]const u8 {
+    _ = try schemaAt(catalog, schema);
+    if (!facts.exportable[@intCast(schema)]) return error.InvalidValue;
+    if (reader.position > reader.input.len) return error.Truncated;
+    const start = reader.position;
+    const Task = struct { schema: p.Id, count: u64 };
+    var pending: std.ArrayList(Task) = .empty;
+    defer pending.deinit(allocator);
+    try pending.append(allocator, .{ .schema = schema, .count = 1 });
+    while (pending.pop()) |task| {
+        const index: usize = @intCast(task.schema);
+        const minimum = facts.minimum[index];
+        if (task.count == 0 or minimum == 0) continue;
+        if (task.count > (reader.input.len - reader.position) / minimum) return error.InvalidValue;
+        if (task.count > 1) try pending.append(allocator, .{ .schema = task.schema, .count = task.count - 1 });
+        switch (catalog[index]) {
+            .unit => {},
+            .boolean => {
+                if (try reader.byte() > 1) return error.InvalidValue;
+            },
+            .i8, .u8, .i16, .u16, .i32, .u32, .i64, .u64 => {
+                _ = try reader.take(@intCast(minimum));
+            },
+            .enumeration => |tags| {
+                const bytes = try reader.take(4);
+                const tag = std.mem.readInt(u32, bytes[0..4], .little);
+                if (std.mem.indexOfScalar(u32, tags, tag) == null) return error.InvalidValue;
+            },
+            .bytes => {
+                _ = try reader.bytes();
+            },
+            .text => {
+                _ = try reader.text();
+            },
+            .bounded_bytes => |maximum| {
+                if ((try reader.bytes()).len > maximum) return error.InvalidValue;
+            },
+            .bounded_text => |maximum| {
+                if ((try reader.text()).len > maximum) return error.InvalidValue;
+            },
+            .product => |fields| {
+                var i = fields.len;
+                while (i != 0) {
+                    i -= 1;
+                    try pending.append(allocator, .{ .schema = fields[i], .count = 1 });
+                }
+            },
+            .sum => |fields| {
+                const tag = try reader.count();
+                if (tag >= fields.len) return error.InvalidValue;
+                try pending.append(allocator, .{ .schema = fields[tag], .count = 1 });
+            },
+            .seq => |element| try pending.append(allocator, .{ .schema = element, .count = try reader.natural() }),
+            .vector => |vector| {
+                const count = try reader.natural();
+                if (count > vector.maximum) return error.InvalidValue;
+                try pending.append(allocator, .{ .schema = vector.element, .count = count });
+            },
+            .array => |array| try pending.append(allocator, .{ .schema = array.element, .count = array.length }),
+            .internal => return error.InvalidValue,
+        }
+    }
+    return reader.input[start..reader.position];
+}
+
+pub fn program(allocator: std.mem.Allocator, image: p.Program) Error!void {
+    return programDiagnosed(allocator, image, null);
+}
+
+pub fn programDiagnosed(allocator: std.mem.Allocator, image: p.Program, diagnostic: ?*Diagnostic) Error!void {
+    if (diagnostic) |d| d.* = .{};
+    errdefer |err| if (diagnostic) |d| {
+        d.code = err;
+    };
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const scratch = arena.allocator();
+    if (image.roots.profile != 1) return error.UnsupportedProfile;
+    const facts = try schemas(scratch, image.schemas);
+    if (image.roots.entry >= image.functions.len) return error.InvalidProgram;
+    _ = try schemaAt(image.schemas, image.roots.result);
+    _ = try schemaAt(image.schemas, image.roots.failure);
+    if (!facts.exportable[@intCast(image.roots.result)] or
+        !facts.exportable[@intCast(image.roots.failure)]) return error.InvalidSchema;
+    if (image.functions[@intCast(image.roots.entry)].result != image.roots.result) return error.TypeMismatch;
+    for (image.functions[@intCast(image.roots.entry)].parameters) |id| {
+        _ = try schemaAt(image.schemas, id);
+        if (!facts.exportable[@intCast(id)]) return error.InvalidSchema;
+    }
+    for (image.constants) |literal| {
+        if (diagnostic) |d| d.* = .{ .phase = .constant, .schema = literal.schema };
+        try value(scratch, image.schemas, facts, literal);
+    }
+    for (image.effects, 0..) |effect, index| {
+        if (diagnostic) |d| d.* = .{ .phase = .effect, .effect = index };
+        if (effect.identity.len == 0 or !std.unicode.utf8ValidateSlice(effect.identity)) return error.InvalidEffect;
+        _ = try schemaAt(image.schemas, effect.payload);
+        _ = try schemaAt(image.schemas, effect.result);
+        if (!facts.exportable[@intCast(effect.result)]) return error.InvalidEffect;
+        if (effect.external and (!facts.exportable[@intCast(effect.payload)] or effect.bodies.len != 0)) return error.InvalidEffect;
+        for (effect.use_site_effects) |id| if (id >= image.effects.len) return error.InvalidEffect;
+    }
+    for (image.functions, 0..) |function, index| {
+        if (diagnostic) |d| d.* = .{ .phase = .function, .function = index };
+        if (function.entry >= image.blocks.len) return error.InvalidReference;
+        const entry = image.blocks[@intCast(function.entry)];
+        if (entry.function != index or !std.mem.eql(p.Id, entry.parameters, function.parameters)) return error.TypeMismatch;
+        _ = try schemaAt(image.schemas, function.result);
+        for (function.effects) |id| if (id >= image.effects.len) return error.InvalidEffect;
+    }
+    const use_facts = try @import("contracts.zig").validateDiagnosed(scratch, image, diagnostic);
+    const effect_facts = try @import("effect_scope.zig").derive(scratch, image);
+    for (image.blocks, 0..) |block, index| {
+        if (diagnostic) |d| d.* = .{ .phase = .block, .function = block.function, .block = index };
+        try validateBlock(scratch, image, block, use_facts, effect_facts, diagnostic);
+    }
+    try @import("region_admission.zig").validateDiagnosed(scratch, image, diagnostic);
+    try @import("borrow_flow.zig").validate(scratch, image, facts.exportable, diagnostic);
+    if (diagnostic) |d| d.* = .{};
+}
+
+fn validateBlock(allocator: std.mem.Allocator, image: p.Program, block: p.Block, use_facts: @import("traits.zig").Facts, effect_facts: @import("effect_scope.zig").Facts, diagnostic: ?*Diagnostic) Error!void {
+    if (block.function >= image.functions.len) return error.InvalidReference;
+    const length = std.math.add(usize, block.parameters.len, block.instructions.len) catch return error.InvalidLength;
+    const slots = try allocator.alloc(p.Id, length);
+    @memcpy(slots[0..block.parameters.len], block.parameters);
+    for (block.parameters) |id| _ = try schemaAt(image.schemas, id);
+    for (block.instructions, 0..) |instruction, index| {
+        if (diagnostic) |d| d.instruction = index;
+        const available = block.parameters.len + index;
+        _ = try schemaAt(image.schemas, instruction.result_type);
+        for (instruction.operands) |operand| if (operand >= available) return error.InvalidReference;
+        try validateInstruction(image, block.function, instruction, slots[0..available], use_facts);
+        slots[available] = instruction.result_type;
+    }
+    const function = image.functions[@intCast(block.function)];
+    if (diagnostic) |d| {
+        d.instruction = null;
+        d.terminator = std.meta.activeTag(block.terminator);
+        d.callee = if (block.terminator == .call) block.terminator.call.function else null;
+    }
+    switch (block.terminator) {
+        .return_value => |slot| {
+            if (try slotType(slots, slot) != function.result) return error.TypeMismatch;
+        },
+        .fail => |slot| {
+            if (try slotType(slots, slot) != image.roots.failure) return error.TypeMismatch;
+        },
+        .jump, .yield_value => |next| try edge(image, block.function, slots, next, null),
+        .branch => |branch| {
+            if (image.schemas[@intCast(try slotType(slots, branch.condition))] != .boolean) return error.TypeMismatch;
+            try edge(image, block.function, slots, branch.when_true, null);
+            try edge(image, block.function, slots, branch.when_false, null);
+        },
+        .switch_variant => |selected| {
+            const shape = image.schemas[@intCast(try slotType(slots, selected.value))];
+            if (shape != .sum or selected.cases.len != shape.sum.len) return error.TypeMismatch;
+            for (selected.cases, shape.sum) |target, payload| try edge(image, block.function, slots, target, payload);
+        },
+        .unpack_product => |unpack| {
+            const shape = image.schemas[@intCast(try slotType(slots, unpack.value))];
+            if (shape != .product or unpack.block >= image.blocks.len) return error.TypeMismatch;
+            const target = image.blocks[@intCast(unpack.block)];
+            if (target.function != block.function or target.parameters.len != shape.product.len + unpack.arguments.len) return error.TypeMismatch;
+            if (!std.mem.eql(p.Id, target.parameters[0..shape.product.len], shape.product)) return error.TypeMismatch;
+            try arguments(slots, unpack.arguments, target.parameters[shape.product.len..]);
+        },
+        .call => |call| {
+            if (call.function >= image.functions.len) return error.InvalidReference;
+            const callee = image.functions[@intCast(call.function)];
+            try arguments(slots, call.arguments, callee.parameters);
+            for (callee.effects) |effect| if (std.mem.indexOfScalar(p.Id, function.effects, effect) == null) return error.InvalidEffect;
+            try edge(image, block.function, slots, call.next, callee.result);
+        },
+        .perform => |perform| {
+            if (perform.effect >= image.effects.len) return error.InvalidEffect;
+            const effect = image.effects[@intCast(perform.effect)];
+            if (perform.capability) |capability| {
+                try @import("contracts.zig").capability(image, try slotType(slots, capability), perform.effect);
+            } else if (!effect.external) return error.InvalidEffect;
+            try arguments(slots, perform.bodies, effect.bodies);
+            if (perform.use_site_capabilities.len != effect.use_site_effects.len) return error.InvalidEffect;
+            for (perform.use_site_capabilities, effect.use_site_effects) |slot, id| {
+                try @import("contracts.zig").capability(image, try slotType(slots, slot), id);
+            }
+            if (std.mem.indexOfScalar(p.Id, function.effects, perform.effect) == null) return error.InvalidEffect;
+            try @import("contracts.zig").subset(effect.use_site_effects, function.effects);
+            if (try slotType(slots, perform.payload) != effect.payload) return error.TypeMismatch;
+            try edge(image, block.function, slots, perform.next, effect.result);
+        },
+        .apply, .handle, .resume_value, .resume_with, .resume_computation, .with_region, .protect, .dispose => try @import("contracts.zig").terminator(image, block, slots, effect_facts),
+        else => return error.UnsupportedInstruction,
+    }
+    try @import("use_admission.zig").block(allocator, image, block, slots, use_facts, effect_facts, diagnostic);
+}
+
+pub fn slotType(slots: []const p.Id, id: p.Id) Error!p.Id {
+    if (id >= slots.len) return error.InvalidReference;
+    return slots[@intCast(id)];
+}
+
+pub fn arguments(slots: []const p.Id, supplied: []const p.Id, expected: []const p.Id) Error!void {
+    if (supplied.len != expected.len) return error.TypeMismatch;
+    for (supplied, expected) |slot, schema| if (try slotType(slots, slot) != schema) return error.TypeMismatch;
+}
+
+pub fn edge(image: p.Program, owner: p.Id, slots: []const p.Id, next: p.Edge, returned: ?p.Id) Error!void {
+    if (next.block >= image.blocks.len) return error.InvalidReference;
+    const target = image.blocks[@intCast(next.block)];
+    if (target.function != owner or next.arguments.len != target.parameters.len) return error.TypeMismatch;
+    for (next.arguments, target.parameters) |argument, expected| {
+        const actual = switch (argument) {
+            .slot => |slot| try slotType(slots, slot),
+            .returned => returned orelse return error.TypeMismatch,
+        };
+        if (actual != expected) return error.TypeMismatch;
+    }
+}
+
+fn validateInstruction(image: p.Program, function: p.Id, instruction: p.Instruction, slots: []const p.Id, uses: @import("traits.zig").Facts) Error!void {
+    try instructionFailures(image, instruction, slots);
+    const operands = instruction.operands;
+    const result = instruction.result_type;
+    switch (instruction.opcode) {
+        .constant => {
+            if (operands.len != 0 or instruction.immediate >= image.constants.len) return error.InvalidReference;
+            if (image.constants[@intCast(instruction.immediate)].schema != result) return error.TypeMismatch;
+        },
+        .move => {
+            if (operands.len != 1 or instruction.immediate != 0) return error.InvalidProgram;
+            if (slots[@intCast(operands[0])] != result) return error.TypeMismatch;
+        },
+        .integer_add, .integer_sub, .integer_mul, .integer_div, .integer_rem, .integer_bit_and, .integer_bit_or, .integer_bit_xor, .equal, .less => {
+            if (operands.len != 2 or instruction.immediate != 0) return error.InvalidProgram;
+            const left = slots[@intCast(operands[0])];
+            if (left != slots[@intCast(operands[1])]) return error.TypeMismatch;
+            if (!integer(image.schemas[@intCast(left)]) and !(instruction.opcode == .equal and image.schemas[@intCast(left)] == .boolean)) return error.TypeMismatch;
+            const comparison = instruction.opcode == .equal or instruction.opcode == .less;
+            if (comparison) {
+                if (image.schemas[@intCast(result)] != .boolean) return error.TypeMismatch;
+            } else if (result != left) return error.TypeMismatch;
+        },
+        .integer_bit_not, .integer_convert, .enum_tag => {
+            if (operands.len != 1 or instruction.immediate != 0) return error.InvalidProgram;
+            const source_id = slots[@intCast(operands[0])];
+            const source = image.schemas[@intCast(source_id)];
+            const target = image.schemas[@intCast(result)];
+            if (instruction.opcode == .enum_tag) {
+                if (source != .enumeration or target != .u32) return error.TypeMismatch;
+            } else {
+                if (!integer(source) or !integer(target)) return error.TypeMismatch;
+                if (instruction.opcode == .integer_bit_not and source_id != result) return error.TypeMismatch;
+            }
+        },
+        .boolean_not => {
+            if (operands.len != 1 or instruction.immediate != 0) return error.InvalidProgram;
+            if (image.schemas[@intCast(result)] != .boolean or slots[@intCast(operands[0])] != result) return error.TypeMismatch;
+        },
+        .computation => {
+            if (instruction.immediate >= image.constructors.len) return error.InvalidReference;
+            const constructor = image.constructors[@intCast(instruction.immediate)];
+            if (constructor.schema != result) return error.TypeMismatch;
+            try arguments(slots, operands, image.scopes.captures[@intCast(constructor.capture)].fields);
+        },
+        .product, .field, .variant, .variant_tag, .variant_payload, .select, .sequence, .sequence_length, .sequence_get, .sequence_append, .sequence_concat, .sequence_pop, .sequence_set, .sequence_take, .sequence_pop_last => try @import("aggregate_admission.zig").instruction(image, instruction, slots),
+        .blob_length, .blob_concat, .blob_slice, .blob_compare, .blob_byte, .text_scalar, .text_integer, .blob_from_byte => try @import("blob_admission.zig").instruction(image, instruction, slots),
+        .cell_new, .cell_get, .cell_set => try @import("region_admission.zig").instruction(image, instruction, slots, uses),
+        .package, .unpack => {
+            if (operands.len != 1 or instruction.immediate != 0) return error.InvalidProgram;
+            const input = slots[@intCast(operands[0])];
+            const shape = image.schemas[@intCast(if (instruction.opcode == .package) result else input)];
+            if (shape != .internal or shape.internal != .suspension_package or shape.internal.suspension_package != (if (instruction.opcode == .package) input else result)) return error.TypeMismatch;
+        },
+        .clone_resumption => {
+            if (operands.len != 1 or instruction.immediate != 0) return error.InvalidProgram;
+            if (!try @import("contracts.zig").cloneCompatible(image, slots[@intCast(operands[0])], result)) return error.InvalidOwnership;
+        },
+        .resource_pack, .resource_unpack => try @import("resource_admission.zig").instruction(image, function, instruction, slots),
+    }
+}
+
+fn instructionFailures(image: p.Program, instruction: p.Instruction, slots: []const p.Id) Error!void {
+    const needed: []const p.Fault = switch (instruction.opcode) {
+        .integer_add, .integer_sub, .integer_mul => &.{.arithmetic_overflow},
+        .integer_convert => if (instruction.operands.len == 1 and !@import("scalar.zig").conversionCanFail(image.schemas[@intCast(slots[@intCast(instruction.operands[0])])], image.schemas[@intCast(instruction.result_type)])) &.{} else &.{.arithmetic_overflow},
+        .integer_div, .integer_rem => &.{ .arithmetic_overflow, .division_by_zero },
+        .sequence_set => &.{.invalid_index},
+        .variant_payload => &.{.invalid_variant},
+        .sequence_append, .sequence_concat => if (image.schemas[@intCast(instruction.result_type)] == .vector) &.{.capacity_exceeded} else &.{},
+        .blob_concat => &.{.capacity_exceeded},
+        .blob_slice => if (@import("blob_admission.zig").isText(image.schemas[@intCast(instruction.result_type)])) &.{ .capacity_exceeded, .invalid_utf8 } else &.{.capacity_exceeded},
+        .text_scalar => &.{.invalid_utf8},
+        else => &.{},
+    };
+    if (instruction.failures.len != needed.len) return error.InvalidProgram;
+    for (instruction.failures, needed) |failure, kind| {
+        if (failure.kind != kind or failure.value >= image.constants.len) return error.InvalidProgram;
+        if (image.constants[@intCast(failure.value)].schema != image.roots.failure) return error.TypeMismatch;
+    }
+}
+
+pub fn integer(schema: p.Schema) bool {
+    return switch (schema) {
+        .i8, .i16, .i32, .i64, .u8, .u16, .u32, .u64 => true,
+        else => false,
+    };
+}

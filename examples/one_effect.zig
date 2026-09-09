@@ -1,124 +1,31 @@
-const boundary = @import("boundary");
+//! Compile a typed residual effect into portable data; no evaluator is linked.
 const std = @import("std");
+const boundary = @import("boundary");
 
-const Lookup = boundary.effect.site(
-    0,
-    "example.lookup.v1",
-    u32,
-    u32,
-);
-
-const u32_type: boundary.ir.ValueType = .{ .scalar = .u32 };
-const resume_arguments = [_]boundary.ir.EdgeArgument{.@"resume"};
-const blocks = [_]boundary.ir.Block{
-    .{
-        .id = 0,
-        .parameters = &.{0},
-        .terminator = .{ .@"suspend" = .{
-            .kind = .effect,
-            .site_id = 0,
-            .request_values = &.{0},
-            .continuation = .{
-                .target = 1,
-                .arguments = &resume_arguments,
-            },
-            .resume_type = u32_type,
-        } },
-    },
-    .{
-        .id = 1,
-        .parameters = &.{1},
-        .terminator = .{ .return_value = 1 },
-    },
-};
-
-const Body = struct {
-    pub const InitialArgs = u32;
-    pub const Result = u32;
-    pub const Failure = enum {
-        rejected,
-    };
-    pub const effect_sites = boundary.effect.row(.{Lookup});
-    pub const schema_types = .{};
-    pub const control_ir: boundary.ir.Program = .{
-        .label = "one-effect",
-        .value_types = &.{ u32_type, u32_type },
-        .blocks = &blocks,
-        .entry = 0,
-        .result_type = u32_type,
-    };
-};
-
-const Program = boundary.program("one-effect", Body);
-const Machine = Program.compile(.{
-    .maximum_frames = 4,
-    .maximum_state_bytes = 4096,
-    .maximum_machine_fuel = 32,
-});
-
-const LookupHandlers = struct {
-    last_identity: ?Machine.RequestIdentity = null,
-    last_response: u32 = 0,
-    external_calls: u32 = 0,
-
-    pub const lookup_semantic_contract = [32]u8{
-        0x97, 0xb4, 0x70, 0xfb, 0xf7, 0x3b, 0xf7, 0x5f,
-        0xa3, 0x6b, 0x36, 0xe6, 0x06, 0xb3, 0x81, 0xc9,
-        0x7e, 0x3d, 0x6e, 0xc7, 0x47, 0xcd, 0xc4, 0x45,
-        0x6d, 0x95, 0xeb, 0x38, 0xf0, 0x48, 0x50, 0xb7,
-    };
-    pub const semantic_site_contract_digests = .{
-        lookup_semantic_contract,
-    };
-
-    pub fn handle(
-        self: *@This(),
-        comptime Site: type,
-        payload: Site.Payload,
-        identity: Machine.RequestIdentity,
-    ) !Site.Resume {
-        if (self.last_identity) |last_identity| {
-            if (std.mem.eql(
-                u8,
-                &last_identity.digest,
-                &identity.digest,
-            )) return self.last_response;
-        }
-        const response = payload * 2;
-        self.last_identity = identity;
-        self.last_response = response;
-        self.external_calls += 1;
-        return response;
+pub const Application = struct {
+    pub fn emit(b: *boundary.computation.Builder) !boundary.computation.Module {
+        const integer = try b.scalar(u32);
+        const unit = try b.scalar(void);
+        const lookup = try b.effect(.{ .identity = "example.lookup.v2", .payload = integer, .result = integer });
+        const entry = try b.declare(&.{integer}, integer, &.{lookup}, &.{});
+        const argument = try b.reference(b.parameter(entry, 0));
+        try b.define(entry, try b.term(.{ .perform = .{ .effect = lookup, .payload = argument } }));
+        return b.module(entry, unit);
     }
 };
 
-fn runOnce(handlers: *LookupHandlers, argument: u32) !u32 {
-    var driver = try boundary.Driver(Machine).init(
-        std.heap.page_allocator,
-        argument,
-    );
-    defer driver.deinit();
-
-    var caller_fuel: u64 = 8;
-    const result = switch (try driver.run(handlers, &caller_fuel)) {
-        .done => |value| value,
-        .yielded => return error.UnexpectedYield,
-        .failed => return error.UnexpectedMachineFailure,
-        .handler_error => |failure| return failure.err,
-    };
-    defer result.deinit();
-    return result.value().*;
-}
-
-pub fn main() !void {
-    var handlers: LookupHandlers = .{};
-
-    if (try runOnce(&handlers, 21) != 42) return error.UnexpectedResult;
-    if (handlers.external_calls != 1) return error.UnexpectedExternalCallCount;
-
-    if (try runOnce(&handlers, 22) != 44) return error.UnexpectedResult;
-    if (handlers.external_calls != 2) return error.UnexpectedExternalCallCount;
-
-    if (try runOnce(&handlers, 22) != 44) return error.UnexpectedResult;
-    if (handlers.external_calls != 2) return error.UnexpectedExternalCallCount;
+pub fn main(init: std.process.Init) !void {
+    var compiled = try boundary.program.lower(init.gpa, Application);
+    defer compiled.deinit();
+    const bytes = try init.gpa.alloc(u8, try boundary.image_v2.encodedLength(compiled.program));
+    defer init.gpa.free(bytes);
+    _ = try compiled.encode(init.gpa, bytes);
+    // A compiler-only consumer can decode, inspect and admit the emitted image.
+    var decoded = try boundary.image_v2.decode(init.gpa, bytes);
+    defer decoded.deinit();
+    try boundary.data_v2.admission.program(init.gpa, decoded.program);
+    var buffer: [4096]u8 = undefined;
+    var output = std.Io.File.stdout().writer(init.io, &buffer);
+    try output.interface.writeAll(bytes);
+    try output.interface.flush();
 }

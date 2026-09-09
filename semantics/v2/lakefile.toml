@@ -1,0 +1,6 @@
+name = "boundary_v2_semantics"
+version = "2.0.0"
+defaultTargets = ["BoundaryV2"]
+
+[[lean_lib]]
+name = "BoundaryV2"

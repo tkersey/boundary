@@ -1,0 +1,27 @@
+{
+  "format": "boundary-protected-delivery/v1",
+  "agent": {
+    "repository": "tkersey/agent",
+    "pullRequest": 25,
+    "observedHead": "a3d366be5523d7e142cd28cac12191882c6112e8",
+    "observedState": "MERGED",
+    "mergedAt": "2026-09-06T00:37:38Z"
+  },
+  "boundary": {
+    "version": "1.8.2",
+    "commit": "999e936c4a865cd31948b52b2af2baeacf84c9f1",
+    "packageHash": "boundary-1.8.2-flclaABjJwANIa-_Lf1KKfm-MCbC01AhOLC95VX5lZCk"
+  },
+  "world": {
+    "version": "4.1.2",
+    "commit": "a55154eb43d19cba83c0bf1869cfd38704905ff1",
+    "archive": "https://github.com/tkersey/world/releases/download/v4.1.2/world-v4.1.2-process-host-runtime.tar.gz",
+    "byteLength": 784462,
+    "sha256": "422f1779b8804b38e23c2610673059cfd1dc6dde5f156050032e9931e35bfbea"
+  },
+  "kernel": {
+    "url": "https://github.com/tkersey/boundary/releases/download/v1.8.2/boundary-process-kernel-v1.wasm",
+    "byteLength": 682943,
+    "sha256": "4da38268f12e8a2749a266480748da5460b5030dadfc10804f79ba3a3bb8013e"
+  }
+}

@@ -1,0 +1,7 @@
+.{
+    .name = .boundary_examples,
+    .fingerprint = 0xc9b64b032c7d3f74,
+    .version = "0.0.0",
+    .dependencies = .{ .boundary = .{ .path = "../boundary" } },
+    .paths = .{ "build.zig", "build.zig.zon", "main.zig" },
+}

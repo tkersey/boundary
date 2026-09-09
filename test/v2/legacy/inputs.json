@@ -1,0 +1,172 @@
+{
+  "format": "boundary-bpi1-legacy-inputs/v1",
+  "worldCommit": "a55154eb43d19cba83c0bf1869cfd38704905ff1",
+  "historicalBoundaryVersion": "1.7.0",
+  "historicalBoundaryCommit": "4fd4cd959ea283a6b5af12a228f0d80a102683e3",
+  "files": [
+    {
+      "file": "authored-failure-v1.bpi1",
+      "upstreamPath": "conformance/vectors/artifacts/authored-failure-v1.image",
+      "bytes": 480,
+      "sha256": "478bb722ffd63680d20be827cf32b553b0d3089401be474321898ab6af4be630"
+    },
+    {
+      "file": "authored-failure-v2-success.bpi1",
+      "upstreamPath": "conformance/vectors/artifacts/authored-failure-v2-success.image",
+      "bytes": 674,
+      "sha256": "87e30b32bb40925b6c04e01402a1cff97aba5bae3528f52c0a61ad27f05167be"
+    },
+    {
+      "file": "authored-failure-v2-bad-math.bpi1",
+      "upstreamPath": "conformance/vectors/artifacts/authored-failure-v2-bad-math.image",
+      "bytes": 952,
+      "sha256": "f8d41102fbe7e78bc2d7f39674c851ea6035cad8be9156a14aae8903a9526913"
+    },
+    {
+      "file": "effect-morphism.bpi1",
+      "upstreamPath": "conformance/vectors/artifacts/effect-morphism.image",
+      "bytes": 732,
+      "sha256": "a4cc542e5a63b0f865b080337415736d1c8dbfa38022b6c685649df802ed57b5"
+    },
+    {
+      "file": "explicit-yield.bpi1",
+      "upstreamPath": "conformance/vectors/artifacts/explicit-yield.image",
+      "bytes": 596,
+      "sha256": "88f2519a28941a2097947487e7b65741b08d763a81d7e750bc39e52d3643ddba"
+    },
+    {
+      "file": "initial-progress.bpi1",
+      "upstreamPath": "conformance/vectors/artifacts/initial-progress.image",
+      "bytes": 576,
+      "sha256": "4d72e7a8b315cfe892763f49b70511fa63c32ba1cbbcaf6cc65f08953d66d931"
+    },
+    {
+      "file": "typed-effect-initial.bpi1",
+      "upstreamPath": "conformance/vectors/artifacts/typed-effect-initial.image",
+      "bytes": 746,
+      "sha256": "b62f6ea3a307fc600be79894ebd242fa07d8972e90c34194dd4219ecfc427d00"
+    },
+    {
+      "file": "recursion-complete.bpi1",
+      "upstreamPath": "conformance/vectors/artifacts/recursion-complete.image",
+      "bytes": 1635,
+      "sha256": "2402616bc23ec1d4f969bd8843571c1e2e6023d74145bde8ce6e593178bf42cb"
+    },
+    {
+      "file": "v1.8.2-one-effect.bpi1",
+      "boundaryVersion": "1.8.2",
+      "boundaryCommit": "999e936c4a865cd31948b52b2af2baeacf84c9f1",
+      "url": "https://github.com/tkersey/boundary/releases/download/v1.8.2/one-effect.boundary-program-image",
+      "bytes": 740,
+      "sha256": "6564f37639bfd4cf33491582e71b4f6602f865ea619b9616627080d86f805f0e"
+    },
+    {
+      "file": "v1.8.2-portable-values.bpi1",
+      "boundaryVersion": "1.8.2",
+      "boundaryCommit": "999e936c4a865cd31948b52b2af2baeacf84c9f1",
+      "url": "https://github.com/tkersey/boundary/releases/download/v1.8.2/portable-values.boundary-program-image",
+      "bytes": 900,
+      "sha256": "d00110409c41e9e2ff28fd8d0a843209ddd09507c0c52c75cdd1d82455dd9c0f"
+    },
+    {
+      "file": "v1.8.2-integer-boolean.bpi1",
+      "boundaryVersion": "1.8.2",
+      "boundaryCommit": "999e936c4a865cd31948b52b2af2baeacf84c9f1",
+      "sourcePath": "test/program_integer_boolean_operations.zig",
+      "derivation": "Frozen program declarations; appended stdout emitter only.",
+      "evaluatorSemantics": 1,
+      "bytes": 1387,
+      "sha256": "83dd8b20fe9365be4f791d5781f4f271ebc63f5f9c77b190e975ac9745725768"
+    },
+    {
+      "file": "v1.8.2-remainder-i8.bpi1",
+      "boundaryVersion": "1.8.2",
+      "boundaryCommit": "999e936c4a865cd31948b52b2af2baeacf84c9f1",
+      "sourcePath": "test/program_integer_boolean_operations.zig",
+      "derivation": "Frozen program declarations; appended stdout emitter only.",
+      "evaluatorSemantics": 1,
+      "bytes": 609,
+      "sha256": "7e829f42f90bf12a797b82c9805fa335c0c9795d9b08644dfa9e4f01124ae9e8"
+    },
+    {
+      "file": "v1.8.2-remainder-i16.bpi1",
+      "boundaryVersion": "1.8.2",
+      "boundaryCommit": "999e936c4a865cd31948b52b2af2baeacf84c9f1",
+      "sourcePath": "test/program_integer_boolean_operations.zig",
+      "derivation": "Frozen program declarations; appended stdout emitter only.",
+      "evaluatorSemantics": 1,
+      "bytes": 611,
+      "sha256": "79a905c84ce836e0316d75f5c9571f1cb6b09fccc97fc3e8b3924dd5eae93728"
+    },
+    {
+      "file": "v1.8.2-remainder-i32.bpi1",
+      "boundaryVersion": "1.8.2",
+      "boundaryCommit": "999e936c4a865cd31948b52b2af2baeacf84c9f1",
+      "sourcePath": "test/program_integer_boolean_operations.zig",
+      "derivation": "Frozen program declarations; appended stdout emitter only.",
+      "evaluatorSemantics": 1,
+      "bytes": 615,
+      "sha256": "ecfae2a4997bbd4944653927a7e4036ca6cef7c122c55f4b3bda25e22328f457"
+    },
+    {
+      "file": "v1.8.2-remainder-i64.bpi1",
+      "boundaryVersion": "1.8.2",
+      "boundaryCommit": "999e936c4a865cd31948b52b2af2baeacf84c9f1",
+      "sourcePath": "test/program_integer_boolean_operations.zig",
+      "derivation": "Frozen program declarations; appended stdout emitter only.",
+      "evaluatorSemantics": 1,
+      "bytes": 623,
+      "sha256": "43b6544e2d292ae1cb656460c7a226a5612a2a64a9bcef75ede0f4aeed19302f"
+    },
+    {
+      "file": "v1.8.2-algebraic-collections.bpi1",
+      "boundaryVersion": "1.8.2",
+      "boundaryCommit": "999e936c4a865cd31948b52b2af2baeacf84c9f1",
+      "sourcePath": "test/program_algebraic_collection_operations.zig",
+      "derivation": "Frozen program declarations; appended stdout emitter only.",
+      "evaluatorSemantics": 1,
+      "bytes": 2348,
+      "sha256": "a06c44ea0abf30a5fdf1d42c9a7f8337b138e1ef6b1d8330fffd441fdc03dc93"
+    },
+    {
+      "file": "v1.8.2-text-byte-at.bpi1",
+      "boundaryVersion": "1.8.2",
+      "boundaryCommit": "999e936c4a865cd31948b52b2af2baeacf84c9f1",
+      "sourcePath": "test/text_byte_at_fixture.zig",
+      "derivation": "Frozen program declarations; appended stdout emitter only.",
+      "evaluatorSemantics": 3,
+      "bytes": 909,
+      "sha256": "f835fdbbc2384c3e1475e8c0ff260033b180ce82e9d1b1c7e718545eade1bd05"
+    },
+    {
+      "file": "v1.8.2-bytes-byte-at.bpi1",
+      "boundaryVersion": "1.8.2",
+      "boundaryCommit": "999e936c4a865cd31948b52b2af2baeacf84c9f1",
+      "sourcePath": "test/bytes_byte_at_fixture.zig",
+      "derivation": "Frozen program declarations; appended stdout emitter only.",
+      "evaluatorSemantics": 3,
+      "bytes": 825,
+      "sha256": "a4f94e9c7f2c25e4d22c41be2a0ad0776b05ba0eaac91fdda0fb224cdc5477f3"
+    },
+    {
+      "file": "v1.8.2-enum-tag.bpi1",
+      "boundaryVersion": "1.8.2",
+      "boundaryCommit": "999e936c4a865cd31948b52b2af2baeacf84c9f1",
+      "sourcePath": "test/program_operations.zig",
+      "derivation": "Frozen program declarations; appended stdout emitter only.",
+      "evaluatorSemantics": 1,
+      "bytes": 536,
+      "sha256": "b467e74369aaf79600237a9a37b698b0625c9c114c296d459bec3713388e81ed"
+    },
+    {
+      "file": "v1.8.2-derived-copy.bpi1",
+      "boundaryVersion": "1.8.2",
+      "boundaryCommit": "999e936c4a865cd31948b52b2af2baeacf84c9f1",
+      "sourcePath": "test/program_constructor_invariants.zig",
+      "derivation": "Frozen program declarations; appended stdout emitter only.",
+      "evaluatorSemantics": 1,
+      "bytes": 1346,
+      "sha256": "37a00e8b07f2d95b195247cb4d8b7634a7f5a44bc15bd4e8e55ef7f1eb9c6499"
+    }
+  ]
+}

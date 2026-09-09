@@ -1,142 +1,97 @@
-# Boundary
+# Boundary 2
 
-Boundary is a general compiler and fixed Process interpreter for portable,
-defunctionalized algebraic effects. It separates one canonical program meaning
-from both open Process semantics and bounded Machine ABI v2 compatibility:
+Boundary checks staged Zig computations and handlers and compiles them into
+complete, portable BPI2 program data. World 5 executes that data with one generic
+native/WASM interpreter. Boundary contains no production evaluator.
 
-```text
-typed source -> Control IR -> semantic RNF -> Reified Program -> BPI1
-                                         |                     |
-                         +---------------+---------------------+
-                         |                                     |
-                         v                                     v
-                BPI1 + Process State                  BPI1 + MachineV2Profile
-                         |                                     |
-                         v                                     v
-                fixed Process kernel              direct v2 or kernel v2
+Boundary `2.0.0` uses Zig `0.16.0`.
+
+## Author and compile
+
+Import the Zig build module `boundary`. Its public namespaces are `effect`,
+`computation`, `handler`, `region`, `program`, `data_v2`, `image_v2`,
+`snapshot_v2`, `protocol_v2`, and `library`.
+
+An application implements `emit(builder)` using the checked staged builder.
+`boundary.program.lower(allocator, Application)` checks and lowers that source;
+`compiled.encode(allocator, destination)` emits BPI2 into caller-owned storage.
+Arbitrary native Zig function bodies and closures are not translated.
+
+`program.compileObserved(allocator, module, .{ .diagnostic = &diagnostic })`
+uses the same compiler with caller-owned diagnostic storage. Errors identify
+the source function, term, capture variable or target call edge when applicable.
+An optional phase observer measures checking and lowering without changing
+the emitted program.
+
+[`examples/one_effect.zig`](examples/one_effect.zig) is a complete compiler-only
+program. Build and emit it with:
+
+```sh
+zig build emit-one-effect -Doptimize=ReleaseSafe > example.bpi2
 ```
 
-The direct reducer remains the default specialized engine. `Program.image()`
-emits the canonical Boundary Program Image without execution options.
-`Program.kernelMachineV2(options)` combines that image with the separately
-identified bounded compatibility profile.
-Its canonical
-`ABL_RNF2` state contains a bounded stack of program-specific continuation
-constructors and their exact future-live environments. It contains no generic
-instruction cursor, local-slot table, condition history, runtime module, or
-native callback.
+Its initial argument and result are canonical little-endian `u32` values. A
+World runtime returns the typed `example.lookup.v2` request; the environment
+supplies the result. Application handlers, search, scheduling and cleanup
+policies compile into ordinary program data rather than host callbacks.
 
-## Public surface
+`library` provides State, Reader/local, Writer, Raise/catch, answer-transforming
+choice, first/all results, DFS/BFS search, owned generators, protect/bracket,
+and FIFO cooperative scheduling with joins. Executable examples are under
+`src/v2/source/`; the four-queens examples retain alternatives across transfers
+and clean up acquired resources through typed external requests.
 
-- `boundary.effect` declares typed residual effect sites.
-- `boundary.schema` exposes canonical portable-value codecs.
-- `boundary.ir` exposes advanced typed source/control authoring.
-- `boundary.program` declares a source program.
-- `boundary.image` validates canonical BPI1 bytes.
-- `boundary.process_v1` validates portable Process records and advances one
-  finite BPI1 reducer segment.
-- `boundary.machine_v2.kernel` executes BPI1 plus a MachineV2Profile.
-- `boundary.Driver` drives the compiled Machine locally.
-- `boundary.Agent` is deprecated compatibility surface; Agent-specific
-  authoring belongs in the separate Agent package.
-- `boundary.Bytes`, `boundary.Text`, and `boundary.Vector` are bounded portable
-  values.
+Owned operands remain in their source scope until all operands of the receiving
+control operation have evaluated. A later operand failure cleans them up in
+lexical order: inner scopes first, then active owners in creation order within
+each scope. Closure captures use ascending source-variable order. The compiler
+preserves this order through ordinary block parameters, including owned
+temporaries created by instructions.
+An affine value is owned even when it permits implicit dropping; binding it
+establishes an inner ownership scope just as binding a linear value does.
 
-The primary construction is:
+## Pure data dependency
 
-```zig
-const Program = boundary.program("portable-program", Body);
+Use the separate build module `boundary_data_v2` for schemas, Program and State
+records, canonical codecs and pure admission. A dependency requesting
+`.@"data-only" = true` constructs only this module. It does not construct the
+authoring, oracle, proof or legacy compatibility targets.
 
-const machine_options: boundary.MachineOptions = .{
-    .state_encoding = .rnf_v1,
-    .maximum_frames = 64,
-    .maximum_state_bytes = 1 << 20,
-    .maximum_machine_fuel = 1_000_000,
-    .debug_metadata = false,
-};
+World's production dependency is this data module. The module does not lower
+source or evaluate instructions, handlers or continuations.
 
-const Machine = Program.compile(machine_options);
-const Image = Program.image();
-const Profile = Program.machineV2Profile(machine_options);
-const KernelMachine = Program.kernelMachineV2(machine_options);
+## Checks and assets
+
+```sh
+zig build check-v2-data
+zig build check-v2-semantics
+zig build check-v2-economy
+zig build check-v2 -Doptimize=ReleaseSafe
+zig build emit-boundary-v2-release -Doptimize=ReleaseSafe --prefix zig-out/v2
 ```
 
-Fuel, frame ceilings, State-byte ceilings, caller checkpoints, and cumulative
-budgets belong to `Profile` and Machine ABI v2. They are not Program Image or
-Process semantics. Process ABI v1 carries exact future-live continuations in
-canonical `ABL_PST1` State and performs exactly one finite reducer segment per
-invocation. No raw BPI1 clause evaluator is exported from the package root.
+The aggregate includes the independent source oracle, the pinned Lean 4.33.1
+formal core, pure malformed-input tests, historical BPI1 lifting and structural
+economy witnesses. It requires Node 26.8.1 and Lean for those requested checks;
+ordinary compiler/data consumers require only Zig. It needs neither World nor a
+WASM engine. Emission creates local assets and never tags, publishes or merges.
+The five files appear under `zig-out/v2/release`: semantic JSON and indexed
+binary fixtures, the source/examples archive, a source/asset receipt, and
+`SHA256SUMS`. Receipts record the actual Git head and whether source is dirty;
+a development emission is not evidence of a published clean commit.
 
-## Portable language
+See [the wire specification](docs/bpi2-wire.md),
+[the formal inventory](semantics/v2/README.md),
+[measured economy](docs/economy-v2.md), and
+[BPI1 lifting](docs/bpi1-lifting.md). `boundary_bpi1` and `bpi1-lift` provide pure
+historical-data compatibility. Lifted programs contain BPI2 instructions and
+start from InitialArgs; PST1 is not migrated.
 
-Boundary admits explicit fixed-width integers, booleans, products, exhaustive
-enums, tagged unions, optionals, fixed arrays, and bounded
-`Bytes(MaxBytes)`, `Text(MaxBytes)`, and `Vector(T, MaxItems)` values. Pointer
-identity, target-width integers, floats, host handles, arbitrary callbacks, and
-unbounded collections are outside the portable language.
+## Migration from 1.x
 
-Residual effects are statically known and typed. Boundary compiles known
-control, helper, loop, and local after semantics into RNF; only genuine external
-authority crosses the Machine boundary.
-
-## Documentation
-
-- [Program authoring](docs/program.md)
-- [Compiler pipeline](docs/compiler_pipeline.md)
-- [Resumption Normal Form](docs/resumption_normal_form.md)
-- [Machine ABI](docs/machine.md)
-- [Machine state](docs/machine_state.md)
-- [Portable values](docs/portable_values.md)
-- [Effects](docs/effects.md)
-- [World integration](docs/world_integration.md)
-- [Boundary Reification](docs/reification.md)
-- [Boundary Program Image v1](docs/boundary_executable_image_v1.md)
-- [Machine v2 Kernel v1](docs/boundary_kernel_v1.md)
-- [Process ABI v1](docs/process_v1.md)
-- [Process ABI v1 conformance corpus](docs/process_conformance_corpus_v1.md)
-- [Specialization equivalence](docs/specialization_equivalence.md)
-- [Migration to Boundary 1.8](docs/migration_to_1_8.md)
-- [Migration to Boundary 1.7](docs/migration_to_1_7.md)
-- [Migration to Boundary 1.6](docs/migration_to_1_6.md)
-- [Migration from Boundary 0.7](docs/migration_from_0_7.md)
-
-## Proof
-
-Run the aggregate proof:
-
-```text
-zig build check --summary all
-```
-
-Focused gates include `check-boundary-machine`, `check-boundary-rnf`,
-`check-boundary-rnf-values`, `check-boundary-rnf-control`,
-`check-boundary-rnf-recursion`, `check-boundary-rnf-after`,
-`check-boundary-machine-state`, `check-boundary-machine-malformed`,
-`check-boundary-machine-native-wasm`,
-`check-boundary-machine-no-interpreter`, and
-`check-boundary-machine-deletion`. Process conformance is available through
-`check-boundary-process-v1` and `emit-boundary-process-kernel-v1`. The immutable
-Boundary v1.7.0 Process corpus has its own check and emit steps:
-
-```text
-zig build check-boundary-process-v1-conformance-corpus -Dprocess-kernel-wasm=/absolute/path/boundary-process-kernel-v1.wasm --summary all
-zig build emit-boundary-process-v1-conformance-corpus -Dprocess-kernel-wasm=/absolute/path/boundary-process-kernel-v1.wasm --summary all
-```
-
-The explicit kernel path makes both operations network-free while retaining
-all kernel identity checks. Without it, the builder acquires and verifies the
-exact `v1.7.0` release asset. Release staging additionally supplies
-`-Dworld-process-host=/absolute/path/world-process-host-v1` so the local receipt
-binds the pinned World validator. The aggregate also runs the real v0.7 performance
-comparison and emits the Boundary-owned completion fields through
-`check-boundary-machine-receipt`.
-
-The aggregate is a release-owner gate and its historical performance lane
-requires a tagged Boundary checkout with local `.git` metadata and the reviewed
-`v0.7.0` tag. Extracted package consumers can run the focused current-version
-gates, but a package without repository history cannot authenticate or claim
-the immutable v0.7 comparison.
-
-Boundary 1.0 is source- and state-incompatible with Boundary 0.7. The immutable
-0.7 release remains the compatibility implementation; Boundary 1.0 contains no
-legacy runtime or automatic continuation migration.
+The generated evaluator, Machine/Process execution facades, driver, Agent
+compatibility facade and WASM targets have been retired from this package.
+Use Boundary for authoring/data and World for execution. Historical v1 records
+remain unchanged under `conformance/` and `test/v2/legacy/`; old documentation
+is separated under `docs/historical/v1/`. Published releases and their source
+commits remain intact.

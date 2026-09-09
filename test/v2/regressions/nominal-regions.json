@@ -1,0 +1,18 @@
+{
+  "case": "nominal-regions-max",
+  "inputBytes": 97,
+  "inputSha256": "7a781d4dd78b07a85ed7877c1c10824295f42a1fab38f6af2967a942fa024248",
+  "inputHex": "41424c5f42504932020000004d000000000000000901000402040203060b04110105120606180b07230108240c0930010100000001090100082a000000000000000001000000000001000001000000000000000000ffffffffffffffffff010000",
+  "before": {
+    "toolchain": "Zig 0.16.0",
+    "target": "aarch64-macos",
+    "optimization": "ReleaseSafe",
+    "testExecutableSha256": "75d7710cd507fa7442c4a8e5b465e75926ef49774c436bf18194ba1043063434",
+    "result": "SIGABRT",
+    "diagnostic": "panic: integer overflow",
+    "allocation": "ArenaAllocator allocation of a region_count-sized dependency table"
+  },
+  "regression": "src/v2/data/adversarial_tests.zig",
+  "validCounterpart": "src/v2/source/tests.zig: large sparse region names preserve alpha-equivalent canonical images",
+  "correction": "Dependency columns and canonical region maps are indexed by referenced nominal IDs. The numeric upper bound no longer sizes allocations."
+}
