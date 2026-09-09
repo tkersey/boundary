@@ -33,6 +33,19 @@ jobs:
           mkdir "$RUNNER_TEMP/lean"
           tar --zstd -xf "$RUNNER_TEMP/lean.tar.zst" --strip-components=1 -C "$RUNNER_TEMP/lean"
           echo "$RUNNER_TEMP/lean/bin" >> "$GITHUB_PATH"
+      - name: Export the offline validation workspace
+        if: github.head_ref == 'codex/lean-proof-boundary-hardening'
+        run: git archive --format=tar.gz --output="$RUNNER_TEMP/boundary-source.tar.gz" HEAD
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: github.head_ref == 'codex/lean-proof-boundary-hardening'
+        with:
+          name: linux-proof-workspace
+          path: |
+            ${{ runner.temp }}/lean.tar.zst
+            ${{ runner.temp }}/boundary-source.tar.gz
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
       - name: Check the formal core and trust boundary
         working-directory: semantics/v2
         run: |
