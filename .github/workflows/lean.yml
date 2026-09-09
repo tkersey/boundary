@@ -14,6 +14,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: lean-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   formal-core:
     runs-on: ubuntu-24.04
@@ -35,14 +39,24 @@ jobs:
           echo "$RUNNER_TEMP/lean/bin" >> "$GITHUB_PATH"
       - name: Export the offline validation workspace
         if: github.head_ref == 'codex/lean-proof-boundary-hardening'
-        run: git archive --format=tar.gz --output="$RUNNER_TEMP/boundary-source.tar.gz" HEAD
+        run: |
+          git archive --format=tar.gz --output="$RUNNER_TEMP/boundary-source.tar.gz" HEAD
+          split -b 300M "$RUNNER_TEMP/lean.tar.zst" "$RUNNER_TEMP/lean-part-"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: github.head_ref == 'codex/lean-proof-boundary-hardening'
         with:
-          name: linux-proof-workspace
+          name: linux-proof-workspace-a
           path: |
-            ${{ runner.temp }}/lean.tar.zst
+            ${{ runner.temp }}/lean-part-aa
             ${{ runner.temp }}/boundary-source.tar.gz
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: github.head_ref == 'codex/lean-proof-boundary-hardening'
+        with:
+          name: linux-proof-workspace-b
+          path: ${{ runner.temp }}/lean-part-ab
           compression-level: 0
           retention-days: 1
           if-no-files-found: error
