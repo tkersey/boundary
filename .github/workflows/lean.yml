@@ -1,0 +1,40 @@
+name: Lean formal core
+
+on:
+  pull_request:
+    paths:
+      - 'semantics/v2/**'
+      - '.github/workflows/lean.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'semantics/v2/**'
+      - '.github/workflows/lean.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  formal-core:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Install the pinned Lean distribution
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(cat semantics/v2/lean-toolchain)" = 'leanprover/lean4:v4.33.1'
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/lean.tar.zst" \
+            https://github.com/leanprover/lean4/releases/download/v4.33.1/lean-4.33.1-linux.tar.zst
+          echo "890afd185370f85666025b883914ab4f4b339136f8c96167b69cfb62aecaf235  $RUNNER_TEMP/lean.tar.zst" | sha256sum --check
+          mkdir "$RUNNER_TEMP/lean"
+          tar --zstd -xf "$RUNNER_TEMP/lean.tar.zst" --strip-components=1 -C "$RUNNER_TEMP/lean"
+          echo "$RUNNER_TEMP/lean/bin" >> "$GITHUB_PATH"
+      - name: Check the formal core and trust boundary
+        working-directory: semantics/v2
+        run: |
+          lake build
+          lake env lean Trust.lean
