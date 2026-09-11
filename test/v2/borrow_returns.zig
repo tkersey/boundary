@@ -271,6 +271,12 @@ pub fn scenario(
 }
 
 pub fn main(init: std.process.Init) !void {
+    var args = std.process.Args.Iterator.init(init.minimal.args);
+    defer args.deinit();
+    _ = args.skip();
+    const mode = args.next();
+    const emit_sources = if (mode) |value| std.mem.eql(u8, value, "--sources") else false;
+    if ((mode != null and !emit_sources) or args.next() != null) return error.InvalidArguments;
     var count: usize = 0;
     for (std.enums.values(ResultFrom)) |from| {
         for ([_]bool{ false, true }) |initial| {
@@ -286,11 +292,24 @@ pub fn main(init: std.process.Init) !void {
                     } else |err| {
                         if (!younger or err != error.InvalidOwnership) return err;
                     }
+                    if (emit_sources) {
+                        const json = try std.json.Stringify.valueAlloc(init.gpa, .{
+                            .from = from,
+                            .initial = initial,
+                            .younger = younger,
+                            .delegated = delegated,
+                            .source = source,
+                        }, .{ .emit_strings_as_arrays = true });
+                        defer init.gpa.free(json);
+                        try std.Io.File.stdout().writeStreamingAll(init.io, json);
+                        try std.Io.File.stdout().writeStreamingAll(init.io, "\n");
+                    }
                     count += 1;
                 }
             }
         }
     }
+    if (emit_sources) return;
     var buffer: [256]u8 = undefined;
     var output = std.Io.File.stdout().writer(init.io, &buffer);
     try output.interface.print("{d} handler return borrow cases passed\n", .{count});

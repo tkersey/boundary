@@ -342,13 +342,55 @@ def Machine.Valid (machine : Machine A outside result) : Prop :=
   | .pending pending => machine.ownership.live = [pending.token]
   | _ => machine.ownership.live = []
 
-def initial (body : Flow A 0 caps [] result) (capabilities : Capabilities caps)
+/-- Raw data construction. Custody alone does not establish identity freshness. -/
+def rawInitial (body : Flow A 0 caps [] result) (capabilities : Capabilities caps)
     (fresh : Nat) : Machine A 0 result :=
   ⟨.empty, fresh, .running ⟨0, result, .code body .nil capabilities, .nil, .done⟩⟩
 
-theorem initial_is_well_owned (body : Flow A 0 caps [] result)
-    (capabilities : Capabilities caps) (fresh : Nat) : (initial body capabilities fresh).Valid :=
+theorem raw_initial_is_well_owned (body : Flow A 0 caps [] result)
+    (capabilities : Capabilities caps) (fresh : Nat) : (rawInitial body capabilities fresh).Valid :=
   ⟨ownership_empty_valid, rfl⟩
+
+def freshAbove : List Nat → Nat
+  | [] => 0
+  | identity :: rest => max (identity + 1) (freshAbove rest)
+
+/-- Public initialization reserves above every ambient attachment. -/
+def initial (body : Flow A 0 caps [] result) (capabilities : Capabilities caps) : Machine A 0 result :=
+  rawInitial body capabilities (freshAbove capabilities.toList)
+
+def initialWithSupply? (body : Flow A 0 caps [] result) (capabilities : Capabilities caps)
+    (fresh : Nat) : Option (Machine A 0 result) :=
+  if ∀ identity ∈ capabilities.toList, identity < fresh then
+    some (rawInitial body capabilities fresh)
+  else none
+
+theorem initial_is_well_owned (body : Flow A 0 caps [] result)
+    (capabilities : Capabilities caps) : (initial body capabilities).Valid :=
+  raw_initial_is_well_owned body capabilities _
+
+theorem freshAbove_reserves_every_identity (identities : List Nat) (identity : Nat)
+    (member : identity ∈ identities) : identity < freshAbove identities := by
+  induction identities with
+  | nil => simp at member
+  | cons first rest ih =>
+    simp only [List.mem_cons] at member
+    rcases member with rfl | member
+    · exact Nat.lt_of_lt_of_le (Nat.lt_succ_self _) (Nat.le_max_left _ _)
+    · exact Nat.lt_of_lt_of_le (ih member) (Nat.le_max_right _ _)
+
+theorem initialization_reserves_ambient_identities (body : Flow A 0 caps [] result)
+    (capabilities : Capabilities caps) (identity : Nat) (member : identity ∈ capabilities.toList) :
+    identity < (initial body capabilities).freshAttachment :=
+  freshAbove_reserves_every_identity _ _ member
+
+theorem checked_initialization_rejects_colliding_supply (body : Flow A 0 caps [] result)
+    (capabilities : Capabilities caps) (fresh identity : Nat)
+    (member : identity ∈ capabilities.toList) (collision : fresh ≤ identity) :
+    initialWithSupply? body capabilities fresh = none := by
+  apply if_neg
+  intro reserved
+  exact Nat.not_lt_of_ge collision (reserved identity member)
 
 theorem return_preserves_ownership (eval : Evaluator A) (machine : Machine A outside result)
     (value : Value a) (heap : Heap regions) (stack : Stack A regions a outside result)

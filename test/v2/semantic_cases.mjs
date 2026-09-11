@@ -21,6 +21,7 @@ add('scoped-reader','scoped-reader',[],[[],[],[]]);
 add('indexed','indexed',[],[scalar(37),[1]]);
 add('abort-owned','abort-custody',[0],[[]]); add('abort-empty','abort-custody',[1]);
 add('clause-abort','clause-abort',[],[[]]);
+add('clause-abort-cancel-cleanup','clause-abort',[],[[]],[{at:0,reason:'stop',preservesRequest:true},{at:0,reason:'later',preservesRequest:true}]);
 for(const name of ['queens-dfs','queens-bfs']) add(name,name,[],[scalar(201),[],[],scalar(202),[],[]]);
 for(const primary of [0,1]) for(const cancel of [false,true]) add(`unwind-${primary}-${cancel?'cancel':'continue'}`,'unwind',[primary],[[],[]],cancel?[{at:0,reason:'stop',preservesRequest:true},{at:0,reason:'later',preservesRequest:true}]:[]);
 for(const primary of [0,1]) for(const cancel of [false,true]) add(`yielding-cleanup-${primary}-${cancel?'cancel':'continue'}`,'yielding-cleanup',[primary],[[],[]],cancel?[{at:0,reason:'stop',preservesRequest:false},{at:2,reason:'later',preservesRequest:false}]:[]);

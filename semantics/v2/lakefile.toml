@@ -1,6 +1,56 @@
 name = "boundary_v2_semantics"
 version = "2.0.0"
 defaultTargets = ["BoundaryV2"]
+moreLeanArgs = ["-DwarningAsError=true"]
 
 [[lean_lib]]
 name = "BoundaryV2"
+
+[[lean_lib]]
+name = "BoundaryProofTools"
+roots = ["BorrowWitness", "GraphWitness", "InvocationWitness", "ExecutionProof", "ProgramProof"]
+srcDir = "../../tools/v2"
+
+[[lean_exe]]
+name = "boundary-execution-producer"
+root = "execution_producer"
+srcDir = "../../tools/v2"
+
+[[lean_exe]]
+name = "boundary-invocation-conformance"
+root = "target_invocation_conformance"
+srcDir = "../../tools/v2"
+
+[[lean_exe]]
+name = "boundary-capacity-conformance"
+root = "capacity_conformance"
+srcDir = "../../tools/v2"
+
+[[lean_exe]]
+name = "boundary-capacity-manifest"
+root = "capacity_manifest"
+srcDir = "../../tools/v2"
+
+[[lean_exe]]
+name = "boundary-state-conformance"
+root = "graph_state_conformance"
+srcDir = "../../tools/v2"
+
+[[lean_exe]]
+name = "boundary-scope-mutations"
+root = "graph_scope_mutations"
+srcDir = "../../tools/v2"
+
+[[lean_exe]]
+name = "boundary-trust"
+root = "Trust"
+
+[[lean_exe]]
+name = "boundary-graph-conformance"
+root = "graph_admission_conformance"
+srcDir = "../../tools/v2"
+
+[[lean_exe]]
+name = "boundary-certify"
+root = "certify"
+srcDir = "../../tools/v2"

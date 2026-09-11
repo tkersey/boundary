@@ -24,22 +24,22 @@ def nonTail (mode : Mode) : Flow Expr 0 0 [] .number :=
     (.bind (.perform 0 (constant 0)) (.pure (.add (.ref .here) (constant 1))))
 
 theorem deep_non_tail_applies_return_once :
-    observe (ticks Expr.eval 16 (initial (nonTail .deep) #[].toVector 0)) =
+    observe (ticks Expr.eval 16 (initial (nonTail .deep) #[].toVector)) =
       some (.returned (.number 114)) := rfl
 
 theorem shallow_non_tail_omits_original_return :
-    observe (ticks Expr.eval 16 (initial (nonTail .shallow) #[].toVector 0)) =
+    observe (ticks Expr.eval 16 (initial (nonTail .shallow) #[].toVector)) =
       some (.returned (.number 104)) := rfl
 
 theorem compiled_deep_non_tail :
-    observe (ticks evaluateBlock 16 (compileMachine (initial (nonTail .deep) #[].toVector 0))) =
+    observe (ticks evaluateBlock 16 (compileMachine (initial (nonTail .deep) #[].toVector))) =
       some (.returned (.number 114)) := rfl
 
 def disposing : Flow Expr 0 0 [] .number :=
   .handle ⟨.add (.ref .here) (constant 100), .dispose (constant 7)⟩ (.perform 0 (constant 0))
 
 theorem operation_clause_answer_bypasses_return :
-    observe (ticks Expr.eval 8 (initial disposing #[].toVector 0)) = some (.returned (.number 7)) := rfl
+    observe (ticks Expr.eval 8 (initial disposing #[].toVector)) = some (.returned (.number 7)) := rfl
 
 def choiceHandler : Handler Expr [] .number (.product .number .number) :=
   ⟨.pair (.ref .here) (.ref .here),
@@ -58,15 +58,15 @@ def sharedState : Flow Expr 0 0 [] (.product .number .number) :=
   .region (constant 0) (.handle choiceHandler incrementAfterChoice)
 
 theorem choice_outside_state_returns_one_one :
-    observe (ticks Expr.eval 32 (initial localState #[].toVector 0)) =
+    observe (ticks Expr.eval 32 (initial localState #[].toVector)) =
       some (.returned (.pair (.number 1) (.number 1))) := rfl
 
 theorem state_outside_choice_returns_one_two :
-    observe (ticks Expr.eval 32 (initial sharedState #[].toVector 0)) =
+    observe (ticks Expr.eval 32 (initial sharedState #[].toVector)) =
       some (.returned (.pair (.number 1) (.number 2))) := rfl
 
 theorem compiled_state_outside_choice :
-    observe (ticks evaluateBlock 32 (compileMachine (initial sharedState #[].toVector 0))) =
+    observe (ticks evaluateBlock 32 (compileMachine (initial sharedState #[].toVector))) =
       some (.returned (.pair (.number 1) (.number 2))) := rfl
 
 def twoResiduals : Flow Expr 0 1 [] .number :=
@@ -74,7 +74,7 @@ def twoResiduals : Flow Expr 0 1 [] .number :=
     (.bind (.perform 0 (.add (.ref .here) (constant 1)))
       (.pure (.add (.ref .here) (constant 1))))
 
-def residualStart : Machine Expr 0 .number := initial twoResiduals #[7].toVector 8
+def residualStart : Machine Expr 0 .number := initial twoResiduals #[7].toVector
 
 def residualInputs : List Input := [.internal, .internal, .resume 10,
   .internal, .internal, .internal, .resume 20, .internal, .internal, .internal]

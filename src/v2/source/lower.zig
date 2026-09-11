@@ -241,11 +241,16 @@ pub fn lowerObserved(allocator: std.mem.Allocator, source: ast.Module, options: 
     };
     // Order only an admitted graph. Slot elimination must never hide an illegal
     // use; canonicalization independently admits the reordered result below.
+    try options.observeProgram(.lowered, program);
     const ordered = try custody.normalize(storage, program, compiler.custody_blocks, use_facts);
+    try options.observeProgram(.custody, ordered);
     options.stage(.direct_optimization);
     const optimized = try @import("direct.zig").optimize(storage, ordered);
+    try options.observeProgram(.direct, optimized);
     options.stage(.canonicalization);
-    const canonical = try data.canonical.normalize(allocator, optimized);
+    var canonical = try data.canonical.normalize(allocator, optimized);
+    errdefer canonical.deinit();
+    try options.observeProgram(.canonical, canonical.program);
     options.stage(.complete);
     if (options.diagnostic) |d| d.* = .{ .phase = .complete };
     return .{ .arena = canonical.arena, .program = canonical.program };

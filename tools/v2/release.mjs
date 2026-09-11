@@ -5,6 +5,7 @@ import { resolve, join } from 'node:path';
 import { execFileSync,spawnSync } from 'node:child_process';
 import { invalidImages } from '../../test/v2/invalid_images.mjs';
 import { execute } from '../../test/v2/source_oracle.mjs';
+import { parseExactJson } from './exact_json.mjs';
 import { programNames, cases } from '../../test/v2/semantic_cases.mjs';
 import { sha256, json, indexedBundle, tarGzip, readTarGzip, sourceIdentity, writeAssets } from './assets.mjs';
 
@@ -19,7 +20,7 @@ for(const name of programNames) {
   const source=await readFile(join(fixtures,`source-${name}.json`));
   const image=await readFile(join(fixtures,`source-${name}.bpi2`));
   assert.equal(image.subarray(0,8).toString(),'ABL_BPI2');
-  sources.set(name,JSON.parse(source));
+  sources.set(name,parseExactJson(source));
   const row={name,source:`sources/${name}.json`,image:`programs/${name}.bpi2`};programs.push(row);
   entries.push({name:row.source,bytes:source},{name:row.image,bytes:image});
 }
