@@ -190,16 +190,32 @@ theorem scopedValue_preserves_all (machine : State) (value : SemanticValue) (aft
   exact finishTemporary_preserves_all _ _ _ finishAccepted property
     (temporary_preserves_all _ _ _ temporaryAccepted property holds) valueHolds
 
+theorem moveValues_preserves_all (machine : State) (store : Heap) (values : List Located)
+    (receiver : Nat → Custody.Owner) (accepted : moveValues machine.heap values receiver = some store)
+    (property : SemanticValue → Prop) (holds : All property machine) : All property { machine with heap := store } := by
+  simp [moveValues, Option.bind_eq_some_iff] at accepted
+  obtain ⟨_, _, rfl⟩ := accepted
+  exact holds
+
+theorem allocateObject_preserves_all (machine : State) (store : Heap) (schema : SchemaId .source)
+    (stored : Object) (owner : Custody.Owner) (exclusive : Bool) (value : Located)
+    (accepted : allocateObject machine.heap schema stored owner exclusive = some (store, value))
+    (property : SemanticValue → Prop) (holds : All property machine)
+    (objectHolds : ∀ child ∈ object stored, property child) : All property { machine with heap := store } := by
+  cases exclusive <;> simp [allocateObject, Option.bind_eq_some_iff] at accepted
+  · obtain ⟨rfl, _⟩ := accepted
+    simp only [All, state, heap, List.flatMap_append, List.flatMap_cons, List.flatMap_nil,
+      Option.toList_some, List.append_nil, List.mem_append] at holds ⊢
+    grind only []
+  · obtain ⟨_, _, rfl, _⟩ := accepted
+    simp only [All, state, heap, List.flatMap_append, List.flatMap_cons, List.flatMap_nil,
+      Option.toList_some, List.append_nil, List.mem_append] at holds ⊢
+    grind only []
+
 theorem commitPure_preserves_all (machine : State) (opcode : Opcode) (operands : List Located)
     (result : SemanticValue) (after : Transition) (accepted : commitPure machine opcode operands result = .ok after)
     (property : SemanticValue → Prop) (holds : All property machine) (resultHolds : property result) :
     All property after.state := by
-  have moveSame (state : State) (heap : Heap) (values : List Located) (receiver : Nat → Custody.Owner)
-      (accepted : moveValues state.heap values receiver = some heap) (holds : All property state) :
-      All property { state with heap := heap } := by
-    simp [moveValues, Option.bind_eq_some_iff] at accepted
-    obtain ⟨_, _, rfl⟩ := accepted
-    exact holds
   simp only [commitPure, bind, except_bind_ok] at accepted
   obtain ⟨⟨middle, owner⟩, first, accepted⟩ := accepted
   have middleHolds := temporary_preserves_all _ _ _ first property holds
@@ -211,7 +227,7 @@ theorem commitPure_preserves_all (machine : State) (opcode : Opcode) (operands :
     have movedSome : moveValues middle.heap operands (fun _ => owner) = some heap := by
       cases value : moveValues middle.heap operands (fun _ => owner) <;> simp [fromOption, value] at moved ⊢
       exact moved
-    have heapHolds := moveSame middle heap operands (fun _ => owner) movedSome middleHolds
+    have heapHolds := moveValues_preserves_all middle heap operands (fun _ => owner) movedSome property middleHolds
     exact finishTemporary_preserves_all _ _ _ accepted property heapHolds resultHolds
 
 theorem enterTerm_preserves_all (machine : State) (source : Module) (after : Transition)

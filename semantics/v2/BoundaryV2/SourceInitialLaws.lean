@@ -91,6 +91,23 @@ private theorem bind_success (value : Except Invalid α) (next : α → Except I
 
 /-- The public source initializer has no hidden ambient handles: all entry
 arguments are external trees and every runtime allocation inventory is empty. -/
+theorem initialization_checks_external_arguments (context : Context) (arguments : List SemanticValue)
+    (state : State) (accepted : initial context arguments = .ok state) :
+    ∀ argument ∈ arguments, Profile.Value.externalValid context.source.schemas argument = true := by
+  unfold initial at accepted
+  obtain ⟨_, _, accepted⟩ := bind_success _ _ _ accepted
+  obtain ⟨_, _, accepted⟩ := bind_success _ _ _ accepted
+  obtain ⟨_, _, accepted⟩ := bind_success _ _ _ accepted
+  obtain ⟨_, _, accepted⟩ := bind_success _ _ _ accepted
+  obtain ⟨_, _, accepted⟩ := bind_success _ _ _ accepted
+  obtain ⟨_, external, _⟩ := bind_success _ _ _ accepted
+  have checked : arguments.all (Profile.Value.externalValid context.source.schemas) = true := by
+    unfold require at external
+    split at external <;> first | assumption | contradiction
+  exact List.all_eq_true.mp checked
+
+/-- All runtime allocation inventories start empty; external values cannot
+smuggle either reusable references or owned tokens into the initial state. -/
 theorem initialization_excludes_hidden_handles (context : Context) (arguments : List SemanticValue)
     (state : State) (accepted : initial context arguments = .ok state) :
     (∀ argument ∈ arguments, valueReferences argument = [] ∧ ownedTokens argument = []) ∧

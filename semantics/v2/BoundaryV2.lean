@@ -77,4 +77,5 @@ import BoundaryV2.SourcePrimitiveCustody
 import BoundaryV2.SourceValueInventory
 import BoundaryV2.SourceReferenceState
 import BoundaryV2.SourceCaptureTypes
+import BoundaryV2.SourceValueTypes
 import BoundaryV2.SourceUsageExamples

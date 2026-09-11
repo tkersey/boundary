@@ -298,6 +298,15 @@ checks the actual captured values against that interface. Copy, clone, and drop
 traits of a computation therefore entail the corresponding trait of each
 captured value's schema; this does not yet establish typing of the entire heap.
 
+`ValueTyping` gives a finite typing derivation for every admitted external
+value and propagates structural traits to reference leaves. `TraitCompleteness`
+proves that every safe trait is accepted within the existing finite catalog
+bound. `SourceValueTypes` connects these results to the actual allocation modes:
+a typed copy-safe value has no owned tokens, including in aggregate fields and
+closure captures. Initialization, external interactions, identity renaming, and
+closure creation preserve this value-shape component. Live object compatibility
+and preservation through all internal transitions remain separate obligations.
+
 The separate raw byte codecs in `Wire`, `ProfileCodec`, and `Images` check
 complete BPI2, PST2, and protocol record framing, minimal integers, lengths,
 section layout, numeric bounds, and input exhaustion. Their round-trip and
