@@ -78,4 +78,6 @@ import BoundaryV2.SourceValueInventory
 import BoundaryV2.SourceReferenceState
 import BoundaryV2.SourceCaptureTypes
 import BoundaryV2.SourceValueTypes
+import BoundaryV2.SourceEnvironmentTypes
+import BoundaryV2.SourceExpressionTypes
 import BoundaryV2.SourceUsageExamples

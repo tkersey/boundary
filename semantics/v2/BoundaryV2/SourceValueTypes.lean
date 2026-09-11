@@ -1,7 +1,7 @@
 import BoundaryV2.SourceCaptureTypes
 import BoundaryV2.SourceValueInventory
 import BoundaryV2.ValueTyping
-import BoundaryV2.TraitCompleteness
+import BoundaryV2.TraitImplications
 
 namespace BoundaryV2.Profile.Source.Machine
 
@@ -98,6 +98,11 @@ theorem copy_value_has_no_tokens (schemas : List (Schema .source)) (value : Sema
   apply references_mono value _ _ inherited
   intro schema node token ⟨safe, inner, shape, owned⟩
   exact copy_reference_has_no_token schemas schema inner node token shape safe owned
+
+theorem clone_value_has_no_tokens (schemas : List (Schema .source)) (value : SemanticValue)
+    (typed : ValueShape schemas value) (safe : Traits.Safe schemas (value.schema, .clone)) :
+    ownedTokens value = [] :=
+  copy_value_has_no_tokens schemas value typed (safe.clone_implies_copy schemas value.schema)
 
 theorem renaming_preserves_value_schema (mapping : Renaming) (value : SemanticValue) :
     (renameValue mapping value).schema = value.schema := by

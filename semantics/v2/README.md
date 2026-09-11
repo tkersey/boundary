@@ -307,6 +307,14 @@ closure captures. Initialization, external interactions, identity renaming, and
 closure creation preserve this value-shape component. Live object compatibility
 and preservation through all internal transitions remain separate obligations.
 
+`TraitImplications` proves that clone safety entails copy safety, including
+recursive computation and resumption dependencies. A typed clone-safe value
+therefore has no owned tokens. `SourceEnvironmentTypes` proves that both scope
+creation paths, function entry, and lexical binding preserve declared variable
+types. `SourceExpressionTypes` proves value-shape preservation for the complete
+expression-entry dispatcher, deriving lambda interfaces and literal admission
+from the checked source context.
+
 The separate raw byte codecs in `Wire`, `ProfileCodec`, and `Images` check
 complete BPI2, PST2, and protocol record framing, minimal integers, lengths,
 section layout, numeric bounds, and input exhaustion. Their round-trip and
