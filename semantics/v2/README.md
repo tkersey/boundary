@@ -359,6 +359,12 @@ stack frames, closures, and captured continuations retains its declared schema
 through initialization and arbitrary source `Steps`, including external input,
 resumption cloning, and cleanup. This is an inductive environment component;
 it does not establish full frame or heap compatibility.
+`SourceOperandStructure`, `SourceOperandEffects`, and `SourceOperandExecution`
+prove that partial operand frames form a contiguous stack prefix, with only
+primitive evaluation above a pending term, throughout initialized source
+execution. Captured continuations contain no partial operand frames, including
+after cloning, activation, and disposal. Matching evaluated operands to their
+source declarations is a separate typing obligation.
 
 The separate raw byte codecs in `Wire`, `ProfileCodec`, and `Images` check
 complete BPI2, PST2, and protocol record framing, minimal integers, lengths,

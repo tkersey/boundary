@@ -96,4 +96,7 @@ import BoundaryV2.SourcePrimitiveResults
 import BoundaryV2.SourceEnvironmentInventory
 import BoundaryV2.SourceEnvironmentEffects
 import BoundaryV2.SourceEnvironmentExecution
+import BoundaryV2.SourceOperandStructure
+import BoundaryV2.SourceOperandEffects
+import BoundaryV2.SourceOperandExecution
 import BoundaryV2.SourceUsageExamples
