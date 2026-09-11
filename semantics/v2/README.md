@@ -271,6 +271,14 @@ objects, and token-free renaming preserves alignment. These are local laws;
 carrying value alignment through every source control transition, complete
 typing, and borrow preservation remain separate obligations.
 
+`Primitives.evaluate_preserves_references` proves that every successful pure
+primitive preserves arbitrary predicates of reference schemas, physical nodes,
+and custody tokens. It covers the complete opcode dispatch, including container
+updates and optional extraction results; stateful graph actions remain explicit
+machine operations. `SourcePrimitiveCustody` applies that theorem to token bounds
+and token-to-object alignment and proves alignment through the atomic ownership
+commit that delivers the result.
+
 The separate raw byte codecs in `Wire`, `ProfileCodec`, and `Images` check
 complete BPI2, PST2, and protocol record framing, minimal integers, lengths,
 section layout, numeric bounds, and input exhaustion. Their round-trip and

@@ -365,3 +365,164 @@ theorem clipped_multibyte_text_fault :
   constructor <;> rfl
 
 end BoundaryV2.Profile.Primitives
+
+namespace BoundaryV2.Profile.Primitives
+
+def ReferencesSatisfy (accept : SchemaId space → NodeId → Option CustodyToken → Prop) : Value space → Prop
+  | .reference schema node token => accept schema node token
+  | .product _ fields | .sequence _ fields => ∀ child ∈ fields, ReferencesSatisfy accept child
+  | .variant _ _ payload => ReferencesSatisfy accept payload
+  | .scalar .. | .blob .. => True
+
+private theorem except_bind_ok (value : Except Invalid α) (next : α → Except Invalid β)
+    (result : β) : value.bind next = .ok result ↔
+      ∃ input, value = .ok input ∧ next input = .ok result := by
+  cases value <;> simp [Except.bind]
+
+private theorem lookup_member (items : List α) (index : Nat) (value : α)
+    (accepted : lookup items index = .ok value) : value ∈ items := by
+  unfold lookup at accepted
+  split at accepted <;> try contradiction
+  cases accepted
+  exact List.mem_of_getElem? (by assumption)
+
+private theorem integerResult_references (accept : SchemaId space → NodeId → Option CustodyToken → Prop)
+    (type : SchemaId space) (response : Except Fault (Scalars.Integer kind)) (result : Value space)
+    (accepted : integerResult type response = .value result) : ReferencesSatisfy accept result := by
+  cases response with
+  | error fault => contradiction
+  | ok value => cases accepted; simp [ReferencesSatisfy]
+
+private theorem arithmetic_references (accept : SchemaId space → NodeId → Option CustodyToken → Prop)
+    (schemas : List (Schema space)) (operation : Scalars.Arithmetic) (type : SchemaId space)
+    (operands : List (Value space)) (result : Value space)
+    (accepted : arithmetic schemas operation type operands = .ok (.value result)) : ReferencesSatisfy accept result := by
+  simp only [arithmetic, bind, pure, Except.pure, throw, throwThe, MonadExceptOf.throw] at accepted
+  grind (gen := 32) only [except_bind_ok, (integerResult_references accept)]
+
+private theorem bitwise_references (accept : SchemaId space → NodeId → Option CustodyToken → Prop)
+    (schemas : List (Schema space)) (operation : Scalars.Bitwise) (type : SchemaId space)
+    (operands : List (Value space)) (result : Value space)
+    (accepted : bitwise schemas operation type operands = .ok (.value result)) : ReferencesSatisfy accept result := by
+  simp only [bitwise, bind, pure, Except.pure, throw, throwThe, MonadExceptOf.throw] at accepted
+  grind (gen := 32) only [except_bind_ok, ReferencesSatisfy]
+
+private theorem compare_references (accept : SchemaId space → NodeId → Option CustodyToken → Prop)
+    (schemas : List (Schema space)) (less : Bool) (type : SchemaId space)
+    (operands : List (Value space)) (result : Value space)
+    (accepted : compare schemas less type operands = .ok (.value result)) : ReferencesSatisfy accept result := by
+  simp only [compare, bind, pure, Except.pure, throw, throwThe, MonadExceptOf.throw] at accepted
+  grind (gen := 32) only [except_bind_ok, ReferencesSatisfy]
+
+private theorem convert_references (accept : SchemaId space → NodeId → Option CustodyToken → Prop)
+    (schemas : List (Schema space)) (type : SchemaId space)
+    (operands : List (Value space)) (result : Value space)
+    (accepted : convert schemas type operands = .ok (.value result)) : ReferencesSatisfy accept result := by
+  simp only [convert, bind, pure, Except.pure, throw, throwThe, MonadExceptOf.throw] at accepted
+  grind (gen := 32) only [except_bind_ok, (integerResult_references accept)]
+
+private theorem naturalResult_references (accept : SchemaId space → NodeId → Option CustodyToken → Prop)
+    (schemas : List (Schema space)) (type : SchemaId space) (number : Nat) (result : Value space)
+    (accepted : naturalResult schemas type number = .ok (.value result)) : ReferencesSatisfy accept result := by
+  simp only [naturalResult, bind, pure, Except.pure] at accepted
+  grind (gen := 32) only [except_bind_ok, ReferencesSatisfy]
+
+private theorem optionalValue_references (accept : SchemaId space → NodeId → Option CustodyToken → Prop)
+    (schemas : List (Schema space)) (type : SchemaId space) (item : Option (Value space)) (result : Value space)
+    (accepted : optionalValue schemas type item = .ok result)
+    (valid : ∀ value ∈ item.toList, ReferencesSatisfy accept value) : ReferencesSatisfy accept result := by
+  simp only [optionalValue, bind, pure, Except.pure, throw, throwThe, MonadExceptOf.throw] at accepted
+  cases item <;> simp only [Option.toList_some, Option.toList_none, List.mem_singleton, forall_eq] at valid
+  all_goals grind (gen := 32) only [except_bind_ok, ReferencesSatisfy]
+
+
+private theorem collection_references (accept : SchemaId space → NodeId → Option CustodyToken → Prop)
+    (schemas : List (Schema space)) (type : SchemaId space) (fields : List (Value space)) (result : Value space)
+    (accepted : collection schemas type fields = .ok (.value result))
+    (valid : ∀ value ∈ fields, ReferencesSatisfy accept value) : ReferencesSatisfy accept result := by
+  simp only [collection, bind, pure, Except.pure, throw, throwThe, MonadExceptOf.throw] at accepted
+  grind (gen := 32) only [except_bind_ok, ReferencesSatisfy]
+
+private theorem blob_references (accept : SchemaId space → NodeId → Option CustodyToken → Prop)
+    (schemas : List (Schema space)) (type : SchemaId space) (bytes : Bytes) (result : Value space)
+    (accepted : blob schemas type bytes = .ok (.value result)) : ReferencesSatisfy accept result := by
+  simp only [blob, bind, pure, Except.pure, throw, throwThe, MonadExceptOf.throw] at accepted
+  grind (gen := 32) only [except_bind_ok, ReferencesSatisfy]
+
+private theorem sliceBlob_references (accept : SchemaId space → NodeId → Option CustodyToken → Prop)
+    (schemas : List (Schema space)) (type : SchemaId space) (bytes : Bytes) (start stop : Nat) (result : Value space)
+    (accepted : sliceBlob schemas type bytes start stop = .ok (.value result)) : ReferencesSatisfy accept result := by
+  unfold sliceBlob at accepted
+  split at accepted
+  · cases accepted
+  · exact blob_references accept _ _ _ _ accepted
+
+/-- Every successful pure primitive preserves an arbitrary predicate of each
+reference's complete schema, physical node, and custody token. Graph actions
+remain the enclosing machine's responsibility. -/
+theorem evaluate_preserves_references (accept : SchemaId space → NodeId → Option CustodyToken → Prop)
+    (schemas : List (Schema space)) (constants : List (Value space)) (opcode : Opcode)
+    (type : SchemaId space) (immediate : Nat) (operands : List (Value space)) (result : Value space)
+    (constantsValid : ∀ value ∈ constants, ReferencesSatisfy accept value)
+    (operandsValid : ∀ value ∈ operands, ReferencesSatisfy accept value)
+    (accepted : evaluate schemas constants opcode type immediate operands = .ok (.value result)) :
+    ReferencesSatisfy accept result := by
+  cases opcode <;> simp only [evaluate, bind, pure, Except.pure, throw, throwThe, MonadExceptOf.throw] at accepted
+  case sequencePop =>
+    split at accepted
+    · rename_i sourceType fields
+      have fieldsValid : ∀ value ∈ fields, ReferencesSatisfy accept value := by
+        have checked := operandsValid (.sequence sourceType fields) (by simp)
+        simpa only [ReferencesSatisfy] using checked
+      simp only [except_bind_ok] at accepted
+      obtain ⟨schema, _, accepted⟩ := accepted
+      split at accepted
+      · rename_i empty pairType matched
+        cases fields with
+        | nil =>
+          simp only [except_bind_ok, Except.ok.injEq] at accepted
+          obtain ⟨_, rfl, value, optional, equal⟩ := accepted
+          cases equal
+          exact optionalValue_references accept _ _ _ _ optional (by simp)
+        | cons head tail =>
+          have packed : ReferencesSatisfy accept (.product pairType [head, .sequence sourceType tail]) := by
+            simp only [ReferencesSatisfy, List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp, forall_eq]
+            exact ⟨fieldsValid head (by simp), fun value member => fieldsValid value (List.mem_cons_of_mem _ member)⟩
+          simp only [except_bind_ok, Except.ok.injEq] at accepted
+          obtain ⟨_, _, _, _, _, rfl, value, optional, equal⟩ := accepted
+          cases equal
+          exact optionalValue_references accept _ _ _ _ optional (by simpa using packed)
+      · contradiction
+    · contradiction
+  case sequencePopLast =>
+    split at accepted
+    · rename_i sourceType fields
+      have fieldsValid : ∀ value ∈ fields, ReferencesSatisfy accept value := by
+        have checked := operandsValid (.sequence sourceType fields) (by simp)
+        simpa only [ReferencesSatisfy] using checked
+      simp only [except_bind_ok] at accepted
+      obtain ⟨schema, _, accepted⟩ := accepted
+      split at accepted
+      · rename_i remainingType optionalType
+        simp only [except_bind_ok] at accepted
+        obtain ⟨_, _, last, optional, equal⟩ := accepted
+        cases equal
+        have lastValid := optionalValue_references accept _ _ _ _ optional (by
+          intro value member
+          exact fieldsValid value (List.mem_of_mem_getLast? (by simpa using member)))
+        simp only [ReferencesSatisfy, List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp, forall_eq]
+        exact ⟨fun value member => fieldsValid value (List.dropLast_subset fields member), lastValid⟩
+      · contradiction
+    · contradiction
+  all_goals try (split at accepted)
+  all_goals try simp_all only [List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp, forall_eq, ReferencesSatisfy]
+  all_goals grind (gen := 32) only [except_bind_ok, → lookup_member, ReferencesSatisfy,
+    → (arithmetic_references accept), → (bitwise_references accept), → (compare_references accept),
+    → (convert_references accept), → (naturalResult_references accept), → (optionalValue_references accept),
+    → (collection_references accept), → (blob_references accept), → (sliceBlob_references accept),
+    List.mem_cons, List.mem_singleton, List.mem_append, Option.toList_some, Option.toList_none,
+    → List.mem_of_getElem?, Option.mem_toList, Option.mem_def, Option.map_eq_some_iff,
+    List.mem_cons_self, List.mem_cons_of_mem, → List.mem_or_eq_of_mem_set,
+    → List.mem_of_mem_take, List.dropLast_subset, → List.mem_of_mem_getLast?, graphArity]
+
+end BoundaryV2.Profile.Primitives
