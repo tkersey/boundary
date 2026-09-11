@@ -91,4 +91,6 @@ import BoundaryV2.PrimitiveValueTypes
 import BoundaryV2.IntegerTextTypes
 import BoundaryV2.PrimitiveEvaluatorTypes
 import BoundaryV2.PrimitiveResultSchema
+import BoundaryV2.SourcePrimitiveTypes
+import BoundaryV2.SourcePrimitiveResults
 import BoundaryV2.SourceUsageExamples

@@ -345,8 +345,14 @@ integer width: ASCII UTF-8 with at most 21 bytes, including a possible minus sig
 finite value typing, using actual instruction admission to rule out resizing a
 fixed array during either pop operation. `PrimitiveResultSchema` separately
 proves every successful pure result has the instruction's declared schema.
-Connecting actual operands to their admitted declarations and preserving heap
-typing through graph operations remain open.
+`SourcePrimitiveTypes` proves finite value typing for every source heap operation
+and the full source primitive execution path, with an explicit premise that
+actual operand schemas satisfy instruction admission. Constructor schemas come
+from admitted source lambdas, including the derived constructor table, and the
+implicit unit constant is checked against the source catalog.
+`SourcePrimitiveResults` proves that a delivered primitive result has the
+instruction's schema across both pure and heap execution. Deriving operand
+admission from frame typing and proving full heap compatibility remain open.
 
 The separate raw byte codecs in `Wire`, `ProfileCodec`, and `Images` check
 complete BPI2, PST2, and protocol record framing, minimal integers, lengths,
