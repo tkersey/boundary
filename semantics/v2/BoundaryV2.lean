@@ -44,6 +44,7 @@ import BoundaryV2.EffectsIdentity
 import BoundaryV2.EffectsSelection
 import BoundaryV2.EffectsEvents
 import BoundaryV2.EffectsActivation
+import BoundaryV2.EffectsWellFormed
 
 import BoundaryV2.ExecutionCertificate
 import BoundaryV2.BoundaryOutputAdmission

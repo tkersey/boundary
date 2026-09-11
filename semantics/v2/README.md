@@ -28,6 +28,7 @@ its correspondence is tested by the independent source oracle and runtime confor
 | EffectsIdentity.lean | Derived initialization reserves above ambient attachments. The `[0]`/fresh `0` regression satisfies old custody, intercepts under raw construction, rejects under checked construction, and stays residual under derived initialization. |
 | EffectsSelection.lean | Exact reconstruction, requested attachment, first matching active delimiter, absence equivalence, and append laws on `Effects.Stack`, preserving all frame data and typed components. |
 | EffectsActivation.lean | Concrete allocator intervals, restricted injectivity, disjoint successive intervals, selection equivariance for reserved requests, complete nested reference remapping, and a dormant-alias regression. These are local allocator laws, not full machine well-formedness preservation. |
+| EffectsWellFormed.lean | Checked initialization and every internal/external transition preserve custody, reserved attachment support, distinct active delimiters, and recursively valid dormant templates on the indexed Effects machine. State-sampling and event scripts preserve the same predicate. Repeated aliases remain valid; colliding initial supply and duplicate dormant delimiters do not. |
 | EffectsEvents.lean | Separate state samples and transition events; rejection and polling emit no events; script composition concatenates events; genuine equal requests retain distinct occurrences; atom lowering preserves event steps and traces. |
 | ProjectionArtifact.lean | Complete staged-source and nine-section BPI2 encodings for scalar constants and parameter projections, independent source lookup and target-slot execution, target slot well-formedness, nonempty argument domains, and all-input correspondence bound to exact artifact bytes. |
 | LexicalArtifact.lean | Exact source/image binding for a closure that captures a `u64` input and adds a literal argument. Independent lexical evaluation and BPI2 block transitions agree for every admitted input, including authored overflow; evaluation is deterministic, terminal paths are unique, and finite completion excludes infinite target successor streams. |
@@ -62,6 +63,20 @@ derived production interpreter or flatten the whole model into BPI2 blocks.
 raw data construction and receives only a custody theorem. `Machine.Valid`
 continues to mean custody; it is not a proof of global identity/scope preservation
 or of a serialized graph's complete admission rules.
+
+`Effects.Machine.WellFormed` combines that custody predicate with attachment
+identity preservation. The state indices establish type and cell-scope
+compatibility. Every capability occurrence, active delimiter, pending or
+transferred request, and recursively nested dormant template lies below the
+allocation supply. Each active delimiter spine and each dormant template has
+distinct delimiter allocations; repeated capability aliases are permitted.
+The actual activation renaming preserves these conditions, and its newly
+activated delimiters are disjoint from the outside stack. Checked initialization,
+`tick`, every accepted external transition, rejected attempts, and complete
+scripts preserve `WellFormed`. The raw colliding initialization satisfies the old
+custody predicate but fails this one. These are general preservation theorems
+for the indexed Effects machine; the production-shaped source and target
+machines still need their own complete preservation proofs.
 
 The separate `Regions.lean` model uses number-valued cells and explicit local/outer references.
 Fresh-name injectivity and disjointness are hypotheses of the corresponding
