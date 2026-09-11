@@ -353,6 +353,12 @@ implicit unit constant is checked against the source catalog.
 `SourcePrimitiveResults` proves that a delivered primitive result has the
 instruction's schema across both pure and heap execution. Deriving operand
 admission from frame typing and proving full heap compatibility remain open.
+`SourceEnvironmentInventory`, `SourceEnvironmentEffects`, and
+`SourceEnvironmentExecution` prove that every lexical binding in running code,
+stack frames, closures, and captured continuations retains its declared schema
+through initialization and arbitrary source `Steps`, including external input,
+resumption cloning, and cleanup. This is an inductive environment component;
+it does not establish full frame or heap compatibility.
 
 The separate raw byte codecs in `Wire`, `ProfileCodec`, and `Images` check
 complete BPI2, PST2, and protocol record framing, minimal integers, lengths,

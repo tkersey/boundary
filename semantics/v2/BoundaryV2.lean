@@ -93,4 +93,7 @@ import BoundaryV2.PrimitiveEvaluatorTypes
 import BoundaryV2.PrimitiveResultSchema
 import BoundaryV2.SourcePrimitiveTypes
 import BoundaryV2.SourcePrimitiveResults
+import BoundaryV2.SourceEnvironmentInventory
+import BoundaryV2.SourceEnvironmentEffects
+import BoundaryV2.SourceEnvironmentExecution
 import BoundaryV2.SourceUsageExamples
