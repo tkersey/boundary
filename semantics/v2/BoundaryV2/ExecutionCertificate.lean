@@ -99,3 +99,49 @@ theorem checkInvocation_of_parts (image : Machine.ImageContext imageBytes progra
   simp [checkInvocation, sameClock, decoded, observed, encoded, Except.toOption, Option.bind]
 
 end BoundaryV2.Profile.Target.Boundary
+
+namespace BoundaryV2.Profile.Target.Boundary
+
+/-- Every saved-state continue branch retains its original status and external
+transition behavior; preparation executes no application block. -/
+theorem prepare_state_continue_of_parts
+    (image : Machine.ImageContext imageBytes programWitness) (input : Protocol.Input) (witness : InputWitness)
+    (snapshot : Bytes) (graph : Graph.State) (state : Machine.State image.context.program)
+    (header : (input.image == imageBytes && Protocol.inputValid input) = true)
+    (instanceAt : input.instanceData = .state snapshot)
+    (controlAt : input.control = .continueValue none)
+    (emptyArguments : witness.arguments.isEmpty = true)
+    (decoded : CertifiedState.decode image snapshot witness.graph = some graph)
+    (restored : restore image graph witness.graph witness.clock = .ok state)
+    (responseAt : witness.response = none) :
+    prepare image input witness = match state.status with
+      | .parked => .ok ⟨state, [], true⟩
+      | .yielded => (Machine.external image.context state .continueYield).map (fun transition =>
+          ⟨transition.state, transition.events, false⟩)
+      | .active | .unwinding => .ok ⟨state, [], false⟩ := by
+  simp only [prepare, header, instanceAt, controlAt, emptyArguments, decoded, restored, responseAt,
+    Machine.fromOption, Machine.require, bind, Except.bind, if_true]
+  cases state.status <;> rfl
+
+end BoundaryV2.Profile.Target.Boundary
+
+namespace BoundaryV2.Profile.Target.Boundary
+
+theorem prepare_state_cancel_of_parts
+    (image : Machine.ImageContext imageBytes programWitness) (input : Protocol.Input) (witness : InputWitness)
+    (snapshot : Bytes) (graph : Graph.State) (state : Machine.State image.context.program)
+    (reason : Protocol.Reason) (transition : Machine.Transition image.context.program)
+    (header : (input.image == imageBytes && Protocol.inputValid input) = true)
+    (instanceAt : input.instanceData = .state snapshot)
+    (controlAt : input.control = .cancel reason)
+    (emptyArguments : witness.arguments.isEmpty = true)
+    (decoded : CertifiedState.decode image snapshot witness.graph = some graph)
+    (restored : restore image graph witness.graph witness.clock = .ok state)
+    (responseAt : witness.response = none)
+    (cancelled : Machine.external image.context state (.cancel reason) = .ok transition) :
+    prepare image input witness = .ok ⟨transition.state, transition.events, transition.state.status == .parked⟩ := by
+  simp [prepare, header, instanceAt, controlAt, emptyArguments, decoded, restored, responseAt,
+    cancelled, Machine.fromOption, Machine.require, bind, Except.bind]
+  rfl
+
+end BoundaryV2.Profile.Target.Boundary

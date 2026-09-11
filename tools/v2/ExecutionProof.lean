@@ -446,6 +446,132 @@ theorem execution{index}Suffix{ordinal}Known : Boundary.completeInternal image.c
     rest := rest + size
   return String.intercalate "\n" declarations
 
+private def admissionProof (stem graph witness blobsProof : String) : String :=
+  s!"theorem {stem}Position : Graph.Admission.positionValidWithIdentity image.context.program image.identity {graph} = true := by
+  have identity : image.identity = {graph}.programIdentity := by cbv
+  rw [identity]
+  first | decide +kernel | decide_cbv
+theorem {stem}Records : Graph.Admission.recordsValid image.context.program {graph} = true := by first | decide +kernel | decide_cbv
+theorem {stem}Captures : Graph.Admission.captureRecordsValid image.context.program {graph} = true := by first | decide +kernel | decide_cbv
+theorem {stem}Effects : Graph.Admission.effectsValid image.context.program {graph} = true := by first | decide +kernel | decide_cbv
+theorem {stem}Uses : (Graph.Admission.directUses {graph}).any (Graph.Admission.usesValid {graph}) = true := by first | decide +kernel | decide_cbv
+theorem {stem}Future : Graph.Admission.futureScopesValid image.context.program {graph} programWitness.borrows {witness}.projections = true := by decide_cbv
+theorem {stem}Blobs : Graph.Admission.blobsValid image.context.program {graph} {witness}.blobs = true := {blobsProof}
+theorem {stem}Admitted : Graph.Admission.check image.context.program programWitness.borrows {graph} {witness} = true := by
+  unfold Graph.Admission.check Graph.Admission.checkWithFacts
+  simp only [Bool.and_eq_true, and_assoc]
+  exact ⟨{stem}Position, {stem}Records, {stem}Captures, {stem}Effects, {stem}Blobs, {stem}Uses, {stem}Future⟩"
+
+private def preparationProof (entry : ProgramCache) (input : Protocol.Input) (witness : Boundary.InvocationWitness)
+    (index : Nat) (initialUnfold : String) : IO String := do
+  let prepared ← semantic (Boundary.prepare entry.image input witness.incoming) "preparation candidate"
+  let preparedData := s!"def prepared{index}State : Machine.State image.context.program := execution{index}State0
+def prepared{index} : Boundary.Prepared image.context.program := ⟨prepared{index}State, {render [] prepared.events}, {literal prepared.parked}⟩"
+  match input.instanceData with
+  | .initialArgs _ =>
+    return s!"{preparedData}
+theorem prepared{index}Known : Boundary.prepare image input{index} witness{index}.incoming = .ok prepared{index} := by
+  unfold prepared{index} prepared{index}State execution{index}State0{initialUnfold}; cbv"
+  | .state snapshot =>
+    let graph ← required (Graph.Snapshot.decode snapshot) "preparation graph candidate"
+    let restored ← semantic (Boundary.restore entry.image graph witness.incoming.graph witness.incoming.clock) "preparation restore candidate"
+    let stem := s!"incoming{index}"
+    let setupText := s!"def {stem}Graph : Graph.State := {render [] graph}
+def {stem}Bytes : Bytes := {render [] snapshot}
+{admissionProof stem s!"{stem}Graph" s!"witness{index}.incoming.graph" "by first | decide +kernel | decide_cbv"}
+theorem {stem}Decoded : Graph.Snapshot.decode {stem}Bytes = some {stem}Graph := by cbv
+theorem {stem}StateDecoded : CertifiedState.decode image {stem}Bytes witness{index}.incoming.graph = some {stem}Graph :=
+  CertifiedState.decode_complete _ _ _ _ {stem}Decoded ((Graph.Admission.check_exact _ _ _ _).mp {stem}Admitted)
+def restored{index} : Machine.State image.context.program := {stateLiteral [] restored}
+theorem restored{index}Known : Boundary.restore image {stem}Graph witness{index}.incoming.graph witness{index}.incoming.clock = .ok restored{index} := by
+  unfold Boundary.restore
+  rw [{stem}Admitted]
+  cbv
+{preparedData}
+"
+    match input.control with
+    | .continueValue none =>
+      return setupText ++ s!"theorem prepared{index}Known : Boundary.prepare image input{index} witness{index}.incoming = .ok prepared{index} := by
+  rw [Boundary.prepare_state_continue_of_parts image input{index} witness{index}.incoming {stem}Bytes {stem}Graph restored{index}
+    (by decide +kernel) rfl rfl rfl {stem}StateDecoded restored{index}Known rfl]
+  cbv"
+    | .cancel reason =>
+      return setupText ++ s!"theorem prepared{index}Known : Boundary.prepare image input{index} witness{index}.incoming = .ok prepared{index} := by
+  apply Boundary.prepare_state_cancel_of_parts (snapshot := {stem}Bytes) (graph := {stem}Graph)
+    (state := restored{index}) (reason := {render [] reason})
+    (transition := ⟨prepared{index}State, {render [] prepared.events}⟩)
+  · decide +kernel
+  · rfl
+  · rfl
+  · rfl
+  · exact {stem}StateDecoded
+  · exact restored{index}Known
+  · rfl
+  · cbv"
+    | .continueValue (some bytes) =>
+      let response ← required witness.incoming.response "missing response witness"
+      let request ← semantic (Boundary.request entry.image.context.program graph snapshot) "request candidate"
+      let result ← required (Images.rawResult.decode bytes) "result candidate"
+      let (payloadType, resumeType) ← required (Protocol.requestDescriptors request) "descriptor candidate"
+      let pending ← required graph.roots.pending "pending candidate"
+      let some (.pending effect payload resume source) := graph.nodes[pending.value]? | throw (IO.userError "pending node candidate")
+      let contract ← required entry.image.context.program.effects[effect.value]? "effect candidate"
+      let occurrence ← required restored.pendingOccurrence "occurrence candidate"
+      return setupText ++ s!"def response{index}Bytes : Bytes := {render [] bytes}
+def response{index}Value : Protocol.Result := {render [] result}
+theorem response{index}Decoded : Images.rawResult.decode response{index}Bytes = some response{index}Value := by decide +kernel
+def request{index} : Protocol.Request := {render [] request}
+theorem request{index}Known : Boundary.request image.context.program {stem}Graph {stem}Bytes = .ok request{index} := by cbv
+theorem descriptors{index}Known : Protocol.requestDescriptors request{index} = some ({render [] payloadType}, {render [] resumeType}) := by cbv
+theorem payload{index}Accepted : Value.checkExternal (space := .target) {render [] payloadType.types} {literal payloadType.root} {render [] request.payload} {render [] response.descriptorPayload} = true := by decide_cbv
+theorem request{index}Accepted : Protocol.checkRequest request{index} {render [] response.descriptorPayload} = true :=
+  Protocol.checkRequest_of_descriptors _ _ _ _ descriptors{index}Known payload{index}Accepted
+theorem result{index}Accepted : Protocol.checkResult request{index} response{index}Value {render [] response.descriptorPayload} {render [] response.descriptorResponse} = true :=
+  Protocol.checkResult_of_parts _ _ _ _ _ _ request{index}Accepted (by decide_cbv) descriptors{index}Known (by decide_cbv)
+theorem response{index}Step : Boundary.acceptResponse image {stem}Graph {stem}Bytes response{index}Bytes restored{index}
+    {responseData [] response} = .ok ⟨prepared{index}State, {render [] prepared.events}⟩ := by
+  apply Boundary.acceptResponse_of_parts (requestValue := request{index}) (resultValue := response{index}Value)
+    (pending := {literal pending}) (resume := {literal resume}) (effect := {literal effect}) (payload := {render [] payload}) (source := {literal source})
+    (contract := {render [] contract}) (occurrence := {literal occurrence})
+  · exact request{index}Known
+  · exact response{index}Decoded
+  · exact result{index}Accepted
+  all_goals cbv
+theorem prepared{index}Known : Boundary.prepare image input{index} witness{index}.incoming = .ok prepared{index} := by
+  apply Boundary.prepare_state_response_of_parts (snapshot := {stem}Bytes) (bytes := response{index}Bytes)
+    (graph := {stem}Graph) (state := restored{index}) (response := {responseData [] response})
+    (transition := ⟨prepared{index}State, {render [] prepared.events}⟩)
+  · decide +kernel
+  · rfl
+  · rfl
+  · rfl
+  · exact {stem}StateDecoded
+  · exact restored{index}Known
+  · rfl
+  · exact response{index}Step"
+
+private def canonicalProof (found : Graph.Snapshot.Discovery) (state graph stem : String) : String := Id.run do
+  let order := literal found.order
+  let support := s!"{stem}Discovery"
+  let raw := s!"{state}.raw"
+  let mut declarations := [s!"def {support} : Graph.Snapshot.Discovery := ⟨{order}, {graph}.blobs⟩
+theorem {stem}SmallCanonical : Graph.Snapshot.canonicalize {graph} = some {graph} := by first | decide +kernel | cbv
+theorem {stem}RootsCovered : (Graph.rootReferences {raw}.roots).all
+  (Graph.Snapshot.referenceCovered {raw} {support}) = true := by decide +kernel"]
+  let mut names := []
+  for (reference, index) in found.order.zipIdx do
+    let name := s!"{stem}NodeMatch{index}"
+    names := names ++ [name]
+    declarations := declarations ++ [s!"theorem {name} : Graph.Snapshot.nodeMatches {raw} {graph} {support} {literal reference} = true := by first | decide +kernel | decide_cbv"]
+  let rows := names.foldr (fun name rest => s!"Borrow.all_cons_checked _ _ _ {name} ({rest})") "rfl"
+  declarations := declarations ++ [s!"theorem {stem}RecordsCovered : {support}.order.all
+  (Graph.Snapshot.nodeMatches {raw} {graph} {support}) = true := by
+  exact Borrow.all_of_exact_list _ _ {order} rfl ({rows})
+theorem {stem}Canonical : Graph.Snapshot.canonicalize {raw} = some {graph} :=
+  Graph.Snapshot.canonicalize_of_matching_support {raw} {graph} {support}
+    {stem}RootsCovered {stem}RecordsCovered rfl (by decide +kernel) (by decide +kernel) (by decide +kernel) {stem}SmallCanonical"]
+  return String.intercalate "\n" declarations
+
 private def finishProof (entry : ProgramCache) (state : Machine.State entry.image.context.program)
     (witness : Graph.Admission.Witness) (outcome : Protocol.Outcome) (stateName : String)
     (index : Nat) : IO String := do
@@ -458,21 +584,11 @@ theorem finished{index} : Boundary.finish image execution{index}Suffix0.state wi
   Boundary.finish_terminal_of_parts image {stateName} witness{index}.outgoing {render [] result} outcome{index}
     {stem}Identity {stem}Clock rfl {stem}Terminal"]
     return String.intercalate "\n" declarations
-  let graph ← required (Graph.Snapshot.canonicalize state.raw) "finish graph candidate"
+  let found ← required (Graph.Snapshot.discover state.raw) "finish discovery candidate"
+  let graph ← required (Graph.Snapshot.materialize state.raw found) "finish graph candidate"
   let bytes := Images.rawState.encode graph
   declarations := declarations ++ [s!"def {stem}Graph : Graph.State := {render [] graph}
-def {stem}Bytes : Bytes := {render [] bytes}
-theorem {stem}Canonical : Graph.Snapshot.canonicalize {stateName}.raw = some {stem}Graph := by first | decide +kernel | cbv
-theorem {stem}Raw : Images.rawState.valid {stem}Graph = true := by first | decide +kernel | decide_cbv
-theorem {stem}Position : Graph.Admission.positionValidWithIdentity image.context.program image.identity {stem}Graph = true := by
-  have identity : image.identity = {stem}Graph.programIdentity := by cbv
-  rw [identity]
-  first | decide +kernel | decide_cbv
-theorem {stem}Records : Graph.Admission.recordsValid image.context.program {stem}Graph = true := by first | decide +kernel | decide_cbv
-theorem {stem}Captures : Graph.Admission.captureRecordsValid image.context.program {stem}Graph = true := by first | decide +kernel | decide_cbv
-theorem {stem}Effects : Graph.Admission.effectsValid image.context.program {stem}Graph = true := by first | decide +kernel | decide_cbv
-theorem {stem}Uses : (Graph.Admission.directUses {stem}Graph).any (Graph.Admission.usesValid {stem}Graph) = true := by first | decide +kernel | decide_cbv
-theorem {stem}Future : Graph.Admission.futureScopesValid image.context.program {stem}Graph programWitness.borrows witness{index}.outgoing.projections = true := by decide_cbv"]
+def {stem}Bytes : Bytes := {render [] bytes}", canonicalProof found stateName s!"{stem}Graph" stem, moduleBreak, s!"theorem {stem}Raw : Images.rawState.valid {stem}Graph = true := by first | decide +kernel | decide_cbv"]
   let mut blobNames := []
   for ((raw, meaning), ordinal) in (graph.blobs.zip witness.blobs).zipIdx do
     let stored ← required (state.store.blobs.findIdx? (fun blob => blob.raw == raw)) "finish blob candidate"
@@ -483,16 +599,13 @@ theorem {name}Known : Profile.Value.checkExternal image.context.program.schemas 
   ({stateName}.store.blobs[{stored}]'(by decide +kernel)).checked"]
   let blobRows := String.intercalate "," blobNames
   let allBlobs := blobNames.foldr (fun name rest => s!"Borrow.all_cons_checked _ _ _ {name}Known ({rest})") "rfl"
-  declarations := declarations ++ [s!"theorem {stem}Blobs : Graph.Admission.blobsValid image.context.program {stem}Graph witness{index}.outgoing.blobs = true := by
+  let blobsProof := s!"by
   unfold Graph.Admission.blobsValid
   simp only [Bool.and_eq_true]
   refine ⟨by decide +kernel, ?_⟩
-  exact Borrow.all_of_exact_list _ _ [{blobRows}] rfl ({allBlobs})
-theorem {stem}Admitted : Graph.Admission.check image.context.program programWitness.borrows {stem}Graph witness{index}.outgoing = true := by
-  unfold Graph.Admission.check Graph.Admission.checkWithFacts
-  simp only [Bool.and_eq_true, and_assoc]
-  exact ⟨{stem}Position, {stem}Records, {stem}Captures, {stem}Effects, {stem}Blobs, {stem}Uses, {stem}Future⟩
-theorem {stem}Encoded : Images.rawState.encode {stem}Graph = {stem}Bytes := by decide +kernel"]
+  exact Borrow.all_of_exact_list _ _ [{blobRows}] rfl ({allBlobs})"
+  declarations := declarations ++ [admissionProof stem s!"{stem}Graph" s!"witness{index}.outgoing" blobsProof,
+    s!"theorem {stem}Encoded : Images.rawState.encode {stem}Graph = {stem}Bytes := by decide +kernel"]
   let common := s!"image {stateName} witness{index}.outgoing {stem}Graph {stem}Bytes"
   let proofs := s!"{stem}Identity {stem}Clock rfl {stem}Canonical {stem}Raw {stem}Admitted"
   let body ← match state.status with
@@ -538,11 +651,10 @@ theorem input{index}Encoded : Protocol.inputCodec.encode input{index} = input{in
 theorem input{index}Decoded : Protocol.inputCodec.decode input{index}Bytes = some input{index} := by
   rw [← input{index}Encoded]; exact Protocol.inputCodec.decode_encode _ input{index}Valid",
         ← internalProof entry prepared witness.internalSteps index shareNodes,
-        s!"def prepared{index}State : Machine.State image.context.program := execution{index}State0
-def prepared{index} : Boundary.Prepared image.context.program := ⟨prepared{index}State, {render [] prepared.events}, {literal prepared.parked}⟩
-theorem prepared{index}Known : Boundary.prepare image input{index} witness{index}.incoming = .ok prepared{index} := by
-  unfold prepared{index} prepared{index}State execution{index}State0{initialUnfold}; cbv
-def outcome{index} : Protocol.Outcome := {render [] outcome}",
+        moduleBreak,
+        ← preparationProof entry input witness index initialUnfold,
+        moduleBreak,
+        s!"def outcome{index} : Protocol.Outcome := {render [] outcome}",
         ← finishProof entry transition.state witness.outgoing outcome s!"execution{index}State{(witness.internalSteps + 7) / 8}" index,
         s!"
 theorem valid{index} : Protocol.outcomeCodec.valid outcome{index} = true := by decide_cbv

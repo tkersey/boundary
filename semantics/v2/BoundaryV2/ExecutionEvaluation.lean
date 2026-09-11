@@ -1,4 +1,5 @@
 import BoundaryV2.ExecutionCertificate
+import BoundaryV2.SnapshotCertificate
 import BoundaryV2.SchemaClasses
 
 namespace BoundaryV2.Profile.Target.Boundary

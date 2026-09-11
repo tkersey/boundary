@@ -286,11 +286,50 @@ deferred disposal results and cleanup failures. Term entry, operand evaluation,
 temporary storage, and external actions preserve predicates of those values.
 `SourceReferenceState` combines token-to-object alignment, bounds on all retained
 tokens, and live custody objects into `State.OwnedReferenceWF`. Public
-initialization and every accepted external action preserve this component;
-successful pure primitive evaluation and authored primitive faults preserve it
-as well. Their constant values come from checked source admission, including
-the derived unit constant used for disposal. Preservation through all internal
-transitions remains open.
+initialization establishes this component. `SourceReferenceSafetyExecution`
+now derives it after every actual internal/external source execution from that
+initialization. The proof includes spent tokens retained in lexical remnants,
+cloned closure contents, and suspended cleanup; its constants come from checked
+source admission, including the derived unit constant used for disposal.
+
+`SourceReferenceContracts` separates usable reference compatibility from the
+ownership mode of each nested reference. `ReferenceStructure` additionally
+follows the catalog through products, sums, and containers to those leaves. It concerns
+reference traits; finite scalar, byte, and container admission remains governed
+by the unchanged `ValueShape` and byte checkers. `SourceCopyValues` derives
+token-free values and closure captures for every
+copyable value or closure reached through ordinary initialized execution.
+`SourceReferenceStructureExecution` derives those catalog paths and ownership
+modes from ordinary successful initialization and actual source `Steps` across
+all values, including dormant captures, heap contents,
+cleanup information, and external interactions. This does not assume finite
+container or cancellation-payload bounds. Those bounds remain separate parts
+of `ValueShape`.
+`SourceReferenceStorage` and `SourceReferenceClone` prove local compatibility
+preservation for allocation, movement, replacement, retirement, and the actual
+capture-instantiation map. Retirement uses custody alignment and the reference
+modes to protect other usable references. `SourceCloneOwnership` now proves that actual stored-template instantiation
+preserves usable reference compatibility, token-to-object alignment, and live
+custody throughout the resulting state and capture. The proof follows the actual
+support walk through closure environments, local cells, and dormant templates;
+it derives their capture and catalog facts from initialized source execution.
+`SourceReferenceSafety` composes the reference obligations for initialization,
+external input, allocation, movement, replacement, retirement, and pure primitive
+commit. Its storage, control, capture, effect, and cleanup modules cover every
+actual transition, including caller values retained across retirement and reusable
+activation. `initialized_execution_preserves_reference_safety` proves usable
+reference compatibility, token-to-object alignment, token bounds, and live
+custody for every initialized source execution. Together with the separately
+proved custody bounds, `initialized_execution_owned_reference_wf` establishes
+`State.OwnedReferenceWF`. Typing, lexical ownership, borrowing, and cleanup
+obligations remain separate parts of full source well-formedness.
+
+`SourceTokenInventory` through `SourceTokenExecution` establish bounds on every
+retained custody token through ordinary initialization and all actual source
+steps. This includes spent tokens in lexical remnants, cloned values, dormant
+captures, and cleanup data. Every historical token remains below each later
+allocation supply, so a new allocation cannot revive a retained old token.
+These bounds are proved independently of global token-to-object alignment.
 
 `SourceCaptureTypes` derives each lambda capture's type from its checked
 variable interface and declared capture bound. The closure creation operation
@@ -389,8 +428,21 @@ closure retains its admitted function and exact ordered capture binders, includi
 copies made through reusable capture activation. The reachable-closure theorem
 combines this with lexical value-schema preservation to derive the function's
 parameter, result, effect, and region contract and each captured value's membership
-in the declared capture bound. Reference liveness and full heap well-formedness
-remain separate obligations.
+in the declared capture bound. The reference-safety theorem above supplies
+reference liveness; full heap well-formedness remains a separate obligation.
+`SourceCellStorage`, `SourceCellEffects`, and `SourceCellExecution` prove that
+existing source cells retain their physical node, logical identity, region,
+declared schema, and content schema through every actual transition.
+`SourceFrozenCells`, `SourceFrozenClone`, and `SourceFrozenStorage` connect saved
+local contents to those cells, including nested dormant templates and every
+object copied by the actual capture instantiator. `SourceObjectSchemas` and the
+`SourceObjectStorage`/`SourceObjectEffects`/`SourceObjectExecution` induction
+establish both frozen-cell compatibility and stored-object schema contracts
+from successful initialization alone. Cells, packages, resources, resumptions,
+borrows, regions, and capabilities retain their constructor-specific catalog
+contracts. Closure contracts are supplied by the separate closure theorem above.
+Reference liveness follows from `SourceReferenceSafetyExecution`. Full heap
+compatibility and complete source-state well-formedness remain open.
 
 The separate raw byte codecs in `Wire`, `ProfileCodec`, and `Images` check
 complete BPI2, PST2, and protocol record framing, minimal integers, lengths,
@@ -497,6 +549,10 @@ idempotence, canonical byte equality under live-node and blob relocation, and
 decoding of every width-valid canonical result. Relocation preserves root roles,
 status, program identity, distinct live-node identities, and complete blob
 contents; unreachable storage may differ arbitrarily.
+`SnapshotCertificate` checks finite live-reference support and complete remapped
+records, then proves equality to the original canonicalizer. The converse theorem
+shows that every successful canonicalization has such support, including cycles,
+shared nodes, and coalesced immutable blobs.
 `check-v2-snapshots` compares 40 base graphs and their valid relocation/garbage
 variants with the production Zig codec, exhausts all 24 native node tags, and
 checks two malformed frames. Kernel-checked
@@ -564,6 +620,10 @@ Other long traces name identical complete heap-node literals once and split
 every eight proof fragments. Mutable nodes with different contents receive
 different definitions; node IDs never serve as the sharing key.
 The complete invocation and stopping boundary remain part of the final claim.
+`ExecutionCertificate` provides preparation composition laws for saved-state
+continuation, response, and cancellation. The plain run emitter uses these laws
+and `SnapshotCertificate` to check preparation and normalization in separate
+modules without changing the invocation checker or its exact byte subjects.
 `TargetStorageLaws` proves that every externally admitted value can pass through
 the target's actual store/load path without changing its meaning. This includes
 fixed-width scalar padding, recursive aggregate blobs, and exact blob interning.

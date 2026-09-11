@@ -157,9 +157,84 @@ theorem frozen_copy_reads_captured_local_storage (capturedHeap : Heap) (capture 
   have selected := frozen_lookup_exact capturedHeap capture.localRegions reference identity schema region captured present localRegion
   simp [frozenObject, snapshot, List.find?_append, selected]
 
+private theorem mapM_origin (function : α → Except Invalid β) (inputs : List α) (outputs : List β)
+    (accepted : inputs.mapM function = .ok outputs) (output : β) (member : output ∈ outputs) :
+    ∃ input ∈ inputs, function input = .ok output := by
+  induction inputs generalizing outputs with
+  | nil => cases accepted; simp at member
+  | cons head tail induction =>
+    rw [List.mapM_cons] at accepted
+    obtain ⟨first, firstAt, accepted⟩ := bind_success _ _ _ accepted
+    obtain ⟨rest, restAt, accepted⟩ := bind_success _ _ _ accepted
+    cases accepted
+    rcases List.mem_cons.mp member with rfl | member
+    · exact ⟨head, by simp, firstAt⟩
+    · obtain ⟨input, member, found⟩ := induction _ restAt member
+      exact ⟨input, by simp [member], found⟩
+
 /-- Every copied physical object, including dormant templates and aliased
 local cells, is obtained from exactly its old object and one common renaming.
-The statement exposes the map actually used by `instantiateCapture`. -/
+Every resulting heap entry is either retained or one of those copies. The
+statement exposes the map actually used by `instantiateCapture`. -/
+theorem instantiation_inventory (state after : State) (context : Context)
+    (capture instantiated : Capture)
+    (accepted : instantiateCapture state context capture = .ok (after, instantiated)) :
+    let support := cloneSupport state.heap capture
+    let dormant := support.filterMap (fun node => match state.heap.lookup node with
+      | some (.multiTemplate inner) => some inner | _ => none)
+    let regions := (capture.localRegions ++ dormant.flatMap Capture.localRegions).eraseDups
+    let attachments := (capture.delimiter.identity :: activeAttachments capture.frames ++
+      dormant.flatMap (fun inner => inner.delimiter.identity :: activeAttachments inner.frames)).eraseDups
+    let copiedNodes := support.filter fun node => match state.heap.lookup node with
+      | some (.cell _ _ region _) | some (.region region _ _ _) => regions.contains region
+      | some (.capability identity _) => attachments.contains identity
+      | some (.closure ..) | some (.multiTemplate _) => true
+      | _ => false
+    ∃ mapping : Renaming,
+      mapping.nodes = freshMap .runtime .node state.heap.objects.length copiedNodes ∧
+      instantiated = renameCapture mapping capture ∧
+      (∀ reference ∈ copiedNodes, ∃ object,
+        state.heap.lookup reference = some object ∧
+        after.heap.lookup (renamed mapping.nodes reference) =
+          some (renameObject mapping (frozenObject capture dormant reference object))) ∧
+      ∀ entry ∈ after.heap.objects, entry ∈ state.heap.objects ∨
+        ∃ reference ∈ copiedNodes, ∃ object, state.heap.lookup reference = some object ∧
+          entry = some (renameObject mapping (frozenObject capture dormant reference object)) := by
+  dsimp only
+  unfold instantiateCapture at accepted
+  obtain ⟨_, _, accepted⟩ := bind_success _ _ _ accepted
+  obtain ⟨_, _, accepted⟩ := bind_success _ _ _ accepted
+  obtain ⟨_, _, accepted⟩ := bind_success _ _ _ accepted
+  obtain ⟨_, _, accepted⟩ := bind_success _ _ _ accepted
+  obtain ⟨copied, copiedKnown, accepted⟩ := bind_success _ _ _ accepted
+  obtain ⟨_, _, accepted⟩ := bind_success _ _ _ accepted
+  obtain ⟨_, _, accepted⟩ := bind_success _ _ _ accepted
+  cases accepted
+  refine ⟨_, rfl, rfl, ?_, ?_⟩
+  · intro reference member
+    obtain ⟨output, checked, atOutput⟩ := copied_lookup_at_map state.heap.objects _ _ _ copiedKnown
+      ((clone_support_has_one_entry_per_object state.heap capture).filter _) reference member
+    obtain ⟨object, original, checked⟩ := bind_success _ _ _ checked
+    have originalLookup : state.heap.lookup reference = some object := by
+      cases found : state.heap.lookup reference <;> simp [fromOption, found] at original
+      subst object
+      rfl
+    cases checked
+    refine ⟨object, originalLookup, ?_⟩
+    exact congrArg (fun value => value.bind id) atOutput
+  · intro entry member
+    rcases List.mem_append.mp member with old | added
+    · exact Or.inl old
+    · right
+      obtain ⟨reference, originMember, generated⟩ := mapM_origin _ _ _ copiedKnown entry added
+      obtain ⟨object, original, checked⟩ := bind_success _ _ _ generated
+      have originalLookup : state.heap.lookup reference = some object := by
+        cases found : state.heap.lookup reference <;> simp [fromOption, found] at original
+        subst object
+        rfl
+      cases checked
+      exact ⟨reference, originMember, object, originalLookup, rfl⟩
+
 theorem instantiation_copies_exact_objects (state after : State) (context : Context)
     (capture instantiated : Capture)
     (accepted : instantiateCapture state context capture = .ok (after, instantiated)) :
@@ -181,27 +256,7 @@ theorem instantiation_copies_exact_objects (state after : State) (context : Cont
         state.heap.lookup reference = some object ∧
         after.heap.lookup (renamed mapping.nodes reference) =
           some (renameObject mapping (frozenObject capture dormant reference object)) := by
-  dsimp only
-  unfold instantiateCapture at accepted
-  obtain ⟨_, _, accepted⟩ := bind_success _ _ _ accepted
-  obtain ⟨_, _, accepted⟩ := bind_success _ _ _ accepted
-  obtain ⟨_, _, accepted⟩ := bind_success _ _ _ accepted
-  obtain ⟨_, _, accepted⟩ := bind_success _ _ _ accepted
-  obtain ⟨copied, copiedKnown, accepted⟩ := bind_success _ _ _ accepted
-  obtain ⟨_, _, accepted⟩ := bind_success _ _ _ accepted
-  obtain ⟨_, _, accepted⟩ := bind_success _ _ _ accepted
-  cases accepted
-  refine ⟨_, rfl, rfl, ?_⟩
-  intro reference member
-  obtain ⟨output, checked, atOutput⟩ := copied_lookup_at_map state.heap.objects _ _ _ copiedKnown
-    ((clone_support_has_one_entry_per_object state.heap capture).filter _) reference member
-  obtain ⟨object, original, checked⟩ := bind_success _ _ _ checked
-  have originalLookup : state.heap.lookup reference = some object := by
-    cases found : state.heap.lookup reference <;> simp [fromOption, found] at original
-    subst object
-    rfl
-  cases checked
-  refine ⟨object, originalLookup, ?_⟩
-  exact congrArg (fun value => value.bind id) atOutput
+  obtain ⟨mapping, nodes, captured, copied, _⟩ := instantiation_inventory state after context capture instantiated accepted
+  exact ⟨mapping, nodes, captured, copied⟩
 
 end BoundaryV2.Profile.Source.Machine
