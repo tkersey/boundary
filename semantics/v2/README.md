@@ -329,6 +329,13 @@ request capture, direct clauses, handler installation, value and computation
 resumption, and region entry. It also covers handler completion and restored
 resume callers. The capture and resumption claims derive their value inputs
 from the predecessor state; they do not assume the successor is well-typed.
+`SourceCleanupValueTypes` proves value-shape preservation for the cleanup-term
+dispatcher, protection installation, cleanup completion and failure, and cleanup
+entry. `SourceInformationTypes` derives the type of the actual cleanup-information
+record from its checked layout and explicit failure-payload, cancellation-reason,
+and sequence-length constraints. Cleanup entry carries those input obligations;
+preservation of them by the complete state machine, including unwind, remains
+open.
 
 The separate raw byte codecs in `Wire`, `ProfileCodec`, and `Images` check
 complete BPI2, PST2, and protocol record framing, minimal integers, lengths,

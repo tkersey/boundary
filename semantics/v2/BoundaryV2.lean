@@ -84,4 +84,6 @@ import BoundaryV2.SourceControlTypes
 import BoundaryV2.SourceLifetimeTypes
 import BoundaryV2.SourceCaptureValueTypes
 import BoundaryV2.SourceEffectTypes
+import BoundaryV2.SourceInformationTypes
+import BoundaryV2.SourceCleanupValueTypes
 import BoundaryV2.SourceUsageExamples
