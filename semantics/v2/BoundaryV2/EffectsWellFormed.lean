@@ -443,6 +443,47 @@ theorem drive_preserves_well_formedness (eval : Evaluator A) (machine last : Mac
         exact run.1 ▸ ih next finalState finalTrace
           (transition_preserves_well_formedness eval machine next input valid step) later
 
+theorem map_preserves_reference_support (translate : Translation A B) (stack : Stack A r a s b) :
+    (stack.map translate).references = stack.references := by
+  induction stack using Stack.rec
+    (motive_1 := fun _ _ _ _ frame => (frame.map translate).references = frame.references) with
+  | bind | delimiter | region | post | done => rfl
+  | «repeat» template heap arguments acc fold env ih => exact ih
+  | push frame rest frameIH restIH =>
+    simp only [Stack.map, Stack.references, frameIH, restIH]
+
+theorem map_preserves_unique_delimiters (translate : Translation A B) (stack : Stack A r a s b) :
+    (stack.map translate).Unique ↔ stack.Unique := by
+  induction stack using Stack.rec
+    (motive_1 := fun _ _ _ _ frame => (frame.map translate).Unique ↔ frame.Unique) with
+  | bind | delimiter | region | post | done => rfl
+  | «repeat» template heap arguments acc fold env ih => exact ih
+  | push frame rest frameIH restIH =>
+    change ((frame.map translate).Unique ∧ (rest.map translate).Unique ∧
+      ((Stack.push frame rest).map translate).attachments.Nodup) ↔
+        frame.Unique ∧ rest.Unique ∧ (Stack.push frame rest).attachments.Nodup
+    rw [frameIH, restIH, map_preserves_attachments]
+
+theorem map_preserves_stack_identity (translate : Translation A B) (stack : Stack A r a s b) :
+    (stack.map translate).IdentityWF fresh ↔ stack.IdentityWF fresh := by
+  simp only [Stack.IdentityWF, map_preserves_reference_support, map_preserves_unique_delimiters]
+
+/-- Atom lowering preserves the stronger predicate as well as the old custody
+predicate, including names inside suspended reusable templates. -/
+theorem map_preserves_well_formedness (translate : Translation A B) (machine : Machine A r a) :
+    (machine.map translate).WellFormed ↔ machine.WellFormed := by
+  simp only [Machine.WellFormed, map_preserves_ownership]
+  have identity : (machine.map translate).IdentityWF ↔ machine.IdentityWF := by
+    cases state : machine.status with
+    | running position =>
+      rcases position with ⟨regions, input, focus, heap, stack⟩
+      cases focus <;> simp [Machine.IdentityWF, Machine.map, Status.map, Position.map,
+        Focus.map, Status.IdentityWF, Focus.IdentityWF, state, map_preserves_stack_identity]
+    | pending | transferred | returned | disposed =>
+      simp [Machine.IdentityWF, Machine.map, Status.map, Pending.map, Status.IdentityWF,
+        state, map_preserves_stack_identity]
+  rw [identity]
+
 /-- The supply is disjoint from every current alias, not merely from the
 active delimiter spine. This directly excludes accidental ambient interception
 when the next handler is installed. -/

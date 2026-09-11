@@ -74,7 +74,8 @@ The actual activation renaming preserves these conditions, and its newly
 activated delimiters are disjoint from the outside stack. Checked initialization,
 `tick`, every accepted external transition, rejected attempts, and complete
 scripts preserve `WellFormed`. The raw colliding initialization satisfies the old
-custody predicate but fails this one. These are general preservation theorems
+custody predicate but fails this one. Atom lowering preserves the same stronger
+predicate, including all dormant templates. These are general preservation theorems
 for the indexed Effects machine; the production-shaped source and target
 machines still need their own complete preservation proofs.
 
