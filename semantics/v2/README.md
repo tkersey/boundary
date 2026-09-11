@@ -292,6 +292,12 @@ as well. Their constant values come from checked source admission, including
 the derived unit constant used for disposal. Preservation through all internal
 transitions remains open.
 
+`SourceCaptureTypes` derives each lambda capture's type from its checked
+variable interface and declared capture bound. The closure creation operation
+checks the actual captured values against that interface. Copy, clone, and drop
+traits of a computation therefore entail the corresponding trait of each
+captured value's schema; this does not yet establish typing of the entire heap.
+
 The separate raw byte codecs in `Wire`, `ProfileCodec`, and `Images` check
 complete BPI2, PST2, and protocol record framing, minimal integers, lengths,
 section layout, numeric bounds, and input exhaustion. Their round-trip and

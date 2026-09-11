@@ -114,6 +114,31 @@ inductive Reach (schemas : List (Schema space)) (root : Atom space) : Atom space
 def Safe (schemas : List (Schema space)) (root : Atom space) : Prop :=
   ∀ atom, Reach schemas root atom → ∃ children, rule schemas atom = some children
 
+theorem Reach.trans (first : Reach schemas root middle) (second : Reach schemas middle last) :
+    Reach schemas root last := by
+  induction second with
+  | refl => exact first
+  | step _ rule member induction => exact .step induction rule member
+
+theorem Safe.reachable (safe : Safe schemas root) (path : Reach schemas root child) :
+    Safe schemas child := fun atom continuation => safe atom (path.trans continuation)
+
+/-- Computation traits include every declared capture dependency. A checked
+outer closure trait cannot conceal an unsafe capture behind its use label. -/
+theorem Safe.computation_capture (schemas : List (Schema space)) (type : SchemaId space)
+    (signature : ComputationType space) (kind : Kind) (capture : SchemaId space)
+    (found : schemas[type.value]? = some (.internal (.computation signature)))
+    (safe : Safe schemas (type, kind)) (member : capture ∈ signature.captureBound) :
+    Safe schemas (capture, kind) := by
+  obtain ⟨children, checked⟩ := safe _ .refl
+  apply safe.reachable
+  apply Reach.step Reach.refl checked
+  have childrenKnown : children = signature.captureBound.map (·, kind) := by
+    cases kind <;> simp [rule, found, premises] at checked
+    all_goals exact checked.2.symm
+  rw [childrenKnown]
+  exact List.mem_map.mpr ⟨capture, member, rfl⟩
+
 theorem closed_member (schemas : List (Schema space)) (support : List (Atom space))
     (valid : closed schemas support = true) (member : atom ∈ support) :
     ∃ children, rule schemas atom = some children ∧ ∀ child ∈ children, child ∈ support := by
