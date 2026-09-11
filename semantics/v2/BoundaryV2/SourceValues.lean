@@ -1,4 +1,5 @@
 import BoundaryV2.SourceState
+import BoundaryV2.SourceBorrowRequirements
 
 namespace BoundaryV2.Profile.Source.Machine
 
@@ -6,6 +7,7 @@ structure Context where
   source : Module
   captures : Analysis.Facts
   constants : List SemanticValue
+  borrows : Borrow.Witness
 
 /-- The source-level raw constant opcode can refer to the compiler's implicit
 unit adapter. Its existence and value follow from the staged module itself. -/

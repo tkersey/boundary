@@ -489,6 +489,7 @@ theorem initial_custody_bounded (context : Context) (arguments : List SemanticVa
   obtain ⟨_, _, accepted⟩ := (except_bind_ok _ _ _).mp accepted
   obtain ⟨_, _, accepted⟩ := (except_bind_ok _ _ _).mp accepted
   obtain ⟨_, _, accepted⟩ := (except_bind_ok _ _ _).mp accepted
+  obtain ⟨_, _, accepted⟩ := (except_bind_ok _ _ _).mp accepted
   cases accepted
   constructor <;> simp [Custody.empty]
 

@@ -208,6 +208,26 @@ The borrowing classification comes from the source machine's primitive rules.
 Checked regressions distinguish these cases; this admission check does not yet
 prove full custody or borrow preservation during execution.
 
+`SourceBorrowGraph` derives a dependency graph directly from source syntax and
+checked lexical captures. References are local to each function and respect
+shadowing; failed branches retain their writes. `SourceBorrowPaths`,
+`SourceBorrowMapping`, `SourceBorrowSources`, `SourceBorrowQueries`, and
+`SourceBorrowRequirements` track selected fields, closure captures, handler
+state and captured environments, shallow successor returns, cells, and calls.
+Source initialization requires a closed borrow witness. Every requested query
+and function summary must exist, and the checker rebuilds the source graph.
+The untrusted candidate search has explicit inconclusive limits; its success
+does not replace the ordinary checker. `BorrowLifetime` owns the fresh-lifetime
+rule shared by source and target, with separate source and target projections.
+
+The admission cohort preserves 54 valid sources and rejects all 12 younger
+handler aliases written through return clauses, including state, body-result,
+selected-product-field, and delegated-call variants. It also rejects 1,607
+altered or incomplete witnesses. Ordinary theorems establish local dependency
+closure, required-summary coverage, fresh-owner rejection, and the initializer's
+borrow-check requirement. They do not yet establish global interprocedural
+summary soundness or borrow preservation by every source transition.
+
 The source-machine laws now connect concrete capture instantiation to handler
 selection, exact copied objects, frozen local storage, and unchanged outside
 lookups. Cell read/write laws preserve physical identity and every other cell.

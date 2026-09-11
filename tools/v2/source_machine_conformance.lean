@@ -2,6 +2,7 @@ import BoundaryV2.SourceReader
 import BoundaryV2.SourceMachine
 import BoundaryV2.SourceContracts
 import BoundaryV2.ValueCodec
+import SourceBorrowWitness
 import Lean
 
 open Lean BoundaryV2 BoundaryV2.Profile
@@ -179,13 +180,15 @@ def main (arguments : List String) : IO UInt32 := do
         pure ((⟨← nat entry "function"⟩ : FunctionId .source), (⟨← nat entry "schema"⟩ : SchemaId .source))))
       if Source.Analysis.constructors source != expected then throw (IO.userError s!"{sourcePath}: source constructor catalog mismatch")
     let facts ← orError (get group "facts")
+    let captures : Source.Analysis.Facts := {
+      values := ← orError (rows (← orError (get facts "values")))
+      terms := ← orError (rows (← orError (get facts "terms")))
+      functions := ← orError (rows (← orError (get facts "functions"))) }
     let context : Context := {
       source := source
       constants := ← orError ((← orError (array group "constants")).mapM value)
-      captures := {
-        values := ← orError (rows (← orError (get facts "values")))
-        terms := ← orError (rows (← orError (get facts "terms")))
-        functions := ← orError (rows (← orError (get facts "functions"))) } }
+      captures := captures
+      borrows := ← BoundaryV2.Tooling.SourceBorrowWitness.build source captures }
     if context.constants.length != source.constants.length then throw (IO.userError "constant inventory mismatch")
     if let .ok budget := group.getObjVal? "authorityBudgetMs" then
       let budget ← orError budget.getNat?

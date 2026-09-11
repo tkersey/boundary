@@ -169,6 +169,7 @@ def Context.typingValid (context : Context) : Bool :=
 def initial (context : Context) (arguments : List SemanticValue) : Except Invalid State := do
   require context.typingValid .type
   require (Usage.check context.source context.captures) .custody
+  require (Borrow.check context.source context.captures context.borrows) .scope
   let entry ← fromOption context.source.functions[context.source.entry.value]? .reference
   require (Analysis.captures context.captures context.source.entry).isEmpty .scope
   require (arguments.all (Profile.Value.externalValid context.source.schemas)) .type
@@ -201,6 +202,16 @@ theorem initial_checks_usage (context : Context) (arguments : List SemanticValue
   | false =>
     cases typed : context.typingValid <;>
       simp [initial, typed, used, require, bind, Except.bind] at accepted
+
+theorem initial_checks_borrows (context : Context) (arguments : List SemanticValue) (state : State)
+    (accepted : initial context arguments = .ok state) :
+    Borrow.check context.source context.captures context.borrows = true := by
+  cases borrowed : Borrow.check context.source context.captures context.borrows with
+  | true => rfl
+  | false =>
+    cases typed : context.typingValid <;>
+      cases used : Usage.check context.source context.captures <;>
+      simp [initial, typed, used, borrowed, require, bind, Except.bind] at accepted
 
 theorem empty_release_has_no_event (state : State) (scope : LexicalScopeId) (after : AfterRelease)
     (record : Scope) (control : state.control = .release scope after)

@@ -26,7 +26,8 @@ private def context (use : Use) (twice : Bool) : Context := {
     values := [[], [(0, 0)], [(1, 0)], [(0, 1), (1, 1)], [(0, 4)], [(2, 0)], []]
     terms := [[(0, 2), (1, 2)], [(2, 1)], [(0, 5)], [(2, 2)], [(0, 6)], [(0, 6)]]
     functions := [[], [(0, 3)]] }
-  constants := [.scalar 1 0, .scalar 0 2] }
+  constants := [.scalar 1 0, .scalar 0 2]
+  borrows := ⟨[], [⟨0, []⟩, ⟨1, []⟩]⟩ }
 
 theorem affine_double_use_has_valid_types : (context .affine true).typingValid = true := by
   decide_cbv
@@ -76,15 +77,18 @@ theorem unused_linear_closure_rejected :
     initial (unused .linear) [.scalar 0 40] = .error .custody := by cbv
 
 theorem unused_affine_closure_admitted :
-    (initial (unused .affine) [.scalar 0 40]).isOk = true := by cbv
+    (initial (unused .affine) [.scalar 0 40]).isOk = true := by
+  cbv
 
 theorem linear_closure_consumed_once_admitted :
-    (initial (context .linear false) [.scalar 0 40]).isOk = true := by cbv
+    (initial (context .linear false) [.scalar 0 40]).isOk = true := by
+  cbv
 
 theorem consumption_in_only_one_normal_branch_rejected :
     initial (conditional false) [.scalar 0 40, .scalar 3 0] = .error .custody := by cbv
 
 theorem failure_branch_preserves_unwind_admission :
-    (initial (conditional true) [.scalar 0 40, .scalar 3 0]).isOk = true := by cbv
+    (initial (conditional true) [.scalar 0 40, .scalar 3 0]).isOk = true := by
+  cbv
 
 end BoundaryV2.Profile.Source.UsageExamples

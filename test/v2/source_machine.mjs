@@ -17,6 +17,7 @@ const selected = filter ? cases.filter((item) => item.name === filter || item.pr
 assert.ok(selected.length);
 const temporary = await mkdtemp(join(tmpdir(), 'boundary-source-machine-'));
 try {
+  execFileSync('lake', ['build', 'SourceBorrowWitness'], { cwd: join(root, 'semantics/v2'), stdio: 'pipe' });
   const groups = [];
   for (const name of programNames) {
     const scenarios = selected.filter((item) => item.program === name);

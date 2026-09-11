@@ -30,9 +30,10 @@ const extraPrograms = [
   ['blob_byte', primitiveSource('blob_byte', [{ unit: {} }, { bytes: {} }, { u64: {} }, { u8: {} }, { sum: [0, 3] }], [1, 2], 4)],
 ];
 try {
-  execFileSync('lake', ['build', 'BorrowWitness'], { cwd: join(root, 'semantics/v2'), stdio: 'pipe' });
+  execFileSync('lake', ['build', 'BorrowWitness', 'SourceBorrowWitness'], { cwd: join(root, 'semantics/v2'), stdio: 'pipe' });
   const images = [];
   const sourceGroups = [];
+  const borrowGroups = [];
   const sources = programNames.map((name, index) => [name, sourcePaths[index] ?? join(root, 'zig-out', `source-${name}.json`), true]);
   for (const [name, module] of extraPrograms) {
     const path = join(temporary, `additional-${name}.json`);
@@ -58,6 +59,10 @@ try {
   }
   let unsafeBorrowSources = 0;
   for (const [name, source, valid] of sources) {
+    const module = parseExactJson(await readFile(source));
+    const facts = sourceAnalysis(module);
+    borrowGroups.push({ name, path: source, facts, expectedBorrow: valid,
+      ...(!valid ? { borrowPartner: name.replace(/-true-(true|false)$/, '-false-$1') } : {}) });
     const image = join(temporary, `${name}.bpi2`);
     const witness = join(temporary, `${name}-witness.json`);
     const compiled = spawnSync(compiler, ['--source', source, '--image', image, '--witness', witness], { maxBuffer: 16 * 1024 * 1024 });
@@ -75,13 +80,18 @@ try {
     const paired = parseExactJson(await readFile(witness));
     assert.deepEqual(Buffer.from(paired.source_bytes), await readFile(source));
     assert.deepEqual(Buffer.from(paired.image_bytes), await readFile(image));
-    const module = parseExactJson(await readFile(source));
-    sourceGroups.push({ path: source, facts: sourceAnalysis(module),
+    sourceGroups.push({ path: source, facts,
       constants: module.constants.map(({ schema, bytes }) => exactValueWitness(module, schema, bytes)), tests: [],
       ...(name === 'borrow-operands' ? { authorityBudgetMs: 5000 } : {}) });
     images.push(image);
   }
   assert.equal(unsafeBorrowSources, 12);
+  const borrowSourceInput = join(temporary, 'source-borrows.json');
+  await writeFile(borrowSourceInput, JSON.stringify(borrowGroups));
+  const borrowSourceOutput = execFileSync('lake', ['env', 'lean', '--run', '../../tools/v2/source_borrow_conformance.lean', borrowSourceInput], {
+    cwd: join(root, 'semantics/v2'), encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, timeout: 1_800_000,
+  });
+  process.stdout.write(borrowSourceOutput);
   const sourceWitness = join(temporary, 'source-admission.json');
   await writeFile(sourceWitness, JSON.stringify(sourceGroups));
   const sourceOutput = execFileSync('lake', ['env', 'lean', '--run', '../../tools/v2/source_machine_conformance.lean', sourceWitness], {

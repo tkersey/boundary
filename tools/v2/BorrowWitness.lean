@@ -88,10 +88,10 @@ private def queryRow (paths : List Path) (json : Json) : Except String QueryRow 
   return ⟨⟨start, kind⟩, ← (← array json "sources").mapM (source paths), []⟩
 
 private def constraint (paths : List Path) (json : Json) : Except String Constraint := do
-  let bound ← match ← (← field json "bound").getStr? with
-    | "region" => pure Bound.region
-    | "clause" => pure Bound.clause
-    | "capture" => pure Bound.capture
+  let bound : Bound ← match ← (← field json "bound").getStr? with
+    | "region" => pure .region
+    | "clause" => pure .clause
+    | "capture" => pure .capture
     | _ => throw "unknown ownership bound"
   return ⟨← source paths (← field json "value"), ← source paths (← field json "owner"), bound⟩
 

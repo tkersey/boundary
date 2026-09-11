@@ -114,8 +114,7 @@ def bodyBinding (program : Program) (block : BlockId) (closure : Slot) (argument
 /-- A fresh value may be constrained by the other ancestry component. Any
 owner trace selecting its own component would retain it outside this binder. -/
 def mappedConstraintValid (values owners : Mapped) : Bool :=
-  values.fresh.all (fun component => owners.traces.all (fun owner =>
-    (selectedComponent owner).any (· != component)))
+  BorrowLifetime.compatible values.fresh owners.traces selectedComponent
 
 theorem resumed_ambient_exact (binding : Binding) (token : Slot) (component : Ambient)
     (resumed : binding.resumed = some token) :
@@ -136,12 +135,7 @@ theorem clause_owner_is_outside (program : Program) (binding : Binding) (paramet
 
 theorem fresh_constraint_rejects_same_component (values owners : Mapped) (component : Ambient) (owner : Trace)
     (fresh : values.fresh = some component) (included : owner ∈ owners.traces)
-    (selected : selectedComponent owner = some component) : mappedConstraintValid values owners = false := by
-  apply Bool.eq_false_iff.mpr
-  intro accepted
-  have every : owners.traces.all (fun trace => (selectedComponent trace).any (· != component)) = true := by
-    simpa [mappedConstraintValid, fresh] using accepted
-  have this := List.all_eq_true.mp every owner included
-  simp [selected] at this
+    (selected : selectedComponent owner = some component) : mappedConstraintValid values owners = false :=
+  BorrowLifetime.rejects_same_component values.fresh owners.traces selectedComponent component owner fresh included selected
 
 end BoundaryV2.Profile.Target.Borrow

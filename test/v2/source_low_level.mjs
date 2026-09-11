@@ -13,6 +13,7 @@ assert.ok(compiler && fixtures && process.argv.length === 4);
 const root = resolve(new URL('../..', import.meta.url).pathname);
 const temporary = await mkdtemp(join(tmpdir(), 'boundary-source-low-level-'));
 try {
+  execFileSync('lake', ['build', 'SourceBorrowWitness'], { cwd: join(root, 'semantics/v2'), stdio: 'pipe' });
   const closure = parseExactJson(await readFile(join(fixtures, 'source-lexical.json')));
   closure.variables.push(0);
   closure.values.push({ schema: 2, expression: { primitive: { opcode: 'computation', operands: [1], immediate: 0, failures: [] } } });

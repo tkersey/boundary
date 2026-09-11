@@ -1,10 +1,9 @@
+import BoundaryV2.BorrowLifetime
 import BoundaryV2.UseAdmission
 
 namespace BoundaryV2.Profile.Target.Borrow
 
-inductive Ambient where
-  | evidence | region
-  deriving DecidableEq, Repr
+abbrev Ambient := BorrowLifetime.Ambient
 
 inductive Projection where
   | field : Nat → Projection
@@ -34,9 +33,7 @@ inductive Trace where
 def Trace.block : Trace → BlockId
   | .slot block _ _ | .ambient block _ | .bodyResult block _ => block
 
-inductive Bound where
-  | region | clause | capture
-  deriving DecidableEq, Repr
+abbrev Bound := BorrowLifetime.Bound
 
 structure Constraint where
   value : Source

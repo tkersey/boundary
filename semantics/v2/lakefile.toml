@@ -8,7 +8,7 @@ name = "BoundaryV2"
 
 [[lean_lib]]
 name = "BoundaryProofTools"
-roots = ["BorrowWitness", "GraphWitness", "InvocationWitness", "ExecutionProof", "ProgramProof"]
+roots = ["BorrowWitness", "SourceBorrowWitness", "GraphWitness", "InvocationWitness", "ExecutionProof", "ProgramProof"]
 srcDir = "../../tools/v2"
 
 [[lean_exe]]
