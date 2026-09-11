@@ -158,6 +158,16 @@ private theorem unique_key (key : α → β) (entries : List α) (unique : (entr
         exact False.elim (both.1 (List.mem_map.mpr ⟨first, firstTail, same⟩))
       · exact induction both.2 firstTail secondTail
 
+theorem object_identifies_entry (book : Book) (first second : Entry)
+    (firstMem : first ∈ book.entries) (secondMem : second ∈ book.entries)
+    (same : first.object = second.object) : first = second :=
+  unique_key Entry.object book.entries book.objects_unique firstMem secondMem same
+
+theorem token_identifies_entry (book : Book) (first second : Entry)
+    (firstMem : first ∈ book.entries) (secondMem : second ∈ book.entries)
+    (same : first.token = second.token) : first = second :=
+  unique_key Entry.token book.entries book.tokens_unique firstMem secondMem same
+
 theorem unique_custodian (book : Book) (token : CustodyToken) (left right : Owner)
     (a : owns book token left) (b : owns book token right) : left = right := by
   obtain ⟨first, firstMem, firstToken, firstOwner⟩ := a

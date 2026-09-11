@@ -261,8 +261,15 @@ later allocations use distinct tokens from earlier live entries, including
 entries that have since been consumed. `SourceCloneSafety` proves that one-shot
 conversion consumes the original tokens, reusable activation preserves the
 custody book, and nested dormant templates receive the same structural and
-live-custody checks. These results do not establish complete value-locator,
-typing, or borrow preservation.
+live-custody checks. `SourceCustodyAlignment` connects each live token in a
+value to the physical object recorded by the custody book, while admitting
+stale lexical values after consumption. Allocation, transfer, and consumption
+preserve this alignment; allocation, transfer, consumption, and replacement
+preserve live objects. Retirement preserves live objects when its consumed
+reference is aligned. Current aligned references therefore resolve to live
+objects, and token-free renaming preserves alignment. These are local laws;
+carrying value alignment through every source control transition, complete
+typing, and borrow preservation remain separate obligations.
 
 The separate raw byte codecs in `Wire`, `ProfileCodec`, and `Images` check
 complete BPI2, PST2, and protocol record framing, minimal integers, lengths,
