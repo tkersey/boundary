@@ -163,3 +163,12 @@ import BoundaryV2.SourceTokenInventory
 import BoundaryV2.SourceTokenLifetime
 import BoundaryV2.SourceTokenStorage
 import BoundaryV2.SourceHandoffLaws
+import BoundaryV2.SourceIdentitySupport
+import BoundaryV2.SourceIdentityStorage
+import BoundaryV2.SourceIdentityClone
+import BoundaryV2.SourceIdentityControl
+import BoundaryV2.SourceIdentityCleanup
+import BoundaryV2.SourceIdentityHeap
+import BoundaryV2.SourceIdentityRequests
+import BoundaryV2.SourceIdentityTransitions
+import BoundaryV2.SourceIdentityExecution

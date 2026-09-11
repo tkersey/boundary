@@ -246,6 +246,18 @@ cleanup cannot restart, and a completed or failed cleanup cannot complete again,
 including after external responses, cancellation, or reusable activation. These
 theorems use the full source dispatcher; they do not assume global machine
 well-formedness or replace the remaining typing, borrow, and simulation proofs.
+`SourceIdentityExecution` proves that every initialized source execution keeps
+all retained attachment, region, cell, lexical-scope, invocation, and obligation
+metadata below the corresponding allocation frontier. This covers active frames,
+all heap records and objects, dormant captures, frozen-cell metadata, and loans.
+The proof follows every actual internal and external transition, including fresh
+capture instantiation, clause handoff, cleanup, disposal, and cancellation. It
+uses successor allocation counts to bound fresh identities without assuming
+successor well-formedness. Together with `SourceIndexLaws`, these bounds establish
+that the current scope and invocation have their exact indexed records; the same
+lookup lemmas cover bounded scope, invocation, and obligation references elsewhere.
+They do not yet prove lexical ancestry, owning-location validity, active
+attachment uniqueness, borrow lifetime, progress, or full source well-formedness.
 `SourceHandoffLaws` proves that handled requests enter clause code in the same
 transition as the custody transfer. Every owned body has a holding in the entered
 clause scope, and that holding owns its token in the actual custody book. Function
