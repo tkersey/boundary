@@ -129,7 +129,9 @@ def emit (output : System.FilePath) (scope : String) (entry : ProgramCache)
   let data ← writeModule output (scope ++ "Data") scope
     ["BoundaryV2.ExecutionCertificate", "BoundaryV2.SHA256Certificate", "BoundaryV2.BorrowEvaluation",
       "BoundaryV2.BorrowReachability", "BoundaryV2.CanonicalEvaluation", "Lean.Elab.Tactic.Cbv"]
-    ("attribute [cbv_opaque] BoundaryV2.Profile.SHA256.hashNumerals BoundaryV2.Profile.SHA256.hash BoundaryV2.Profile.Target.Borrow.reachable\nattribute [cbv_eval] BoundaryV2.Profile.SHA256.hash_as_numerals BoundaryV2.Profile.Target.Borrow.reachable_forward\n" ++ dataCode)
+    -- Conditional reduction must not recompute trait search through an
+    -- unsimplified Decidable instance. Its defining equation remains checked.
+    ("attribute [cbv_opaque] BoundaryV2.Profile.SHA256.hashNumerals BoundaryV2.Profile.SHA256.hash BoundaryV2.Profile.Target.Borrow.reachable BoundaryV2.Profile.Traits.check\nattribute [cbv_eval] BoundaryV2.Profile.SHA256.hash_as_numerals BoundaryV2.Profile.Target.Borrow.reachable_forward BoundaryV2.Profile.Traits.check.eq_def\n" ++ dataCode)
   let borrowed ← emitBorrow output scope data entry.image.context.program entry.witness.borrows
   let canonical ← emitCanonical output scope data entry.image.context.program
   let finalCode := "theorem programAccepted : CertifiedImage.CanonicalProgram program programWitness := by\n  refine ⟨?_, ?_, (Admission.check_exact _ _).mp ?_, (Canonical.check_exact _).mp canonicalChecked⟩\n  · unfold Images.WireAdmitted; decide_cbv\n  · decide_cbv\n  · unfold Admission.check\n    simp only [Bool.and_eq_true, and_assoc]\n    refine ⟨?_, ?_, ?_, ?_, borrowAccepted⟩\n    all_goals decide_cbv\ndef image : Machine.ImageContext imageBytes programWitness := { context := { program := program, constants := storedConstants, inventory := by decide +kernel }, admitted := programAccepted, encoded := by decide_cbv }\n"
