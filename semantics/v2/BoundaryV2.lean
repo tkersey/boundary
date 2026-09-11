@@ -99,4 +99,7 @@ import BoundaryV2.SourceEnvironmentExecution
 import BoundaryV2.SourceOperandStructure
 import BoundaryV2.SourceOperandEffects
 import BoundaryV2.SourceOperandExecution
+import BoundaryV2.SourceOperandSchemas
+import BoundaryV2.SourceOperandOutcomes
+import BoundaryV2.SourceOperandTypes
 import BoundaryV2.SourceUsageExamples

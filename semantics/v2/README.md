@@ -351,8 +351,8 @@ actual operand schemas satisfy instruction admission. Constructor schemas come
 from admitted source lambdas, including the derived constructor table, and the
 implicit unit constant is checked against the source catalog.
 `SourcePrimitiveResults` proves that a delivered primitive result has the
-instruction's schema across both pure and heap execution. Deriving operand
-admission from frame typing and proving full heap compatibility remain open.
+instruction's schema across both pure and heap execution. Full frame and heap
+compatibility remain open.
 `SourceEnvironmentInventory`, `SourceEnvironmentEffects`, and
 `SourceEnvironmentExecution` prove that every lexical binding in running code,
 stack frames, closures, and captured continuations retains its declared schema
@@ -363,8 +363,13 @@ it does not establish full frame or heap compatibility.
 prove that partial operand frames form a contiguous stack prefix, with only
 primitive evaluation above a pending term, throughout initialized source
 execution. Captured continuations contain no partial operand frames, including
-after cloning, activation, and disposal. Matching evaluated operands to their
-source declarations is a separate typing obligation.
+after cloning, activation, and disposal.
+`SourceOperandSchemas`, `SourceOperandOutcomes`, and `SourceOperandTypes` connect
+executing primitives and effectful terms to their source declarations with the
+actual operand schemas throughout initialized `Steps`, including external
+responses and cancellation. Primitive value preservation derives its instruction
+admission from this invariant, including the pop operations' resizable-input
+requirement. It still consumes the predecessor's finite value typing component.
 
 The separate raw byte codecs in `Wire`, `ProfileCodec`, and `Images` check
 complete BPI2, PST2, and protocol record framing, minimal integers, lengths,
