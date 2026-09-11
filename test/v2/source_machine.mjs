@@ -39,7 +39,8 @@ try {
         responses.push(exactValueWitness(source, effect.result, test.responses[response++]));
       }
       assert.equal(response, test.responses.length);
-      return { name: test.name, args, initial: test.initial, responses, responseBytes: test.responses, cancellations: test.cancellations, expected };
+      return { name: test.name, args, initial: test.initial, responses, responseBytes: test.responses,
+        cancellations: test.cancellations, checkHandoffCancellation: test.program === 'scoped-reader', expected };
     });
     groups.push({ path, facts: sourceAnalysis(source), constants, constructors: sourceConstructors(source), tests });
   }
@@ -56,6 +57,8 @@ try {
     try {
       assert.ok(!row.error, row.error);
       assert.deepEqual(row.actual, test.expected, row.name);
+      // The client issues one local request; its forwarding clause issues the second.
+      if (test.checkHandoffCancellation) assert.equal(row.handoffChecks, 2, 'both owned-body handoffs must be tested');
       console.log(`source machine: ${row.name} (${row.steps} transitions)`);
     } catch (error) {
       failures.push(error);

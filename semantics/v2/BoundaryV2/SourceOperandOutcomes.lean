@@ -250,6 +250,7 @@ theorem resumeComputation_nonexecuting (machine : State) (context : Context) (to
 theorem openRequest_types (machine : State) (context : Context) (operation : Operation) (operands : List Located)
     (after : Transition) (accepted : openRequest machine context operation operands = .ok after)
     (typed : LocalTypes context.source machine) (plain : OperandStructure.Plain machine) : LocalTypes context.source after.state := by
+  have plainAfter := OperandStructure.openRequest_plain _ _ _ _ _ accepted plain
   simp only [openRequest, bind, except_bind_ok, fromOption_ok] at accepted
   obtain ⟨_, _, _, _, _, _, _, _, accepted⟩ := accepted
   split at accepted
@@ -272,14 +273,14 @@ theorem openRequest_types (machine : State) (context : Context) (operation : Ope
       obtain ⟨_, _, accepted⟩ := (except_bind_ok _ _ _).mp accepted
       split at accepted
       all_goals
-        simp only [except_bind_ok, pure, Except.pure, Except.ok.injEq] at accepted
+        simp only [except_bind_ok] at accepted
         try
           obtain ⟨gate, guard, rest⟩ := accepted
           have _ : Unit := gate
           clear guard
           have accepted := rest
-        obtain ⟨_, _, _, _, _, _, rfl⟩ := accepted
-        trivial
+        obtain ⟨_, _, _, _, _, _, invoked⟩ := accepted
+        exact plain_types _ _ plainAfter (invokeFunction_nonexecuting _ _ _ _ _ _ invoked)
 
 theorem executeEffectTerm_types (machine : State) (context : Context) (after : Transition)
     (accepted : executeEffectTerm machine context = .ok after) (typed : LocalTypes context.source machine)

@@ -116,6 +116,25 @@ private def checkDecoded (source : Source.Module) (bytes : Bytes) (expected : Se
     | throw (IO.userError "value codec rejected canonical bytes")
   if decoded != expected then throw (IO.userError "value codec disagrees with independent witness")
 
+/-- Interrupt immediately after an owned-body handoff, before executing clause
+code. The receiver must already own a lexical holding that ordinary unwind can
+release. This fork is a regression test, not part of source execution. -/
+private def checkHandoffCancellation (context : Context) (name : String) (before : State) : IO Unit := do
+  let mut state := (← accept name before 0 (external before context (.cancel (.bytes [])))).state
+  for step in [:10000] do
+    match state.status with
+    | .cancelled exit =>
+      if exit.cancellation != some (.bytes []) || !exit.failures.isEmpty then
+        throw (IO.userError s!"{name}: handoff cancellation changed its exit")
+      if !state.heap.custody.entries.isEmpty then
+        throw (IO.userError s!"{name}: handoff cancellation stranded live custody: {repr state.heap.custody.entries}")
+      return
+    | .yielded => state := (← accept name state step (external state context .continueYield)).state
+    | .parked _ | .completed _ | .failed _ =>
+      throw (IO.userError s!"{name}: unexpected handoff cancellation boundary")
+    | .running => state := (← accept name state step (tick state context)).state
+  throw (IO.userError s!"{name}: inconclusive handoff cancellation test limit")
+
 private def runCase (context : Context) (test : Lean.Json) : IO Lean.Json := do
   let name ← orError (str test "name")
   let arguments ← orError ((← orError (array test "args")).mapM value)
@@ -138,13 +157,22 @@ private def runCase (context : Context) (test : Lean.Json) : IO Lean.Json := do
   let mut trace := []
   let mut responseIndex := 0
   let mut applied : List Nat := []
+  let checkHandoffs := (get test "checkHandoffCancellation" >>= Lean.Json.getBool?).toOption.getD false
+  let mut handoffChecks := 0
   for steps in [:2000000] do
     if let some result ← terminal context.source state trace then
       if responseIndex != responses.length || applied.length != controls.length then
         throw (IO.userError s!"{name}: unused external inputs")
-      return Lean.Json.mkObj [("name", toJson name), ("steps", toJson steps), ("actual", result)]
+      return Lean.Json.mkObj [("name", toJson name), ("steps", toJson steps), ("actual", result),
+        ("handoffChecks", toJson handoffChecks)]
+    let handoff := checkHandoffs && match state.control with
+      | .execute (.term (.perform operation)) _ _ => operation.capability.isSome && !operation.bodies.isEmpty
+      | _ => false
     let transition ← accept name state steps (tick state context)
     state := transition.state
+    if handoff then
+      checkHandoffCancellation context name state
+      handoffChecks := handoffChecks + 1
     for event in transition.events do
       if let some row ← traceEvent context.source event then trace := trace ++ [row]
     let boundary := match state.status with | .yielded | .parked _ => true | _ => false

@@ -246,17 +246,17 @@ theorem openRequest_valid (machine : State) (context : Context) (operation : Ope
       have movedTyped := move_valid context _ store _ _ ((fromOption_ok _ _ _).mp moved) typed
       split at accepted
       all_goals
-        simp only [except_bind_ok, fromOption_ok, pure, Except.pure, Except.ok.injEq] at accepted
+        simp only [except_bind_ok, fromOption_ok] at accepted
         try
           obtain ⟨gate, guard, rest⟩ := accepted
           have _ : Unit := gate
           clear guard
           have accepted := rest
-        obtain ⟨⟨outside, owner⟩, temporaryOk, ⟨allocatedHeap, token⟩, allocated, staged, stagedOk, rfl⟩ := accepted
+        obtain ⟨⟨outside, owner⟩, temporaryOk, ⟨allocatedHeap, token⟩, allocated, staged, stagedOk, invoked⟩ := accepted
         have first := temporary_valid _ _ _ _ temporaryOk movedTyped
         have second := allocate_valid _ _ _ _ _ _ _ _ allocated first (by trivial)
         have third := finishTemporary_valid _ _ _ _ stagedOk second
-        exact third
+        exact invokeFunction_valid _ _ _ _ _ _ invoked third
 
 theorem installProtection_valid (machine : State) (context : Context) (body cleanup : Located)
     (arguments : List Located) (resource : Option Located) (loan : Option (RegionId .source)) (after : Transition)

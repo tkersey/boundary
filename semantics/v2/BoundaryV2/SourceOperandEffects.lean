@@ -83,13 +83,13 @@ theorem openRequest_plain (machine : State) (context : Context) (operation : Ope
       have storeTyped := moveValues_valid _ _ _ _ moved typed.2
       split at accepted
       all_goals
-        simp only [except_bind_ok, fromOption_ok, pure, Except.pure, Except.ok.injEq] at accepted
+        simp only [except_bind_ok, fromOption_ok] at accepted
         try
           obtain ⟨gate, guard, rest⟩ := accepted
           have _ : Unit := gate
           clear guard
           have accepted := rest
-        obtain ⟨⟨outside, owner⟩, temporaryOk, ⟨finalStore, token⟩, allocated, staged, stagedOk, rfl⟩ := accepted
+        obtain ⟨⟨outside, owner⟩, temporaryOk, ⟨finalStore, token⟩, allocated, staged, stagedOk, invoked⟩ := accepted
         have outsideShape := temporary_shape _ _ _ temporaryOk
         have outsideTypes : Plain outside := ⟨by simpa only [outsideShape.2.1] using outsideTyped,
           storeTyped.of_objects outsideShape.2.2⟩
@@ -98,7 +98,7 @@ theorem openRequest_plain (machine : State) (context : Context) (operation : Ope
           all_goals exact framesTyped)
         have stagedTypes := finishTemporary_plain _ _ _ stagedOk (show Plain { outside with heap := finalStore } from
           ⟨outsideTypes.1, allocatedTyped⟩)
-        exact stagedTypes
+        exact invokeFunction_plain _ _ _ _ _ _ invoked stagedTypes
 
 theorem executeEffectTerm_plain (machine : State) (context : Context) (after : Transition)
     (accepted : executeEffectTerm machine context = .ok after) (typed : Plain machine) : Plain after.state := by

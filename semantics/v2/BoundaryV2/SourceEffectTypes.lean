@@ -339,13 +339,13 @@ theorem openRequest_preserves_value_shapes (machine : State) (context : Context)
           (Custody.Owner.receiver ⟨machine.heap.nextInvocation⟩) = some store := (fromOption_ok _ _ _).mp moved
       split at accepted
       all_goals
-        simp only [except_bind_ok, fromOption_ok, pure, Except.pure, Except.ok.injEq] at accepted
+        simp only [except_bind_ok, fromOption_ok] at accepted
         try
           obtain ⟨gate, guard, rest⟩ := accepted
           have _ : Unit := gate
           clear guard
           have accepted := rest
-        obtain ⟨⟨outside, owner⟩, temporaryOk, ⟨finalStore, token⟩, allocated, staged, stagedOk, rfl⟩ := accepted
+        obtain ⟨⟨outside, owner⟩, temporaryOk, ⟨finalStore, token⟩, allocated, staged, stagedOk, invoked⟩ := accepted
         have movedTyped := ValueInventory.moveValues_preserves_all machine store _ _ moved _ typed
         have framesTyped : ∀ value ∈ (selected.inside.map (trimFrame context)).flatMap ValueInventory.frame,
             ValueShape context.source.schemas value := by
@@ -388,9 +388,13 @@ theorem openRequest_preserves_value_shapes (machine : State) (context : Context)
           rcases List.mem_cons.mp (List.fst_mem_of_mem_zipIdx member) with equal | member
           · cases equal; exact payloadTyped
           · exact bodiesTyped original member
-        simp only [ValueInventory.All, ValueInventory.state, ValueInventory.control, ValueInventory.environment,
-          List.map_append, List.mem_append, List.mem_map, List.mem_singleton] at stagedTypes ⊢
-        grind only []
+        apply ValueInventory.invokeFunction_preserves_all _ _ _ _ _ _ invoked _ stagedTypes outer
+        intro value member
+        simp only [List.mem_append, List.mem_singleton] at member
+        rcases member with (member | member) | equal
+        · exact storedTyped value member
+        · exact outgoingTyped value member
+        · cases equal; exact tokenTyped
 
 /-- Every successful effect-term transition preserves finite value typing.
 The input assumptions concern only the predecessor state. -/

@@ -246,6 +246,15 @@ cleanup cannot restart, and a completed or failed cleanup cannot complete again,
 including after external responses, cancellation, or reusable activation. These
 theorems use the full source dispatcher; they do not assume global machine
 well-formedness or replace the remaining typing, borrow, and simulation proofs.
+`SourceHandoffLaws` proves that handled requests enter clause code in the same
+transition as the custody transfer. Every owned body has a holding in the entered
+clause scope, and that holding owns its token in the actual custody book. Function
+entry establishes the same fact for every owned argument. The source conformance
+gate cancels immediately after both owned-body handoffs in the scoped-reader
+fixture, requiring ordinary unwind to finish with an empty custody book; the
+previous deferred invocation left a linear body stranded at a future receiver.
+This correction affects the proof-only source transition granularity and retains
+the independent oracle's semantic trace.
 `SourceRequestLaws` additionally proves that every finite source trace contains
 exactly the consecutive request-opening identities allocated during that trace.
 Those identities are unique even when payloads are equal. Parked polling,
@@ -267,9 +276,9 @@ stale lexical values after consumption. Allocation, transfer, and consumption
 preserve this alignment; allocation, transfer, consumption, and replacement
 preserve live objects. Retirement preserves live objects when its consumed
 reference is aligned. Current aligned references therefore resolve to live
-objects, and token-free renaming preserves alignment. These are local laws;
-carrying value alignment through every source control transition, complete
-typing, and borrow preservation remain separate obligations.
+objects, and token-free renaming preserves alignment. These local laws support
+the global reference-safety theorem below.
+Complete typing and borrow preservation remain separate obligations.
 
 `Primitives.evaluate_preserves_references` proves that every successful pure
 primitive preserves arbitrary predicates of reference schemas, physical nodes,

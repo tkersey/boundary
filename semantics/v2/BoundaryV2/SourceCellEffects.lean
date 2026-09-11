@@ -203,17 +203,17 @@ theorem openRequest_preserves (machine : State) (context : Context) (operation :
       have first := move_preserves _ store _ _ ((fromOption_ok _ _ _).mp moved)
       split at accepted
       all_goals
-        simp only [except_bind_ok, fromOption_ok, pure, Except.pure, Except.ok.injEq] at accepted
+        simp only [except_bind_ok, fromOption_ok] at accepted
         try
           obtain ⟨gate, guard, rest⟩ := accepted
           have _ : Unit := gate
           clear guard
           have accepted := rest
-        obtain ⟨⟨outside, owner⟩, temporaryOk, ⟨allocatedHeap, token⟩, allocated, staged, stagedOk, rfl⟩ := accepted
+        obtain ⟨⟨outside, owner⟩, temporaryOk, ⟨allocatedHeap, token⟩, allocated, staged, stagedOk, invoked⟩ := accepted
         have second := temporary_preserves _ _ _ temporaryOk
         have third := allocate_preserves _ _ _ _ _ _ _ allocated
         have fourth := finishTemporary_preserves _ _ _ stagedOk
-        exact first.trans (second.trans (third.trans fourth))
+        exact first.trans (second.trans (third.trans (fourth.trans (invokeFunction_preserves _ _ _ _ _ _ invoked))))
 
 theorem installProtection_preserves (machine : State) (context : Context) (body cleanup : Located)
     (arguments : List Located) (resource : Option Located) (loan : Option (RegionId .source)) (after : Transition)

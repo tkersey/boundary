@@ -454,16 +454,16 @@ theorem openRequest_cancellation (machine : State) (context : Context) (operatio
       obtain ⟨_, _, accepted⟩ := (except_bind_ok _ _ _).mp accepted
       split at accepted
       all_goals
-        simp only [except_bind_ok, pure, Except.pure, Except.ok.injEq] at accepted
+        simp only [except_bind_ok] at accepted
         try
           obtain ⟨gate, guard, rest⟩ := accepted
           have _ : Unit := gate
           clear guard
           have accepted := rest
-        obtain ⟨⟨outside, owner⟩, temporaryOk, _, _, staged, stagedOk, rfl⟩ := accepted
+        obtain ⟨⟨outside, owner⟩, temporaryOk, _, _, staged, stagedOk, invoked⟩ := accepted
         have first := temporary_cancellation _ _ _ temporaryOk
         have second := finishTemporary_cancellation _ _ _ stagedOk
-        exact second.trans first
+        exact (invokeFunction_cancellation _ _ _ _ _ _ invoked).trans (second.trans first)
 
 theorem executeEffectTerm_cancellation (machine : State) (context : Context) (after : Transition)
     (accepted : executeEffectTerm machine context = .ok after) : after.state.cancellation = machine.cancellation := by

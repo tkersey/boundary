@@ -77,8 +77,8 @@ def openRequest (state : State) (context : Context) (operation : Operation)
     else
       let .internal (.resumption signature) ← fromOption context.source.schemas[clause.resumption.value]? .type | throw .type
       -- Clause operands leave the captured custody before clone admission.
-      -- The invocation step subsequently moves these receiver holdings into
-      -- its parameter scope, preserving their order and single ownership.
+      -- Enter the clause before exposing a successor: cancellation must never
+      -- observe receiver holdings whose invocation has not acquired them.
       let receiver : InvocationId := ⟨state.heap.nextInvocation⟩
       let outgoing := payload :: bodies
       let heap ← fromOption (moveValues state.heap outgoing (Custody.Owner.receiver receiver)) .custody
@@ -98,7 +98,8 @@ def openRequest (state : State) (context : Context) (operation : Operation)
         (if signature.use == .multi then .multiTemplate capture else .oneShot capture) owner
         (signature.use != .multi)) .custody
       let staged ← finishTemporary { outside with heap := heap } token
-      return ⟨{ staged.state with control := .invoke clause.function selected.activation.environment (selected.activation.state ++ outgoing ++ [token]) }, []⟩
+      invokeFunction staged.state context clause.function selected.activation.environment
+        (selected.activation.state ++ outgoing ++ [token])
 
 def takeCapture (state : State) (context : Context) (token : Located) : Except Invalid (State × Capture) := do
   let (_, object) ← lookupObject state token

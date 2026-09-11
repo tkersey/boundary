@@ -334,13 +334,13 @@ theorem openRequest_preserves_types (machine : State) (context : Context)
         exact frame_types _ _ _ (by simp [reconstructed, savedMember]) typed
       split at accepted
       all_goals
-        simp only [except_bind_ok, fromOption_ok, pure, Except.pure, Except.ok.injEq] at accepted
+        simp only [except_bind_ok, fromOption_ok] at accepted
         try
           obtain ⟨gate, guard, rest⟩ := accepted
           have _ : Unit := gate
           clear guard
           have accepted := rest
-        obtain ⟨⟨outside, owner⟩, temporaryOk, ⟨finalStore, token⟩, allocated, staged, stagedOk, rfl⟩ := accepted
+        obtain ⟨⟨outside, owner⟩, temporaryOk, ⟨finalStore, token⟩, allocated, staged, stagedOk, invoked⟩ := accepted
         have startingTyped := with_stack_types _ _ selected.outside movedTyped outsideTyped
         have outsideTypes := temporary_preserves_types _ _ _ _ temporaryOk startingTyped
         have allocatedTypes := allocateObject_preserves_types _ _ _ _ _ _ _ _ allocated outsideTypes (by
@@ -348,7 +348,7 @@ theorem openRequest_preserves_types (machine : State) (context : Context)
           all_goals simp only [object, capture, Environment.Types, List.mem_append] at framesTyped activationTyped ⊢
           all_goals grind only [])
         have stagedTypes := finishTemporary_preserves_types _ _ _ _ stagedOk allocatedTypes
-        exact with_control_types _ _ _ stagedTypes activationTyped
+        exact invokeFunction_preserves_types _ _ _ _ _ _ invoked stagedTypes
 
 theorem executeEffectTerm_preserves_types (machine : State) (context : Context) (after : Transition)
     (accepted : executeEffectTerm machine context = .ok after)
