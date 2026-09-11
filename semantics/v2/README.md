@@ -321,6 +321,14 @@ leaves, leaving lexical scopes, releasing holdings, and disposing values
 preserve value shapes, including reinstated one-shot cleanup frames. These
 results cover finite value typing; they do not yet establish complete heap,
 scope, or obligation compatibility or preservation by every internal rule.
+`SourceCaptureValueTypes` proves preservation by the actual capture-instantiation
+path, including copied objects, frozen local-cell substitution, dormant
+captures, reference renaming, and newly allocated scopes.
+`SourceEffectTypes` proves preservation by the complete effect-term dispatcher:
+request capture, direct clauses, handler installation, value and computation
+resumption, and region entry. It also covers handler completion and restored
+resume callers. The capture and resumption claims derive their value inputs
+from the predecessor state; they do not assume the successor is well-typed.
 
 The separate raw byte codecs in `Wire`, `ProfileCodec`, and `Images` check
 complete BPI2, PST2, and protocol record framing, minimal integers, lengths,
