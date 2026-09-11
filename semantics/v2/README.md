@@ -185,7 +185,9 @@ remain separate unfinished obligations.
 
 `SourceUsage` additionally checks ordered reads and consumption at every function
 body before initialization. It rejects reusing an affine closure after its first
-call, permits repeated use of reusable closures, and ignores unused syntax rows.
+call, requires linear consumption on every normal return path, permits repeated
+use of reusable closures, and ignores unused syntax rows. The normal-return
+check preserves failure paths that release ownership through unwinding.
 The borrowing classification comes from the source machine's primitive rules.
 Checked regressions distinguish these cases; this admission check does not yet
 prove full custody or borrow preservation during execution.
