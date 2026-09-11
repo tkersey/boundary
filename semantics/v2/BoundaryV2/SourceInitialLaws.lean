@@ -72,6 +72,7 @@ theorem initialization_excludes_hidden_handles (context : Context) (arguments : 
   obtain ⟨_, _, accepted⟩ := bind_success _ _ _ accepted
   obtain ⟨_, _, accepted⟩ := bind_success _ _ _ accepted
   obtain ⟨_, _, accepted⟩ := bind_success _ _ _ accepted
+  obtain ⟨_, _, accepted⟩ := bind_success _ _ _ accepted
   obtain ⟨_, external, accepted⟩ := bind_success _ _ _ accepted
   obtain ⟨_, _, accepted⟩ := bind_success _ _ _ accepted
   have valid : arguments.all (Profile.Value.externalValid context.source.schemas) = true := by

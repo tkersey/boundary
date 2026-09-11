@@ -488,6 +488,7 @@ theorem initial_indexed (context : Context) (arguments : List SemanticValue) (st
   obtain ⟨_, _, accepted⟩ := (except_bind_ok _ _ _).mp accepted
   obtain ⟨_, _, accepted⟩ := (except_bind_ok _ _ _).mp accepted
   obtain ⟨_, _, accepted⟩ := (except_bind_ok _ _ _).mp accepted
+  obtain ⟨_, _, accepted⟩ := (except_bind_ok _ _ _).mp accepted
   cases accepted
   exact ⟨rfl, rfl, rfl⟩
 

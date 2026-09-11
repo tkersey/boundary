@@ -101,3 +101,86 @@ theorem canonicalize_leaf (descriptor : Descriptor) (shape : Schema .target)
     mapChildren_leaf _ leaf, bind, Option.bind, pure]
 
 end BoundaryV2.Profile.SchemaDescriptor
+
+
+namespace BoundaryV2.Profile.Target.Boundary
+open Machine (require fromOption)
+/-- Compose the exact saved-state checks without repeating their reductions
+inside the public boundary operation. -/
+theorem finish_yielded_of_parts (image : Machine.ImageContext imageBytes programWitness)
+    (state : Machine.State image.context.program) (witness : Graph.Admission.Witness)
+    (normalized : Graph.State) (bytes : Bytes)
+    (identityChecked : (state.identity == image.identity) = true)
+    (clockChecked : (clock state).valid state.status = true)
+    (noResult : state.result = none)
+    (canonical : Graph.Snapshot.canonicalize state.raw = some normalized)
+    (rawChecked : Images.rawState.valid normalized = true)
+    (graphChecked : Graph.Admission.check image.context.program programWitness.borrows normalized witness = true)
+    (yielded : state.status = .yielded)
+    (encoded : Images.rawState.encode normalized = bytes) :
+    finish image state witness = .ok (.yielded bytes) := by
+  unfold finish
+  rw [identityChecked, clockChecked, noResult]
+  simp only [require, fromOption, bind, Except.bind, ↓reduceIte]
+  rw [canonical]
+  dsimp only
+  rw [rawChecked, graphChecked, yielded, encoded]
+  rfl
+end BoundaryV2.Profile.Target.Boundary
+
+namespace BoundaryV2.Profile.Target.Boundary
+open Machine (require fromOption)
+theorem finish_progressed_of_parts (image : Machine.ImageContext imageBytes programWitness)
+    (state : Machine.State image.context.program) (witness : Graph.Admission.Witness)
+    (normalized : Graph.State) (bytes : Bytes)
+    (identityChecked : (state.identity == image.identity) = true)
+    (clockChecked : (clock state).valid state.status = true)
+    (noResult : state.result = none)
+    (canonical : Graph.Snapshot.canonicalize state.raw = some normalized)
+    (rawChecked : Images.rawState.valid normalized = true)
+    (graphChecked : Graph.Admission.check image.context.program programWitness.borrows normalized witness = true)
+    (progressed : state.status = .active ∨ state.status = .unwinding)
+    (encoded : Images.rawState.encode normalized = bytes) :
+    finish image state witness = .ok (.progressed bytes) := by
+  unfold finish
+  rw [identityChecked, clockChecked, noResult]
+  simp only [require, fromOption, bind, Except.bind, ↓reduceIte]
+  rw [canonical]
+  dsimp only
+  rw [rawChecked, graphChecked, encoded]
+  rcases progressed with phase | phase
+  all_goals rw [phase]; rfl
+
+theorem finish_requested_of_parts (image : Machine.ImageContext imageBytes programWitness)
+    (state : Machine.State image.context.program) (witness : Graph.Admission.Witness)
+    (normalized : Graph.State) (bytes : Bytes) (pending : Protocol.Request)
+    (identityChecked : (state.identity == image.identity) = true)
+    (clockChecked : (clock state).valid state.status = true)
+    (noResult : state.result = none)
+    (canonical : Graph.Snapshot.canonicalize state.raw = some normalized)
+    (rawChecked : Images.rawState.valid normalized = true)
+    (graphChecked : Graph.Admission.check image.context.program programWitness.borrows normalized witness = true)
+    (parked : state.status = .parked)
+    (encoded : Images.rawState.encode normalized = bytes)
+    (requested : request image.context.program normalized bytes = .ok pending)
+    (requestChecked : (Images.rawRequest.valid pending && Protocol.requestHeaderValid pending) = true) :
+    finish image state witness = .ok (.requested bytes (Images.rawRequest.encode pending)) := by
+  unfold finish
+  rw [identityChecked, clockChecked, noResult]
+  simp only [require, fromOption, bind, Except.bind, ↓reduceIte]
+  rw [canonical]
+  dsimp only
+  rw [rawChecked, graphChecked, parked, encoded]
+  simp only [↓reduceIte, requested, requestChecked]
+  rfl
+
+theorem finish_terminal_of_parts (image : Machine.ImageContext imageBytes programWitness)
+    (state : Machine.State image.context.program) (witness : Graph.Admission.Witness)
+    (result : Machine.Result) (outcome : Protocol.Outcome)
+    (identityChecked : (state.identity == image.identity) = true)
+    (clockChecked : (clock state).valid state.status = true)
+    (resultKnown : state.result = some result)
+    (terminalKnown : terminal image.context.program result = .ok outcome) :
+    finish image state witness = .ok outcome := by
+  simp [finish, identityChecked, clockChecked, resultKnown, terminalKnown, require, bind, Except.bind]
+end BoundaryV2.Profile.Target.Boundary

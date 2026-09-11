@@ -1,5 +1,6 @@
 import BoundaryV2.SourceValues
 import BoundaryV2.SourceContracts
+import BoundaryV2.SourceUsage
 
 namespace BoundaryV2.Profile.Source.Machine
 
@@ -167,6 +168,7 @@ def Context.typingValid (context : Context) : Bool :=
 
 def initial (context : Context) (arguments : List SemanticValue) : Except Invalid State := do
   require context.typingValid .type
+  require (Usage.check context.source context.captures) .custody
   let entry ← fromOption context.source.functions[context.source.entry.value]? .reference
   require (Analysis.captures context.captures context.source.entry).isEmpty .scope
   require (arguments.all (Profile.Value.externalValid context.source.schemas)) .type
@@ -190,6 +192,15 @@ theorem initial_checks_typing (context : Context) (arguments : List SemanticValu
     | false => simp [initial, valid, require, bind, Except.bind] at accepted
     | true => rfl
   exact (Option.any_eq_true _ _).mp checked
+
+theorem initial_checks_usage (context : Context) (arguments : List SemanticValue) (state : State)
+    (accepted : initial context arguments = .ok state) :
+    Usage.check context.source context.captures = true := by
+  cases used : Usage.check context.source context.captures with
+  | true => rfl
+  | false =>
+    cases typed : context.typingValid <;>
+      simp [initial, typed, used, require, bind, Except.bind] at accepted
 
 theorem empty_release_has_no_event (state : State) (scope : LexicalScopeId) (after : AfterRelease)
     (record : Scope) (control : state.control = .release scope after)

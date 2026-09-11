@@ -55,7 +55,9 @@ private def emitBorrow (output : System.FilePath) (scope : String) (data : Artif
   let mut artifacts := [data]
   let mut queryCommands := []
   for (row, index) in witness.queries.zipIdx do
-    queryCommands := queryCommands ++ [s!"def query{index} : Borrow.QueryRow := {literal row}\ntheorem query{index}Checked : Borrow.queryRowValid program programWitness.borrows query{index} = true := by decide_cbv"]
+    -- Nested opcode/path matches can defeat Lean's equation-lemma generator.
+    -- Kernel decision checks the same closed proposition without those lemmas.
+    queryCommands := queryCommands ++ [s!"def query{index} : Borrow.QueryRow := {literal row}\ntheorem query{index}Checked : Borrow.queryRowValid program programWitness.borrows query{index} = true := by first | decide_cbv | decide +kernel"]
   artifacts := artifacts ++ (← appendFacts output scope "Query" (artifacts.getLastD data) queryCommands)
   let uniformEmpty := program.blocks.length > 128 && witness.requirements.all (fun row => row.constraints.isEmpty)
   let mut requirementProof := ""

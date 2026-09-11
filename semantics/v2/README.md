@@ -183,6 +183,13 @@ rows, malformed primitive operands and faults, and invalid control/declaration
 interfaces. Source use/borrow preservation and general machine well-formedness
 remain separate unfinished obligations.
 
+`SourceUsage` additionally checks ordered reads and consumption at every function
+body before initialization. It rejects reusing an affine closure after its first
+call, permits repeated use of reusable closures, and ignores unused syntax rows.
+The borrowing classification comes from the source machine's primitive rules.
+Checked regressions distinguish these cases; this admission check does not yet
+prove full custody or borrow preservation during execution.
+
 The source-machine laws now connect concrete capture instantiation to handler
 selection, exact copied objects, frozen local storage, and unchanged outside
 lookups. Cell read/write laws preserve physical identity and every other cell.
