@@ -116,24 +116,30 @@ private def checkDecoded (source : Source.Module) (bytes : Bytes) (expected : Se
     | throw (IO.userError "value codec rejected canonical bytes")
   if decoded != expected then throw (IO.userError "value codec disagrees with independent witness")
 
-/-- Interrupt immediately after an owned-body handoff, before executing clause
-code. The receiver must already own a lexical holding that ordinary unwind can
-release. This fork is a regression test, not part of source execution. -/
-private def checkHandoffCancellation (context : Context) (name : String) (before : State) : IO Unit := do
+/-- These fixtures have no failing cleanup. Cancellation must finish every
+already-running obligation and release all custody through ordinary transitions.
+This fork is a regression test, not part of source execution. -/
+private def checkCancellationCleanup (context : Context) (name : String) (before : State) : IO Unit := do
   let mut state := (← accept name before 0 (external before context (.cancel (.bytes [])))).state
   for step in [:10000] do
     match state.status with
     | .cancelled exit =>
       if exit.cancellation != some (.bytes []) || !exit.failures.isEmpty then
-        throw (IO.userError s!"{name}: handoff cancellation changed its exit")
+        throw (IO.userError s!"{name}: cancellation cleanup changed its exit")
       if !state.heap.custody.entries.isEmpty then
-        throw (IO.userError s!"{name}: handoff cancellation stranded live custody: {repr state.heap.custody.entries}")
+        throw (IO.userError s!"{name}: cancellation cleanup stranded live custody: {repr state.heap.custody.entries}")
+      for original in before.heap.obligations do
+        if let .running _ := original.phase then
+          let some finished := state.heap.obligations[original.id.value]?
+            | throw (IO.userError s!"{name}: running cleanup record disappeared")
+          let .completed := finished.phase
+            | throw (IO.userError s!"{name}: cancellation did not finish a running cleanup")
       return
     | .yielded => state := (← accept name state step (external state context .continueYield)).state
     | .parked _ | .completed _ | .failed _ =>
-      throw (IO.userError s!"{name}: unexpected handoff cancellation boundary")
+      throw (IO.userError s!"{name}: unexpected cancellation cleanup boundary")
     | .running => state := (← accept name state step (tick state context)).state
-  throw (IO.userError s!"{name}: inconclusive handoff cancellation test limit")
+  throw (IO.userError s!"{name}: inconclusive cancellation cleanup test limit")
 
 private def runCase (context : Context) (test : Lean.Json) : IO Lean.Json := do
   let name ← orError (str test "name")
@@ -159,19 +165,26 @@ private def runCase (context : Context) (test : Lean.Json) : IO Lean.Json := do
   let mut applied : List Nat := []
   let checkHandoffs := (get test "checkHandoffCancellation" >>= Lean.Json.getBool?).toOption.getD false
   let mut handoffChecks := 0
+  let checkCapturedCleanup := (get test "checkCapturedCleanupCancellation" >>= Lean.Json.getBool?).toOption.getD false
+  let mut capturedCleanupChecks := 0
   for steps in [:2000000] do
     if let some result ← terminal context.source state trace then
       if responseIndex != responses.length || applied.length != controls.length then
         throw (IO.userError s!"{name}: unused external inputs")
       return Lean.Json.mkObj [("name", toJson name), ("steps", toJson steps), ("actual", result),
-        ("handoffChecks", toJson handoffChecks)]
+        ("handoffChecks", toJson handoffChecks), ("capturedCleanupChecks", toJson capturedCleanupChecks)]
+    if checkCapturedCleanup && state.cancellation.isNone &&
+        state.heap.obligations.any (fun obligation => match obligation.phase with | .running _ => true | _ => false) &&
+        !(state.stack.any (fun frame => match frame with | .cleanupReturn .. => true | _ => false)) then
+      checkCancellationCleanup context name state
+      capturedCleanupChecks := capturedCleanupChecks + 1
     let handoff := checkHandoffs && match state.control with
       | .execute (.term (.perform operation)) _ _ => operation.capability.isSome && !operation.bodies.isEmpty
       | _ => false
     let transition ← accept name state steps (tick state context)
     state := transition.state
     if handoff then
-      checkHandoffCancellation context name state
+      checkCancellationCleanup context name state
       handoffChecks := handoffChecks + 1
     for event in transition.events do
       if let some row ← traceEvent context.source event then trace := trace ++ [row]

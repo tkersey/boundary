@@ -50,10 +50,11 @@ inductive External where
   | response : RequestOccurrence → SemanticValue → External
   | cancel : Protocol.Reason → External
 
-/-- While authored cleanup is running, cancellation updates the machine's
-single cancellation owner and lets that invocation finish. -/
-def cleanupRunning (state : State) : Bool := state.stack.any fun frame => match frame with
-  | .cleanupReturn .. => true
+/-- Cleanup activity belongs to its obligation lifecycle. A handled operation
+can move the return frame into a captured continuation without finishing that
+cleanup, so the active stack alone cannot decide whether cancellation waits. -/
+def cleanupRunning (state : State) : Bool := state.heap.obligations.any fun obligation => match obligation.phase with
+  | .running _ => true
   | _ => false
 
 def cancelControl (control : Control) (reason : Protocol.Reason) : Control := match control with

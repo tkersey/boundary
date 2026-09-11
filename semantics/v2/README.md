@@ -267,6 +267,14 @@ fixture, requiring ordinary unwind to finish with an empty custody book; the
 previous deferred invocation left a linear body stranded at a future receiver.
 This correction affects the proof-only source transition granularity and retains
 the independent oracle's semantic trace.
+Cancellation derives running cleanup from the obligation lifecycle, including
+when a handled operation captures the cleanup's return frame. The general
+`cancellation_waits_for_running_obligation` theorem preserves its control,
+status, and custody while recording the first cancellation. The writer/raise
+conformance case cancels throughout that captured-cleanup window and requires
+the running obligation to complete with no remaining custody. A stack-only
+activity test previously interrupted the captured cleanup and reached an
+invalid unwind rule.
 `SourceRequestLaws` additionally proves that every finite source trace contains
 exactly the consecutive request-opening identities allocated during that trace.
 Those identities are unique even when payloads are equal. Parked polling,
