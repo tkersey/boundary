@@ -43,4 +43,48 @@ theorem unused_double_use_fragment_does_not_execute :
     (initial (context .affine false) [.scalar 0 40]).isOk = true := by
   cbv
 
+/-- Retain the closure while returning a scalar without calling it. -/
+private def unused (use : Use) : Context :=
+  let base := context use false
+  { base with
+    source := { base.source with
+      terms := base.source.terms ++ [.value 6, .bind 2 2 6]
+      functions := [
+        { parameters := [0], result := 0, body := some 7 },
+        { parameters := [1], result := 0, body := some 0 }] }
+    captures := { base.captures with terms := base.captures.terms ++ [[], [(0, 6)]] } }
+
+/-- The false branch either returns without consuming the closure or fails.
+The condition is an admitted argument, so both branches remain possible. -/
+private def conditional (abrupt : Bool) : Context :=
+  let base := unused .linear
+  { base with
+    source := { base.source with
+      schemas := base.source.schemas ++ [.boolean]
+      variables := base.source.variables ++ [3]
+      values := base.source.values ++ [⟨3, .variable 4⟩]
+      terms := base.source.terms.take 6 ++ [
+        (if abrupt then .fail 0 else .value 6), .conditional 7 1 6, .bind 2 2 7]
+      functions := [
+        { parameters := [0, 4], result := 0, body := some 8 },
+        { parameters := [1], result := 0, body := some 0 }] }
+    captures := { base.captures with
+      values := base.captures.values ++ [[(4, 0)]]
+      terms := base.captures.terms.take 6 ++ [[], [(2, 2), (4, 1)], [(0, 6), (4, 2)]] } }
+
+theorem unused_linear_closure_rejected :
+    initial (unused .linear) [.scalar 0 40] = .error .custody := by cbv
+
+theorem unused_affine_closure_admitted :
+    (initial (unused .affine) [.scalar 0 40]).isOk = true := by cbv
+
+theorem linear_closure_consumed_once_admitted :
+    (initial (context .linear false) [.scalar 0 40]).isOk = true := by cbv
+
+theorem consumption_in_only_one_normal_branch_rejected :
+    initial (conditional false) [.scalar 0 40, .scalar 3 0] = .error .custody := by cbv
+
+theorem failure_branch_preserves_unwind_admission :
+    (initial (conditional true) [.scalar 0 40, .scalar 3 0]).isOk = true := by cbv
+
 end BoundaryV2.Profile.Source.UsageExamples
