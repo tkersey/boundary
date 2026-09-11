@@ -102,4 +102,7 @@ import BoundaryV2.SourceOperandExecution
 import BoundaryV2.SourceOperandSchemas
 import BoundaryV2.SourceOperandOutcomes
 import BoundaryV2.SourceOperandTypes
+import BoundaryV2.SourceFailureSchemas
+import BoundaryV2.SourceFailureEffects
+import BoundaryV2.SourceFailureExecution
 import BoundaryV2.SourceUsageExamples

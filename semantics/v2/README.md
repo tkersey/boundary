@@ -370,6 +370,13 @@ actual operand schemas throughout initialized `Steps`, including external
 responses and cancellation. Primitive value preservation derives its instruction
 admission from this invariant, including the pop operations' resizable-input
 requirement. It still consumes the predecessor's finite value typing component.
+`SourceFailureSchemas`, `SourceFailureEffects`, and `SourceFailureExecution`
+prove that primary failures, accumulated cleanup failures, and failed obligation
+records retain the source module's failure schema through initialized execution.
+This includes failure data in captured continuations and its preservation under
+renaming, resumption, disposal, and cancellation. The unwind value-preservation
+lemma derives failure schemas from this invariant; finite failure-list and
+cancellation-payload bounds remain explicit premises.
 
 The separate raw byte codecs in `Wire`, `ProfileCodec`, and `Images` check
 complete BPI2, PST2, and protocol record framing, minimal integers, lengths,
