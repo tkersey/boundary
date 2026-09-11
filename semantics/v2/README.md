@@ -334,8 +334,15 @@ dispatcher, protection installation, cleanup completion and failure, and cleanup
 entry. `SourceInformationTypes` derives the type of the actual cleanup-information
 record from its checked layout and explicit failure-payload, cancellation-reason,
 and sequence-length constraints. Cleanup entry carries those input obligations;
-preservation of them by the complete state machine, including unwind, remains
-open.
+`SourceUnwindTypes` proves the full unwind path preserves value shapes under
+these constraints. Preservation of the constraints by the complete state
+machine remains open. `PrimitiveValueTypes` proves typing for the shared
+arithmetic, bitwise, conversion, comparison, natural, optional, collection, blob,
+and slice constructors, deriving fixed-array bounds from schema admission.
+`IntegerTextTypes` checks the exact decimal byte construction for every supported
+integer width: ASCII UTF-8 with at most 21 bytes, including a possible minus sign.
+The full primitive dispatcher and graph operations still require preservation
+proofs.
 
 The separate raw byte codecs in `Wire`, `ProfileCodec`, and `Images` check
 complete BPI2, PST2, and protocol record framing, minimal integers, lengths,

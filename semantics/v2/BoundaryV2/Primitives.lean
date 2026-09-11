@@ -21,35 +21,35 @@ inductive Result (space : Space) where
 
 abbrev Evaluation (space : Space) := Except Invalid (Result space)
 
-private def require (condition : Bool) (reason : Invalid) : Except Invalid Unit :=
+def require (condition : Bool) (reason : Invalid) : Except Invalid Unit :=
   if condition then .ok () else .error reason
 
-private def lookup (items : List α) (index : Nat) : Except Invalid α :=
+def lookup (items : List α) (index : Nat) : Except Invalid α :=
   match items[index]? with | some value => .ok value | none => .error .schema
 
-private def number : Value space → Except Invalid Int
+def number : Value space → Except Invalid Int
   | .scalar _ n => .ok n | _ => .error .value
 
-private def index (value : Value space) : Except Invalid Nat := do
+def index (value : Value space) : Except Invalid Nat := do
   let n ← number value
   require (0 ≤ n && n < wordLimit) .value
   return n.toNat
 
-private def blobBytes : Value space → Except Invalid Bytes
+def blobBytes : Value space → Except Invalid Bytes
   | .blob _ bytes => .ok bytes | _ => .error .value
 
 private def elements : Value space → Except Invalid (List (Value space))
   | .sequence _ fields => .ok fields | _ => .error .value
 
-private def integer (type : Scalars.IntegerType) (value : Value space) : Except Invalid (Scalars.Integer type) := do
+def integer (type : Scalars.IntegerType) (value : Value space) : Except Invalid (Scalars.Integer type) := do
   let n ← number value
   if valid : type.Contains n then return ⟨n, valid⟩ else throw .value
 
-private def integerType (schemas : List (Schema space)) (value : Value space) : Except Invalid Scalars.IntegerType := do
+def integerType (schemas : List (Schema space)) (value : Value space) : Except Invalid Scalars.IntegerType := do
   let shape ← lookup schemas value.schema.value
   match Scalars.integerType shape with | some type => return type | none => throw .schema
 
-private def integerResult {kind : Scalars.IntegerType} (type : SchemaId space) : Except Fault (Scalars.Integer kind) → Result space
+def integerResult {kind : Scalars.IntegerType} (type : SchemaId space) : Except Fault (Scalars.Integer kind) → Result space
   | .ok value => .value (.scalar type value.value)
   | .error fault => .fault fault
 
@@ -101,12 +101,12 @@ def convert (schemas : List (Schema space))
     | none => throw .schema
   | _ => throw .operands
 
-private def naturalResult (schemas : List (Schema space)) (type : SchemaId space) (n : Nat) : Evaluation space := do
+def naturalResult (schemas : List (Schema space)) (type : SchemaId space) (n : Nat) : Evaluation space := do
   let shape ← lookup schemas type.value
   require ((shape == .u64 || shape == .u32) && Value.scalarValid shape n) .schema
   return .value (.scalar type n)
 
-private def optionalValue (schemas : List (Schema space)) (type : SchemaId space)
+def optionalValue (schemas : List (Schema space)) (type : SchemaId space)
     (item : Option (Value space)) : Except Invalid (Value space) := do
   match ← lookup schemas type.value with
   | .sum [empty, element] =>
@@ -155,14 +155,14 @@ def sliceBlob (schemas : List (Schema space)) (type : SchemaId space)
   if start > stop || stop > bytes.length then .ok (.fault .capacityExceeded)
   else blob schemas type ((bytes.drop start).take (stop - start))
 
-private def byteOrder : Bytes → Bytes → Int
+def byteOrder : Bytes → Bytes → Int
   | [], [] => 0
   | [], _ :: _ => -1
   | _ :: _, [] => 1
   | a :: as, b :: bs =>
     if a.toNat < b.toNat then -1 else if b.toNat < a.toNat then 1 else byteOrder as bs
 
-private def graphArity (operation : GraphOperation) (operands : List (Value space)) : Evaluation space :=
+def graphArity (operation : GraphOperation) (operands : List (Value space)) : Evaluation space :=
   let valid := match operation with
     | .computation => true
     | .cellNew | .cellSet => operands.length == 2

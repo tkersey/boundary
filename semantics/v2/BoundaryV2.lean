@@ -86,4 +86,7 @@ import BoundaryV2.SourceCaptureValueTypes
 import BoundaryV2.SourceEffectTypes
 import BoundaryV2.SourceInformationTypes
 import BoundaryV2.SourceCleanupValueTypes
+import BoundaryV2.SourceUnwindTypes
+import BoundaryV2.PrimitiveValueTypes
+import BoundaryV2.IntegerTextTypes
 import BoundaryV2.SourceUsageExamples
