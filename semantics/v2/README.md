@@ -207,6 +207,18 @@ Those identities are unique even when payloads are equal. Parked polling,
 terminal polling, result acceptance, and cancellation rebinding contribute no
 new request opening; observing a pending state late invents no earlier event.
 
+`SourceIndexLaws` proves that scope, invocation, and obligation records keep
+their exact table indices across every initialized source trajectory, including
+copied capture records. `SourceCustodyBounds` proves that live custody tokens
+and object references remain below their allocation frontiers throughout those
+trajectories. The actual allocator always succeeds under these bounds, and
+later allocations use distinct tokens from earlier live entries, including
+entries that have since been consumed. `SourceCloneSafety` proves that one-shot
+conversion consumes the original tokens, reusable activation preserves the
+custody book, and nested dormant templates receive the same structural and
+live-custody checks. These results do not establish complete value-locator,
+typing, or borrow preservation.
+
 The separate raw byte codecs in `Wire`, `ProfileCodec`, and `Images` check
 complete BPI2, PST2, and protocol record framing, minimal integers, lengths,
 section layout, numeric bounds, and input exhaustion. Their round-trip and
@@ -373,6 +385,9 @@ the existing fixed-point theorems; computed widths are never assumed.
 evaluator's final stopping check. Its descriptor lemma proves that an admitted
 external childless schema has its exact one-node canonical descriptor, avoiding
 repeated whole-program equivalence calculations for scalar requests.
+Long executions use checked heap appends and lookups where applicable, with
+proof fragments split across inventoried modules to bound elaborator memory.
+The complete invocation and stopping boundary remain part of the final claim.
 `TargetStorageLaws` proves that every externally admitted value can pass through
 the target's actual store/load path without changing its meaning. This includes
 fixed-width scalar padding, recursive aggregate blobs, and exact blob interning.
@@ -387,9 +402,11 @@ and altered-subject controls. This does
 not yet provide full fixture coverage or source/runtime certificate composition.
 The three-record `operand-failure-5` execution now passes ordinary kernel
 checking with composed internal fragments and checked descriptor evaluation.
-The full 134-case kernel gate remains incomplete: its 20,003-step recursive
-fixture still needs checked state sharing to avoid repeating complete growing
-heaps. The complete cohort must pass before full runtime coverage is claimed.
+The actual producer's 20,003-step recursive certificate also passes ordinary
+kernel checking with shared state facts. Candidate generation covers all 134
+cases and 308 records, but the full cohort's kernel, trust, and replay gate
+remains incomplete. The complete cohort must pass before full runtime coverage
+is claimed.
 
 The invocation conformance cohort compares all 28,665 native `advance` records
 and 308 native `run` records from 134 cases against the formal target boundary.

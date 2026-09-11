@@ -163,15 +163,25 @@ def main (arguments : List String) : IO UInt32 := do
     packages := (imagePath, package) :: packages.filter (fun previous => previous.1 != imagePath)
     let hashProofs := String.intercalate "\n" (hashInputs.zipIdx.map fun (bytes, index) => hashProof s!"hash{index}" bytes)
     let executionProof ← composedProof entry records witnesses hashInputs initialBytes
-    let code := s!"import {package.module}\nimport BoundaryV2.ExecutionEvaluation\nimport Lean.Elab.Tactic.Cbv\n\nset_option Elab.async false\nset_option cbv.warning false\nattribute [cbv_opaque] BoundaryV2.Profile.SHA256.hashNumerals BoundaryV2.Profile.SHA256.hash\nattribute [cbv_eval] BoundaryV2.Profile.SHA256.hash_as_numerals\nset_option cbv.maxSteps 5000000\nset_option maxRecDepth 65536\nset_option maxHeartbeats 0\n\nnamespace {module}\nopen BoundaryV2 BoundaryV2.Profile BoundaryV2.Profile.Target\n\nabbrev imageBytes : Bytes := {package.module}.imageBytes\nabbrev programWitness : Admission.Witness := {package.module}.programWitness\nabbrev program : Program := {package.module}.program\nabbrev image : Machine.ImageContext imageBytes programWitness := {package.module}.image\n{hashProofs}\ndef records : List Boundary.PublicInvocation := [{String.intercalate "," recordData}]\ndef witnesses : List Boundary.InvocationWitness := [{String.intercalate "," witnessData}]\n{executionProof}\n\nend {module}\n"
+    let prelude := s!"abbrev imageBytes : Bytes := {package.module}.imageBytes\nabbrev programWitness : Admission.Witness := {package.module}.programWitness\nabbrev program : Program := {package.module}.program\nabbrev image : Machine.ImageContext imageBytes programWitness := {package.module}.image\n{hashProofs}\ndef records : List Boundary.PublicInvocation := [{String.intercalate "," recordData}]\ndef witnesses : List Boundary.InvocationWitness := [{String.intercalate "," witnessData}]\n"
+    let sections := (prelude ++ executionProof).splitOn moduleBreak
+    let mut artifacts := package.artifacts
+    let mut previous := package.module
+    for (partBody, index) in sections.zipIdx do
+      let last := index + 1 == sections.length
+      let part := if last then module else s!"{module}Part{index}"
+      let code := s!"import {previous}\nimport BoundaryV2.ExecutionEvaluation\nimport Lean.Elab.Tactic.Cbv\n\nset_option Elab.async false\nset_option cbv.warning false\nattribute [cbv_opaque] BoundaryV2.Profile.SHA256.hashNumerals BoundaryV2.Profile.SHA256.hash\nattribute [cbv_eval] BoundaryV2.Profile.SHA256.hash_as_numerals\nset_option cbv.maxSteps 5000000\nset_option maxRecDepth 65536\nset_option maxHeartbeats 0\n\nnamespace {module}\nopen BoundaryV2 BoundaryV2.Profile BoundaryV2.Profile.Target\n\n{partBody}\nend {module}\n"
+      let partPath := System.FilePath.mk output / (part ++ ".lean")
+      IO.FS.writeFile partPath code
+      if !last then artifacts := artifacts ++ [⟨part, partPath⟩]
+      previous := part
     let path := System.FilePath.mk output / (module ++ ".lean")
-    IO.FS.writeFile path code
     let recordsJson := records.map fun record => Json.mkObj [("input", toJson (record.input.map UInt8.toNat)), ("output", toJson (record.output.map UInt8.toNat))]
     let claim := Json.mkObj [("name", toJson (module ++ ".certificate")), ("kind", toJson "initial-execution"),
       ("image", toJson (entry.bytes.map UInt8.toNat)), ("records", toJson recordsJson)]
     let metadata := Json.mkObj [("module", toJson module), ("path", toJson path.toString), ("claims", toJson [claim]),
       ("case", toJson name), ("status", toJson "candidate"),
-      ("dependencies", toJson (package.artifacts.map fun item => Json.mkObj
+      ("dependencies", toJson (artifacts.map fun item => Json.mkObj
         [("module", toJson item.module), ("path", toJson item.path.toString), ("claims", toJson ([] : List Json))]))]
     IO.FS.writeFile (System.FilePath.mk output / (module ++ ".json")) metadata.compress
     produced := produced + 1

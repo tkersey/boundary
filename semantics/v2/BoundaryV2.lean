@@ -68,3 +68,6 @@ import BoundaryV2.SourceAllocationLaws
 import BoundaryV2.SourceObligationLaws
 import BoundaryV2.SourceRequestLaws
 import BoundaryV2.ExecutionEvaluation
+import BoundaryV2.SourceIndexLaws
+import BoundaryV2.SourceCloneSafety
+import BoundaryV2.SourceCustodyBounds

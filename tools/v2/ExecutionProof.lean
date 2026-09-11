@@ -134,9 +134,15 @@ private def numeralKey (pools : List Pool) (bytes : Bytes) : String := Id.run do
     if isPool then (if rest == "[]" then part else s!"(List.append {part} {rest})")
     else s!"({part} :: {rest})") "[]"
 
-private def stateLiteral (pools : List Pool) (state : Machine.State program) : String :=
+private def stateWithNodes (pools : List Pool) (nodes : String) (state : Machine.State program) : String :=
   let blobs := String.intercalate "," (state.store.blobs.map (fun blob => shared pools (storedLiteral blob)))
-  s!"{leftBrace} identity := {render pools state.identity}, store := {leftBrace} nodes := {render pools state.store.nodes}, blobs := [{blobs}] {rightBrace}, status := {render pools state.status}, roots := {render pools state.roots}, result := {render pools state.result}, nextOccurrence := {state.nextOccurrence}, pendingOccurrence := {render pools state.pendingOccurrence} {rightBrace}"
+  s!"{leftBrace} identity := {render pools state.identity}, store := {leftBrace} nodes := {nodes}, blobs := [{blobs}] {rightBrace}, status := {render pools state.status}, roots := {render pools state.roots}, result := {render pools state.result}, nextOccurrence := {state.nextOccurrence}, pendingOccurrence := {render pools state.pendingOccurrence} {rightBrace}"
+
+private def stateLiteral (pools : List Pool) (state : Machine.State program) : String :=
+  stateWithNodes pools (render pools state.store.nodes) state
+
+/-- Fixed emitter separator; the driver inventories every resulting module. -/
+def moduleBreak : String := "\n-- boundary-execution-module-break\n"
 
 private def resultLiteral (pools : List Pool) (result : Boundary.InvocationResult) : String :=
   s!"{leftBrace} instanceData := {render pools result.instanceData}, next := {render pools result.next}, clock := {literal result.clock}, events := {render pools result.events}, terminal := {literal result.terminal} {rightBrace}"
@@ -297,25 +303,99 @@ private def leafRules (entry : ProgramCache) : String := Id.run do
   SchemaDescriptor.canonicalize_leaf _ _ (by decide_cbv) (by decide_cbv) (by decide) (by intro internal; intro impossible; cases impossible)"]
   return String.intercalate "\n" declarations
 
+/-- Candidate lookup inventory, bounded by the finite graph. It has no proof
+authority: each lookup and the original dispatcher are checked in Lean. -/
+private def reachableNodes (state : Machine.State program) : IO (List (NodeId × Graph.Node)) := do
+  let mut pending := (Graph.rootEdges state.roots).map Graph.Edge.target
+  let mut found : List (NodeId × Graph.Node) := []
+  while !pending.isEmpty do
+    let some reference := pending.head? | break
+    pending := pending.drop 1
+    if found.any (fun item => item.1 == reference) then continue
+    let node ← required (state.store.lookup reference) "shared lookup candidate"
+    found := found ++ [(reference, node)]
+    pending := pending ++ (Graph.nodeEdges node).map Graph.Edge.target
+  return found
+
+/-- Select sharing only where each fragment reads the most recent append and
+the final boundary needs no graph serialization. Other traces retain literal
+states. This is a presentation choice, never a semantic acceptance check. -/
+private def canShareNodes (entry : ProgramCache) (initial : Machine.State entry.image.context.program)
+    (count : Nat) : IO Bool := do
+  if count ≤ 128 then return false
+  let mut state := initial
+  let mut remaining := count
+  let mut previousLength := 0
+  while remaining > 0 do
+    let reachable? ← try pure (some (← reachableNodes state)) catch _ => pure none
+    let some reachable := reachable? | return false
+    if reachable.any (fun item => item.1.value < previousLength) then return false
+    let size := min 8 remaining
+    let transition ← semantic (Boundary.internalPrefix entry.image.context size state) "sharing candidate"
+    let length := state.store.nodes.length
+    if !(decide (transition.state.store.nodes.take length = state.store.nodes)) then return false
+    previousLength := length
+    state := transition.state
+    remaining := remaining - size
+  return state.result.isSome
+
+private def sharingRules (index : Nat) : String := String.intercalate "\n" [
+  s!"@[cbv_eval] theorem executionGetAppend{index} (left right : List α) (offset : Nat) :
+    (List.append left right).get?Internal offset =
+      if offset < left.length then left.get?Internal offset else right.get?Internal (offset - left.length) :=
+  List.getElem?_append
+@[cbv_eval] theorem executionGetNil{index} (offset : Nat) : ([] : List α).get?Internal offset = none := by
+  cases offset <;> rfl
+@[cbv_eval] theorem executionGetConsZero{index} (head : α) (tail : List α) :
+    (head :: tail).get?Internal 0 = some head := rfl
+@[cbv_eval] theorem executionGetConsSucc{index} (head : α) (tail : List α) (offset : Nat) :
+    (head :: tail).get?Internal (offset + 1) = tail.get?Internal offset := rfl",
+  "attribute [cbv_eval] Wire.Evaluation.length_append_eval List.length_nil List.length_cons Wire.Evaluation.append_assoc_eval Wire.Evaluation.append_nil_eval Wire.Evaluation.append_nil_left_eval Wire.Evaluation.append_cons_eval",
+  "attribute [cbv_opaque] List.append List.get?Internal List.length"]
+
 /-- Native states are proposals only. Each short fragment is checked against
-the original dispatcher, then composed with its mandatory stopping check. -/
+the original dispatcher, then composed with its mandatory stopping check.
+Module boundaries limit elaborator memory; shared appends avoid copying every
+historical heap into every proof fragment. -/
 private def internalProof (entry : ProgramCache) (prepared : Boundary.Prepared entry.image.context.program)
-    (count index : Nat) : IO String := do
+    (count index : Nat) (shareNodes : Bool) : IO String := do
   let mut state := prepared.state
   let mut remaining := count
   let mut sizes : List Nat := []
   let mut part := 0
-  let mut declarations := [s!"def execution{index}State0 : Machine.State image.context.program := prepared{index}State"]
+  let nodes := s!"execution{index}Nodes"
+  let mut declarations := if shareNodes then [sharingRules index,
+    s!"def {nodes}0 : List Graph.Node := {render [] state.store.nodes}
+attribute [cbv_opaque] {nodes}0
+@[cbv_eval] theorem {nodes}0Length : {nodes}0.length = {state.store.nodes.length} := by decide +kernel
+def execution{index}State0 : Machine.State image.context.program := {stateWithNodes [] s!"{nodes}0" state}"]
+    else [s!"def execution{index}State0 : Machine.State image.context.program := {stateLiteral [] state}"]
   while remaining > 0 do
     let size := min 8 remaining
+    if shareNodes then
+      for (reference, node) in ← reachableNodes state do
+        let proof := if part == 0 then s!"by unfold {nodes}0; decide_cbv"
+          else s!"by\n  unfold {nodes}{part}\n  exact (executionGetAppend{index} _ _ _).trans (by rw [{nodes}{part-1}Length]; cbv)"
+        declarations := declarations ++ [s!"@[cbv_eval] theorem execution{index}Lookup{part}At{reference.value} : {nodes}{part}.get?Internal {reference.value} = some {render [] node} := {proof}"]
     let transition ← semantic (Boundary.internalPrefix entry.image.context size state) "internal fragment candidate"
-    declarations := declarations ++ [s!"def execution{index}State{part+1} : Machine.State image.context.program := {stateLiteral [] transition.state}
+    if shareNodes then
+      let added := render [] (transition.state.store.nodes.drop state.store.nodes.length)
+      declarations := declarations ++ [s!"def {nodes}{part+1} : List Graph.Node := {nodes}{part} ++ {added}
+attribute [cbv_opaque] {nodes}{part+1}
+@[cbv_eval] theorem {nodes}{part+1}Length : {nodes}{part+1}.length = {transition.state.store.nodes.length} := by
+  rw [{nodes}{part+1}, List.length_append, {nodes}{part}Length]
+  decide +kernel
+@[cbv_eval] theorem {nodes}{part+1}Added : {nodes}{part} ++ {added} = {nodes}{part+1} := rfl"]
+    let nextState := if shareNodes then stateWithNodes [] s!"{nodes}{part+1}" transition.state
+      else stateLiteral [] transition.state
+    declarations := declarations ++ [s!"def execution{index}State{part+1} : Machine.State image.context.program := {nextState}
 def execution{index}Part{part} : Machine.Transition image.context.program := ⟨execution{index}State{part+1}, {render [] transition.events}⟩
 theorem execution{index}Part{part}Known : Boundary.internalPrefix image.context {size} execution{index}State{part} = .ok execution{index}Part{part} := by cbv"]
     sizes := sizes ++ [size]
     state := transition.state
     remaining := remaining - size
     part := part + 1
+    if part % 32 == 0 then declarations := declarations ++ [moduleBreak]
   declarations := declarations ++ [s!"def execution{index}Suffix{part} : Machine.Transition image.context.program := ⟨execution{index}State{part}, []⟩
 theorem execution{index}Suffix{part}Known : Boundary.completeInternal image.context 0 execution{index}State{part} = .ok execution{index}Suffix{part} := by cbv"]
   let mut rest := 0
@@ -341,16 +421,19 @@ def result{index} : Boundary.InvocationResult := {resultLiteral [] result}"]
       let prepared ← semantic (Boundary.prepare entry.image input witness.incoming) "composed preparation"
       let transition ← semantic (Boundary.completeInternal entry.image.context witness.internalSteps prepared.state) "composed run"
       let outcome ← semantic (Boundary.finish entry.image transition.state witness.outgoing) "composed finish"
+      let shareNodes ← canShareNodes entry prepared.state witness.internalSteps
+      let initialUnfold := if shareNodes then s!" execution{index}Nodes0" else ""
       declarations := declarations ++ [s!"def input{index} : Protocol.Input := ⟨{literal input.mode}, imageBytes, {render [] input.instanceData}, {render [] input.control}⟩
 theorem input{index}Valid : Protocol.inputCodec.valid input{index} = true := by decide +kernel
 theorem input{index}Encoded : Protocol.inputCodec.encode input{index} = input{index}Bytes := by cbv
 theorem input{index}Decoded : Protocol.inputCodec.decode input{index}Bytes = some input{index} := by
-  rw [← input{index}Encoded]; exact Protocol.inputCodec.decode_encode _ input{index}Valid
-def prepared{index}State : Machine.State image.context.program := {stateLiteral [] prepared.state}
+  rw [← input{index}Encoded]; exact Protocol.inputCodec.decode_encode _ input{index}Valid",
+        ← internalProof entry prepared witness.internalSteps index shareNodes,
+        s!"def prepared{index}State : Machine.State image.context.program := execution{index}State0
 def prepared{index} : Boundary.Prepared image.context.program := ⟨prepared{index}State, {render [] prepared.events}, {literal prepared.parked}⟩
-theorem prepared{index}Known : Boundary.prepare image input{index} witness{index}.incoming = .ok prepared{index} := by cbv",
-        ← internalProof entry prepared witness.internalSteps index,
-        s!"def outcome{index} : Protocol.Outcome := {render [] outcome}
+theorem prepared{index}Known : Boundary.prepare image input{index} witness{index}.incoming = .ok prepared{index} := by
+  unfold prepared{index} prepared{index}State execution{index}State0{initialUnfold}; cbv
+def outcome{index} : Protocol.Outcome := {render [] outcome}
 theorem finished{index} : Boundary.finish image execution{index}Suffix0.state witness{index}.outgoing = .ok outcome{index} := by cbv
 theorem valid{index} : Protocol.outcomeCodec.valid outcome{index} = true := by decide_cbv
 def observation{index} : Boundary.Observation image.context.program := ⟨execution{index}Suffix0.state, prepared{index}.events ++ execution{index}Suffix0.events, outcome{index}⟩
@@ -362,6 +445,7 @@ theorem checked{index} : Boundary.checkInvocation image record{index} {literal b
     else
       declarations := declarations ++ [s!"theorem checked{index} : Boundary.checkInvocation image record{index} {literal before} witness{index} = some result{index} := by cbv"]
     before := result.clock
+    declarations := declarations ++ [moduleBreak]
   return String.intercalate "\n" (declarations ++ [proofConclusion [] records.length arguments])
 
 /-- Emit ordinary compositional proofs of the original checker, using only
@@ -422,6 +506,7 @@ theorem checked{index} : Boundary.checkInvocation image record{index} {literal b
       declarations := declarations ++ [s!"def result{index} : Boundary.InvocationResult := {resultLiteral pools result}
 theorem checked{index} : Boundary.checkInvocation image record{index} {literal before} witness{index} = some result{index} := by cbv"]
     before := result.clock
+    declarations := declarations ++ [moduleBreak]
   declarations := declarations ++ [proofConclusion pools records.length arguments]
   return String.intercalate "\n" declarations
 

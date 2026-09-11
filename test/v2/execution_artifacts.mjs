@@ -83,7 +83,8 @@ assert.deepEqual((await readdir(directory)).filter((name) => name.endsWith('.lea
 const sharedImages = new Map();
 for (const group of groups) {
   const certificate = certificates.find((candidate) => candidate.case === group.name);
-  const imageModule = certificate.dependencies?.at(-1)?.module;
+  const imageModule = certificate.dependencies?.find((dependency) =>
+    /^BoundaryCertificateImage[0-9a-f]{64}$/.test(dependency.module))?.module;
   assert.match(imageModule, /^BoundaryCertificateImage[0-9a-f]{64}$/, 'execution.image_proof');
   const previous = sharedImages.get(group.image);
   if (previous) assert.equal(imageModule, previous, 'execution.duplicated_image_proof');
