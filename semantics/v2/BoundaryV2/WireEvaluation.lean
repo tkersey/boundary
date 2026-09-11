@@ -139,6 +139,10 @@ end BoundaryV2.Profile.Wire.Codec
 
 namespace BoundaryV2.Profile.Wire.Evaluation
 
+/-- Keep direct additions from folds on the same arithmetic evaluation path
+as `+`, including sums of the schema-width overflow sentinel. -/
+theorem nat_add_eval (left right : Nat) : Nat.add left right = left + right := rfl
+
 /-- Constructor-headed list laws preserve shared byte terms during proof evaluation. -/
 theorem bytes_beq_self (bytes : Bytes) : List.beq bytes bytes = true := by change (bytes == bytes) = true; simp
 theorem append_nil_eval {α : Type} (xs : List α) : List.append xs [] = xs := List.append_nil _

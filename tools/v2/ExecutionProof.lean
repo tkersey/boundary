@@ -200,6 +200,14 @@ private def inputProof (pools : List Pool) (input : Protocol.Input) (bytes : Byt
     | .initialArgs arguments => s!"(.initialArgs {render pools arguments})"
     | .state _ => s!"(.state snapshot{index})"
   let snapshot := match input.instanceData with | .state _ => s!" snapshot{index}" | _ => ""
+  let instanceRule := match input.instanceData with
+    | .initialArgs _ => "Codecs.initialArgs_encode"
+    | .state _ => "Codecs.state_encode"
+  let modeRule := if input.mode == .run then ", Codecs.run_encode" else ""
+  let controlRule := match input.control with
+    | .continueValue none => ", Codecs.continueNone_encode"
+    | .continueValue (some _) => ", Codecs.continueSome_encode"
+    | .cancel _ => ""
   s!"def input{index} : Protocol.Input := ⟨{literal input.mode}, {literal input.image}, {instanceData}, {render pools input.control}⟩
 def input{index}Bytes : Bytes := {render pools bytes}
 theorem input{index}Valid : Protocol.inputCodec.valid input{index} = true := by
@@ -207,8 +215,7 @@ theorem input{index}Valid : Protocol.inputCodec.valid input{index} = true := by
 theorem input{index}Encoded : Protocol.inputCodec.encode input{index} = input{index}Bytes := by
   simp only [Protocol.inputCodec, Wire.Codec.checked, Images.rawInput, Images.framed,
     Wire.Codec.enclosed, Images.frameBytes_encode, Codecs.rawInput_encode, input{index}, input{index}Bytes{snapshot.replace " " ", "},
-    Codecs.initialArgs_encode, Codecs.state_encode, Codecs.run_encode, Codecs.continueNone_encode,
-    Codecs.continueSome_encode, Wire.Codec.blob, Wire.Codec.sizedBytes_encode,
+    {instanceRule}{modeRule}{controlRule}, Wire.Codec.blob, Wire.Codec.sizedBytes_encode,
     List.length_append, List.length_cons, List.length_nil, List.append_assoc{poolLemmas pools "Length"}]
 {generalizePools pools}
   cbv
