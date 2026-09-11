@@ -383,6 +383,14 @@ source transitions retain the machine's cancellation reason and that all actual
 reasons as UTF-8. Separately, decoding a reason through the wire codec establishes
 its length bound, which is preserved by internal transitions and subsequent
 cancellation inputs satisfying that same bound.
+`SourceClosureContracts`, `SourceClosureEffects`, and `SourceClosureExecution`
+prove closure compatibility throughout initialized source execution. Every stored
+closure retains its admitted function and exact ordered capture binders, including
+copies made through reusable capture activation. The reachable-closure theorem
+combines this with lexical value-schema preservation to derive the function's
+parameter, result, effect, and region contract and each captured value's membership
+in the declared capture bound. Reference liveness and full heap well-formedness
+remain separate obligations.
 
 The separate raw byte codecs in `Wire`, `ProfileCodec`, and `Images` check
 complete BPI2, PST2, and protocol record framing, minimal integers, lengths,

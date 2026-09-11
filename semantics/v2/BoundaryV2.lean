@@ -107,4 +107,7 @@ import BoundaryV2.SourceFailureEffects
 import BoundaryV2.SourceFailureExecution
 import BoundaryV2.SourceCancellation
 import BoundaryV2.SourceCancellationExecution
+import BoundaryV2.SourceClosureContracts
+import BoundaryV2.SourceClosureEffects
+import BoundaryV2.SourceClosureExecution
 import BoundaryV2.SourceUsageExamples
