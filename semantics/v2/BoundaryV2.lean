@@ -80,4 +80,6 @@ import BoundaryV2.SourceCaptureTypes
 import BoundaryV2.SourceValueTypes
 import BoundaryV2.SourceEnvironmentTypes
 import BoundaryV2.SourceExpressionTypes
+import BoundaryV2.SourceControlTypes
+import BoundaryV2.SourceLifetimeTypes
 import BoundaryV2.SourceUsageExamples

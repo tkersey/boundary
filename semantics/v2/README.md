@@ -314,6 +314,13 @@ creation paths, function entry, and lexical binding preserve declared variable
 types. `SourceExpressionTypes` proves value-shape preservation for the complete
 expression-entry dispatcher, deriving lambda interfaces and literal admission
 from the checked source context.
+`SourceControlTypes` proves preservation through function entry, closure
+application, lexical binding, pattern entry, the control-term dispatcher, and
+invocation return. `SourceLifetimeTypes` proves that extracting live owned
+leaves, leaving lexical scopes, releasing holdings, and disposing values
+preserve value shapes, including reinstated one-shot cleanup frames. These
+results cover finite value typing; they do not yet establish complete heap,
+scope, or obligation compatibility or preservation by every internal rule.
 
 The separate raw byte codecs in `Wire`, `ProfileCodec`, and `Images` check
 complete BPI2, PST2, and protocol record framing, minimal integers, lengths,
