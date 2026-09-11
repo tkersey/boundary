@@ -341,8 +341,12 @@ arithmetic, bitwise, conversion, comparison, natural, optional, collection, blob
 and slice constructors, deriving fixed-array bounds from schema admission.
 `IntegerTextTypes` checks the exact decimal byte construction for every supported
 integer width: ASCII UTF-8 with at most 21 bytes, including a possible minus sign.
-The full primitive dispatcher and graph operations still require preservation
-proofs.
+`PrimitiveEvaluatorTypes` proves the complete pure primitive dispatcher preserves
+finite value typing, using actual instruction admission to rule out resizing a
+fixed array during either pop operation. `PrimitiveResultSchema` separately
+proves every successful pure result has the instruction's declared schema.
+Connecting actual operands to their admitted declarations and preserving heap
+typing through graph operations remain open.
 
 The separate raw byte codecs in `Wire`, `ProfileCodec`, and `Images` check
 complete BPI2, PST2, and protocol record framing, minimal integers, lengths,

@@ -89,4 +89,6 @@ import BoundaryV2.SourceCleanupValueTypes
 import BoundaryV2.SourceUnwindTypes
 import BoundaryV2.PrimitiveValueTypes
 import BoundaryV2.IntegerTextTypes
+import BoundaryV2.PrimitiveEvaluatorTypes
+import BoundaryV2.PrimitiveResultSchema
 import BoundaryV2.SourceUsageExamples
