@@ -172,3 +172,9 @@ import BoundaryV2.SourceIdentityHeap
 import BoundaryV2.SourceIdentityRequests
 import BoundaryV2.SourceIdentityTransitions
 import BoundaryV2.SourceIdentityExecution
+import BoundaryV2.SourceCellIdentity
+import BoundaryV2.SourceCellIdentityClone
+import BoundaryV2.SourceCellIdentityHeap
+import BoundaryV2.SourceCellIdentityControl
+import BoundaryV2.SourceCellIdentityCleanup
+import BoundaryV2.SourceCellIdentityExecution

@@ -462,6 +462,11 @@ reference liveness; full heap well-formedness remains a separate obligation.
 `SourceCellStorage`, `SourceCellEffects`, and `SourceCellExecution` prove that
 existing source cells retain their physical node, logical identity, region,
 declared schema, and content schema through every actual transition.
+`SourceCellIdentityExecution` proves that distinct mutable cell nodes also keep
+distinct logical identities throughout initialized source execution. The clone
+proof uses the actual copied-node order and fresh cell-identity map; aliases to
+one physical cell remain permitted. The theorem covers all internal and external
+steps, including cancellation, cleanup, disposal, and reusable activation.
 `SourceFrozenCells`, `SourceFrozenClone`, and `SourceFrozenStorage` connect saved
 local contents to those cells, including nested dormant templates and every
 object copied by the actual capture instantiator. `SourceObjectSchemas` and the
