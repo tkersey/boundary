@@ -51,6 +51,37 @@ theorem external_value_has_no_runtime_handles (schemas : List (Schema .source)) 
     valueReferences value = [] ∧ ownedTokens value = [] :=
   admitted_tree_has_no_runtime_handles schemas value (Bool.and_eq_true_iff.mp admitted).2
 
+theorem checked_context_constants_are_external (context : Context)
+    (checked : context.typingValid = true) :
+    ∀ value ∈ context.constants, Profile.Value.externalValid context.source.schemas value = true := by
+  simp only [Context.typingValid, Option.any_eq_true] at checked
+  obtain ⟨results, _, admitted⟩ := checked
+  have declarations := (Admission.typed_checks_all_declarations _ _ _ _ admitted).1
+  simp only [Admission.declarationsValid, Bool.and_eq_true] at declarations
+  have constants := Admission.constants_exact _ _ declarations.1.1.1.1.1.2
+  intro value member
+  obtain ⟨index, found⟩ := List.mem_iff_getElem?.mp member
+  have bound : index < context.source.constants.length := by
+    rw [constants.1]
+    exact (List.getElem?_eq_some_iff.mp found).choose
+  exact (constants.2 index context.source.constants[index] value (List.getElem?_eq_getElem bound) found).2.1
+
+theorem checked_execution_constants_have_no_handles (context : Context)
+    (checked : context.typingValid = true) :
+    ∀ value ∈ context.executionConstants, valueReferences value = [] ∧ ownedTokens value = [] := by
+  have ordinary := checked_context_constants_are_external context checked
+  intro value member
+  unfold Context.executionConstants at member
+  split at member
+  · exact external_value_has_no_runtime_handles _ _ (ordinary value member)
+  · split at member
+    · rcases List.mem_append.mp member with member | member
+      · exact external_value_has_no_runtime_handles _ _ (ordinary value member)
+      · simp only [List.mem_singleton] at member
+        subst value
+        simp [valueReferences, ownedTokens]
+    · exact external_value_has_no_runtime_handles _ _ (ordinary value member)
+
 private theorem bind_success (value : Except Invalid α) (next : α → Except Invalid β)
     (result : β) (accepted : value.bind next = .ok result) :
     ∃ input, value = .ok input ∧ next input = .ok result := by

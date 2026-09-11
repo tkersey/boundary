@@ -287,7 +287,10 @@ temporary storage, and external actions preserve predicates of those values.
 `SourceReferenceState` combines token-to-object alignment, bounds on all retained
 tokens, and live custody objects into `State.OwnedReferenceWF`. Public
 initialization and every accepted external action preserve this component;
-preservation through all internal transitions remains open.
+successful pure primitive evaluation and authored primitive faults preserve it
+as well. Their constant values come from checked source admission, including
+the derived unit constant used for disposal. Preservation through all internal
+transitions remains open.
 
 The separate raw byte codecs in `Wire`, `ProfileCodec`, and `Images` check
 complete BPI2, PST2, and protocol record framing, minimal integers, lengths,
@@ -457,6 +460,9 @@ external childless schema has its exact one-node canonical descriptor, avoiding
 repeated whole-program equivalence calculations for scalar requests.
 Long executions use checked heap appends and lookups where applicable, with
 proof fragments split across inventoried modules to bound elaborator memory.
+Other long traces name identical complete heap-node literals once and split
+every eight proof fragments. Mutable nodes with different contents receive
+different definitions; node IDs never serve as the sharing key.
 The complete invocation and stopping boundary remain part of the final claim.
 `TargetStorageLaws` proves that every externally admitted value can pass through
 the target's actual store/load path without changing its meaning. This includes

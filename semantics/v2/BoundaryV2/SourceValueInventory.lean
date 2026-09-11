@@ -190,6 +190,30 @@ theorem scopedValue_preserves_all (machine : State) (value : SemanticValue) (aft
   exact finishTemporary_preserves_all _ _ _ finishAccepted property
     (temporary_preserves_all _ _ _ temporaryAccepted property holds) valueHolds
 
+theorem commitPure_preserves_all (machine : State) (opcode : Opcode) (operands : List Located)
+    (result : SemanticValue) (after : Transition) (accepted : commitPure machine opcode operands result = .ok after)
+    (property : SemanticValue → Prop) (holds : All property machine) (resultHolds : property result) :
+    All property after.state := by
+  have moveSame (state : State) (heap : Heap) (values : List Located) (receiver : Nat → Custody.Owner)
+      (accepted : moveValues state.heap values receiver = some heap) (holds : All property state) :
+      All property { state with heap := heap } := by
+    simp [moveValues, Option.bind_eq_some_iff] at accepted
+    obtain ⟨_, _, rfl⟩ := accepted
+    exact holds
+  simp only [commitPure, bind, except_bind_ok] at accepted
+  obtain ⟨⟨middle, owner⟩, first, accepted⟩ := accepted
+  have middleHolds := temporary_preserves_all _ _ _ first property holds
+  split at accepted
+  all_goals simp only [except_bind_ok] at accepted
+  · obtain ⟨_, _, _, _, accepted⟩ := accepted
+    exact finishTemporary_preserves_all _ _ _ accepted property middleHolds resultHolds
+  · obtain ⟨heap, moved, _, _, book, _, accepted⟩ := accepted
+    have movedSome : moveValues middle.heap operands (fun _ => owner) = some heap := by
+      cases value : moveValues middle.heap operands (fun _ => owner) <;> simp [fromOption, value] at moved ⊢
+      exact moved
+    have heapHolds := moveSame middle heap operands (fun _ => owner) movedSome middleHolds
+    exact finishTemporary_preserves_all _ _ _ accepted property heapHolds resultHolds
+
 theorem enterTerm_preserves_all (machine : State) (source : Module) (after : Transition)
     (accepted : enterTerm machine source = .ok after) (property : SemanticValue → Prop)
     (holds : All property machine) : All property after.state := by

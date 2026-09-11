@@ -1,5 +1,6 @@
 import InvocationWitness
 import BoundaryV2.ExecutionEvaluation
+import Std.Data.HashMap
 
 namespace BoundaryV2.Tooling
 
@@ -140,6 +141,27 @@ private def stateWithNodes (pools : List Pool) (nodes : String) (state : Machine
 
 private def stateLiteral (pools : List Pool) (state : Machine.State program) : String :=
   stateWithNodes pools (render pools state.store.nodes) state
+
+/-- Name identical node literals once across a long execution. The map chooses
+only presentation: all definitions remain transparent and every transition
+is checked against the original dispatcher. Never identify nodes by their IDs
+alone, since mutable nodes can have different contents in later snapshots. -/
+private def stateWithPooledNodes (known : Std.HashMap String String) (index : Nat)
+    (state : Machine.State program) : Std.HashMap String String × List String × String := Id.run do
+  let mut known := known
+  let mut definitions := []
+  let mut names := []
+  for node in state.store.nodes do
+    let body := render [] node
+    let name ← match known.get? body with
+      | some name => pure name
+      | none => do
+        let name := s!"execution{index}Node{known.size}"
+        known := known.insert body name
+        definitions := definitions ++ [s!"def {name} : Graph.Node := {body}"]
+        pure name
+    names := names ++ [name]
+  return (known, definitions, stateWithNodes [] ("[" ++ String.intercalate "," names ++ "]") state)
 
 /-- Fixed emitter separator; the driver inventories every resulting module. -/
 def moduleBreak : String := "\n-- boundary-execution-module-break\n"
@@ -371,12 +393,19 @@ private def internalProof (entry : ProgramCache) (prepared : Boundary.Prepared e
   let mut sizes : List Nat := []
   let mut part := 0
   let nodes := s!"execution{index}Nodes"
+  let poolNodes := count > 128 && !shareNodes
+  let mut nodePool : Std.HashMap String String := {}
   let mut declarations := if shareNodes then [sharingRules index,
     s!"def {nodes}0 : List Graph.Node := {render [] state.store.nodes}
 attribute [cbv_opaque] {nodes}0
 @[cbv_eval] theorem {nodes}0Length : {nodes}0.length = {state.store.nodes.length} := by decide +kernel
 def execution{index}State0 : Machine.State image.context.program := {stateWithNodes [] s!"{nodes}0" state}"]
-    else [s!"def execution{index}State0 : Machine.State image.context.program := {stateLiteral [] state}"]
+    else []
+  if !shareNodes then
+    let (known, definitions, initialState) := if poolNodes then stateWithPooledNodes nodePool index state
+      else (nodePool, [], stateLiteral [] state)
+    nodePool := known
+    declarations := definitions ++ [s!"def execution{index}State0 : Machine.State image.context.program := {initialState}"]
   while remaining > 0 do
     let size := min 8 remaining
     if shareNodes then
@@ -393,8 +422,13 @@ attribute [cbv_opaque] {nodes}{part+1}
   rw [{nodes}{part+1}, List.length_append, {nodes}{part}Length]
   decide +kernel
 @[cbv_eval] theorem {nodes}{part+1}Added : {nodes}{part} ++ {added} = {nodes}{part+1} := rfl"]
-    let nextState := if shareNodes then stateWithNodes [] s!"{nodes}{part+1}" transition.state
-      else stateLiteral [] transition.state
+    let nextState ← if shareNodes then pure (stateWithNodes [] s!"{nodes}{part+1}" transition.state)
+      else do
+        let (known, definitions, nextState) := if poolNodes then stateWithPooledNodes nodePool index transition.state
+          else (nodePool, [], stateLiteral [] transition.state)
+        nodePool := known
+        declarations := declarations ++ definitions
+        pure nextState
     declarations := declarations ++ [s!"def execution{index}State{part+1} : Machine.State image.context.program := {nextState}
 def execution{index}Part{part} : Machine.Transition image.context.program := ⟨execution{index}State{part+1}, {render [] transition.events}⟩
 theorem execution{index}Part{part}Known : Boundary.internalPrefix image.context {size} execution{index}State{part} = .ok execution{index}Part{part} := by cbv"]
@@ -402,7 +436,7 @@ theorem execution{index}Part{part}Known : Boundary.internalPrefix image.context 
     state := transition.state
     remaining := remaining - size
     part := part + 1
-    if part % 32 == 0 then declarations := declarations ++ [moduleBreak]
+    if part % (if poolNodes then 8 else 32) == 0 then declarations := declarations ++ [moduleBreak]
   declarations := declarations ++ [s!"def execution{index}Suffix{part} : Machine.Transition image.context.program := ⟨execution{index}State{part}, []⟩
 theorem execution{index}Suffix{part}Known : Boundary.completeInternal image.context 0 execution{index}State{part} = .ok execution{index}Suffix{part} := by cbv"]
   let mut rest := 0

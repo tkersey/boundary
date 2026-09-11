@@ -114,6 +114,59 @@ theorem commitPure_delivers_result (state : State) (opcode : Opcode) (operands :
   simp only [commitPure, bind] at accepted
   grind (gen := 32) only [except_bind_ok, fromOption_ok]
 
+theorem commitPure_retains_storage_and_supply (state : State) (opcode : Opcode) (operands : List Located)
+    (result : SemanticValue) (after : Transition)
+    (accepted : commitPure state opcode operands result = .ok after) :
+    after.state.heap.objects = state.heap.objects ∧ after.state.heap.nextCustody = state.heap.nextCustody := by
+  have temporarySame (state after : State) (owner : Custody.Owner)
+      (accepted : temporary state = .ok (after, owner)) :
+      after.heap.objects = state.heap.objects ∧ after.heap.nextCustody = state.heap.nextCustody := by
+    unfold temporary at accepted
+    split at accepted <;> try contradiction
+    split at accepted <;> try contradiction
+    cases accepted; exact ⟨rfl, rfl⟩
+  have finishSame (state : State) (value : Located) (after : Transition)
+      (accepted : finishTemporary state value = .ok after) :
+      after.state.heap.objects = state.heap.objects ∧ after.state.heap.nextCustody = state.heap.nextCustody := by
+    unfold finishTemporary at accepted
+    split at accepted <;> try contradiction
+    cases accepted; exact ⟨rfl, rfl⟩
+  have moveSame (before after : Heap) (values : List Located) (receiver : Nat → Custody.Owner)
+      (accepted : moveValues before values receiver = some after) :
+      after.objects = before.objects ∧ after.nextCustody = before.nextCustody := by
+    simp [moveValues, Option.bind_eq_some_iff] at accepted
+    obtain ⟨_, _, rfl⟩ := accepted
+    exact ⟨rfl, rfl⟩
+  simp only [commitPure, bind] at accepted
+  grind (gen := 32) only [except_bind_ok, fromOption_ok]
+
+theorem commitPure_preserves_live_objects (state : State) (opcode : Opcode) (operands : List Located)
+    (result : SemanticValue) (after : Transition)
+    (accepted : commitPure state opcode operands result = .ok after) (live : state.heap.CustodyLive) :
+    after.state.heap.CustodyLive := by
+  have temporaryLive (state after : State) (owner : Custody.Owner)
+      (accepted : temporary state = .ok (after, owner)) (live : state.heap.CustodyLive) : after.heap.CustodyLive := by
+    unfold temporary at accepted
+    split at accepted <;> try contradiction
+    split at accepted <;> try contradiction
+    cases accepted; exact live
+  have finishLive (state : State) (value : Located) (after : Transition)
+      (accepted : finishTemporary state value = .ok after) (live : state.heap.CustodyLive) :
+      after.state.heap.CustodyLive := by
+    unfold finishTemporary at accepted
+    split at accepted <;> try contradiction
+    cases accepted; exact live
+  have consumeLive (heap : Heap) (book : Custody.Book) (tokens : List CustodyToken) (owner : Custody.Owner)
+      (accepted : Custody.consume heap.custody tokens owner = some book) (live : heap.CustodyLive) :
+      Heap.CustodyLive { heap with custody := book } := by
+    unfold Custody.consume at accepted
+    split at accepted <;> try contradiction
+    cases accepted
+    intro entry member
+    exact live entry (List.mem_filter.mp member).1
+  simp only [commitPure, bind] at accepted
+  grind (gen := 32) only [except_bind_ok, fromOption_ok, → moveValues_preserves_live_objects]
+
 theorem primitive_commit_delivers_aligned_result (state : State) (context : Context) (opcode : Opcode)
     (schema : SchemaId .source) (immediate : Nat) (operands : List Located)
     (result : SemanticValue) (after : Transition)
