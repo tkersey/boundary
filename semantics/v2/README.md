@@ -369,6 +369,10 @@ Hash rewrite keys use natural-number byte values, with a general round-trip
 proof, so computed bytes and byte literals select the same proved fact.
 Schema-width witnesses similarly check each actual refinement round and use
 the existing fixed-point theorems; computed widths are never assumed.
+`ExecutionEvaluation` composes checked internal fragments with the original
+evaluator's final stopping check. Its descriptor lemma proves that an admitted
+external childless schema has its exact one-node canonical descriptor, avoiding
+repeated whole-program equivalence calculations for scalar requests.
 `TargetStorageLaws` proves that every externally admitted value can pass through
 the target's actual store/load path without changing its meaning. This includes
 fixed-width scalar padding, recursive aggregate blobs, and exact blob interning.
@@ -381,9 +385,11 @@ restoring and replaying the clean proof. The lexical, deep-handler, and
 three-record generator executions have passed kernel, trust, fresh replay,
 and altered-subject controls. This does
 not yet provide full fixture coverage or source/runtime certificate composition.
-The full 134-case kernel gate currently exceeds the proof-generation budget on
-`operand-failure-5`. Decomposition of that internal execution proof is still in
-progress; the complete cohort must pass before full runtime coverage is claimed.
+The three-record `operand-failure-5` execution now passes ordinary kernel
+checking with composed internal fragments and checked descriptor evaluation.
+The full 134-case kernel gate remains incomplete: its 20,003-step recursive
+fixture still needs checked state sharing to avoid repeating complete growing
+heaps. The complete cohort must pass before full runtime coverage is claimed.
 
 The invocation conformance cohort compares all 28,665 native `advance` records
 and 308 native `run` records from 134 cases against the formal target boundary.

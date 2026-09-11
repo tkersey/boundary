@@ -1,5 +1,5 @@
 import InvocationWitness
-import BoundaryV2.ExecutionCertificate
+import BoundaryV2.ExecutionEvaluation
 
 namespace BoundaryV2.Tooling
 
@@ -270,15 +270,108 @@ theorem prepared{index}Known : Boundary.prepare image input{index} witness{index
   · exact response{index}Step
 "
 
+private def proofConclusion (pools : List Pool) (count : Nat) (arguments : Bytes) : String := Id.run do
+  let names := List.range count
+  let aliases := String.intercalate "," (names.map fun i => s!"record{i}")
+  let unfolds := String.intercalate " " (names.map fun i => s!"record{i} input{i}Bytes output{i}Bytes")
+  let events := names.foldr (fun i rest => s!"(result{i}.events ++ {rest})") "[]"
+  let meaning := names.foldr (fun i rest => s!"(.invocation rfl (Boundary.checkInvocation_sound _ _ _ _ _ checked{i}) {rest})") ".empty"
+  return s!"def evaluationRecords : List Boundary.PublicInvocation := [{aliases}]
+theorem exactRecords : [{aliases}] = records := by
+  unfold {unfolds} {poolNames pools}; rfl
+theorem evaluationRecords_exact : evaluationRecords = records := exactRecords
+theorem certificate : Boundary.CertifiedInitialExecution imageBytes records := by
+  rw [← exactRecords]
+  refine ⟨_, image, {render pools arguments}, ⟨result{count - 1}.continuation, {events}⟩, by simp, ?_, rfl⟩
+  exact {meaning}"
+
+private def leafRules (entry : ProgramCache) : String := Id.run do
+  let program := entry.image.context.program
+  let schemas := (program.effects.flatMap (fun effect => [effect.payload, effect.result])).foldl
+    (fun found schema => if found.contains schema then found else found ++ [schema]) []
+  let mut declarations := []
+  for schema in schemas do
+    if let some shape := program.schemas[schema.value]? then
+      if (SchemaAdmission.structuralChildren shape).isEmpty && (match shape with | .internal _ => false | _ => true) then
+        declarations := declarations ++ [s!"@[cbv_eval] theorem leafDescriptor{schema.value} : SchemaDescriptor.canonicalize ⟨{literal schema}, {literal program.schemas}⟩ = some ⟨0, [{literal shape}]⟩ :=
+  SchemaDescriptor.canonicalize_leaf _ _ (by decide_cbv) (by decide_cbv) (by decide) (by intro internal; intro impossible; cases impossible)"]
+  return String.intercalate "\n" declarations
+
+/-- Native states are proposals only. Each short fragment is checked against
+the original dispatcher, then composed with its mandatory stopping check. -/
+private def internalProof (entry : ProgramCache) (prepared : Boundary.Prepared entry.image.context.program)
+    (count index : Nat) : IO String := do
+  let mut state := prepared.state
+  let mut remaining := count
+  let mut sizes : List Nat := []
+  let mut part := 0
+  let mut declarations := [s!"def execution{index}State0 : Machine.State image.context.program := prepared{index}State"]
+  while remaining > 0 do
+    let size := min 8 remaining
+    let transition ← semantic (Boundary.internalPrefix entry.image.context size state) "internal fragment candidate"
+    declarations := declarations ++ [s!"def execution{index}State{part+1} : Machine.State image.context.program := {stateLiteral [] transition.state}
+def execution{index}Part{part} : Machine.Transition image.context.program := ⟨execution{index}State{part+1}, {render [] transition.events}⟩
+theorem execution{index}Part{part}Known : Boundary.internalPrefix image.context {size} execution{index}State{part} = .ok execution{index}Part{part} := by cbv"]
+    sizes := sizes ++ [size]
+    state := transition.state
+    remaining := remaining - size
+    part := part + 1
+  declarations := declarations ++ [s!"def execution{index}Suffix{part} : Machine.Transition image.context.program := ⟨execution{index}State{part}, []⟩
+theorem execution{index}Suffix{part}Known : Boundary.completeInternal image.context 0 execution{index}State{part} = .ok execution{index}Suffix{part} := by cbv"]
+  let mut rest := 0
+  for (size, ordinal) in sizes.zipIdx.reverse do
+    declarations := declarations ++ [s!"def execution{index}Suffix{ordinal} : Machine.Transition image.context.program := ⟨execution{index}Suffix{ordinal+1}.state, execution{index}Part{ordinal}.events ++ execution{index}Suffix{ordinal+1}.events⟩
+theorem execution{index}Suffix{ordinal}Known : Boundary.completeInternal image.context {size+rest} execution{index}State{ordinal} = .ok execution{index}Suffix{ordinal} := Boundary.completeInternal_prepend _ {size} {rest} _ _ _ execution{index}Part{ordinal}Known execution{index}Suffix{ordinal+1}Known"]
+    rest := rest + size
+  return String.intercalate "\n" declarations
+
+private def plainProof (entry : ProgramCache) (records : List Boundary.PublicInvocation)
+    (witnesses : List Boundary.InvocationWitness) (arguments : Bytes) : IO String := do
+  let mut declarations := [leafRules entry]
+  let mut before : Boundary.Clock := ⟨0, none⟩
+  for ((record, witness), index) in (records.zip witnesses).zipIdx do
+    let input ← required (Protocol.inputCodec.decode record.input) "composed input"
+    let result ← required (Boundary.checkInvocation entry.image record before witness) "composed record"
+    declarations := declarations ++ [s!"def input{index}Bytes : Bytes := {literal record.input}
+def output{index}Bytes : Bytes := {literal record.output}
+def record{index} : Boundary.PublicInvocation := ⟨input{index}Bytes, output{index}Bytes⟩
+def witness{index} : Boundary.InvocationWitness := {witnessLiteral witness}
+def result{index} : Boundary.InvocationResult := {resultLiteral [] result}"]
+    if input.mode == .run then
+      let prepared ← semantic (Boundary.prepare entry.image input witness.incoming) "composed preparation"
+      let transition ← semantic (Boundary.completeInternal entry.image.context witness.internalSteps prepared.state) "composed run"
+      let outcome ← semantic (Boundary.finish entry.image transition.state witness.outgoing) "composed finish"
+      declarations := declarations ++ [s!"def input{index} : Protocol.Input := ⟨{literal input.mode}, imageBytes, {render [] input.instanceData}, {render [] input.control}⟩
+theorem input{index}Valid : Protocol.inputCodec.valid input{index} = true := by decide +kernel
+theorem input{index}Encoded : Protocol.inputCodec.encode input{index} = input{index}Bytes := by cbv
+theorem input{index}Decoded : Protocol.inputCodec.decode input{index}Bytes = some input{index} := by
+  rw [← input{index}Encoded]; exact Protocol.inputCodec.decode_encode _ input{index}Valid
+def prepared{index}State : Machine.State image.context.program := {stateLiteral [] prepared.state}
+def prepared{index} : Boundary.Prepared image.context.program := ⟨prepared{index}State, {render [] prepared.events}, {literal prepared.parked}⟩
+theorem prepared{index}Known : Boundary.prepare image input{index} witness{index}.incoming = .ok prepared{index} := by cbv",
+        ← internalProof entry prepared witness.internalSteps index,
+        s!"def outcome{index} : Protocol.Outcome := {render [] outcome}
+theorem finished{index} : Boundary.finish image execution{index}Suffix0.state witness{index}.outgoing = .ok outcome{index} := by cbv
+theorem valid{index} : Protocol.outcomeCodec.valid outcome{index} = true := by decide_cbv
+def observation{index} : Boundary.Observation image.context.program := ⟨execution{index}Suffix0.state, prepared{index}.events ++ execution{index}Suffix0.events, outcome{index}⟩
+theorem observed{index} : Boundary.observe image input{index} witness{index} = .ok observation{index} :=
+  Boundary.run_of_parts _ _ _ _ _ _ _ _ rfl prepared{index}Known execution{index}Suffix0Known finished{index} valid{index}
+theorem encoded{index} : Protocol.outcomeCodec.encode outcome{index} = output{index}Bytes := by cbv
+theorem checked{index} : Boundary.checkInvocation image record{index} {literal before} witness{index} = some result{index} :=
+  Boundary.checkInvocation_of_parts _ _ _ _ _ _ rfl input{index}Decoded observed{index} encoded{index}"]
+    else
+      declarations := declarations ++ [s!"theorem checked{index} : Boundary.checkInvocation image record{index} {literal before} witness{index} = some result{index} := by cbv"]
+    before := result.clock
+  return String.intercalate "\n" (declarations ++ [proofConclusion [] records.length arguments])
+
 /-- Emit ordinary compositional proofs of the original checker, using only
 native candidate data. Every computation and the complete subject are checked. -/
 def composedProof (entry : ProgramCache) (records : List Boundary.PublicInvocation)
     (witnesses : List Boundary.InvocationWitness) (hashInputs : List Bytes) (arguments : Bytes) : IO String := do
   let pools := (records.flatMap fun record => poolsIn record.input ++ poolsIn record.output).foldl
     (fun found pool => if found.contains pool then found else found ++ [pool]) []
-  if pools.isEmpty then
-    return s!"def evaluationRecords : List Boundary.PublicInvocation := records\ntheorem evaluationRecords_exact : evaluationRecords = records := rfl\ntheorem certificate : Boundary.CertifiedInitialExecution imageBytes records :=\n  Boundary.certify_initial_execution image records witnesses {literal arguments} (by decide_cbv)"
-  let mut declarations := [evaluationRules]
+  if pools.isEmpty then return ← plainProof entry records witnesses arguments
+  let mut declarations := [evaluationRules, leafRules entry]
   for (pool, index) in pools.zipIdx do
     declarations := declarations ++ [s!"def pool{index} : Bytes := List.replicate {pool.count} {pool.byte.toNat}
 def pool{index}Nat : List Nat := List.replicate {pool.count} {pool.byte.toNat}
@@ -329,19 +422,7 @@ theorem checked{index} : Boundary.checkInvocation image record{index} {literal b
       declarations := declarations ++ [s!"def result{index} : Boundary.InvocationResult := {resultLiteral pools result}
 theorem checked{index} : Boundary.checkInvocation image record{index} {literal before} witness{index} = some result{index} := by cbv"]
     before := result.clock
-  let names := List.range records.length
-  let aliases := String.intercalate "," (names.map fun i => s!"record{i}")
-  let unfolds := String.intercalate " " (names.map fun i => s!"record{i} input{i}Bytes output{i}Bytes")
-  let events := names.foldr (fun i rest => s!"(result{i}.events ++ {rest})") "[]"
-  let meaning := names.foldr (fun i rest => s!"(.invocation rfl (Boundary.checkInvocation_sound _ _ _ _ _ checked{i}) {rest})") ".empty"
-  declarations := declarations ++ [s!"def evaluationRecords : List Boundary.PublicInvocation := [{aliases}]
-theorem exactRecords : [{aliases}] = records := by
-  unfold {unfolds} {poolNames pools}; rfl
-theorem evaluationRecords_exact : evaluationRecords = records := exactRecords
-theorem certificate : Boundary.CertifiedInitialExecution imageBytes records := by
-  rw [← exactRecords]
-  refine ⟨_, image, {render pools arguments}, ⟨result{records.length - 1}.continuation, {events}⟩, by simp, ?_, rfl⟩
-  exact {meaning}"]
+  declarations := declarations ++ [proofConclusion pools records.length arguments]
   return String.intercalate "\n" declarations
 
 end BoundaryV2.Tooling.ExecutionProof
