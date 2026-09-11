@@ -74,4 +74,6 @@ import BoundaryV2.SourceCloneSafety
 import BoundaryV2.SourceCustodyBounds
 import BoundaryV2.SourceCustodyAlignment
 import BoundaryV2.SourcePrimitiveCustody
+import BoundaryV2.SourceValueInventory
+import BoundaryV2.SourceReferenceState
 import BoundaryV2.SourceUsageExamples

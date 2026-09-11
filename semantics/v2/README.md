@@ -279,6 +279,16 @@ machine operations. `SourcePrimitiveCustody` applies that theorem to token bound
 and token-to-object alignment and proves alignment through the atomic ownership
 commit that delivers the result.
 
+`SourceValueInventory` includes every semantic value stored in source control,
+frames, heap objects, dormant captures, scope holdings, cleanup records, and
+status. Renaming maps the complete frame and capture inventories, including
+deferred disposal results and cleanup failures. Term entry, operand evaluation,
+temporary storage, and external actions preserve predicates of those values.
+`SourceReferenceState` combines token-to-object alignment, bounds on all retained
+tokens, and live custody objects into `State.OwnedReferenceWF`. Public
+initialization and every accepted external action preserve this component;
+preservation through all internal transitions remains open.
+
 The separate raw byte codecs in `Wire`, `ProfileCodec`, and `Images` check
 complete BPI2, PST2, and protocol record framing, minimal integers, lengths,
 section layout, numeric bounds, and input exhaustion. Their round-trip and
