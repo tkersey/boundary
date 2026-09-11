@@ -105,4 +105,6 @@ import BoundaryV2.SourceOperandTypes
 import BoundaryV2.SourceFailureSchemas
 import BoundaryV2.SourceFailureEffects
 import BoundaryV2.SourceFailureExecution
+import BoundaryV2.SourceCancellation
+import BoundaryV2.SourceCancellationExecution
 import BoundaryV2.SourceUsageExamples

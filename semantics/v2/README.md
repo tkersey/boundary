@@ -377,6 +377,12 @@ This includes failure data in captured continuations and its preservation under
 renaming, resumption, disposal, and cancellation. The unwind value-preservation
 lemma derives failure schemas from this invariant; finite failure-list and
 cancellation-payload bounds remain explicit premises.
+`SourceCancellation` and `SourceCancellationExecution` prove that internal
+source transitions retain the machine's cancellation reason and that all actual
+`Steps` preserve the first accepted reason. Initialized execution validates text
+reasons as UTF-8. Separately, decoding a reason through the wire codec establishes
+its length bound, which is preserved by internal transitions and subsequent
+cancellation inputs satisfying that same bound.
 
 The separate raw byte codecs in `Wire`, `ProfileCodec`, and `Images` check
 complete BPI2, PST2, and protocol record framing, minimal integers, lengths,
