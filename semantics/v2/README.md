@@ -335,6 +335,17 @@ capture cloning, handler replacement, and cleanup. Failure aggregation is
 token-free because admitted failure schemas are external. Aliases remain
 separate inventory views; this theorem does not count them as distinct owning
 storage locations.
+`HoldingOwners.initialized_execution_preserves_holding_owners` proves that
+every retained scope value occupies a distinct lexical or temporary slot below
+its actual scope allocation counter. `reachable_scope_owners_are_unique`
+extends that distinction across all scopes, including stale retained values,
+lexical inheritance, and empty scopes copied during resumption cloning.
+`OwningFields` enumerates heap fields and detached disposal queues without
+erasing occurrence multiplicity. It proves uniqueness of live tokens across
+all scope fields and binds every enumerated occurrence to the actual custody
+book. A checked closure-disposal witness covers the transfer of an owning
+field into the active queue and a suspended disposal frame; the full
+all-field custody bijection remains a separate proof obligation.
 `SourceRequestLaws` additionally proves that every finite source trace contains
 exactly the consecutive request-opening identities allocated during that trace.
 Those identities are unique even when payloads are equal. Parked polling,
