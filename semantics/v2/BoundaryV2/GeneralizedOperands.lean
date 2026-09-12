@@ -69,6 +69,58 @@ def Environment.pushReverse : {types stack : List (TypeOf signature)} →
   | _, _, .cons value rest, stack => by
     simpa only [List.reverse_cons, List.append_assoc, List.singleton_append] using rest.pushReverse (.cons value stack)
 
+private theorem cast_values_injective {First Second : Type} (equal : First = Second) (first second : Second)
+    (same : equal.mpr first = equal.mpr second) : first = second := by
+  cases equal
+  exact same
+
+theorem Environment.pushReverse_injective
+    (first second : Environment signature algebra Body types)
+    (before after : Environment signature algebra Body stack)
+    (same : first.pushReverse before = second.pushReverse after) : first = second ∧ before = after := by
+  induction types generalizing stack with
+  | nil => cases first; cases second; exact ⟨rfl, same⟩
+  | cons type types induction =>
+    cases first with
+    | cons firstValue firstRest =>
+      cases second with
+      | cons secondValue secondRest =>
+        have tailSame : firstRest.pushReverse (.cons firstValue before) = secondRest.pushReverse (.cons secondValue after) := by
+          exact cast_values_injective (by simp only [List.reverse_cons, List.append_assoc, List.singleton_append]) _ _ same
+        obtain ⟨restSame, headSame⟩ := induction firstRest secondRest (.cons firstValue before) (.cons secondValue after) tailSame
+        cases restSame
+        cases headSame
+        exact ⟨rfl, rfl⟩
+
+def Environment.popReverse (types : List (TypeOf signature)) {stack : List (TypeOf signature)}
+    (values : Environment signature algebra Body (types.reverse ++ stack)) :
+    Environment signature algebra Body types × Environment signature algebra Body stack :=
+  match types with
+  | [] => (.nil, values)
+  | type :: rest =>
+    let normalized : Environment signature algebra Body (rest.reverse ++ type :: stack) := by
+      simpa only [List.reverse_cons, List.append_assoc, List.singleton_append] using values
+    let (arguments, tail) := Environment.popReverse rest normalized
+    match tail with
+    | .cons value remaining => (.cons value arguments, remaining)
+
+private theorem cast_roundtrip {First Second : Type} (equal : First = Second) (value : Second) :
+    equal.mp (equal.mpr value) = value := by
+  cases equal
+  rfl
+
+theorem Environment.popReverse_pushReverse (values : Environment signature algebra Body types)
+    (stack : Environment signature algebra Body stackTypes) :
+    Environment.popReverse types (values.pushReverse stack) = (values, stack) := by
+  induction types generalizing stackTypes with
+  | nil => cases values; rfl
+  | cons type types induction =>
+    cases values with
+    | cons value rest =>
+      simp only [Environment.popReverse, Environment.pushReverse, cast_roundtrip]
+      rw [induction rest (.cons value stack)]
+      rfl
+
 namespace Source
 
 /- These operations evaluate expression data and captured code values. Use
@@ -130,6 +182,40 @@ theorem Operands.reindex {first second : List (TypeOf signature)} (equal : first
   cases equal
   rfl
 
+/-- One deterministic operand instruction. Closure and primitive operands are
+recovered by their typed argument list, preserving the caller's stack suffix. -/
+def operandNextCode (environment : RuntimeEnvironment signature algebra definitions context)
+    (code : Code signature algebra definitions context stack result)
+    (values : RuntimeEnvironment signature algebra definitions stack) :
+    Option (Operands signature algebra definitions context result) :=
+  match code with
+  | .push datum next => some ⟨_, next, .cons (.datum datum) values⟩
+  | .load reference next => some ⟨_, next, .cons (environment.lookup reference) values⟩
+  | .pair next => match values with
+    | .cons second tail => match tail with
+      | .cons first rest => some ⟨_, next, .cons (.pair first second) rest⟩
+  | .first next => match values with
+    | .cons value rest => some ⟨_, next, .cons value.first rest⟩
+  | .second next => match values with
+    | .cons value rest => some ⟨_, next, .cons value.second rest⟩
+  | .left next => match values with
+    | .cons value rest => some ⟨_, next, .cons (.left value) rest⟩
+  | .right next => match values with
+    | .cons value rest => some ⟨_, next, .cons (.right value) rest⟩
+  | @Code.close _ _ _ _ captured _ _ _ _ _ body next =>
+    let (capturedValues, rest) := Environment.popReverse captured values
+    some ⟨_, next, .cons (.closure body capturedValues none) rest⟩
+  | @Code.primitive _ _ _ parameters _ _ _ _ operation next =>
+    let (arguments, rest) := Environment.popReverse (parameters.map Ty.leaf) values
+    match algebra.evaluate operation arguments.leaves with
+    | .ok value => some ⟨_, next, .cons (.datum (.leaf value)) rest⟩
+    | .error fault => some ⟨_, .fault fault, values⟩
+  | _ => none
+
+def operandNext (environment : RuntimeEnvironment signature algebra definitions context)
+    (state : Operands signature algebra definitions context result) :=
+  operandNextCode environment state.code state.values
+
 /-- Individual target instructions act on first-order operand and environment
 data. No source term or source evaluation function occurs in these rules. -/
 inductive OperandStep (environment : RuntimeEnvironment signature algebra definitions context) :
@@ -162,6 +248,14 @@ inductive OperandStep (environment : RuntimeEnvironment signature algebra defini
       OperandStep environment ⟨_, .primitive operation next, arguments.pushReverse values⟩
         ⟨_, .fault fault, arguments.pushReverse values⟩
 
+theorem OperandStep.computes_next (step : OperandStep environment before after) : operandNext environment before = some after := by
+  cases step <;> simp only [operandNext, operandNextCode, Environment.popReverse_pushReverse]
+  all_goals simp_all
+
+theorem OperandStep.deterministic (first : OperandStep environment before after)
+    (second : OperandStep environment before other) : after = other := by
+  exact Option.some.inj (first.computes_next.symm.trans second.computes_next)
+
 /-- A finite, explicitly counted instruction drain. Every cons witnesses one
 real instruction; the evaluator cannot hide infinitely many silent steps. -/
 inductive OperandSteps (environment : RuntimeEnvironment signature algebra definitions context) :
@@ -182,6 +276,38 @@ theorem OperandSteps.single (step : OperandStep environment before after) : Oper
 theorem OperandSteps.zero_eq (steps : OperandSteps environment before 0 after) : before = after := by
   cases steps
   rfl
+
+theorem OperandSteps.normal_forms_unique (first : OperandSteps environment before count after)
+    (stopped : operandNext environment after = none)
+    (second : OperandSteps environment before otherCount other)
+    (otherStopped : operandNext environment other = none) : after = other := by
+  induction first generalizing otherCount other with
+  | refl =>
+    cases second with
+    | refl => rfl
+    | cons step rest => rw [step.computes_next] at stopped; contradiction
+  | cons step rest induction =>
+    cases second with
+    | refl => rw [step.computes_next] at otherStopped; contradiction
+    | cons otherStep tail =>
+      have same := step.deterministic otherStep
+      cases same
+      exact induction stopped tail otherStopped
+
+def ReturnsOperand (environment : RuntimeEnvironment signature algebra definitions context)
+    (code : Code signature algebra definitions context [] result)
+    (value : RuntimeValue signature algebra definitions result) : Prop :=
+  ∃ count, OperandSteps environment ⟨_, code, .nil⟩ count ⟨_, .ret, .cons value .nil⟩
+
+def Code.isReturn (code : Code signature algebra definitions context stack result) : Bool :=
+  match code with | .ret => true | _ => false
+
+def Operands.isReturn (state : Operands signature algebra definitions context result) : Bool := state.code.isReturn
+
+def Code.faultValue (code : Code signature algebra definitions context stack result) : Option algebra.Fault :=
+  match code with | .fault failure => some failure | _ => none
+
+def Operands.faultValue (state : Operands signature algebra definitions context result) : Option algebra.Fault := state.code.faultValue
 
 inductive Faulted (fault : algebra.Fault) : Operands signature algebra definitions context result → Prop where
   | fault : Faulted fault ⟨_, .fault fault, values⟩

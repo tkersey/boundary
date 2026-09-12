@@ -319,4 +319,53 @@ theorem arguments_fault_drains (source : Source.Arguments signature algebra defi
     ReachesFault (environment bindings) ⟨_, arguments source next, values⟩ fault :=
   arguments_fault_bounded (sizeOf source + 1) source (Nat.lt_succ_self _) bindings next values fault failed
 
+/-- Preservation and reflection for expression results under the target's own
+instruction relation, including exclusion of successful results after a fault. -/
+theorem expression_result_iff (source : Source.Expression signature algebra definitions context type)
+    (bindings : Source.RuntimeEnvironment signature algebra definitions context)
+    (returned : Target.RuntimeValue signature algebra definitions type) :
+    Target.ReturnsOperand (environment bindings) (expression source .ret) returned ↔
+      ∃ value, source.evaluate bindings = .ok value ∧ Defunctionalization.value value = returned := by
+  constructor
+  · rintro ⟨targetCount, targetSteps⟩
+    cases evaluated : source.evaluate bindings with
+    | ok sourceValue =>
+      obtain ⟨sourceCount, sourceSteps⟩ := expression_drains source bindings .ret .nil sourceValue evaluated
+      have same := sourceSteps.normal_forms_unique rfl targetSteps rfl
+      refine ⟨sourceValue, rfl, ?_⟩
+      simpa only [Target.Operands.mk.injEq, heq_eq_eq, Environment.cons.injEq, and_true, true_and] using same
+    | error fault =>
+      obtain ⟨count, final, faultSteps, faulted⟩ := expression_fault_drains source bindings .ret .nil fault evaluated
+      cases faulted with
+      | fault =>
+        have same := faultSteps.normal_forms_unique rfl targetSteps rfl
+        have impossible := congrArg Target.Operands.isReturn same
+        contradiction
+  · rintro ⟨sourceValue, evaluated, rfl⟩
+    exact expression_drains source bindings .ret .nil sourceValue evaluated
+
+theorem expression_fault_iff (source : Source.Expression signature algebra definitions context type)
+    (bindings : Source.RuntimeEnvironment signature algebra definitions context) (fault : algebra.Fault) :
+    Target.ReachesFault (environment bindings) ⟨_, expression source .ret, .nil⟩ fault ↔
+      source.evaluate bindings = .error fault := by
+  constructor
+  · rintro ⟨count, final, steps, faulted⟩
+    cases faulted with
+    | fault =>
+      cases evaluated : source.evaluate bindings with
+      | ok sourceValue =>
+        obtain ⟨returnedCount, returnedSteps⟩ := expression_drains source bindings .ret .nil sourceValue evaluated
+        have same := returnedSteps.normal_forms_unique rfl steps rfl
+        have impossible := congrArg Target.Operands.isReturn same
+        contradiction
+      | error sourceFault =>
+        obtain ⟨sourceCount, sourceFinal, sourceSteps, sourceFaulted⟩ := expression_fault_drains source bindings .ret .nil sourceFault evaluated
+        cases sourceFaulted with
+        | fault =>
+          have same := sourceSteps.normal_forms_unique rfl steps rfl
+          have faults := congrArg Target.Operands.faultValue same
+          have equal : sourceFault = fault := Option.some.inj faults
+          exact congrArg Except.error equal
+  · exact expression_fault_drains source bindings .ret .nil fault
+
 end BoundaryV2.Generalized.Defunctionalization
