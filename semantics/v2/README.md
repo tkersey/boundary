@@ -358,6 +358,12 @@ creation transaction and preserves it throughout the cleanup lifecycle.
 `OwningFields.reachable_heap_entries_are_unique` combines object, scope, and
 protection fields; detached disposal queues remain a separate uniqueness
 obligation in the complete state inventory.
+`OwnerLocations.initialized_execution_preserves_owner_locations` proves that
+ordinary active values are lexical/temporary views or carry no owning tokens.
+Every raw disposal entry is such a view or names an in-range, already retired
+parent object. The invariant covers captured disposal frames,
+one-shot activation, clone-safe instantiation, cleanup, and cancellation;
+disposal's object-layout premise is derived from the initialized execution.
 `SourceRequestLaws` additionally proves that every finite source trace contains
 exactly the consecutive request-opening identities allocated during that trace.
 Those identities are unique even when payloads are equal. Parked polling,
