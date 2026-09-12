@@ -390,6 +390,14 @@ reusable instantiation copies no obligation frame. The derived
 frame per pending/running obligation, the exact running invocation, and no frame
 for a completed or failed obligation. This counts finite physical storage once;
 it does not establish reachability of every stored capture or cleanup termination.
+`BorrowRegistry.initialized_execution_preserves_borrow_registry` binds every
+stored borrow to the exclusive resource in the exact loan record selected by
+the machine. Fresh loan creation, ordinary storage, reusable instantiation,
+cleanup phase changes, and all internal/external steps preserve that binding.
+`reachable_borrowed_read_is_scoped` additionally proves that a successful borrowed
+resource read selects a pending obligation, retains its active region frame,
+and reads the physical resource that obligation protects. These are registry
+and use-admission results; invocation lifetime and escape preservation remain open.
 Borrow preservation and full source well-formedness remain separate obligations.
 `SourceRequestLaws` additionally proves that every finite source trace contains
 exactly the consecutive request-opening identities allocated during that trace.
