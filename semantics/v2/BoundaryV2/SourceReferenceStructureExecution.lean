@@ -138,7 +138,7 @@ theorem unwindStep_preserves_reference_structure (machine : State) (context : Co
     case protection identity =>
       apply beginCleanup_preserves_reference_structure _ _ _ _ _ _ _ accepted (by simpa only [FailureSchemas.observed_exit] using originalSchemas) typed observedTyped (by simp) tailTyped
     case cleanupReturn identity invocation outer normal =>
-      apply cleanupFailed_preserves_reference_structure _ _ _ _ _ _ _ _ accepted typed _ observedTyped _ tailTyped
+      apply finishCleanupUnwind_preserves_reference_structure _ _ _ _ _ _ _ _ accepted typed _ observedTyped _ tailTyped
       · intro value member
         exact frameTyped value (List.mem_append_left _ member)
       · intro value member
@@ -147,7 +147,7 @@ theorem unwindStep_preserves_reference_structure (machine : State) (context : Co
         exact Or.inr ⟨value, by simpa using member, rfl⟩
     case releaseReturn scope afterRelease =>
       cases accepted
-      have mergedTyped := ValueInventory.merge_after_preserves_all afterRelease (observedExit machine original) _ frameTyped observedTyped
+      have mergedTyped := ValueInventory.propagate_after_preserves_all afterRelease (observedExit machine original) _ frameTyped observedTyped
       simp only [ValueInventory.All, ValueInventory.state, ValueInventory.control,
         List.mem_append] at tailStateTyped ⊢
       grind only []
@@ -161,7 +161,7 @@ theorem unwindStep_preserves_reference_structure (machine : State) (context : Co
         intro value member
         apply frameTyped
         exact List.mem_append_right _ member
-      have mergedTyped := ValueInventory.merge_after_preserves_all afterRelease (observedExit machine original) _ afterTyped observedTyped
+      have mergedTyped := ValueInventory.propagate_after_preserves_all afterRelease (observedExit machine original) _ afterTyped observedTyped
       cases primaryIs : (observedExit machine original).primary <;> simp only [primaryIs] at accepted
       all_goals cases afterRelease <;> simp only [pure, Except.pure, Except.bind] at accepted
       all_goals cases accepted
@@ -223,7 +223,7 @@ theorem tickRunning_preserves_reference_structure (machine : State) (context : C
       case protection identity =>
         exact beginCleanup_preserves_reference_structure _ _ _ _ _ _ _ accepted (by simp [FailureSchemas.Types, FailureSchemas.exit]) typed
           (by simpa [exitValues] using valueTyped) (by simpa using valueTyped) tailTyped
-      case disposalReturn => contradiction
+      case disposalReturn => exact finishDisposal_preserves_reference_structure _ _ accepted typed
       case releaseReturn scope released =>
         cases accepted
         simp only [ValueInventory.All, ValueInventory.state, ValueInventory.control, ValueInventory.frame,

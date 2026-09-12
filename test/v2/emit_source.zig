@@ -44,6 +44,10 @@ pub fn main(init: std.process.Init) !void {
         34 => boundary.source.examples.clausePayload(&builder),
         35 => boundary.source.examples.yieldingCleanup(&builder),
         36 => boundary.source.examples.borrowOperands(&builder),
+        37 => @import("cleanup_disposal.zig").build(&builder, .always),
+        38 => @import("cleanup_disposal.zig").build(&builder, .running),
+        39 => @import("cleanup_disposal.zig").build(&builder, .failure),
+        40 => @import("cleanup_disposal.zig").ownedResult(&builder),
         else => @compileError("unknown source example"),
     };
     var buffer: [4096]u8 = undefined;

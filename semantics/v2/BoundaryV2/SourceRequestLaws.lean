@@ -350,6 +350,28 @@ theorem cleanupFailed_event_clock (state : State) (identity : ObligationId) (inv
     EventClock, requestOccurrences, requestOccurrences_append, requestOccurrences_cleanup,
     List.filterMap_cons, List.filterMap_nil, List.nil_append]
 
+theorem cleanupAbandoned_event_clock (state : State) (identity : ObligationId) (invocation : InvocationId)
+    (outer : Cleanup.Exit .source) (normal : Option Located) (tail : List Frame) (inner : Cleanup.Exit .source) (after : Transition)
+    (accepted : cleanupAbandoned state identity invocation outer normal tail inner = .ok after) : EventClock state after.state after.events := by
+  simp only [cleanupAbandoned, bind, pure, Except.pure] at accepted
+  grind (gen := 32) only [except_bind_ok, fromOption_ok,
+    EventClock, requestOccurrences, requestOccurrences_append, requestOccurrences_cleanup,
+    List.filterMap_cons, List.filterMap_nil, List.nil_append]
+
+theorem finishCleanupUnwind_event_clock (state : State) (identity : ObligationId) (invocation : InvocationId)
+    (outer : Cleanup.Exit .source) (normal : Option Located) (tail : List Frame) (inner : Cleanup.Exit .source) (after : Transition)
+    (accepted : finishCleanupUnwind state identity invocation outer normal tail inner = .ok after) : EventClock state after.state after.events := by
+  unfold finishCleanupUnwind at accepted
+  split at accepted <;> first
+    | exact cleanupFailed_event_clock _ _ _ _ _ _ _ _ accepted
+    | exact cleanupAbandoned_event_clock _ _ _ _ _ _ _ _ accepted
+    | contradiction
+
+theorem finishDisposal_event_clock (state : State) (after : Transition)
+    (accepted : finishDisposal state = .ok after) : EventClock state after.state after.events := by
+  simp only [finishDisposal, pure, Except.pure, throw, throwThe, MonadExceptOf.throw] at accepted
+  grind only [EventClock, requestOccurrences, List.filterMap_nil]
+
 theorem releaseScope_event_clock (state : State) (after : Transition)
     (accepted : releaseScope state = .ok after) : EventClock state after.state after.events := by
   simp only [releaseScope, bind, pure, Except.pure, throw, throwThe, MonadExceptOf.throw] at accepted
@@ -367,7 +389,7 @@ theorem discardValues_event_clock (state : State) (context : Context) (after : T
 theorem unwindStep_event_clock (state : State) (context : Context) (after : Transition)
     (accepted : unwindStep state context = .ok after) : EventClock state after.state after.events := by
   simp only [unwindStep, bind, pure, Except.pure, throw, throwThe, MonadExceptOf.throw] at accepted
-  grind (gen := 32) only [except_bind_ok, fromOption_ok, → beginCleanup_event_clock, → cleanupFailed_event_clock,
+  grind (gen := 32) only [except_bind_ok, fromOption_ok, → beginCleanup_event_clock, → finishCleanupUnwind_event_clock,
     EventClock, requestOccurrences, requestOccurrences_append, requestOccurrences_cleanup,
     List.filterMap_cons, List.filterMap_nil, List.nil_append]
 
@@ -380,8 +402,8 @@ theorem executeCleanupTerm_event_clock (state : State) (context : Context) (afte
 
 theorem tickRunning_event_clock (state : State) (context : Context) (after : Transition)
     (accepted : tickRunning state context = .ok after) : EventClock state after.state after.events := by
-  simp only [tickRunning, bind, pure, Except.pure, throw, throwThe, MonadExceptOf.throw] at accepted
-  grind (gen := 32) only [except_bind_ok, fromOption_ok, → enterTerm_event_clock, → enterExpression_event_clock, → enterInvocation_event_clock, → releaseScope_event_clock, → discardValues_event_clock, → unwindStep_event_clock, → executePrimitive_event_clock, → executeEffectTerm_event_clock, → executeCleanupTerm_event_clock, → executeControlTerm_event_clock, → enterBinding_event_clock, → deliverOperand_event_clock, → leaveInvocation_event_clock, → leaveLexical_event_clock, → restoreResumeCaller_event_clock, → completeHandler_event_clock, → beginCleanup_event_clock, → finishCleanup_event_clock,
+  simp only [tickRunning, bind, pure, Except.pure] at accepted
+  grind (gen := 32) only [except_bind_ok, fromOption_ok, → enterTerm_event_clock, → enterExpression_event_clock, → enterInvocation_event_clock, → releaseScope_event_clock, → discardValues_event_clock, → unwindStep_event_clock, → executePrimitive_event_clock, → executeEffectTerm_event_clock, → executeCleanupTerm_event_clock, → executeControlTerm_event_clock, → enterBinding_event_clock, → deliverOperand_event_clock, → leaveInvocation_event_clock, → leaveLexical_event_clock, → restoreResumeCaller_event_clock, → completeHandler_event_clock, → beginCleanup_event_clock, → finishCleanup_event_clock, → finishDisposal_event_clock,
     EventClock, requestOccurrences, requestOccurrences_append, requestOccurrences_cleanup,
     List.filterMap_cons, List.filterMap_nil, List.nil_append]
 

@@ -52,6 +52,32 @@ theorem cleanupFailed_preserves (machine : State) (identity : ObligationId) (inv
   obtain ⟨_, _, _, _, rfl⟩ := accepted
   exact .refl _
 
+theorem cleanupAbandoned_preserves (machine : State) (identity : ObligationId) (invocation : InvocationId)
+    (outer : Cleanup.Exit .source) (normal : Option Located) (tail : List Frame) (inner : Cleanup.Exit .source)
+    (after : Transition) (accepted : cleanupAbandoned machine identity invocation outer normal tail inner = .ok after) :
+    Preserves (source := source) machine.heap.objects after.state.heap.objects := by
+  simp only [cleanupAbandoned, bind, except_bind_ok, pure, Except.pure, Except.ok.injEq] at accepted
+  obtain ⟨_, _, _, _, _, _, rfl⟩ := accepted
+  exact .refl _
+
+theorem finishCleanupUnwind_preserves (machine : State) (identity : ObligationId) (invocation : InvocationId)
+    (outer : Cleanup.Exit .source) (normal : Option Located) (tail : List Frame) (inner : Cleanup.Exit .source)
+    (after : Transition) (accepted : finishCleanupUnwind machine identity invocation outer normal tail inner = .ok after) :
+    Preserves (source := source) machine.heap.objects after.state.heap.objects := by
+  unfold finishCleanupUnwind at accepted
+  split at accepted <;> first
+    | exact cleanupFailed_preserves _ _ _ _ _ _ _ _ accepted
+    | exact cleanupAbandoned_preserves _ _ _ _ _ _ _ _ accepted
+    | contradiction
+
+theorem finishDisposal_preserves (machine : State) (after : Transition)
+    (accepted : finishDisposal machine = .ok after) : Preserves (source := source) machine.heap.objects after.state.heap.objects := by
+  unfold finishDisposal at accepted
+  split at accepted <;> try contradiction
+  split at accepted <;> try contradiction
+  cases accepted
+  exact .refl _
+
 theorem releaseScope_preserves (machine : State) (after : Transition)
     (accepted : releaseScope machine = .ok after) : Preserves (source := source) machine.heap.objects after.state.heap.objects := by
   unfold releaseScope at accepted
@@ -171,7 +197,7 @@ theorem unwindStep_preserves (machine : State) (context : Context) (after : Tran
         obtain ⟨_, _, _, _, rfl⟩ := accepted
         exact .refl _
     case protection => exact beginCleanup_preserves _ _ _ _ _ _ _ accepted
-    case cleanupReturn => exact cleanupFailed_preserves (source := context.source) _ _ _ _ _ _ _ _ accepted
+    case cleanupReturn => exact finishCleanupUnwind_preserves (source := context.source) _ _ _ _ _ _ _ _ accepted
     case disposalReturn =>
       repeat' split at accepted
       all_goals simp only [pure, Except.pure, Except.bind, Except.ok.injEq] at accepted
@@ -212,6 +238,7 @@ theorem tickRunning_preserves (machine : State) (context : Context) (after : Tra
         | exact completeHandler_preserves _ _ _ accepted
         | exact beginCleanup_preserves _ _ _ _ _ _ _ accepted
         | exact finishCleanup_preserves _ _ _ accepted
+        | exact finishDisposal_preserves _ _ accepted
         | (cases accepted; exact .refl _)
         | contradiction
 

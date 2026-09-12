@@ -431,6 +431,29 @@ theorem cleanupFailed_indexed (state : State) (identity : ObligationId) (invocat
   simp only [cleanupFailed, bind, pure, Except.pure, throw, throwThe, MonadExceptOf.throw] at accepted
   constructor <;> grind (gen := 32) only [except_bind_ok, fromOption_ok, Option.bind_eq_some_iff, → obligation_set_indexed, → Cleanup.begin_advances_once, → Cleanup.complete_advances_once, List.map_append, List.map_cons, List.map_nil, List.range_succ, ← Heap.Indexed.mk, cases Heap.Indexed]
 
+theorem cleanupAbandoned_indexed (state : State) (identity : ObligationId) (invocation : InvocationId)
+    (outer : Cleanup.Exit .source) (normal : Option Located) (tail : List Frame) (inner : Cleanup.Exit .source) (after : Transition)
+    (accepted : cleanupAbandoned state identity invocation outer normal tail inner = .ok after) (indexed : state.heap.Indexed) : after.state.heap.Indexed := by
+  simp only [cleanupAbandoned, bind, pure, Except.pure] at accepted
+  constructor <;> grind (gen := 32) only [except_bind_ok, fromOption_ok, Option.bind_eq_some_iff, → obligation_set_indexed, → Cleanup.begin_advances_once, → Cleanup.complete_advances_once, List.map_append, List.map_cons, List.map_nil, List.range_succ, ← Heap.Indexed.mk, cases Heap.Indexed]
+
+theorem finishCleanupUnwind_indexed (state : State) (identity : ObligationId) (invocation : InvocationId)
+    (outer : Cleanup.Exit .source) (normal : Option Located) (tail : List Frame) (inner : Cleanup.Exit .source) (after : Transition)
+    (accepted : finishCleanupUnwind state identity invocation outer normal tail inner = .ok after) (indexed : state.heap.Indexed) : after.state.heap.Indexed := by
+  unfold finishCleanupUnwind at accepted
+  split at accepted <;> first
+    | exact cleanupFailed_indexed _ _ _ _ _ _ _ _ accepted indexed
+    | exact cleanupAbandoned_indexed _ _ _ _ _ _ _ _ accepted indexed
+    | contradiction
+
+theorem finishDisposal_indexed (state : State) (after : Transition)
+    (accepted : finishDisposal state = .ok after) (indexed : state.heap.Indexed) : after.state.heap.Indexed := by
+  unfold finishDisposal at accepted
+  split at accepted <;> try contradiction
+  split at accepted <;> try contradiction
+  cases accepted
+  exact indexed
+
 theorem releaseScope_indexed (state : State) (after : Transition)
     (accepted : releaseScope state = .ok after) (indexed : state.heap.Indexed) : after.state.heap.Indexed := by
   simp only [releaseScope, bind, pure, Except.pure, throw, throwThe, MonadExceptOf.throw] at accepted
@@ -444,7 +467,7 @@ theorem discardValues_indexed (state : State) (context : Context) (after : Trans
 theorem unwindStep_indexed (state : State) (context : Context) (after : Transition)
     (accepted : unwindStep state context = .ok after) (indexed : state.heap.Indexed) : after.state.heap.Indexed := by
   simp only [unwindStep, bind, pure, Except.pure, throw, throwThe, MonadExceptOf.throw] at accepted
-  constructor <;> grind (gen := 32) only [except_bind_ok, fromOption_ok, Option.bind_eq_some_iff, → beginCleanup_indexed, → cleanupFailed_indexed, List.map_append, List.map_cons, List.map_nil, List.range_succ, ← Heap.Indexed.mk, cases Heap.Indexed]
+  constructor <;> grind (gen := 32) only [except_bind_ok, fromOption_ok, Option.bind_eq_some_iff, → beginCleanup_indexed, → finishCleanupUnwind_indexed, List.map_append, List.map_cons, List.map_nil, List.range_succ, ← Heap.Indexed.mk, cases Heap.Indexed]
 
 theorem executeCleanupTerm_indexed (state : State) (context : Context) (after : Transition)
     (accepted : executeCleanupTerm state context = .ok after) (indexed : state.heap.Indexed) : after.state.heap.Indexed := by
@@ -453,8 +476,8 @@ theorem executeCleanupTerm_indexed (state : State) (context : Context) (after : 
 
 theorem tickRunning_indexed (state : State) (context : Context) (after : Transition)
     (accepted : tickRunning state context = .ok after) (indexed : state.heap.Indexed) : after.state.heap.Indexed := by
-  simp only [tickRunning, bind, pure, Except.pure, throw, throwThe, MonadExceptOf.throw] at accepted
-  constructor <;> grind (gen := 32) only [except_bind_ok, fromOption_ok, Option.bind_eq_some_iff, → enterTerm_indexed, → enterExpression_indexed, → enterInvocation_indexed, → releaseScope_indexed, → discardValues_indexed, → unwindStep_indexed, → executePrimitive_indexed, → executeEffectTerm_indexed, → executeCleanupTerm_indexed, → executeControlTerm_indexed, → enterBinding_indexed, → deliverOperand_indexed, → leaveInvocation_indexed, → leaveLexical_indexed, → restoreResumeCaller_indexed, → completeHandler_indexed, → beginCleanup_indexed, → finishCleanup_indexed, List.map_append, List.map_cons, List.map_nil, List.range_succ, ← Heap.Indexed.mk, cases Heap.Indexed]
+  simp only [tickRunning, bind, pure, Except.pure] at accepted
+  constructor <;> grind (gen := 32) only [except_bind_ok, fromOption_ok, Option.bind_eq_some_iff, → enterTerm_indexed, → enterExpression_indexed, → enterInvocation_indexed, → releaseScope_indexed, → discardValues_indexed, → unwindStep_indexed, → executePrimitive_indexed, → executeEffectTerm_indexed, → executeCleanupTerm_indexed, → executeControlTerm_indexed, → enterBinding_indexed, → deliverOperand_indexed, → leaveInvocation_indexed, → leaveLexical_indexed, → restoreResumeCaller_indexed, → completeHandler_indexed, → beginCleanup_indexed, → finishCleanup_indexed, → finishDisposal_indexed, List.map_append, List.map_cons, List.map_nil, List.range_succ, ← Heap.Indexed.mk, cases Heap.Indexed]
 
 theorem tick_indexed (state : State) (context : Context) (after : Transition)
     (accepted : tick state context = .ok after) (indexed : state.heap.Indexed) : after.state.heap.Indexed := by

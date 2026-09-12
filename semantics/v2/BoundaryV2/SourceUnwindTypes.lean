@@ -33,19 +33,19 @@ theorem frame_preserves_all (machine : State) (saved : Frame) (member : saved �
   simp only [state, List.mem_append, List.mem_flatMap]
   grind only []
 
-theorem merge_after_preserves_all (after : AfterRelease) (exit : Cleanup.Exit .source)
+theorem propagate_after_preserves_all (after : AfterRelease) (exit : Cleanup.Exit .source)
     (property : SemanticValue → Prop) (afterHolds : ∀ value ∈ afterRelease after, property value)
     (exitHolds : ∀ value ∈ exitValues exit, property value) :
     ∀ value ∈ exitValues (match after with
-      | .unwind outer => mergeAbrupt outer exit
-      | .deliver value => mergeAbrupt ⟨.normal value.value, [], none⟩ exit), property value := by
+      | .unwind outer => propagateExit outer exit
+      | .deliver value => propagateExit ⟨.normal value.value, [], none⟩ exit), property value := by
   cases after with
   | unwind outer =>
     intro value member
-    exact (List.mem_append.mp (merge_abrupt_subset outer exit member)).elim (afterHolds value) (exitHolds value)
+    exact (List.mem_append.mp (propagate_exit_subset outer exit member)).elim (afterHolds value) (exitHolds value)
   | deliver normal =>
     intro value member
-    rcases List.mem_append.mp (merge_abrupt_subset ⟨.normal normal.value, [], none⟩ exit member) with member | member
+    rcases List.mem_append.mp (propagate_exit_subset ⟨.normal normal.value, [], none⟩ exit member) with member | member
     · exact afterHolds value member
     · exact exitHolds value member
 
@@ -117,7 +117,7 @@ theorem unwindStep_preserves_value_shapes (machine : State) (context : Context) 
       apply beginCleanup_preserves_value_shapes _ _ _ _ _ _ _ accepted typed observedTyped (by simp) tailTyped
       · simpa only [observed_exit_idempotent, observed_exit_failures] using failureTypes
     case cleanupReturn identity invocation outer normal =>
-      apply cleanupFailed_preserves_value_shapes _ _ _ _ _ _ _ _ accepted typed _ observedTyped _ tailTyped
+      apply finishCleanupUnwind_preserves_value_shapes _ _ _ _ _ _ _ _ accepted typed _ observedTyped _ tailTyped
       · intro value member
         exact frameTyped value (List.mem_append_left _ member)
       · intro value member
@@ -126,7 +126,7 @@ theorem unwindStep_preserves_value_shapes (machine : State) (context : Context) 
         exact Or.inr ⟨value, by simpa using member, rfl⟩
     case releaseReturn scope afterRelease =>
       cases accepted
-      have mergedTyped := ValueInventory.merge_after_preserves_all afterRelease (observedExit machine original) _ frameTyped observedTyped
+      have mergedTyped := ValueInventory.propagate_after_preserves_all afterRelease (observedExit machine original) _ frameTyped observedTyped
       simp only [ValueInventory.All, ValueInventory.state, ValueInventory.control,
         List.mem_append] at tailStateTyped ⊢
       grind only []
@@ -140,7 +140,7 @@ theorem unwindStep_preserves_value_shapes (machine : State) (context : Context) 
         intro value member
         apply frameTyped
         exact List.mem_append_right _ member
-      have mergedTyped := ValueInventory.merge_after_preserves_all afterRelease (observedExit machine original) _ afterTyped observedTyped
+      have mergedTyped := ValueInventory.propagate_after_preserves_all afterRelease (observedExit machine original) _ afterTyped observedTyped
       cases primaryIs : (observedExit machine original).primary <;> simp only [primaryIs] at accepted
       all_goals cases afterRelease <;> simp only [pure, Except.pure, Except.bind] at accepted
       all_goals cases accepted

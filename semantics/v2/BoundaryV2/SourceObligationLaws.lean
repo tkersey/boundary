@@ -429,6 +429,31 @@ theorem cleanupFailed_cleanup (state : State) (identity : ObligationId) (invocat
     ← CleanupProgress.refl, ← CleanupProgress.append,
     → CleanupProgress.append_trans, → CleanupProgress.trans]
 
+theorem cleanupAbandoned_cleanup (state : State) (identity : ObligationId) (invocation : InvocationId)
+    (outer : Cleanup.Exit .source) (normal : Option Located) (tail : List Frame) (inner : Cleanup.Exit .source) (after : Transition)
+    (accepted : cleanupAbandoned state identity invocation outer normal tail inner = .ok after) : CleanupProgress state.heap.obligations after.state.heap.obligations := by
+  simp only [cleanupAbandoned, bind, except_bind_ok, fromOption_ok, pure, Except.pure, Except.ok.injEq] at accepted
+  obtain ⟨_, _, before, found, ⟨record, events⟩, completed, rfl⟩ := accepted
+  exact CleanupProgress.complete _ _ _ _ _ _ _ found completed
+
+
+theorem finishCleanupUnwind_cleanup (state : State) (identity : ObligationId) (invocation : InvocationId)
+    (outer : Cleanup.Exit .source) (normal : Option Located) (tail : List Frame) (inner : Cleanup.Exit .source) (after : Transition)
+    (accepted : finishCleanupUnwind state identity invocation outer normal tail inner = .ok after) : CleanupProgress state.heap.obligations after.state.heap.obligations := by
+  unfold finishCleanupUnwind at accepted
+  split at accepted <;> first
+    | exact cleanupFailed_cleanup _ _ _ _ _ _ _ _ accepted
+    | exact cleanupAbandoned_cleanup _ _ _ _ _ _ _ _ accepted
+    | contradiction
+
+theorem finishDisposal_cleanup (state : State) (after : Transition)
+    (accepted : finishDisposal state = .ok after) : CleanupProgress state.heap.obligations after.state.heap.obligations := by
+  unfold finishDisposal at accepted
+  split at accepted <;> try contradiction
+  split at accepted <;> try contradiction
+  cases accepted
+  exact .refl _
+
 theorem releaseScope_cleanup (state : State) (after : Transition)
     (accepted : releaseScope state = .ok after) : CleanupProgress state.heap.obligations after.state.heap.obligations := by
   simp only [releaseScope, bind, pure, Except.pure, throw, throwThe, MonadExceptOf.throw] at accepted
@@ -446,7 +471,7 @@ theorem discardValues_cleanup (state : State) (context : Context) (after : Trans
 theorem unwindStep_cleanup (state : State) (context : Context) (after : Transition)
     (accepted : unwindStep state context = .ok after) : CleanupProgress state.heap.obligations after.state.heap.obligations := by
   simp only [unwindStep, bind, pure, Except.pure, throw, throwThe, MonadExceptOf.throw] at accepted
-  grind (gen := 32) only [except_bind_ok, fromOption_ok, → beginCleanup_cleanup, → cleanupFailed_cleanup,
+  grind (gen := 32) only [except_bind_ok, fromOption_ok, → beginCleanup_cleanup, → finishCleanupUnwind_cleanup,
     ← CleanupProgress.refl, ← CleanupProgress.append,
     → CleanupProgress.append_trans, → CleanupProgress.trans]
 
@@ -459,8 +484,8 @@ theorem executeCleanupTerm_cleanup (state : State) (context : Context) (after : 
 
 theorem tickRunning_cleanup (state : State) (context : Context) (after : Transition)
     (accepted : tickRunning state context = .ok after) : CleanupProgress state.heap.obligations after.state.heap.obligations := by
-  simp only [tickRunning, bind, pure, Except.pure, throw, throwThe, MonadExceptOf.throw] at accepted
-  grind (gen := 32) only [except_bind_ok, fromOption_ok, → enterTerm_cleanup, → enterExpression_cleanup, → enterInvocation_cleanup, → releaseScope_cleanup, → discardValues_cleanup, → unwindStep_cleanup, → executePrimitive_cleanup, → executeEffectTerm_cleanup, → executeCleanupTerm_cleanup, → executeControlTerm_cleanup, → enterBinding_cleanup, → deliverOperand_cleanup, → leaveInvocation_cleanup, → leaveLexical_cleanup, → restoreResumeCaller_cleanup, → completeHandler_cleanup, → beginCleanup_cleanup, → finishCleanup_cleanup,
+  simp only [tickRunning, bind, pure, Except.pure] at accepted
+  grind (gen := 32) only [except_bind_ok, fromOption_ok, → enterTerm_cleanup, → enterExpression_cleanup, → enterInvocation_cleanup, → releaseScope_cleanup, → discardValues_cleanup, → unwindStep_cleanup, → executePrimitive_cleanup, → executeEffectTerm_cleanup, → executeCleanupTerm_cleanup, → executeControlTerm_cleanup, → enterBinding_cleanup, → deliverOperand_cleanup, → leaveInvocation_cleanup, → leaveLexical_cleanup, → restoreResumeCaller_cleanup, → completeHandler_cleanup, → beginCleanup_cleanup, → finishCleanup_cleanup, → finishDisposal_cleanup,
     ← CleanupProgress.refl, ← CleanupProgress.append,
     → CleanupProgress.append_trans, → CleanupProgress.trans]
 

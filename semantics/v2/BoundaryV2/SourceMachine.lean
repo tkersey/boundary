@@ -36,7 +36,7 @@ def tickRunning (state : State) (context : Context) : Except Invalid Transition 
     | .cleanupReturn .. :: _ => finishCleanup state context
     | .injection _ :: tail => return ⟨{ state with stack := tail }, []⟩
     | .releaseReturn scope after :: tail => return ⟨{ state with control := .release scope after, stack := tail }, []⟩
-    | .disposalReturn .. :: _ => throw .type
+    | .disposalReturn .. :: _ => finishDisposal state
 
 def tick (state : State) (context : Context) : Except Invalid Transition :=
   match state.status with

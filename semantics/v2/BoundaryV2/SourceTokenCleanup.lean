@@ -42,6 +42,68 @@ theorem cleanupFailed_preserves_token_bounds (machine : State) (identity : Oblig
     List.mem_append, List.mem_map] at heapTyped ⊢
   grind only []
 
+theorem finishDisposal_preserves_token_bounds (machine : State) (after : Transition)
+    (accepted : finishDisposal machine = .ok after)
+    (typed : ValueInventory.All (ValueTokensBounded limit) machine) :
+    ValueInventory.All (ValueTokensBounded limit) after.state := by
+  unfold finishDisposal at accepted
+  split at accepted <;> try contradiction
+  rename_i value executing
+  split at accepted <;> try contradiction
+  rename_i remaining release invocation scope tail stacked
+  have valueTyped : ValueTokensBounded limit value.value := by
+    apply typed
+    simp [ValueInventory.state, executing, ValueInventory.control]
+  have ownedTyped := liveOwnedValue_preserves machine.heap value.owner value.value valueTyped
+  cases accepted
+  simp only [ValueInventory.All, ValueInventory.state, ValueInventory.control, ValueInventory.frame,
+    executing, stacked, List.flatMap_cons, List.mem_append, List.map_append, List.mem_map,
+    List.mem_cons, List.not_mem_nil] at typed ⊢
+  grind only [liveOwned]
+
+theorem cleanupAbandoned_preserves_token_bounds (machine : State) (identity : ObligationId) (invocation : InvocationId)
+    (outer : Cleanup.Exit .source) (normal : Option Located) (tail : List Frame) (inner : Cleanup.Exit .source)
+    (after : Transition) (accepted : cleanupAbandoned machine identity invocation outer normal tail inner = .ok after)
+    (typed : ValueInventory.All (ValueTokensBounded limit) machine)
+    (outerTyped : ∀ value ∈ exitValues outer, ValueTokensBounded limit value)
+    (innerTyped : ∀ value ∈ exitValues inner, ValueTokensBounded limit value)
+    (normalTyped : ∀ value ∈ normal, ValueTokensBounded limit value.value)
+    (tailTyped : ∀ value ∈ tail.flatMap ValueInventory.frame, ValueTokensBounded limit value) :
+    ValueInventory.All (ValueTokensBounded limit) after.state := by
+  simp only [cleanupAbandoned, bind, except_bind_ok, fromOption_ok, pure, Except.pure, Except.ok.injEq] at accepted
+  obtain ⟨_, guard, before, found, ⟨afterRecord, events⟩, completed, rfl⟩ := accepted
+  clear guard
+  have beforeTyped := ValueInventory.lookup_obligation_preserves_all machine identity before found _ typed
+  have recordTyped := ValueInventory.complete_obligation_preserves_all before afterRecord invocation (.ok ()) events completed _ beforeTyped
+    (by intro value equal; cases equal)
+  have heapTyped := ValueInventory.set_obligation_preserves_all machine identity.value afterRecord _ typed recordTyped
+  have remainingTyped := liveOwned_holdings_preserve_token_bounds
+    { machine.heap with obligations := machine.heap.obligations.set identity.value afterRecord } normal.toList
+    (by simpa using normalTyped)
+  have exitTyped : ∀ value ∈ exitValues (propagateExit outer inner), ValueTokensBounded limit value := by
+    intro value member
+    rcases List.mem_append.mp (ValueInventory.propagate_exit_subset outer inner member) with member | member
+    · exact outerTyped value member
+    · exact innerTyped value member
+  simp only [ValueInventory.All, ValueInventory.state, ValueInventory.control, ValueInventory.afterRelease,
+    List.mem_append, List.mem_map] at heapTyped ⊢
+  grind only []
+
+theorem finishCleanupUnwind_preserves_token_bounds (machine : State) (identity : ObligationId) (invocation : InvocationId)
+    (outer : Cleanup.Exit .source) (normal : Option Located) (tail : List Frame) (inner : Cleanup.Exit .source)
+    (after : Transition) (accepted : finishCleanupUnwind machine identity invocation outer normal tail inner = .ok after)
+    (typed : ValueInventory.All (ValueTokensBounded limit) machine)
+    (outerTyped : ∀ value ∈ exitValues outer, ValueTokensBounded limit value)
+    (innerTyped : ∀ value ∈ exitValues inner, ValueTokensBounded limit value)
+    (normalTyped : ∀ value ∈ normal, ValueTokensBounded limit value.value)
+    (tailTyped : ∀ value ∈ tail.flatMap ValueInventory.frame, ValueTokensBounded limit value) :
+    ValueInventory.All (ValueTokensBounded limit) after.state := by
+  unfold finishCleanupUnwind at accepted
+  split at accepted <;> first
+    | exact cleanupFailed_preserves_token_bounds _ _ _ _ _ _ _ _ accepted typed outerTyped innerTyped normalTyped tailTyped
+    | exact cleanupAbandoned_preserves_token_bounds _ _ _ _ _ _ _ _ accepted typed outerTyped innerTyped normalTyped tailTyped
+    | contradiction
+
 theorem installProtection_preserves_token_bounds (machine : State) (context : Context) (body cleanup : Located)
     (arguments : List Located) (resource : Option Located) (loan : Option (RegionId .source)) (after : Transition)
     (accepted : installProtection machine context body cleanup arguments resource loan = .ok after)

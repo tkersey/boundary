@@ -192,7 +192,7 @@ theorem unwindStep_valid (machine : State) (context : Context) (after : Transiti
       apply modes
       simp [ValueInventory.state, stacked, member]
     case cleanupReturn identity invocation outer normal =>
-      apply cleanupFailed_valid _ _ _ _ _ _ _ _ accepted good _ observedTyped _ tailTyped
+      apply finishCleanupUnwind_valid _ _ _ _ _ _ _ _ accepted good _ observedTyped _ tailTyped
       · intro value member
         exact frameTyped value (List.mem_append_left _ member)
       · intro value member
@@ -201,7 +201,7 @@ theorem unwindStep_valid (machine : State) (context : Context) (after : Transiti
         exact Or.inr ⟨value, by simpa using member, rfl⟩
     case releaseReturn scope afterRelease =>
       cases accepted
-      have mergedTyped := ValueInventory.merge_after_preserves_all afterRelease (observedExit machine original) _ frameTyped observedTyped
+      have mergedTyped := ValueInventory.propagate_after_preserves_all afterRelease (observedExit machine original) _ frameTyped observedTyped
       refine ⟨?_, good.live⟩
       simp only [ValueInventory.All, ValueInventory.state, ValueInventory.control,
         List.mem_append] at tailStateTyped ⊢
@@ -216,7 +216,7 @@ theorem unwindStep_valid (machine : State) (context : Context) (after : Transiti
         intro value member
         apply frameTyped
         exact List.mem_append_right _ member
-      have mergedTyped := ValueInventory.merge_after_preserves_all afterRelease (observedExit machine original) _ afterTyped observedTyped
+      have mergedTyped := ValueInventory.propagate_after_preserves_all afterRelease (observedExit machine original) _ afterTyped observedTyped
       cases primaryIs : (observedExit machine original).primary <;> simp only [primaryIs] at accepted
       all_goals cases afterRelease <;> simp only [pure, Except.pure, Except.bind] at accepted
       all_goals cases accepted

@@ -419,6 +419,31 @@ theorem cleanupFailed_custody_bounded (state : State) (identity : ObligationId) 
     ← CustodyBounds.mk, cases CustodyBounds, List.length_set, List.length_append,
     List.length_cons, List.length_nil]
 
+theorem cleanupAbandoned_custody_bounded (state : State) (identity : ObligationId) (invocation : InvocationId)
+    (outer : Cleanup.Exit .source) (normal : Option Located) (tail : List Frame) (inner : Cleanup.Exit .source) (after : Transition)
+    (accepted : cleanupAbandoned state identity invocation outer normal tail inner = .ok after) (bounded : state.heap.CustodyBounded) : after.state.heap.CustodyBounded := by
+  simp only [cleanupAbandoned, bind, pure, Except.pure] at accepted
+  constructor <;> grind (gen := 32) only [except_bind_ok, fromOption_ok, → commitBook_custody_bounded, → consumeBook_custody_bounded, → moveValues_custody_bounded, → consumeValue_custody_bounded, → allocateObject_custody_bounded, → replaceObject_custody_bounded, → retireObject_custody_bounded,
+    ← CustodyBounds.mk, cases CustodyBounds, List.length_set, List.length_append,
+    List.length_cons, List.length_nil]
+
+theorem finishCleanupUnwind_custody_bounded (state : State) (identity : ObligationId) (invocation : InvocationId)
+    (outer : Cleanup.Exit .source) (normal : Option Located) (tail : List Frame) (inner : Cleanup.Exit .source) (after : Transition)
+    (accepted : finishCleanupUnwind state identity invocation outer normal tail inner = .ok after) (bounded : state.heap.CustodyBounded) : after.state.heap.CustodyBounded := by
+  unfold finishCleanupUnwind at accepted
+  split at accepted <;> first
+    | exact cleanupFailed_custody_bounded _ _ _ _ _ _ _ _ accepted bounded
+    | exact cleanupAbandoned_custody_bounded _ _ _ _ _ _ _ _ accepted bounded
+    | contradiction
+
+theorem finishDisposal_custody_bounded (state : State) (after : Transition)
+    (accepted : finishDisposal state = .ok after) (bounded : state.heap.CustodyBounded) : after.state.heap.CustodyBounded := by
+  unfold finishDisposal at accepted
+  split at accepted <;> try contradiction
+  split at accepted <;> try contradiction
+  cases accepted
+  exact bounded
+
 theorem releaseScope_custody_bounded (state : State) (after : Transition)
     (accepted : releaseScope state = .ok after) (bounded : state.heap.CustodyBounded) : after.state.heap.CustodyBounded := by
   simp only [releaseScope, bind, pure, Except.pure, throw, throwThe, MonadExceptOf.throw] at accepted
@@ -436,7 +461,7 @@ theorem discardValues_custody_bounded (state : State) (context : Context) (after
 theorem unwindStep_custody_bounded (state : State) (context : Context) (after : Transition)
     (accepted : unwindStep state context = .ok after) (bounded : state.heap.CustodyBounded) : after.state.heap.CustodyBounded := by
   simp only [unwindStep, bind, pure, Except.pure, throw, throwThe, MonadExceptOf.throw] at accepted
-  constructor <;> grind (gen := 32) only [except_bind_ok, fromOption_ok, → commitBook_custody_bounded, → consumeBook_custody_bounded, → moveValues_custody_bounded, → consumeValue_custody_bounded, → allocateObject_custody_bounded, → replaceObject_custody_bounded, → retireObject_custody_bounded, → beginCleanup_custody_bounded, → cleanupFailed_custody_bounded,
+  constructor <;> grind (gen := 32) only [except_bind_ok, fromOption_ok, → commitBook_custody_bounded, → consumeBook_custody_bounded, → moveValues_custody_bounded, → consumeValue_custody_bounded, → allocateObject_custody_bounded, → replaceObject_custody_bounded, → retireObject_custody_bounded, → beginCleanup_custody_bounded, → finishCleanupUnwind_custody_bounded,
     ← CustodyBounds.mk, cases CustodyBounds, List.length_set, List.length_append,
     List.length_cons, List.length_nil]
 
@@ -449,8 +474,8 @@ theorem executeCleanupTerm_custody_bounded (state : State) (context : Context) (
 
 theorem tickRunning_custody_bounded (state : State) (context : Context) (after : Transition)
     (accepted : tickRunning state context = .ok after) (bounded : state.heap.CustodyBounded) : after.state.heap.CustodyBounded := by
-  simp only [tickRunning, bind, pure, Except.pure, throw, throwThe, MonadExceptOf.throw] at accepted
-  constructor <;> grind (gen := 32) only [except_bind_ok, fromOption_ok, → commitBook_custody_bounded, → consumeBook_custody_bounded, → moveValues_custody_bounded, → consumeValue_custody_bounded, → allocateObject_custody_bounded, → replaceObject_custody_bounded, → retireObject_custody_bounded, → enterTerm_custody_bounded, → enterExpression_custody_bounded, → enterInvocation_custody_bounded, → releaseScope_custody_bounded, → discardValues_custody_bounded, → unwindStep_custody_bounded, → executePrimitive_custody_bounded, → executeEffectTerm_custody_bounded, → executeCleanupTerm_custody_bounded, → executeControlTerm_custody_bounded, → enterBinding_custody_bounded, → deliverOperand_custody_bounded, → leaveInvocation_custody_bounded, → leaveLexical_custody_bounded, → restoreResumeCaller_custody_bounded, → completeHandler_custody_bounded, → beginCleanup_custody_bounded, → finishCleanup_custody_bounded,
+  simp only [tickRunning, bind, pure, Except.pure] at accepted
+  constructor <;> grind (gen := 32) only [except_bind_ok, fromOption_ok, → commitBook_custody_bounded, → consumeBook_custody_bounded, → moveValues_custody_bounded, → consumeValue_custody_bounded, → allocateObject_custody_bounded, → replaceObject_custody_bounded, → retireObject_custody_bounded, → enterTerm_custody_bounded, → enterExpression_custody_bounded, → enterInvocation_custody_bounded, → releaseScope_custody_bounded, → discardValues_custody_bounded, → unwindStep_custody_bounded, → executePrimitive_custody_bounded, → executeEffectTerm_custody_bounded, → executeCleanupTerm_custody_bounded, → executeControlTerm_custody_bounded, → enterBinding_custody_bounded, → deliverOperand_custody_bounded, → leaveInvocation_custody_bounded, → leaveLexical_custody_bounded, → restoreResumeCaller_custody_bounded, → completeHandler_custody_bounded, → beginCleanup_custody_bounded, → finishCleanup_custody_bounded, → finishDisposal_custody_bounded,
     ← CustodyBounds.mk, cases CustodyBounds, List.length_set, List.length_append,
     List.length_cons, List.length_nil]
 

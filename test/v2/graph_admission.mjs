@@ -73,14 +73,14 @@ for (const test of selected) {
   }
   let step = await invoke({ initialArgs: Uint8Array.from(test.initial) });
   while (['Progressed', 'Requested', 'Yielded'].includes(step.kind)) {
-    if (step.kind === 'Requested' || step.kind === 'Yielded') {
-      const pending = test.cancellations.findIndex((control, index) => control.at === trace.length - 1 && !controls.has(index));
-      if (pending >= 0) {
-        const control = test.cancellations[pending];
-        controls.add(pending);
-        step = await invoke({ state: step.state, cancel: control.reason }, control.preservesRequest && step.kind === 'Requested');
-        continue;
-      }
+    // Consecutive controls belong to the same observed boundary even when
+    // accepting the first cancellation returns an internal-progress snapshot.
+    const pending = test.cancellations.findIndex((control, index) => control.at === trace.length - 1 && !controls.has(index));
+    if (pending >= 0) {
+      const control = test.cancellations[pending];
+      controls.add(pending);
+      step = await invoke({ state: step.state, cancel: control.reason }, control.preservesRequest && step.kind === 'Requested');
+      continue;
     }
     const result = step.kind === 'Requested' ? encodeResult(step.request, Uint8Array.from(test.responses[responses++])) : undefined;
     step = await invoke({ state: step.state, result });

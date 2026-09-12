@@ -114,6 +114,37 @@ theorem cleanupFailed_preserves_types (source : Module) (machine : State) (ident
   have stacked := with_stack_types _ _ tail typed tailTyped
   exact with_control_types _ _ _ stacked (by simp [control, Environment.Types])
 
+theorem cleanupAbandoned_preserves_types (source : Module) (machine : State) (identity : ObligationId)
+    (invocation : InvocationId) (outer : Cleanup.Exit .source) (normal : Option Located) (tail : List Frame)
+    (inner : Cleanup.Exit .source) (after : Transition)
+    (accepted : cleanupAbandoned machine identity invocation outer normal tail inner = .ok after)
+    (typed : All source machine) (tailTyped : Environment.Types source (tail.flatMap frame)) : All source after.state := by
+  simp only [cleanupAbandoned, bind, except_bind_ok, pure, Except.pure, Except.ok.injEq] at accepted
+  obtain ⟨_, _, _, _, ⟨_, _⟩, _, rfl⟩ := accepted
+  have stacked := with_stack_types _ _ tail typed tailTyped
+  exact with_control_types _ _ _ stacked (by simp [control, Environment.Types])
+
+theorem finishCleanupUnwind_preserves_types (source : Module) (machine : State) (identity : ObligationId)
+    (invocation : InvocationId) (outer : Cleanup.Exit .source) (normal : Option Located) (tail : List Frame)
+    (inner : Cleanup.Exit .source) (after : Transition)
+    (accepted : finishCleanupUnwind machine identity invocation outer normal tail inner = .ok after)
+    (typed : All source machine) (tailTyped : Environment.Types source (tail.flatMap frame)) : All source after.state := by
+  unfold finishCleanupUnwind at accepted
+  split at accepted <;> first
+    | exact cleanupFailed_preserves_types _ _ _ _ _ _ _ _ _ accepted typed tailTyped
+    | exact cleanupAbandoned_preserves_types _ _ _ _ _ _ _ _ _ accepted typed tailTyped
+    | contradiction
+
+theorem finishDisposal_preserves_types (source : Module) (machine : State) (after : Transition)
+    (accepted : finishDisposal machine = .ok after) (typed : All source machine) : All source after.state := by
+  unfold finishDisposal at accepted
+  split at accepted <;> try contradiction
+  split at accepted <;> try contradiction
+  rename_i remaining released invocation scope tail stacked
+  have tailTyped := tail_types _ _ _ _ stacked typed
+  cases accepted
+  exact with_control_types _ _ _ (with_stack_types _ _ tail typed tailTyped) (by simp [control, Environment.Types])
+
 theorem releaseScope_preserves_types (source : Module) (machine : State) (after : Transition)
     (accepted : releaseScope machine = .ok after) (typed : All source machine) : All source after.state := by
   unfold releaseScope at accepted
@@ -201,7 +232,7 @@ theorem unwindStep_preserves_types (machine : State) (context : Context) (after 
         obtain ⟨_, _, _, _, rfl⟩ := accepted
         exact stackedTyped
     case protection => exact beginCleanup_preserves_types _ _ _ _ _ _ _ accepted typed tailTyped
-    case cleanupReturn => exact cleanupFailed_preserves_types _ _ _ _ _ _ _ _ _ accepted typed tailTyped
+    case cleanupReturn => exact finishCleanupUnwind_preserves_types _ _ _ _ _ _ _ _ _ accepted typed tailTyped
     case releaseReturn =>
       cases accepted
       exact with_control_types _ _ _ stackedTyped (by simp [control, Environment.Types])
@@ -250,6 +281,7 @@ theorem tickRunning_preserves_types (machine : State) (context : Context) (after
         | exact completeHandler_preserves_types _ _ _ accepted typed
         | exact beginCleanup_preserves_types _ _ _ _ _ _ _ accepted typed tailTyped
         | exact finishCleanup_preserves_types _ _ _ accepted typed
+        | exact finishDisposal_preserves_types _ _ _ accepted typed
         | (cases accepted; exact stackedTyped)
         | (cases accepted; exact with_control_types _ _ _ stackedTyped (by simp [control, Environment.Types]))
         | contradiction

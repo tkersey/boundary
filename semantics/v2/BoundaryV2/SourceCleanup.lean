@@ -117,6 +117,49 @@ def cleanupFailed (state : State) (identity : ObligationId) (invocation : Invoca
     stack := tail
     control := .discard (normal.toList.flatMap (liveOwned heap)) (.unwind exit) }, events.map Event.cleanup⟩
 
+/-- Propagating an existing exit preserves its failure inventory. Recording a
+new cleanup failure is a separate operation at `cleanupFailed`. -/
+def propagateExit (outer inner : Cleanup.Exit .source) : Cleanup.Exit .source :=
+  let primary := match outer.primary with
+    | .normal _ | .abandoned => inner.primary
+    | primary => primary
+  let after := { outer with primary := primary, failures := outer.failures ++ inner.failures }
+  match inner.cancellation with
+  | some reason => Cleanup.cancel after reason
+  | none => after
+
+def cleanupAbandoned (state : State) (identity : ObligationId) (invocation : InvocationId)
+    (outer : Cleanup.Exit .source) (normal : Option Located) (tail : List Frame)
+    (inner : Cleanup.Exit .source) : Except Invalid Transition := do
+  require (match inner.primary with | .abandoned | .cancellation => true | _ => false) .type
+  let obligation ← fromOption state.heap.obligations[identity.value]? .reference
+  let (obligation, events) ← fromOption (Cleanup.complete obligation invocation (.ok ())) .custody
+  let heap := { state.heap with obligations := state.heap.obligations.set identity.value obligation }
+  return ⟨{ state with
+    heap := heap
+    stack := tail
+    control := .discard (normal.toList.flatMap (liveOwned heap)) (.unwind (propagateExit outer inner)) },
+    events.map Event.cleanup⟩
+
+def finishCleanupUnwind (state : State) (identity : ObligationId) (invocation : InvocationId)
+    (outer : Cleanup.Exit .source) (normal : Option Located) (tail : List Frame)
+    (inner : Cleanup.Exit .source) : Except Invalid Transition :=
+  match inner.primary with
+  | .failure _ => cleanupFailed state identity invocation outer normal tail inner
+  | .abandoned | .cancellation => cleanupAbandoned state identity invocation outer normal tail inner
+  | .normal _ => .error .type
+
+/-- A clause can answer across a continuation that was activated for disposal.
+Its owned result is discarded before the caller's remaining holdings. -/
+def finishDisposal (state : State) : Except Invalid Transition := do
+  let .delivered value := state.control | throw .inactive
+  let .disposalReturn remaining after invocation scope :: tail := state.stack | throw .inactive
+  return ⟨{ state with
+    control := .discard (liveOwned state.heap value ++ remaining) after
+    stack := tail
+    scope := scope
+    invocation := invocation }, []⟩
+
 def releaseScope (state : State) : Except Invalid Transition := do
   let .release scope after := state.control | throw .inactive
   let record ← fromOption state.heap.scopes[scope.value]? .scope
@@ -181,13 +224,13 @@ def unwindStep (state : State) (context : Context) : Except Invalid Transition :
       let parent ← fromOption scope.parent .scope
       return ⟨{ state with stack := tail, scope := parent }, []⟩
     | .protection identity => beginCleanup state context identity exit none tail
-    | .cleanupReturn identity invocation outer normal => cleanupFailed state identity invocation outer normal tail exit
+    | .cleanupReturn identity invocation outer normal => finishCleanupUnwind state identity invocation outer normal tail exit
     | .disposalReturn remaining after invocation scope =>
       let after ← match exit.primary with
         | .abandoned => pure after
         | _ => match after with
           | .unwind _ => pure (.unwind exit)
-          | .deliver value => pure (.unwind (mergeAbrupt ⟨.normal value.value, [], none⟩ exit))
+          | .deliver value => pure (.unwind (propagateExit ⟨.normal value.value, [], none⟩ exit))
       return ⟨{ state with
         control := .discard remaining after
         stack := tail
@@ -195,8 +238,8 @@ def unwindStep (state : State) (context : Context) : Except Invalid Transition :
         invocation := invocation }, []⟩
     | .releaseReturn _ after =>
       let merged := match after with
-        | .unwind outer => mergeAbrupt outer exit
-        | .deliver value => mergeAbrupt ⟨.normal value.value, [], none⟩ exit
+        | .unwind outer => propagateExit outer exit
+        | .deliver value => propagateExit ⟨.normal value.value, [], none⟩ exit
       return ⟨{ state with control := .unwind merged, stack := tail }, []⟩
     | .binding .. | .operands .. | .handler _ | .region _ | .injection _ =>
       return ⟨{ state with stack := tail }, []⟩

@@ -57,6 +57,7 @@ theorem reachable_tickRunning_preserves_value_shapes (context : Context) (argume
         | exact ValueInventory.restoreResumeCaller_preserves_all _ _ accepted _ typed
         | exact ValueInventory.completeHandler_preserves_all _ _ _ accepted _ typed
         | exact ValueInventory.finishCleanup_preserves_all _ _ _ accepted _ typed
+        | exact finishDisposal_preserves_value_shapes _ _ accepted typed
         | contradiction
         | skip
       case protection identity =>

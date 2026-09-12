@@ -184,6 +184,33 @@ theorem cleanupFailed_plain (context : Context) (machine : State) (identity : Ob
   obtain ⟨_, _, ⟨_, _⟩, _, rfl⟩ := accepted
   exact ⟨tailTyped, typed⟩
 
+theorem cleanupAbandoned_plain (context : Context) (machine : State) (identity : ObligationId) (invocation : InvocationId)
+    (outer : Cleanup.Exit .source) (normal : Option Located) (tail : List Frame) (inner : Cleanup.Exit .source)
+    (after : Transition) (accepted : cleanupAbandoned machine identity invocation outer normal tail inner = .ok after)
+    (typed : HeapValid context machine.heap) (tailTyped : StackValid context tail) : Plain context after.state := by
+  simp only [cleanupAbandoned, bind, except_bind_ok, pure, Except.pure, Except.ok.injEq] at accepted
+  obtain ⟨_, _, _, _, ⟨_, _⟩, _, rfl⟩ := accepted
+  exact ⟨tailTyped, typed⟩
+
+theorem finishCleanupUnwind_plain (context : Context) (machine : State) (identity : ObligationId) (invocation : InvocationId)
+    (outer : Cleanup.Exit .source) (normal : Option Located) (tail : List Frame) (inner : Cleanup.Exit .source)
+    (after : Transition) (accepted : finishCleanupUnwind machine identity invocation outer normal tail inner = .ok after)
+    (typed : HeapValid context machine.heap) (tailTyped : StackValid context tail) : Plain context after.state := by
+  unfold finishCleanupUnwind at accepted
+  split at accepted <;> first
+    | exact cleanupFailed_plain _ _ _ _ _ _ _ _ _ accepted typed tailTyped
+    | exact cleanupAbandoned_plain _ _ _ _ _ _ _ _ _ accepted typed tailTyped
+    | contradiction
+
+theorem finishDisposal_plain (context : Context) (machine : State) (after : Transition)
+    (accepted : finishDisposal machine = .ok after) (typed : Plain context machine) : Plain context after.state := by
+  unfold finishDisposal at accepted
+  split at accepted <;> try contradiction
+  split at accepted <;> try contradiction
+  rename_i remaining release invocation scope tail stacked
+  cases accepted
+  exact ⟨typed.1.subset (by intro frame member; rw [stacked]; simp [member]), typed.2⟩
+
 theorem releaseScope_plain (context : Context) (machine : State) (after : Transition)
     (accepted : releaseScope machine = .ok after) (typed : Plain context machine) : Plain context after.state := by
   unfold releaseScope at accepted

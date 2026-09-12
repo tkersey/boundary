@@ -49,6 +49,33 @@ theorem cleanupFailed_valid (context : Context) (machine : State) (identity : Ob
   obtain ⟨_, _, _, _, rfl⟩ := accepted
   exact typed
 
+theorem cleanupAbandoned_valid (context : Context) (machine : State) (identity : ObligationId) (invocation : InvocationId)
+    (outer : Cleanup.Exit .source) (normal : Option Located) (tail : List Frame) (inner : Cleanup.Exit .source)
+    (after : Transition) (accepted : cleanupAbandoned machine identity invocation outer normal tail inner = .ok after)
+    (typed : Valid context machine.heap.objects) : Valid context after.state.heap.objects := by
+  simp only [cleanupAbandoned, bind, except_bind_ok, pure, Except.pure, Except.ok.injEq] at accepted
+  obtain ⟨_, _, _, _, _, _, rfl⟩ := accepted
+  exact typed
+
+theorem finishCleanupUnwind_valid (context : Context) (machine : State) (identity : ObligationId) (invocation : InvocationId)
+    (outer : Cleanup.Exit .source) (normal : Option Located) (tail : List Frame) (inner : Cleanup.Exit .source)
+    (after : Transition) (accepted : finishCleanupUnwind machine identity invocation outer normal tail inner = .ok after)
+    (typed : Valid context machine.heap.objects) : Valid context after.state.heap.objects := by
+  unfold finishCleanupUnwind at accepted
+  split at accepted <;> first
+    | exact cleanupFailed_valid _ _ _ _ _ _ _ _ _ accepted typed
+    | exact cleanupAbandoned_valid _ _ _ _ _ _ _ _ _ accepted typed
+    | contradiction
+
+theorem finishDisposal_valid (context : Context) (machine : State) (after : Transition)
+    (accepted : finishDisposal machine = .ok after)
+    (typed : Valid context machine.heap.objects) : Valid context after.state.heap.objects := by
+  unfold finishDisposal at accepted
+  split at accepted <;> try contradiction
+  split at accepted <;> try contradiction
+  cases accepted
+  exact typed
+
 theorem releaseScope_valid (context : Context) (machine : State) (after : Transition)
     (accepted : releaseScope machine = .ok after) (typed : Valid context machine.heap.objects) :
     Valid context after.state.heap.objects := by
@@ -169,7 +196,7 @@ theorem unwindStep_valid (machine : State) (context : Context) (after : Transiti
         obtain ⟨_, _, _, _, rfl⟩ := accepted
         exact typed
     case protection => exact beginCleanup_valid _ _ _ _ _ _ _ accepted typed
-    case cleanupReturn => exact cleanupFailed_valid _ _ _ _ _ _ _ _ _ accepted typed
+    case cleanupReturn => exact finishCleanupUnwind_valid _ _ _ _ _ _ _ _ _ accepted typed
     case disposalReturn =>
       repeat' split at accepted
       all_goals simp only [pure, Except.pure, Except.bind, Except.ok.injEq] at accepted
@@ -211,6 +238,7 @@ theorem tickRunning_valid (machine : State) (context : Context) (after : Transit
         | exact completeHandler_valid _ _ _ accepted typed
         | exact beginCleanup_valid _ _ _ _ _ _ _ accepted typed
         | exact finishCleanup_valid _ _ _ accepted typed
+        | exact finishDisposal_valid _ _ _ accepted typed
         | (cases accepted; exact typed)
         | contradiction
 

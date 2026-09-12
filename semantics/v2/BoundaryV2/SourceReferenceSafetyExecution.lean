@@ -69,6 +69,7 @@ theorem tickRunning_valid (context : Context) (arguments : List SemanticValue)
         | exact restoreResumeCaller_valid _ _ accepted good
         | exact completeHandler_valid _ _ _ accepted good
         | exact finishCleanup_valid _ _ _ accepted good
+        | exact finishDisposal_valid _ _ accepted good
         | (cases accepted; refine ⟨?_, good.live⟩; simpa only [executing] using tailState)
         | skip
       case protection identity =>
@@ -79,7 +80,6 @@ theorem tickRunning_valid (context : Context) (arguments : List SemanticValue)
         refine ⟨tailTyped child member, ?_⟩
         apply modes
         simp [ValueInventory.state, stacked, member]
-      case disposalReturn => contradiction
       case releaseReturn scope released =>
         cases accepted
         refine ⟨?_, good.live⟩

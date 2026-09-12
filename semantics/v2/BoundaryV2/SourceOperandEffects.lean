@@ -184,6 +184,33 @@ theorem cleanupFailed_plain (machine : State) (identity : ObligationId) (invocat
   obtain ⟨_, _, ⟨_, _⟩, _, rfl⟩ := accepted
   exact ⟨tailTyped, typed⟩
 
+theorem cleanupAbandoned_plain (machine : State) (identity : ObligationId) (invocation : InvocationId)
+    (outer : Cleanup.Exit .source) (normal : Option Located) (tail : List Frame) (inner : Cleanup.Exit .source)
+    (after : Transition) (accepted : cleanupAbandoned machine identity invocation outer normal tail inner = .ok after)
+    (typed : HeapValid machine.heap) (tailTyped : NoOperands tail) : Plain after.state := by
+  simp only [cleanupAbandoned, bind, except_bind_ok, pure, Except.pure, Except.ok.injEq] at accepted
+  obtain ⟨_, _, _, _, _, _, rfl⟩ := accepted
+  exact ⟨tailTyped, typed⟩
+
+theorem finishCleanupUnwind_plain (machine : State) (identity : ObligationId) (invocation : InvocationId)
+    (outer : Cleanup.Exit .source) (normal : Option Located) (tail : List Frame) (inner : Cleanup.Exit .source)
+    (after : Transition) (accepted : finishCleanupUnwind machine identity invocation outer normal tail inner = .ok after)
+    (typed : HeapValid machine.heap) (tailTyped : NoOperands tail) : Plain after.state := by
+  unfold finishCleanupUnwind at accepted
+  split at accepted <;> first
+    | exact cleanupFailed_plain _ _ _ _ _ _ _ _ accepted typed tailTyped
+    | exact cleanupAbandoned_plain _ _ _ _ _ _ _ _ accepted typed tailTyped
+    | contradiction
+
+theorem finishDisposal_plain (machine : State) (after : Transition)
+    (accepted : finishDisposal machine = .ok after) (typed : Plain machine) : Plain after.state := by
+  unfold finishDisposal at accepted
+  split at accepted <;> try contradiction
+  split at accepted <;> try contradiction
+  rename_i remaining release invocation scope tail stacked
+  cases accepted
+  exact ⟨(noOperands_cons _ _).mp (by simpa only [stacked] using typed.1) |>.2, typed.2⟩
+
 theorem releaseScope_plain (machine : State) (after : Transition)
     (accepted : releaseScope machine = .ok after) (typed : Plain machine) : Plain after.state := by
   unfold releaseScope at accepted

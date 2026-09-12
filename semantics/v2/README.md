@@ -168,8 +168,8 @@ The production-shaped source transition machine now covers the staged AST's
 control constructors, scalar/container instructions, closures, deep/shallow and
 successor handlers, one-shot/multi captures, regions/cells, resource borrowing,
 ordered operand custody, disposal, protection, suspended cleanup, and external
-cancellation. `test/v2/source_machine.mjs` compares its execution of all 37 source
-fixtures and 122 environmental scenarios with the independent JavaScript
+cancellation. `test/v2/source_machine.mjs` compares its execution of all 41 source
+fixtures and 127 environmental scenarios with the independent JavaScript
 source oracle, including 10,000 recursive calls and cancellation during disposal
 of a protected continuation. The source-derived constructor catalog is compared
 with every raw compiler witness. Two additional compiled probes exercise raw
@@ -275,6 +275,14 @@ conformance case cancels throughout that captured-cleanup window and requires
 the running obligation to complete with no remaining custody. A stack-only
 activity test previously interrupted the captured cleanup and reached an
 invalid unwind rule.
+Explicit disposal can also abandon a continuation that contains a running
+cleanup. Source and target transitions close that obligation once, dispose its
+owned body result, and retain the disposal caller. The target removes the retired
+cleanup exit from the active exit chain while preserving earlier failure and
+first cancellation; relaying an existing failure does not record another cleanup
+failure. The source preservation theorems cover these transitions. Four authored
+regressions exercise non-tail disposal, prior failure and cancellation, and an
+owned generator result whose pending cleanup must run before the clause returns.
 `SourceRequestLaws` additionally proves that every finite source trace contains
 exactly the consecutive request-opening identities allocated during that trace.
 Those identities are unique even when payloads are equal. Parked polling,
@@ -536,8 +544,8 @@ establish runtime or program certification.
 `RegionAdmission`, and `UseAdmission` check program declarations, earlier-slot
 typing, exact authored-fault interfaces, continuation edges, higher-order
 contracts, effect discharge, lexical region dependencies, consumption, and
-capture bounds. The target conformance runner applies these checks to all 37
-emitted programs before executing their 122 scenarios. Kernel proofs cover
+capture bounds. The target conformance runner applies these checks to all 41
+emitted programs before executing their 127 scenarios. Kernel proofs cover
 defined operands, exact fault/constant bindings, constructor interfaces,
 continuation arguments, exclusion of repeated noncopy consumption, and exact
 finite effect/region dependency analysis. `BorrowPaths`, `BorrowMapping`, and
@@ -575,8 +583,8 @@ The independent target machine executes actual BPI2 blocks on the concrete
 graph records, including higher-order control, regions/cells, resources,
 ordered instruction faults, suspended cleanup, and cancellation. Stored blob
 meanings carry proofs binding the complete raw bytes, and import preserves the
-exact graph. `test/v2/target_machine.mjs` compiles the same 37 staged fixtures,
-decodes their actual final images in Lean, and compares all 122 scenarios with
+exact graph. `test/v2/target_machine.mjs` compiles the same 41 staged fixtures,
+decodes their actual final images in Lean, and compares all 127 scenarios with
 the source oracle. Constant, initial-argument, and response witnesses are
 checked against their exact bytes. Both machines also execute the two raw
 instruction probes. These are differential checks, not program certificates.

@@ -132,7 +132,7 @@ theorem unwindStep_valid (machine : State) (context : Context) (after : Transiti
     case protection identity =>
       exact beginCleanup_valid _ _ _ _ _ _ _ bounded tailBound upper accepted
     case cleanupReturn =>
-      exact cleanupFailed_valid _ _ _ _ _ _ _ _ bounded tailBound accepted
+      exact finishCleanupUnwind_valid _ _ _ _ _ _ _ _ bounded tailBound accepted
     case disposalReturn remaining released invocation parent =>
       cases primary : (observedExit machine original).primary <;> simp only [primary] at accepted
       all_goals cases released <;> simp only [pure, Except.pure, Except.bind] at accepted

@@ -85,6 +85,7 @@ theorem tickRunning_valid (machine : State) (context : Context) (after : Transit
         | exact ⟨completeHandler_control _ _ _ typed accepted, SavedFrames.completeHandler_plain _ _ _ accepted covered.2⟩
         | exact ⟨beginCleanup_control _ _ _ _ _ _ _ typed accepted, SavedFrames.beginCleanup_plain _ _ _ _ _ _ _ accepted covered.2.2 tailTyped⟩
         | exact ⟨finishCleanup_control _ _ _ accepted, SavedFrames.finishCleanup_plain _ _ _ accepted covered.2⟩
+        | exact ⟨finishDisposal_control _ _ _ accepted, SavedFrames.finishDisposal_plain _ _ _ accepted covered.2⟩
         | (cases accepted; exact ⟨by first | exact covered.1 | trivial, tailPlain⟩)
         | (cases accepted; exact ⟨trivial, tailPlain⟩)
         | contradiction

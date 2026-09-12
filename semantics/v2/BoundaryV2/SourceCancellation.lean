@@ -337,6 +337,30 @@ theorem cleanupFailed_cancellation (machine : State) (identity : ObligationId) (
   obtain ⟨_, _, _, _, rfl⟩ := accepted
   rfl
 
+theorem cleanupAbandoned_cancellation (machine : State) (identity : ObligationId) (invocation : InvocationId)
+    (outer : Cleanup.Exit .source) (normal : Option Located) (tail : List Frame) (inner : Cleanup.Exit .source)
+    (after : Transition) (accepted : cleanupAbandoned machine identity invocation outer normal tail inner = .ok after) : after.state.cancellation = machine.cancellation := by
+  simp only [cleanupAbandoned, bind, except_bind_ok, pure, Except.pure, Except.ok.injEq] at accepted
+  obtain ⟨_, _, _, _, _, _, rfl⟩ := accepted
+  rfl
+
+theorem finishCleanupUnwind_cancellation (machine : State) (identity : ObligationId) (invocation : InvocationId)
+    (outer : Cleanup.Exit .source) (normal : Option Located) (tail : List Frame) (inner : Cleanup.Exit .source)
+    (after : Transition) (accepted : finishCleanupUnwind machine identity invocation outer normal tail inner = .ok after) : after.state.cancellation = machine.cancellation := by
+  unfold finishCleanupUnwind at accepted
+  split at accepted <;> first
+    | exact cleanupFailed_cancellation _ _ _ _ _ _ _ _ accepted
+    | exact cleanupAbandoned_cancellation _ _ _ _ _ _ _ _ accepted
+    | contradiction
+
+theorem finishDisposal_cancellation (machine : State) (after : Transition)
+    (accepted : finishDisposal machine = .ok after) : after.state.cancellation = machine.cancellation := by
+  unfold finishDisposal at accepted
+  split at accepted <;> try contradiction
+  split at accepted <;> try contradiction
+  cases accepted
+  rfl
+
 theorem releaseScope_cancellation (machine : State) (after : Transition)
     (accepted : releaseScope machine = .ok after) : after.state.cancellation = machine.cancellation := by
   unfold releaseScope at accepted
@@ -504,7 +528,7 @@ theorem unwindStep_cancellation (machine : State) (context : Context) (after : T
         obtain ⟨_, _, _, _, rfl⟩ := accepted
         rfl
     case protection => exact beginCleanup_cancellation _ _ _ _ _ _ _ accepted
-    case cleanupReturn => exact cleanupFailed_cancellation _ _ _ _ _ _ _ _ accepted
+    case cleanupReturn => exact finishCleanupUnwind_cancellation _ _ _ _ _ _ _ _ accepted
     case disposalReturn =>
       repeat' split at accepted
       all_goals simp only [pure, Except.pure, Except.bind, Except.ok.injEq] at accepted
@@ -545,6 +569,7 @@ theorem tickRunning_cancellation (machine : State) (context : Context) (after : 
         | exact completeHandler_cancellation _ _ _ accepted
         | exact beginCleanup_cancellation _ _ _ _ _ _ _ accepted
         | exact finishCleanup_cancellation _ _ _ accepted
+        | exact finishDisposal_cancellation _ _ accepted
         | (cases accepted; rfl)
         | contradiction
 

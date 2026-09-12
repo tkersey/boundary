@@ -41,6 +41,7 @@ theorem tickRunning_formed (machine : State) (context : Context) (after : Transi
         | exact restoreResumeCaller_formed _ _ formed accepted
         | exact completeHandler_formed _ _ _ formed accepted
         | exact finishCleanup_formed _ _ _ formed accepted
+        | exact finishDisposal_formed _ _ formed accepted
         | exact beginCleanup_formed _ _ _ _ _ _ _ formed accepted
         | (cases accepted; exact formed)
         | contradiction

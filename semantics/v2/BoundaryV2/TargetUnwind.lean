@@ -100,6 +100,7 @@ def returnToAt : Nat → State program → Option NodeId → Graph.Value → Exc
       | .injection saved => return ⟨← resumeContinuation state saved value, []⟩
       | .protection _ _ after _ _ _ => return ⟨beginUnwind state (.normal value) (some reference) after [], []⟩
       | .cleanupReturn .. => return ⟨← cleanupReturned state reference, []⟩
+      | .disposalReturn _ parent remaining => return ⟨unwindPosition state parent (owned [value] ++ remaining), []⟩
       | _ => throw .type
 
 def returnTo (state : State program) (parent : Option NodeId) (value : Graph.Value) : Except Invalid (Transition program) :=
@@ -144,6 +145,56 @@ def terminalExit (state : State program) (exit : Graph.Exit) : Except Invalid (T
   | .cancellation =>
     let reason ← fromOption exit.cancellation .type
     return ⟨{ state with result := some (.cancelled reason failures) }, [.cancelled reason failures]⟩
+  | _ => throw .type
+
+def unlinkSuspendedExitAt (retired : NodeId) (prior : Graph.Exit) :
+    Nat → State program → NodeId → Except Invalid (State program)
+  | 0, _, _ => .error .scope
+  | count + 1, state, cursor => do
+    let .exit record ← fromOption (state.store.lookup cursor) .reference | throw .type
+    let outer ← fromOption record.outer .scope
+    if outer == retired then
+      let state ← replaceNode state cursor (.exit { record with outer := prior.outer })
+      let preserve := match prior.reason with
+        | .failure _ | .cancellation => true
+        | _ => prior.cancellation.isSome
+      if preserve then
+        let active ← fromOption state.roots.exit .scope
+        let .exit current ← fromOption (state.store.lookup active) .reference | throw .type
+        let reason := match prior.reason with | .failure value => .failure value | _ => .cancellation
+        replaceNode state active (.exit { current with
+          reason := reason
+          cancellation := prior.cancellation.or current.cancellation
+          cleanupFailures := prior.cleanupFailures ++ current.cleanupFailures
+          stop := none })
+      else pure state
+    else unlinkSuspendedExitAt retired prior count state outer
+
+/-- Closing a suspended cleanup removes its obsolete exit context while the
+current disposal retains its own caller and any earlier failure/cancellation. -/
+def unlinkSuspendedExit (state : State program) (retired : NodeId) : Except Invalid (State program) := do
+  let .exit prior ← fromOption (state.store.lookup retired) .reference | throw .type
+  let cursor ← fromOption state.roots.exit .scope
+  if cursor == retired then pure state
+  else unlinkSuspendedExitAt retired prior state.store.nodes.length state cursor
+
+def crossedCleanupReturn (state : State program) (reference : NodeId) (obligation : Graph.OwnedRef)
+    (parent : Option NodeId) (outer : NodeId) (exit : Graph.Exit) : Except Invalid (Transition program) := do
+  let .obligation block cleanup resource status ← fromOption (state.store.lookup obligation.node) .reference | throw .type
+  require (status == .running reference && cleanup.isNone && resource.isNone) .custody
+  match exit.reason with
+  | .abandoned =>
+    let .exit suspended ← fromOption (state.store.lookup outer) .reference | throw .type
+    let state ← unlinkSuspendedExit state outer
+    let state ← replaceNode state obligation.node (.obligation block none none .completed)
+    return ⟨unwindPosition state parent (discardedNormal suspended), []⟩
+  | .failure failure =>
+    let state ← replaceNode state obligation.node (.obligation block none none (.failed failure))
+    let .exit parentExit ← fromOption (state.store.lookup outer) .reference | throw .type
+    let state ← match parentExit.reason with
+      | .normal _ | .abandoned => replaceNode state outer (.exit { parentExit with reason := exit.reason, stop := none, discarded := discardedNormal parentExit })
+      | _ => pure state
+    return ⟨unwindPosition { state with roots := { state.roots with exit := some outer } } parent [], []⟩
   | _ => throw .type
 
 /-- One obligation starts or advances at most one lifecycle transition here.
@@ -202,15 +253,7 @@ def unwindStep (state : State program) : Except Invalid (Transition program) := 
     let state ← applyComputation { state with status := .active } cleanup (info :: resource.toList) (some frame) evidence region
     return ⟨state, []⟩
   | .cleanupReturn obligation parent outer =>
-    let .failure failure := exit.reason | throw .type
-    let .obligation block cleanup resource status ← fromOption (state.store.lookup obligation.node) .reference | throw .type
-    require (status == .running reference && cleanup.isNone && resource.isNone) .custody
-    let state ← replaceNode state obligation.node (.obligation block none none (.failed failure))
-    let .exit parentExit ← fromOption (state.store.lookup outer) .reference | throw .type
-    let state ← match parentExit.reason with
-      | .normal _ | .abandoned => replaceNode state outer (.exit { parentExit with reason := exit.reason, stop := none, discarded := discardedNormal parentExit })
-      | _ => pure state
-    return ⟨unwindPosition { state with roots := { state.roots with exit := some outer } } parent [], []⟩
+    crossedCleanupReturn state reference obligation parent outer exit
   | _ => throw .type
 
 end BoundaryV2.Profile.Target.Machine

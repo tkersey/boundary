@@ -113,6 +113,42 @@ theorem cleanupFailed_preserves_types (source : Module) (machine : State) (ident
   have stackedTyped := with_stack_types _ _ _ heapTyped tailTyped
   exact with_control_types _ _ _ stackedTyped (merge_abrupt_types _ _ _ outerTyped innerTyped)
 
+theorem cleanupAbandoned_preserves_types (source : Module) (machine : State) (identity : ObligationId)
+    (invocation : InvocationId) (outer : Cleanup.Exit .source) (normal : Option Located) (tail : List Frame)
+    (inner : Cleanup.Exit .source) (after : Transition)
+    (accepted : cleanupAbandoned machine identity invocation outer normal tail inner = .ok after)
+    (typed : All source machine) (outerTyped : Types source (exit outer)) (innerTyped : Types source (exit inner))
+    (tailTyped : Types source (tail.flatMap frame)) : All source after.state := by
+  simp only [cleanupAbandoned, bind, except_bind_ok, fromOption_ok, pure, Except.pure, Except.ok.injEq] at accepted
+  obtain ⟨_, _, before, _, ⟨record, events⟩, completed, rfl⟩ := accepted
+  have recordTyped := complete_obligation_types source _ _ _ _ _ completed (by intro value same; contradiction)
+  have heapTyped := set_obligation_preserves_types _ _ identity.value _ typed recordTyped
+  have stackedTyped := with_stack_types _ _ _ heapTyped tailTyped
+  exact with_control_types _ _ _ stackedTyped (propagate_exit_types _ _ _ outerTyped innerTyped)
+
+theorem finishCleanupUnwind_preserves_types (source : Module) (machine : State) (identity : ObligationId)
+    (invocation : InvocationId) (outer : Cleanup.Exit .source) (normal : Option Located) (tail : List Frame)
+    (inner : Cleanup.Exit .source) (after : Transition)
+    (accepted : finishCleanupUnwind machine identity invocation outer normal tail inner = .ok after)
+    (typed : All source machine) (outerTyped : Types source (exit outer)) (innerTyped : Types source (exit inner))
+    (tailTyped : Types source (tail.flatMap frame)) : All source after.state := by
+  unfold finishCleanupUnwind at accepted
+  split at accepted <;> first
+    | exact cleanupFailed_preserves_types _ _ _ _ _ _ _ _ _ accepted typed outerTyped innerTyped tailTyped
+    | exact cleanupAbandoned_preserves_types _ _ _ _ _ _ _ _ _ accepted typed outerTyped innerTyped tailTyped
+    | contradiction
+
+theorem finishDisposal_preserves_types (source : Module) (machine : State) (after : Transition)
+    (accepted : finishDisposal machine = .ok after) (typed : All source machine) : All source after.state := by
+  unfold finishDisposal at accepted
+  split at accepted <;> try contradiction
+  split at accepted <;> try contradiction
+  rename_i remaining release invocation scope tail stacked
+  have tailTyped := tail_types _ _ _ _ stacked typed
+  have frameTyped := frame_types _ _ (.disposalReturn remaining release invocation scope) (by simp [stacked]) typed
+  cases accepted
+  exact with_control_types _ _ _ (with_stack_types _ _ _ typed tailTyped) frameTyped
+
 theorem releaseScope_preserves_types (source : Module) (machine : State) (after : Transition)
     (accepted : releaseScope machine = .ok after) (typed : All source machine) : All source after.state := by
   unfold releaseScope at accepted
@@ -278,13 +314,13 @@ theorem unwindStep_preserves_types (machine : State) (context : Context) (after 
         obtain ⟨_, _, _, _, rfl⟩ := accepted
         exact stackedTyped
     case protection => exact beginCleanup_preserves_types _ _ _ _ _ _ _ accepted typed exitTyped tailTyped
-    case cleanupReturn => exact cleanupFailed_preserves_types _ _ _ _ _ _ _ _ _ accepted typed frameTyped exitTyped tailTyped
+    case cleanupReturn => exact finishCleanupUnwind_preserves_types _ _ _ _ _ _ _ _ _ accepted typed frameTyped exitTyped tailTyped
     case releaseReturn scope release =>
       cases accepted
       apply with_control_types _ _ _ stackedTyped
       cases release with
-      | unwind value => exact merge_abrupt_types _ _ _ frameTyped exitTyped
-      | deliver value => exact merge_abrupt_types _ _ _ (by simp [Types, exit]) exitTyped
+      | unwind value => exact propagate_exit_types _ _ _ frameTyped exitTyped
+      | deliver value => exact propagate_exit_types _ _ _ (by simp [Types, exit]) exitTyped
     case disposalReturn remaining release invocation scope =>
       cases primary : (observedExit machine original).primary <;> simp only [primary] at accepted
       all_goals cases release <;> simp only [pure, Except.pure, Except.bind] at accepted
@@ -293,7 +329,7 @@ theorem unwindStep_preserves_types (machine : State) (context : Context) (after 
       all_goals first
         | exact frameTyped
         | exact exitTyped
-        | exact merge_abrupt_types _ _ _ (by simp [Types, exit]) exitTyped
+        | exact propagate_exit_types _ _ _ (by simp [Types, exit]) exitTyped
     all_goals cases accepted; exact stackedTyped
 
 theorem with_status_types (source : Module) (machine : State) (next : Status) (typed : All source machine)
@@ -361,6 +397,7 @@ theorem tickRunning_preserves_types (machine : State) (context : Context) (after
         | exact completeHandler_preserves_types _ _ _ accepted typed
         | exact beginCleanup_preserves_types _ _ _ _ _ _ _ accepted typed (by simp [Types, exit]) tailTyped
         | exact finishCleanup_preserves_types _ _ _ accepted typed
+        | exact finishDisposal_preserves_types _ _ _ accepted typed
         | (cases accepted; exact stackedTyped)
         | (cases accepted; exact with_control_types _ _ _ stackedTyped frameTyped)
         | contradiction

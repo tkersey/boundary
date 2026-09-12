@@ -121,6 +121,32 @@ theorem cleanupFailed_unique (machine : State) (id : ObligationId) (invocation :
   obtain ⟨_, _, _, _, rfl⟩ := accepted
   exact formed
 
+theorem cleanupAbandoned_unique (machine : State) (id : ObligationId) (invocation : InvocationId)
+    (outer : Cleanup.Exit .source) (normal : Option Located) (tail : List Frame)
+    (inner : Cleanup.Exit .source) (after : Transition) (formed : Unique machine.heap)
+    (accepted : cleanupAbandoned machine id invocation outer normal tail inner = .ok after) : Unique after.state.heap := by
+  simp only [cleanupAbandoned, bind, except_bind_ok, fromOption_ok, pure, Except.pure, Except.ok.injEq] at accepted
+  obtain ⟨_, _, _, _, _, _, rfl⟩ := accepted
+  exact formed
+
+theorem finishCleanupUnwind_unique (machine : State) (id : ObligationId) (invocation : InvocationId)
+    (outer : Cleanup.Exit .source) (normal : Option Located) (tail : List Frame)
+    (inner : Cleanup.Exit .source) (after : Transition) (formed : Unique machine.heap)
+    (accepted : finishCleanupUnwind machine id invocation outer normal tail inner = .ok after) : Unique after.state.heap := by
+  unfold finishCleanupUnwind at accepted
+  split at accepted <;> first
+    | exact cleanupFailed_unique _ _ _ _ _ _ _ _ formed accepted
+    | exact cleanupAbandoned_unique _ _ _ _ _ _ _ _ formed accepted
+    | contradiction
+
+theorem finishDisposal_unique (machine : State) (after : Transition)
+    (formed : Unique machine.heap) (accepted : finishDisposal machine = .ok after) : Unique after.state.heap := by
+  unfold finishDisposal at accepted
+  split at accepted <;> try contradiction
+  split at accepted <;> try contradiction
+  cases accepted
+  exact formed
+
 theorem discardValues_unique (machine : State) (context : Context) (after : Transition)
     (formed : Unique machine.heap)
     (accepted : discardValues machine context = .ok after) : Unique after.state.heap := by
@@ -143,7 +169,7 @@ theorem unwindStep_unique (machine : State) (context : Context) (after : Transit
     (formed : Unique machine.heap)
     (accepted : unwindStep machine context = .ok after) : Unique after.state.heap := by
   simp only [unwindStep, bind, pure, Except.pure, throw, throwThe, MonadExceptOf.throw] at accepted
-  grind (gen := 32) only [except_bind_ok, fromOption_ok, → beginCleanup_unique, → cleanupFailed_unique]
+  grind (gen := 32) only [except_bind_ok, fromOption_ok, → beginCleanup_unique, → finishCleanupUnwind_unique]
 
 theorem executeCleanupTerm_unique (machine : State) (context : Context) (after : Transition)
     (formed : Unique machine.heap)

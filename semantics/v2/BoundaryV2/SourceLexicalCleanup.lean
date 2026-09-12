@@ -92,6 +92,32 @@ theorem cleanupFailed_control (context : Context) (machine : State) (identity : 
   obtain ⟨_, _, _, _, rfl⟩ := accepted
   trivial
 
+theorem cleanupAbandoned_control (context : Context) (machine : State) (identity : ObligationId) (invocation : InvocationId)
+    (outer : Cleanup.Exit .source) (normal : Option Located) (tail : List Frame) (inner : Cleanup.Exit .source)
+    (after : Transition) (accepted : cleanupAbandoned machine identity invocation outer normal tail inner = .ok after) :
+    ControlValid context after.state.control := by
+  simp only [cleanupAbandoned, bind, except_bind_ok, pure, Except.pure, Except.ok.injEq] at accepted
+  obtain ⟨_, _, _, _, _, _, rfl⟩ := accepted
+  trivial
+
+theorem finishCleanupUnwind_control (context : Context) (machine : State) (identity : ObligationId) (invocation : InvocationId)
+    (outer : Cleanup.Exit .source) (normal : Option Located) (tail : List Frame) (inner : Cleanup.Exit .source)
+    (after : Transition) (accepted : finishCleanupUnwind machine identity invocation outer normal tail inner = .ok after) :
+    ControlValid context after.state.control := by
+  unfold finishCleanupUnwind at accepted
+  split at accepted <;> first
+    | exact cleanupFailed_control _ _ _ _ _ _ _ _ _ accepted
+    | exact cleanupAbandoned_control _ _ _ _ _ _ _ _ _ accepted
+    | contradiction
+
+theorem finishDisposal_control (context : Context) (machine : State) (after : Transition)
+    (accepted : finishDisposal machine = .ok after) : ControlValid context after.state.control := by
+  unfold finishDisposal at accepted
+  split at accepted <;> try contradiction
+  split at accepted <;> try contradiction
+  cases accepted
+  trivial
+
 theorem releaseScope_control (context : Context) (machine : State) (after : Transition)
     (accepted : releaseScope machine = .ok after) : ControlValid context after.state.control := by
   unfold releaseScope at accepted
@@ -174,8 +200,8 @@ theorem unwindStep_valid (machine : State) (context : Context) (after : Transiti
       exact ⟨beginCleanup_control _ _ _ _ _ _ _ typed accepted,
         SavedFrames.beginCleanup_plain _ _ _ _ _ _ _ accepted covered.2.2 tailTyped⟩
     case cleanupReturn =>
-      exact ⟨cleanupFailed_control _ _ _ _ _ _ _ _ _ accepted,
-        SavedFrames.cleanupFailed_plain context _ _ _ _ _ _ _ _ accepted covered.2.2 tailTyped⟩
+      exact ⟨finishCleanupUnwind_control _ _ _ _ _ _ _ _ _ accepted,
+        SavedFrames.finishCleanupUnwind_plain context _ _ _ _ _ _ _ _ accepted covered.2.2 tailTyped⟩
     case releaseReturn => cases accepted; exact ⟨trivial, tailPlain⟩
     case disposalReturn =>
       repeat' split at accepted

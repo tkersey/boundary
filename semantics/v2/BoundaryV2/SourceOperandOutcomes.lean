@@ -427,6 +427,32 @@ theorem cleanupFailed_nonexecuting (machine : State) (identity : ObligationId) (
   obtain ⟨_, _, _, _, rfl⟩ := accepted
   trivial
 
+theorem cleanupAbandoned_nonexecuting (machine : State) (identity : ObligationId) (invocation : InvocationId)
+    (outer : Cleanup.Exit .source) (normal : Option Located) (tail : List Frame) (inner : Cleanup.Exit .source)
+    (after : Transition) (accepted : cleanupAbandoned machine identity invocation outer normal tail inner = .ok after) :
+    NonExecuting after.state.control := by
+  simp only [cleanupAbandoned, bind, except_bind_ok, pure, Except.pure, Except.ok.injEq] at accepted
+  obtain ⟨_, _, _, _, _, _, rfl⟩ := accepted
+  trivial
+
+theorem finishCleanupUnwind_nonexecuting (machine : State) (identity : ObligationId) (invocation : InvocationId)
+    (outer : Cleanup.Exit .source) (normal : Option Located) (tail : List Frame) (inner : Cleanup.Exit .source)
+    (after : Transition) (accepted : finishCleanupUnwind machine identity invocation outer normal tail inner = .ok after) :
+    NonExecuting after.state.control := by
+  unfold finishCleanupUnwind at accepted
+  split at accepted <;> first
+    | exact cleanupFailed_nonexecuting _ _ _ _ _ _ _ _ accepted
+    | exact cleanupAbandoned_nonexecuting _ _ _ _ _ _ _ _ accepted
+    | contradiction
+
+theorem finishDisposal_nonexecuting (machine : State) (after : Transition)
+    (accepted : finishDisposal machine = .ok after) : NonExecuting after.state.control := by
+  unfold finishDisposal at accepted
+  split at accepted <;> try contradiction
+  split at accepted <;> try contradiction
+  cases accepted
+  trivial
+
 theorem releaseScope_nonexecuting (machine : State) (after : Transition)
     (accepted : releaseScope machine = .ok after) : NonExecuting after.state.control := by
   unfold releaseScope at accepted

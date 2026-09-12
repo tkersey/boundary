@@ -59,8 +59,8 @@ theorem unwindStep_typed (machine : State) (context : Context) (after : Transiti
       exact plain_typed _ _ (OperandStructure.beginCleanup_plain _ _ _ _ _ _ _ accepted structural.2 tailTyped)
         (beginCleanup_nonexecuting _ _ _ _ _ _ _ accepted)
     case cleanupReturn =>
-      exact plain_typed _ _ (OperandStructure.cleanupFailed_plain _ _ _ _ _ _ _ _ accepted structural.2 tailTyped)
-        (cleanupFailed_nonexecuting _ _ _ _ _ _ _ _ accepted)
+      exact plain_typed _ _ (OperandStructure.finishCleanupUnwind_plain _ _ _ _ _ _ _ _ accepted structural.2 tailTyped)
+        (finishCleanupUnwind_nonexecuting _ _ _ _ _ _ _ _ accepted)
     case releaseReturn => cases accepted; exact plain_typed _ _ tailPlain trivial
     case disposalReturn =>
       repeat' split at accepted
@@ -142,6 +142,7 @@ theorem tickRunning_typed (machine : State) (context : Context) (after : Transit
         | exact plain_typed _ _ (OperandStructure.completeHandler_plain _ _ _ accepted plain) (completeHandler_nonexecuting _ _ _ accepted)
         | exact plain_typed _ _ (OperandStructure.beginCleanup_plain _ _ _ _ _ _ _ accepted typed.1.2 tailTyped) (beginCleanup_nonexecuting _ _ _ _ _ _ _ accepted)
         | exact plain_typed _ _ (OperandStructure.finishCleanup_plain _ _ _ accepted plain) (finishCleanup_nonexecuting _ _ _ accepted)
+        | exact plain_typed _ _ (OperandStructure.finishDisposal_plain _ _ accepted plain) (finishDisposal_nonexecuting _ _ accepted)
         | (cases accepted; exact plain_typed _ _ tailPlain (by simp [NonExecuting]))
         | contradiction
   all_goals

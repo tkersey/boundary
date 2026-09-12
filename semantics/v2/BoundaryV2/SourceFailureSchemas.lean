@@ -87,6 +87,16 @@ theorem merge_abrupt_types (source : Module) (outer inner : Cleanup.Exit .source
       cases outerPrimary <;> cases innerPrimary <;> cases innerCancellation <;>
         simp_all [mergeAbrupt, Cleanup.recordFailure, Cleanup.cancel, Types, exit] <;> grind only []
 
+theorem propagate_exit_types (source : Module) (outer inner : Cleanup.Exit .source)
+    (outerTyped : Types source (exit outer)) (innerTyped : Types source (exit inner)) :
+    Types source (exit (propagateExit outer inner)) := by
+  cases outer with
+  | mk outerPrimary outerFailures outerCancellation =>
+    cases inner with
+    | mk innerPrimary innerFailures innerCancellation =>
+      cases outerPrimary <;> cases innerPrimary <;> cases innerCancellation <;>
+        simp_all [propagateExit, Cleanup.cancel, Types, exit] <;> grind only []
+
 theorem cancel_control (current : Control) (reason : Protocol.Reason) :
     control (cancelControl current reason) = control current := by
   cases current <;> try rfl <;> try exact cancel_exit _ _

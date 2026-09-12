@@ -118,6 +118,38 @@ theorem cleanupFailed_valid (machine : State) (identity : ObligationId) (invocat
   have recordBounded := complete_obligation (bounded.heap.obligations before (List.mem_of_getElem? found)) completed
   exact ⟨set_obligation bounded.heap recordBounded, framesBound, trivial, bounded.scope, bounded.invocation⟩
 
+theorem cleanupAbandoned_valid (machine : State) (identity : ObligationId) (invocation : InvocationId)
+    (outer : Cleanup.Exit .source) (normal : Option Located) (tail : List Frame)
+    (inner : Cleanup.Exit .source) (after : Transition) (bounded : ValidAt limit machine)
+    (framesBound : ∀ frame ∈ tail, FrameValid limit frame)
+    (accepted : cleanupAbandoned machine identity invocation outer normal tail inner = .ok after) : ValidAt limit after.state := by
+  simp only [cleanupAbandoned, bind, except_bind_ok, fromOption_ok, pure, Except.pure, Except.ok.injEq] at accepted
+  obtain ⟨_, _, before, found, ⟨record, events⟩, completed, rfl⟩ := accepted
+  have recordBounded := complete_obligation (bounded.heap.obligations before (List.mem_of_getElem? found)) completed
+  exact ⟨set_obligation bounded.heap recordBounded, framesBound, trivial, bounded.scope, bounded.invocation⟩
+
+theorem finishCleanupUnwind_valid (machine : State) (identity : ObligationId) (invocation : InvocationId)
+    (outer : Cleanup.Exit .source) (normal : Option Located) (tail : List Frame)
+    (inner : Cleanup.Exit .source) (after : Transition) (bounded : ValidAt limit machine)
+    (framesBound : ∀ frame ∈ tail, FrameValid limit frame)
+    (accepted : finishCleanupUnwind machine identity invocation outer normal tail inner = .ok after) : ValidAt limit after.state := by
+  unfold finishCleanupUnwind at accepted
+  split at accepted <;> first
+    | exact cleanupFailed_valid _ _ _ _ _ _ _ _ bounded framesBound accepted
+    | exact cleanupAbandoned_valid _ _ _ _ _ _ _ _ bounded framesBound accepted
+    | contradiction
+
+theorem finishDisposal_valid (machine : State) (after : Transition) (bounded : ValidAt limit machine)
+    (accepted : finishDisposal machine = .ok after) : ValidAt limit after.state := by
+  unfold finishDisposal at accepted
+  split at accepted <;> try contradiction
+  split at accepted <;> try contradiction
+  rename_i remaining released invocation scope tail stacked
+  have frameBound := bounded.frames (.disposalReturn remaining released invocation scope) (by simp [stacked])
+  cases accepted
+  exact ⟨bounded.heap, fun frame member => bounded.frames frame (by simp [stacked, member]),
+    trivial, frameBound.2, frameBound.1⟩
+
 private theorem foldlM_preserves (items : List β) (step : α → β → Except Invalid α)
     (property : α → Prop) (preserved : ∀ before item after, step before item = .ok after → property before → property after)
     (before after : α) (accepted : items.foldlM step before = .ok after) (holds : property before) : property after := by

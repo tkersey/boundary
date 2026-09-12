@@ -48,7 +48,7 @@ theorem tickRunning_valid (machine : State) (context : Context) (after : Transit
         | (cases accepted; exact ⟨bounded.heap, tailBound, trivial, bounded.scope, bounded.invocation⟩)
         | skip
       case protection => exact beginCleanup_valid _ _ _ _ _ _ _ bounded tailBound upper accepted
-      case disposalReturn => contradiction
+      case disposalReturn => exact finishDisposal_valid _ _ bounded accepted
       case releaseReturn =>
         cases accepted
         exact ⟨bounded.heap, tailBound, frameBound, bounded.scope, bounded.invocation⟩

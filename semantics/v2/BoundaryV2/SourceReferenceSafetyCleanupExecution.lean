@@ -47,6 +47,72 @@ theorem cleanupFailed_valid (machine : State) (identity : ObligationId) (invocat
     List.mem_append, List.mem_map] at heapTyped member
   grind only []
 
+theorem cleanupAbandoned_valid (machine : State) (identity : ObligationId) (invocation : InvocationId)
+    (outer : Cleanup.Exit .source) (normal : Option Located) (tail : List Frame) (inner : Cleanup.Exit .source)
+    (after : Transition) (accepted : cleanupAbandoned machine identity invocation outer normal tail inner = .ok after)
+    (good : Valid schemas machine)
+    (outerTyped : ∀ value ∈ exitValues outer, ValueGood schemas machine.heap value)
+    (innerTyped : ∀ value ∈ exitValues inner, ValueGood schemas machine.heap value)
+    (normalTyped : ∀ value ∈ normal, ValueGood schemas machine.heap value.value)
+    (tailTyped : ∀ value ∈ tail.flatMap ValueInventory.frame, ValueGood schemas machine.heap value) :
+    Valid schemas after.state := by
+  have typed := good.values
+  simp only [cleanupAbandoned, bind, except_bind_ok, fromOption_ok, pure, Except.pure, Except.ok.injEq] at accepted
+  obtain ⟨_, guard, before, found, ⟨afterRecord, events⟩, completed, rfl⟩ := accepted
+  clear guard
+  have beforeTyped := ValueInventory.lookup_obligation_preserves_all machine identity before found _ typed
+  have recordTyped := ValueInventory.complete_obligation_preserves_all before afterRecord invocation (.ok ()) events completed _ beforeTyped
+    (by intro value equal; cases equal)
+  have heapTyped := ValueInventory.set_obligation_preserves_all machine identity.value afterRecord _ typed recordTyped
+  have remainingTyped := liveOwned_holdings_good
+    { machine.heap with obligations := machine.heap.obligations.set identity.value afterRecord } machine.heap normal.toList
+    (by simpa using normalTyped)
+  have exitTyped : ∀ value ∈ exitValues (propagateExit outer inner), ValueGood schemas machine.heap value := by
+    intro value member
+    rcases List.mem_append.mp (ValueInventory.propagate_exit_subset outer inner member) with member | member
+    · exact outerTyped value member
+    · exact innerTyped value member
+  refine ⟨?_, good.live⟩
+  intro value member
+  apply fields_value machine.heap _ _ rfl rfl rfl
+  simp only [ValueInventory.All, ValueInventory.state, ValueInventory.control, ValueInventory.afterRelease,
+    List.mem_append, List.mem_map] at heapTyped member
+  grind only []
+
+theorem finishCleanupUnwind_valid (machine : State) (identity : ObligationId) (invocation : InvocationId)
+    (outer : Cleanup.Exit .source) (normal : Option Located) (tail : List Frame) (inner : Cleanup.Exit .source)
+    (after : Transition) (accepted : finishCleanupUnwind machine identity invocation outer normal tail inner = .ok after)
+    (good : Valid schemas machine)
+    (outerTyped : ∀ value ∈ exitValues outer, ValueGood schemas machine.heap value)
+    (innerTyped : ∀ value ∈ exitValues inner, ValueGood schemas machine.heap value)
+    (normalTyped : ∀ value ∈ normal, ValueGood schemas machine.heap value.value)
+    (tailTyped : ∀ value ∈ tail.flatMap ValueInventory.frame, ValueGood schemas machine.heap value) :
+    Valid schemas after.state := by
+  unfold finishCleanupUnwind at accepted
+  split at accepted <;> first
+    | exact cleanupFailed_valid _ _ _ _ _ _ _ _ accepted good outerTyped innerTyped normalTyped tailTyped
+    | exact cleanupAbandoned_valid _ _ _ _ _ _ _ _ accepted good outerTyped innerTyped normalTyped tailTyped
+    | contradiction
+
+theorem finishDisposal_valid (machine : State) (after : Transition)
+    (accepted : finishDisposal machine = .ok after) (good : Valid schemas machine) : Valid schemas after.state := by
+  have typed := good.values
+  unfold finishDisposal at accepted
+  split at accepted <;> try contradiction
+  rename_i value executing
+  split at accepted <;> try contradiction
+  rename_i remaining release invocation scope tail stacked
+  have valueTyped : ValueGood schemas machine.heap value.value := by
+    apply typed
+    simp [ValueInventory.state, executing, ValueInventory.control]
+  have ownedTyped := liveOwnedValue_good machine.heap machine.heap value.owner value.value valueTyped
+  cases accepted
+  refine ⟨?_, good.live⟩
+  simp only [ValueInventory.All, ValueInventory.state, ValueInventory.control, ValueInventory.frame,
+    executing, stacked, List.flatMap_cons, List.mem_append, List.map_append, List.mem_map,
+    List.mem_cons, List.not_mem_nil] at typed ⊢
+  grind only [liveOwned]
+
 theorem executeCleanupTerm_valid (machine : State) (context : Context) (after : Transition)
     (accepted : executeCleanupTerm machine context = .ok after)
     (good : Valid context.source.schemas machine)

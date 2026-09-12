@@ -41,6 +41,7 @@ theorem tickRunning_unique (machine : State) (context : Context) (after : Transi
         | exact restoreResumeCaller_unique _ _ formed accepted
         | exact completeHandler_unique _ _ _ formed accepted
         | exact finishCleanup_unique _ _ _ formed accepted
+        | exact finishDisposal_unique _ _ formed accepted
         | exact beginCleanup_unique _ _ _ _ _ _ _ formed accepted
         | (cases accepted; exact formed)
         | contradiction

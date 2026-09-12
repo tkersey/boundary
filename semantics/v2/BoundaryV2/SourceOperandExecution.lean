@@ -244,7 +244,7 @@ theorem unwindStep_valid (machine : State) (context : Context) (after : Transiti
         obtain ⟨_, _, _, _, rfl⟩ := accepted
         apply Plain.valid; exact tailPlain
     case protection => exact (beginCleanup_plain _ _ _ _ _ _ _ accepted typed.2 tailTyped).valid
-    case cleanupReturn => exact (cleanupFailed_plain _ _ _ _ _ _ _ _ accepted typed.2 tailTyped).valid
+    case cleanupReturn => exact (finishCleanupUnwind_plain _ _ _ _ _ _ _ _ accepted typed.2 tailTyped).valid
     case releaseReturn => cases accepted; apply Plain.valid; exact tailPlain
     case disposalReturn =>
       repeat' split at accepted
@@ -310,6 +310,7 @@ theorem tickRunning_valid (machine : State) (context : Context) (after : Transit
         | exact (completeHandler_plain _ _ _ accepted plain).valid
         | exact (beginCleanup_plain _ _ _ _ _ _ _ accepted typed.2 tailTyped).valid
         | exact (finishCleanup_plain _ _ _ accepted plain).valid
+        | exact (finishDisposal_plain _ _ accepted plain).valid
         | (cases accepted; apply Plain.valid; exact tailPlain)
         | contradiction
   all_goals

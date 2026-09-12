@@ -447,6 +447,26 @@ theorem cleanupFailed_allocation (state : State) (identity : ObligationId) (invo
     List.length_set, List.length_append, List.length_cons, List.length_nil,
     ← AllocationLE.mk, ← Heap.AllocationLE.mk, cases AllocationLE, cases Heap.AllocationLE]
 
+theorem finishCleanupUnwind_allocation (state : State) (identity : ObligationId) (invocation : InvocationId)
+    (outer : Cleanup.Exit .source) (normal : Option Located) (tail : List Frame) (inner : Cleanup.Exit .source) (after : Transition)
+    (accepted : finishCleanupUnwind state identity invocation outer normal tail inner = .ok after) : AllocationLE state after.state := by
+  unfold finishCleanupUnwind at accepted
+  split at accepted <;> first | exact cleanupFailed_allocation _ _ _ _ _ _ _ _ accepted | contradiction | skip
+  all_goals simp only [cleanupAbandoned, bind, except_bind_ok, pure, Except.pure, Except.ok.injEq] at accepted
+  all_goals obtain ⟨_, _, _, _, _, _, rfl⟩ := accepted
+  all_goals
+    constructor
+    · constructor <;> simp
+    · exact Nat.le_refl _
+
+theorem finishDisposal_allocation (state : State) (after : Transition)
+    (accepted : finishDisposal state = .ok after) : AllocationLE state after.state := by
+  unfold finishDisposal at accepted
+  split at accepted <;> try contradiction
+  split at accepted <;> try contradiction
+  cases accepted
+  exact ⟨.refl _, Nat.le_refl _⟩
+
 theorem releaseScope_allocation (state : State) (after : Transition)
     (accepted : releaseScope state = .ok after) : AllocationLE state after.state := by
   simp only [releaseScope, bind, pure, Except.pure, throw, throwThe, MonadExceptOf.throw] at accepted
@@ -464,7 +484,7 @@ theorem discardValues_allocation (state : State) (context : Context) (after : Tr
 theorem unwindStep_allocation (state : State) (context : Context) (after : Transition)
     (accepted : unwindStep state context = .ok after) : AllocationLE state after.state := by
   simp only [unwindStep, bind, pure, Except.pure, throw, throwThe, MonadExceptOf.throw] at accepted
-  grind (gen := 32) only [except_bind_ok, fromOption_ok, → beginCleanup_allocation, → cleanupFailed_allocation,
+  grind (gen := 32) only [except_bind_ok, fromOption_ok, → beginCleanup_allocation, → finishCleanupUnwind_allocation,
     List.length_set, List.length_append, List.length_cons, List.length_nil,
     ← AllocationLE.mk, ← Heap.AllocationLE.mk, cases AllocationLE, cases Heap.AllocationLE]
 
@@ -477,9 +497,9 @@ theorem executeCleanupTerm_allocation (state : State) (context : Context) (after
 
 theorem tickRunning_allocation (state : State) (context : Context) (after : Transition)
     (accepted : tickRunning state context = .ok after) : AllocationLE state after.state := by
-  simp only [tickRunning, bind, pure, Except.pure, throw, throwThe, MonadExceptOf.throw] at accepted
+  simp only [tickRunning, bind, pure, Except.pure] at accepted
   grind (gen := 32) only [except_bind_ok, fromOption_ok, → enterTerm_allocation, → enterExpression_allocation, → enterInvocation_allocation, → releaseScope_allocation, → discardValues_allocation, → unwindStep_allocation, → executePrimitive_allocation, → executeEffectTerm_allocation, → executeCleanupTerm_allocation, → executeControlTerm_allocation, → enterBinding_allocation, → deliverOperand_allocation, → leaveInvocation_allocation, → leaveLexical_allocation, → restoreResumeCaller_allocation, → completeHandler_allocation, → beginCleanup_allocation, → finishCleanup_allocation,
-    List.length_set, List.length_append, List.length_cons, List.length_nil,
+    List.length_set, List.length_append, List.length_cons, List.length_nil, → finishDisposal_allocation,
     ← AllocationLE.mk, ← Heap.AllocationLE.mk, cases AllocationLE, cases Heap.AllocationLE]
 
 theorem tick_allocation (state : State) (context : Context) (after : Transition)

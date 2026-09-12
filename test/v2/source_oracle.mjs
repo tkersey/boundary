@@ -308,28 +308,43 @@ export function execute(source, initial, responses = [], cancellations = []) {
     const next = evaluate(body, local);
     return bound.length ? ownScope(next, local[custody]) : next;
   }
-  function finishCleanup(computation, exit) {
+  function finishCleanup(computation, exit, normalOwner) {
+    const leave = (after) => {
+      if (!normalOwner) return abrupt(after);
+      if (after.kind === "value") { take(normalOwner.schema, normalOwner.value); return abrupt(after); }
+      return unwindOwners(abrupt(after), [normalOwner]);
+    };
     return delay(() => {
       const node = normalize(computation);
-      if (node.kind === "value") return abrupt(exit);
+      if (node.kind === "value") return leave(exit);
       if (node.kind === "failure") {
         const failure = node.exit ?? { cleanupFailures: [] };
         exit.cleanupFailures.push(node.value, ...failure.cleanupFailures);
         if (exit.kind === "value" || exit.kind === "abandoned") { exit.kind = "failure"; exit.value = node.value; }
-        return abrupt(exit);
+        return leave(exit);
       }
-      return { ...node, runningExit: exit, reenter: (replacement) => finishCleanup(node.reenter(replacement), exit) };
+      if (node.kind === "abandoned" || node.kind === "cancelled") {
+        const inner = exitOf(node), cancellation = exit.cancellation ?? inner.cancellation;
+        return leave({ ...inner,
+          kind: exit.kind === "failure" ? "failure" : cancellation ? "cancelled" : inner.kind,
+          value: exit.kind === "failure" ? exit.value : inner.value,
+          cleanupFailures: [...exit.cleanupFailures, ...inner.cleanupFailures], cancellation });
+      }
+      return { ...node, runningExit: exit,
+        reenter: (replacement) => finishCleanup(node.reenter(replacement), exit, normalOwner),
+        abandon: (reason) => finishCleanup(node.abandon ? node.abandon(reason) : abrupt(reason), exit, normalOwner) };
     });
   }
-  function protect(computation, cleanup) {
+  function protect(computation, cleanup, resultSchema) {
     const release = (exit) => {
       const primary = exit.kind === "value" ? { tag: 0, value: null } : exit.kind === "failure" ? { tag: 1, value: exit.value } : exit.kind === "cancelled" ? { tag: 2, value: exit.cancellation } : { tag: 3, value: null };
-      return finishCleanup(cleanup([[primary, exit.cancellation === null ? { tag: 0, value: null } : { tag: 1, value: exit.cancellation }, [...exit.cleanupFailures]]]), exit);
+      const normalOwner = exit.kind === "value" && owned[resultSchema] ? own(resultSchema, exit.value) : null;
+      return finishCleanup(cleanup([[primary, exit.cancellation === null ? { tag: 0, value: null } : { tag: 1, value: exit.cancellation }, [...exit.cleanupFailures]]]), exit, normalOwner);
     };
     return delay(() => {
       const node = normalize(computation);
       if (node.kind !== "request" && node.kind !== "yield") return release(exitOf(node));
-      return { ...node, reenter: (replacement) => protect(node.reenter(replacement), cleanup), abandon: (exit) => protect(node.abandon ? node.abandon(exit) : abrupt(exit), cleanup) };
+      return { ...node, reenter: (replacement) => protect(node.reenter(replacement), cleanup, resultSchema), abandon: (exit) => protect(node.abandon ? node.abandon(exit) : abrupt(exit), cleanup, resultSchema) };
     });
   }
   const constant = (id) => {
@@ -586,12 +601,13 @@ export function execute(source, initial, responses = [], cancellations = []) {
       }
       case "protect": {
         const body = operand(expression.body), cleanup = operand(expression.cleanup);
+        const resultSchema = source.schemas[source.values[expression.body].schema].internal.computation.result;
         const args = values(expression.arguments);
-        if (expression.resource === null) return () => protect(body(args), cleanup);
+        if (expression.resource === null) return () => protect(body(args), cleanup, resultSchema);
         const resource = operand(expression.resource);
         return () => {
           const loan = { active: true };
-          return protect(body([{ resource, loan }, ...args]), (exit) => { loan.active = false; return cleanup([...exit, resource]); });
+          return protect(body([{ resource, loan }, ...args]), (exit) => { loan.active = false; return cleanup([...exit, resource]); }, resultSchema);
         };
       }
       case "dispose": { const target = operand(expression); return () => target.close(); }
@@ -655,7 +671,7 @@ export function execute(source, initial, responses = [], cancellations = []) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const sources = await Promise.all(process.argv.slice(2).map(async (path) => parseExactJson(await readFile(path))));
-  assert.equal(sources.length, 37);
+  assert.equal(sources.length, 41);
   for (let index = 0; index < 20; index++) {
     const populated = index % 2 === 1, owned = index >= 12;
     const result = execute(sources[36], [index]);
@@ -866,5 +882,14 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     const roles = ["arithmetic_overflow", "division_by_zero", "capacity_exceeded", "invalid_utf8", "invalid_index", "invalid_variant"];
     assert.deepEqual(result.value, failed ? [roles.indexOf(expected)] : scalar(expected), `scalar-contracts ${index}`);
   }
-  console.log("independent source oracle: 37 compiled source fixtures and cancellation/cleanup scenarios passed");
+  assert.deepEqual(execute(sources[37], []), { trace: [], kind: "Completed",
+    value: [1, ...scalar(1), 4, ...[1, 3, 99, 99].flatMap(scalar)] });
+  assert.deepEqual(execute(sources[38], []), { trace: [], kind: "Completed",
+    value: [1, ...scalar(3), 3, ...[1, 3, 99].flatMap(scalar)] });
+  assert.deepEqual(execute(sources[39], []), { trace: [{ kind: "Yielded" }], kind: "Failed", value: [], cleanupFailures: [] });
+  assert.deepEqual(execute(sources[39], [], [], [{ at: 0, reason: "stop" }, { at: 0, reason: "later" }]),
+    { trace: [{ kind: "Yielded" }], kind: "Failed", value: [], cleanupFailures: [], cancellation: "stop" });
+  assert.deepEqual(execute(sources[40], []), { trace: [], kind: "Completed",
+    value: [...scalar(3), 3, ...[3, 7, 99].flatMap(scalar)] });
+  console.log("independent source oracle: 41 compiled source fixtures and cancellation/cleanup scenarios passed");
 }

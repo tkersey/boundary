@@ -167,6 +167,32 @@ theorem cleanupFailed_formed (machine : State) (id : ObligationId) (invocation :
   obtain ⟨_, _, _, _, rfl⟩ := accepted
   exact formed
 
+theorem cleanupAbandoned_formed (machine : State) (id : ObligationId) (invocation : InvocationId)
+    (outer : Cleanup.Exit .source) (normal : Option Located) (tail : List Frame)
+    (inner : Cleanup.Exit .source) (after : Transition) (formed : Formed machine.heap)
+    (accepted : cleanupAbandoned machine id invocation outer normal tail inner = .ok after) : Formed after.state.heap := by
+  simp only [cleanupAbandoned, bind, except_bind_ok, fromOption_ok, pure, Except.pure, Except.ok.injEq] at accepted
+  obtain ⟨_, _, _, _, _, _, rfl⟩ := accepted
+  exact formed
+
+theorem finishCleanupUnwind_formed (machine : State) (id : ObligationId) (invocation : InvocationId)
+    (outer : Cleanup.Exit .source) (normal : Option Located) (tail : List Frame)
+    (inner : Cleanup.Exit .source) (after : Transition) (formed : Formed machine.heap)
+    (accepted : finishCleanupUnwind machine id invocation outer normal tail inner = .ok after) : Formed after.state.heap := by
+  unfold finishCleanupUnwind at accepted
+  split at accepted <;> first
+    | exact cleanupFailed_formed _ _ _ _ _ _ _ _ formed accepted
+    | exact cleanupAbandoned_formed _ _ _ _ _ _ _ _ formed accepted
+    | contradiction
+
+theorem finishDisposal_formed (machine : State) (after : Transition)
+    (formed : Formed machine.heap) (accepted : finishDisposal machine = .ok after) : Formed after.state.heap := by
+  unfold finishDisposal at accepted
+  split at accepted <;> try contradiction
+  split at accepted <;> try contradiction
+  cases accepted
+  exact formed
+
 theorem discardValues_formed (machine : State) (context : Context) (after : Transition)
     (formed : Formed machine.heap)
     (accepted : discardValues machine context = .ok after) : Formed after.state.heap := by
@@ -189,7 +215,7 @@ theorem unwindStep_formed (machine : State) (context : Context) (after : Transit
     (formed : Formed machine.heap)
     (accepted : unwindStep machine context = .ok after) : Formed after.state.heap := by
   simp only [unwindStep, bind, pure, Except.pure, throw, throwThe, MonadExceptOf.throw] at accepted
-  grind (gen := 32) only [except_bind_ok, fromOption_ok, → beginCleanup_formed, → cleanupFailed_formed]
+  grind (gen := 32) only [except_bind_ok, fromOption_ok, → beginCleanup_formed, → finishCleanupUnwind_formed]
 
 theorem executeCleanupTerm_formed (machine : State) (context : Context) (after : Transition)
     (formed : Formed machine.heap)
