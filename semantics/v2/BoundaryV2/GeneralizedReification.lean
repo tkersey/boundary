@@ -29,6 +29,9 @@ inductive ContextRelated (signature : Signature) (algebra : LeafAlgebra signatur
   | done : ContextRelated signature algebra program .done .done
   | push : FrameRelated signature algebra program first second → ContextRelated signature algebra program rest after →
       ContextRelated signature algebra program (.push first rest) (.push second after)
+  | passthrough (bindings : Source.RuntimeEnvironment signature algebra program context) :
+      ContextRelated signature algebra program source target →
+      ContextRelated signature algebra program source (.push (.returnTo .ret (environment bindings) .nil) target)
 
 theorem context_composition (first : ContextRelated signature algebra program sourceFirst targetFirst)
     (second : ContextRelated signature algebra program sourceSecond targetSecond) :
@@ -36,6 +39,7 @@ theorem context_composition (first : ContextRelated signature algebra program so
   induction first with
   | done => exact second
   | push frame rest induction => exact .push frame (induction second)
+  | passthrough bindings rest induction => exact .passthrough bindings (induction second)
 
 /-- This relation retains every selected component, including the different
 body and answer types, the effectful clause bodies, and both context halves. -/
@@ -59,6 +63,14 @@ theorem SelectionRelated.prepend (frame : FrameRelated signature algebra program
   | selected effect mode identity returned handled captured inside outside =>
     exact .selected effect mode identity returned handled captured (.push frame inside) outside
 
+theorem SelectionRelated.passthrough (bindings : Source.RuntimeEnvironment signature algebra program context)
+    (selected : SelectionRelated signature algebra program source target) :
+    SelectionRelated signature algebra program source
+      (Target.Selection.prepend (.returnTo .ret (environment bindings) .nil) target) := by
+  cases selected with
+  | selected effect mode identity returned handled captured inside outside =>
+    exact .selected effect mode identity returned handled captured (.passthrough bindings inside) outside
+
 private theorem selection_options_prepend (frame : FrameRelated signature algebra program first second)
     (selected : Option.Rel (SelectionRelated signature algebra program) source target) :
     Option.Rel (SelectionRelated signature algebra program)
@@ -67,6 +79,14 @@ private theorem selection_options_prepend (frame : FrameRelated signature algebr
   | none => exact .none
   | some selected => exact .some (SelectionRelated.prepend frame selected)
 
+private theorem selection_options_passthrough (bindings : Source.RuntimeEnvironment signature algebra program context)
+    (selected : Option.Rel (SelectionRelated signature algebra program) source target) :
+    Option.Rel (SelectionRelated signature algebra program) source
+      (target.map (Target.Selection.prepend (.returnTo .ret (environment bindings) .nil))) := by
+  cases selected with
+  | none => exact .none
+  | some related => exact .some (SelectionRelated.passthrough bindings related)
+
 /-- The independently implemented selectors agree for every represented context,
 including their effectful handler code and the captured/outside halves. -/
 theorem selection_corresponds (wanted : Id .attachment)
@@ -74,6 +94,7 @@ theorem selection_corresponds (wanted : Id .attachment)
     Option.Rel (SelectionRelated signature algebra program) (Source.select wanted source) (Target.select wanted target) := by
   induction related with
   | done => exact .none
+  | passthrough bindings rest induction => exact selection_options_passthrough bindings induction
   | push frame rest induction =>
     cases frame with
     | bind body captured => exact selection_options_prepend (.bind body captured) induction
