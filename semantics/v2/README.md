@@ -398,6 +398,13 @@ cleanup phase changes, and all internal/external steps preserve that binding.
 resource read selects a pending obligation, retains its active region frame,
 and reads the physical resource that obligation protects. These are registry
 and use-admission results; invocation lifetime and escape preservation remain open.
+`LifetimeRecords.source_lifetime_record_is_immutable` proves that existing
+capability, region, and borrow records retain their physical node and complete
+metadata through every actual source trajectory. In particular, region parents
+and borrow/region invocation identities do not change. The actual successful
+instantiation map leaves borrowed nodes outside its copy domain, so references
+to those nodes keep the original lifetime record. Record persistence does not
+authorize use after its region or protection has ended.
 Borrow preservation and full source well-formedness remain separate obligations.
 `SourceRequestLaws` additionally proves that every finite source trace contains
 exactly the consecutive request-opening identities allocated during that trace.
