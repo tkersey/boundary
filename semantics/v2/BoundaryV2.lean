@@ -3,3 +3,12 @@ import BoundaryV2.Lowering
 import BoundaryV2.ControlLowering
 import BoundaryV2.Regions
 import BoundaryV2.EffectsExamples
+import BoundaryV2.GeneralizedHandlerEntry
+import BoundaryV2.GeneralizedExamples
+import BoundaryV2.GeneralizedControlExamples
+import BoundaryV2.GeneralizedObservationExamples
+import BoundaryV2.GeneralizedInteractionExamples
+import BoundaryV2.GeneralizedOwnedClauseExamples
+import BoundaryV2.GeneralizedSuccessorExamples
+import BoundaryV2.GeneralizedHandlerExecutionExamples
+import BoundaryV2.GeneralizedRelocationExamples

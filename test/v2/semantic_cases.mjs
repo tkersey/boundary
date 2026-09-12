@@ -4,7 +4,7 @@ export const programNames = ['lexical','deep','recursive','choices-all','choices
   'state-local','state-shared','resource-scalar','resource-pair','answers','scoped-reader','writer-raise',
   'scheduler','queens-dfs','queens-bfs','cell-order','nested','shallow','injection','indexed','abort-custody',
   'unwind','reentrant','cloned','clause-abort','bounded-values','scalar-contracts','ownership','shallow-resumptions','shallow-injection',
-  'handle-operand-order','protect-operand-order','successor-state','clause-payload','yielding-cleanup','borrow-operands'];
+  'handle-operand-order','protect-operand-order','successor-state','clause-payload','yielding-cleanup','borrow-operands','cleanup-disposal','cleanup-disposal-running','cleanup-disposal-failure','cleanup-disposal-owned'];
 const scalar=(value)=>{const bytes=Buffer.alloc(8);bytes.writeBigUInt64LE(BigInt(value));return [...bytes];};
 export const cases=[];
 function add(name,program,initial=[],responses=[],cancellations=[]) { cases.push({name,program,initial,responses,cancellations}); }
@@ -21,6 +21,7 @@ add('scoped-reader','scoped-reader',[],[[],[],[]]);
 add('indexed','indexed',[],[scalar(37),[1]]);
 add('abort-owned','abort-custody',[0],[[]]); add('abort-empty','abort-custody',[1]);
 add('clause-abort','clause-abort',[],[[]]);
+add('clause-abort-cancel-cleanup','clause-abort',[],[[]],[{at:0,reason:'stop',preservesRequest:true},{at:0,reason:'later',preservesRequest:true}]);
 for(const name of ['queens-dfs','queens-bfs']) add(name,name,[],[scalar(201),[],[],scalar(202),[],[]]);
 for(const primary of [0,1]) for(const cancel of [false,true]) add(`unwind-${primary}-${cancel?'cancel':'continue'}`,'unwind',[primary],[[],[]],cancel?[{at:0,reason:'stop',preservesRequest:true},{at:0,reason:'later',preservesRequest:true}]:[]);
 for(const primary of [0,1]) for(const cancel of [false,true]) add(`yielding-cleanup-${primary}-${cancel?'cancel':'continue'}`,'yielding-cleanup',[primary],[[],[]],cancel?[{at:0,reason:'stop',preservesRequest:false},{at:2,reason:'later',preservesRequest:false}]:[]);
@@ -30,3 +31,7 @@ for (const name of ['handle-operand-order','protect-operand-order','successor-st
 for(let index=0;index<32;index++) add(`borrow-operands-${index}`,'borrow-operands',[index]);
 for(let index=32;index<42;index++) add(`custody-order-${index-32}`,'borrow-operands',[index],[[],[]]);
 for(let index=42;index<53;index++) add(`operand-failure-${index-42}`,'borrow-operands',[index],[[],[]]);
+
+for(const name of ['cleanup-disposal','cleanup-disposal-running','cleanup-disposal-failure','cleanup-disposal-owned']) add(name,name);
+add('cleanup-disposal-failure-cancel','cleanup-disposal-failure',[],[],[
+  {at:0,reason:'stop',preservesRequest:false},{at:0,reason:'later',preservesRequest:false}]);
