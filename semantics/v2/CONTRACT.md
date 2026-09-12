@@ -65,7 +65,7 @@ multiplicity. One-shot authority is consumed before entry; affine disposal and
 linear use retain their distinct permissions. Clone-safe activation establishes
 fresh local maps, preserves all aliases and dormant support, separates branch
 state, and reads current shared outer state. Borrowed support retains a live
-enclosing owner and cannot escape through an owned shorter-lived package;
+enclosing owner and cannot escape into an owned package that outlives its dependency;
 abstract-resource authority remains nominal.
 
 This is a local core construction/transition claim, not complete production
@@ -116,9 +116,14 @@ Refreshed at implementation start:
 | Role | Commit | Disposition |
 |---|---|---|
 | Boundary baseline | `55e8feedcae0b9ee1492da11f9fbd4a1ac7ff328` | Clean replacement starts here. |
-| Unmodified World dependency | `5175e775005ee95e141b079936be163e1e75b803` | Pinned conformance consumer; no changes required. |
+| Unmodified World dependency | `87698f92ca7be4d5442e97ba27a2468aa3ff6a7c` | User-approved existing cleanup-disposal fix; no source changes. |
 | Boundary #147 | `b6e74aec0664652b89e75ea38db8436c5e8b3fc8` | Donor for trust, selection, freshness, events, and Linux CI. |
 | Boundary #148 | `ce680c7846a2a9cd7dc10389e94f417900250b37` | Donor for relevant local ownership/exit laws and concrete regressions. |
+
+World main `5175e775005ee95e141b079936be163e1e75b803` was inspected at startup.
+The retained cleanup-disposal regression fails there with `InvalidState`; the
+existing fix above passed all 127 cases in native/WASM comparison and was
+explicitly approved as the unmodified test dependency.
 
 Preserve both donor branches and unfinished work. Neither PR is merged intact.
 After the replacement PR has a durable link, document supersession and close the

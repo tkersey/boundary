@@ -3,6 +3,7 @@
 // never BPI2, target blocks, World frames, or the production evaluator.
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { parseExactJson } from "../../tools/v2/exact_json.mjs";
 import { pathToFileURL } from "node:url";
 
 const tag = (value) => typeof value === "string" ? value : Object.keys(value)[0];
@@ -166,8 +167,59 @@ function ownedSchemas(source) {
   return owned;
 }
 
+// Constructor numbering is an implicit part of the low-level staged API.
+// Traverse source dependencies, not a target snapshot, in declaration order.
+function sourceCatalog(source) {
+  const constructors = [], seenKeys = new Set(), seenTerms = new Set();
+  let needsUnit = false;
+  const visitValues = (ids) => {
+    const pending = [...ids].reverse();
+    while (pending.length) {
+      const definition = source.values[pending.pop()], expression = definition.expression;
+      if (Object.hasOwn(expression, "lambda")) {
+        const key = `${expression.lambda}/${definition.schema}`;
+        if (!seenKeys.has(key)) { seenKeys.add(key); constructors.push({ function: expression.lambda, schema: definition.schema }); }
+      } else if (expression.primitive) pending.push(...[...expression.primitive.operands].reverse());
+    }
+  };
+  for (const fn of source.functions) {
+    const pending = [[fn.body, false]];
+    while (pending.length) {
+      const [id, ready] = pending.pop();
+      if (seenTerms.has(id)) continue;
+      const term = source.terms[id], kind = tag(term), data = field(term);
+      let children = [], operands = [];
+      switch (kind) {
+        case "bind": children = [data.next, data.value]; break;
+        case "yield_then": children = [data]; break;
+        case "conditional": children = [data.when_true, data.when_false]; operands = [data.condition]; break;
+        case "match_sum": children = data.cases.map((branch) => branch.body); operands = [data.value]; break;
+        case "unpack_product": children = [data.body]; operands = [data.value]; break;
+        case "value": case "dispose": case "fail": operands = [data]; break;
+        case "call": operands = data.arguments; break;
+        case "apply": operands = [data.computation, ...data.arguments]; break;
+        case "perform": operands = [...(data.capability === null ? [] : [data.capability]), data.payload, ...data.bodies, ...data.use_site_capabilities]; break;
+        case "handle": operands = [data.body, ...data.arguments, ...data.state]; break;
+        case "resume_value": operands = [data.resumption, data.argument]; break;
+        case "resume_with": operands = [data.resumption, data.argument, ...data.state]; break;
+        case "resume_computation": operands = [data.resumption, data.computation]; break;
+        case "with_region": operands = [data.body, ...data.arguments]; break;
+        case "protect": operands = [data.body, data.cleanup, ...data.arguments, ...(data.resource === null ? [] : [data.resource])]; break;
+        default: throw new Error(`unknown source constructor site: ${kind}`);
+      }
+      if (!ready && children.length) {
+        pending.push([id, true], ...children.toReversed().map((child) => [child, false]));
+      } else { visitValues(operands); seenTerms.add(id); needsUnit ||= kind === "dispose"; }
+    }
+  }
+  return { constructors, needsUnit };
+}
+
+export function sourceConstructors(source) { return sourceCatalog(source).constructors; }
+
 export function execute(source, initial, responses = [], cancellations = []) {
   const owned = ownedSchemas(source);
+  const { constructors, needsUnit } = sourceCatalog(source);
   const { functions: free, temporaries } = lexicalCaptures(source, owned);
   const custody = Symbol("source custody"), owners = new WeakMap();
   function take(schema, value) {
@@ -256,44 +308,61 @@ export function execute(source, initial, responses = [], cancellations = []) {
     const next = evaluate(body, local);
     return bound.length ? ownScope(next, local[custody]) : next;
   }
-  function finishCleanup(computation, exit) {
+  function finishCleanup(computation, exit, normalOwner) {
+    const leave = (after) => {
+      if (!normalOwner) return abrupt(after);
+      if (after.kind === "value") { take(normalOwner.schema, normalOwner.value); return abrupt(after); }
+      return unwindOwners(abrupt(after), [normalOwner]);
+    };
     return delay(() => {
       const node = normalize(computation);
-      if (node.kind === "value") return abrupt(exit);
+      if (node.kind === "value") return leave(exit);
       if (node.kind === "failure") {
         const failure = node.exit ?? { cleanupFailures: [] };
         exit.cleanupFailures.push(node.value, ...failure.cleanupFailures);
         if (exit.kind === "value" || exit.kind === "abandoned") { exit.kind = "failure"; exit.value = node.value; }
-        return abrupt(exit);
+        return leave(exit);
       }
-      return { ...node, runningExit: exit, reenter: (replacement) => finishCleanup(node.reenter(replacement), exit) };
+      if (node.kind === "abandoned" || node.kind === "cancelled") {
+        const inner = exitOf(node), cancellation = exit.cancellation ?? inner.cancellation;
+        return leave({ ...inner,
+          kind: exit.kind === "failure" ? "failure" : cancellation ? "cancelled" : inner.kind,
+          value: exit.kind === "failure" ? exit.value : inner.value,
+          cleanupFailures: [...exit.cleanupFailures, ...inner.cleanupFailures], cancellation });
+      }
+      return { ...node, runningExit: exit,
+        reenter: (replacement) => finishCleanup(node.reenter(replacement), exit, normalOwner),
+        abandon: (reason) => finishCleanup(node.abandon ? node.abandon(reason) : abrupt(reason), exit, normalOwner) };
     });
   }
-  function protect(computation, cleanup) {
+  function protect(computation, cleanup, resultSchema) {
     const release = (exit) => {
       const primary = exit.kind === "value" ? { tag: 0, value: null } : exit.kind === "failure" ? { tag: 1, value: exit.value } : exit.kind === "cancelled" ? { tag: 2, value: exit.cancellation } : { tag: 3, value: null };
-      return finishCleanup(cleanup([[primary, exit.cancellation === null ? { tag: 0, value: null } : { tag: 1, value: exit.cancellation }, [...exit.cleanupFailures]]]), exit);
+      const normalOwner = exit.kind === "value" && owned[resultSchema] ? own(resultSchema, exit.value) : null;
+      return finishCleanup(cleanup([[primary, exit.cancellation === null ? { tag: 0, value: null } : { tag: 1, value: exit.cancellation }, [...exit.cleanupFailures]]]), exit, normalOwner);
     };
     return delay(() => {
       const node = normalize(computation);
       if (node.kind !== "request" && node.kind !== "yield") return release(exitOf(node));
-      return { ...node, reenter: (replacement) => protect(node.reenter(replacement), cleanup), abandon: (exit) => protect(node.abandon ? node.abandon(exit) : abrupt(exit), cleanup) };
+      return { ...node, reenter: (replacement) => protect(node.reenter(replacement), cleanup, resultSchema), abandon: (exit) => protect(node.abandon ? node.abandon(exit) : abrupt(exit), cleanup, resultSchema) };
     });
   }
-  const constant = (id) => { const literal = source.constants[id]; return decode(source, literal.schema, bytes(literal.bytes), { offset: 0 }); };
+  const constant = (id) => {
+    const literal = source.constants[id];
+    if (!literal && id === source.constants.length && needsUnit) {
+      const unit = source.schemas.findIndex((schema) => tag(schema) === "unit");
+      if (unit >= 0 && !source.constants.some((literal) => literal.schema === unit && literal.bytes.length === 0)) return null;
+    }
+    if (!literal) throw new Error("invalid source constant");
+    return decode(source, literal.schema, bytes(literal.bytes), { offset: 0 });
+  };
   function value(id, env) {
     const definition = source.values[id], kind = tag(definition.expression), expression = field(definition.expression);
     if (kind === "variable") { if (!env.has(expression)) throw new Error("unbound oracle variable"); return env.get(expression); }
     if (kind === "literal") return constant(expression);
     if (kind === "lambda") {
-      const captured = new Map([...free[expression]].map((variable) => [variable, env.get(variable)]));
-      const closure = (args) => {
-        if (owned[definition.schema]) { if (closure.consumed) throw new Error("oracle owned computation reused"); closure.consumed = true; }
-        return call(expression, captured, args);
-      };
-      closure.captures = entries([...free[expression]], captured);
-      closure.consumed = false;
-      return keep(definition.schema, closure, env[custody]);
+      const captured = new Map(free[expression].map((variable) => [variable, env.get(variable)]));
+      return keep(definition.schema, closure(expression, definition.schema, captured), env[custody]);
     }
     const operands = expression.operands.map((operand) => value(operand, env));
     const result = primitive(definition, expression, operands);
@@ -303,10 +372,25 @@ export function execute(source, initial, responses = [], cancellations = []) {
       expression.operands.forEach((operand, index) => take(source.values[operand].schema, operands[index]));
     return keep(definition.schema, result, env[custody]);
   }
+  function closure(functionId, schema, captured) {
+    const result = (args) => {
+      if (owned[schema]) { if (result.consumed) throw new Error("oracle owned computation reused"); result.consumed = true; }
+      return call(functionId, captured, args);
+    };
+    result.captures = entries(free[functionId], captured);
+    result.consumed = false;
+    return result;
+  }
   function primitive(definition, expression, operands) {
     const fail = (kind) => { throw new Failure(constant(expression.failures.find((failure) => failure.kind === kind).value)); };
     const [left, right] = operands;
     switch (expression.opcode) {
+      case "constant": return constant(expression.immediate);
+      case "computation": {
+        const constructor = constructors[expression.immediate];
+        if (!constructor || constructor.schema !== definition.schema || operands.length !== free[constructor.function].length) throw new Error("invalid source constructor");
+        return closure(constructor.function, definition.schema, new Map(free[constructor.function].map((variable, index) => [variable, operands[index]])));
+      }
       case "move": return left;
       case "equal": return left === right;
       case "less": return left < right;
@@ -517,12 +601,13 @@ export function execute(source, initial, responses = [], cancellations = []) {
       }
       case "protect": {
         const body = operand(expression.body), cleanup = operand(expression.cleanup);
+        const resultSchema = source.schemas[source.values[expression.body].schema].internal.computation.result;
         const args = values(expression.arguments);
-        if (expression.resource === null) return () => protect(body(args), cleanup);
+        if (expression.resource === null) return () => protect(body(args), cleanup, resultSchema);
         const resource = operand(expression.resource);
         return () => {
           const loan = { active: true };
-          return protect(body([{ resource, loan }, ...args]), (exit) => { loan.active = false; return cleanup([...exit, resource]); });
+          return protect(body([{ resource, loan }, ...args]), (exit) => { loan.active = false; return cleanup([...exit, resource]); }, resultSchema);
         };
       }
       case "dispose": { const target = operand(expression); return () => target.close(); }
@@ -585,8 +670,8 @@ export function execute(source, initial, responses = [], cancellations = []) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const sources = await Promise.all(process.argv.slice(2).map(async (path) => JSON.parse(await readFile(path, "utf8"))));
-  assert.equal(sources.length, 37);
+  const sources = await Promise.all(process.argv.slice(2).map(async (path) => parseExactJson(await readFile(path))));
+  assert.equal(sources.length, 41);
   for (let index = 0; index < 20; index++) {
     const populated = index % 2 === 1, owned = index >= 12;
     const result = execute(sources[36], [index]);
@@ -797,5 +882,14 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     const roles = ["arithmetic_overflow", "division_by_zero", "capacity_exceeded", "invalid_utf8", "invalid_index", "invalid_variant"];
     assert.deepEqual(result.value, failed ? [roles.indexOf(expected)] : scalar(expected), `scalar-contracts ${index}`);
   }
-  console.log("independent source oracle: 37 compiled source fixtures and cancellation/cleanup scenarios passed");
+  assert.deepEqual(execute(sources[37], []), { trace: [], kind: "Completed",
+    value: [1, ...scalar(1), 4, ...[1, 3, 99, 99].flatMap(scalar)] });
+  assert.deepEqual(execute(sources[38], []), { trace: [], kind: "Completed",
+    value: [1, ...scalar(3), 3, ...[1, 3, 99].flatMap(scalar)] });
+  assert.deepEqual(execute(sources[39], []), { trace: [{ kind: "Yielded" }], kind: "Failed", value: [], cleanupFailures: [] });
+  assert.deepEqual(execute(sources[39], [], [], [{ at: 0, reason: "stop" }, { at: 0, reason: "later" }]),
+    { trace: [{ kind: "Yielded" }], kind: "Failed", value: [], cleanupFailures: [], cancellation: "stop" });
+  assert.deepEqual(execute(sources[40], []), { trace: [], kind: "Completed",
+    value: [...scalar(3), 3, ...[3, 7, 99].flatMap(scalar)] });
+  console.log("independent source oracle: 41 compiled source fixtures and cancellation/cleanup scenarios passed");
 }

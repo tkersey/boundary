@@ -109,7 +109,7 @@ pub fn build(b: *std.Build) void {
     const source_fixtures = b.step("emit-v2-source-fixtures", "Emit higher-order source examples and their portable images");
     const oracle = b.addSystemCommand(&.{"node"});
     oracle.addFileArg(b.path("test/v2/source_oracle.mjs"));
-    for ([_][]const u8{ "lexical", "deep", "recursive", "choices-all", "choices-first", "generator", "state-local", "state-shared", "resource-scalar", "resource-pair", "answers", "scoped-reader", "writer-raise", "scheduler", "queens-dfs", "queens-bfs", "cell-order", "nested", "shallow", "injection", "indexed", "abort-custody", "unwind", "reentrant", "cloned", "clause-abort", "bounded-values", "scalar-contracts", "ownership", "shallow-resumptions", "shallow-injection", "handle-operand-order", "protect-operand-order", "successor-state", "clause-payload", "yielding-cleanup", "borrow-operands" }, 0..) |name, index| {
+    for ([_][]const u8{ "lexical", "deep", "recursive", "choices-all", "choices-first", "generator", "state-local", "state-shared", "resource-scalar", "resource-pair", "answers", "scoped-reader", "writer-raise", "scheduler", "queens-dfs", "queens-bfs", "cell-order", "nested", "shallow", "injection", "indexed", "abort-custody", "unwind", "reentrant", "cloned", "clause-abort", "bounded-values", "scalar-contracts", "ownership", "shallow-resumptions", "shallow-injection", "handle-operand-order", "protect-operand-order", "successor-state", "clause-payload", "yielding-cleanup", "borrow-operands", "cleanup-disposal", "cleanup-disposal-running", "cleanup-disposal-failure", "cleanup-disposal-owned" }, 0..) |name, index| {
         for ([_]bool{ true, false }) |source| {
             const source_options = b.addOptions();
             source_options.addOption(usize, "example", index);
@@ -141,6 +141,16 @@ pub fn build(b: *std.Build) void {
     trust.has_side_effects = true;
     trust.step.dependOn(&formal.step);
     semantics.dependOn(&trust.step);
+    const conformance = b.addSystemCommand(&.{"node"});
+    conformance.addFileArg(b.path("test/v2/conformance.mjs"));
+    if (b.option([]const u8, "world-source", "Pinned unmodified World checkout for conformance")) |world| {
+        conformance.addArgs(&.{ "--world", world });
+    }
+    conformance.addArgs(&.{ "--fixtures", b.getInstallPath(.prefix, "") });
+    conformance.step.dependOn(source_fixtures);
+    conformance.has_side_effects = true;
+    b.step("check-v2-conformance", "Compare source semantics with an explicit pinned World checkout")
+        .dependOn(&conformance.step);
     const aggregate = b.step("check-v2", "Check compiler, source semantics, formal core, data and economy without a runtime");
     aggregate.dependOn(data_step);
     aggregate.dependOn(historical_step);
@@ -149,6 +159,7 @@ pub fn build(b: *std.Build) void {
     aggregate.dependOn(source_fixtures);
     const assets_tests = b.addSystemCommand(&.{ "node", "--test" });
     assets_tests.addFileArg(b.path("test/v2/assets.test.mjs"));
+    assets_tests.addFileArg(b.path("test/v2/exact_json.test.mjs"));
     assets_tests.has_side_effects = true;
     aggregate.dependOn(&assets_tests.step);
     const capacity_example = b.addExecutable(.{ .name = "emit-capacity", .root_module = b.createModule(.{

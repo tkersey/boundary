@@ -89,6 +89,7 @@ src/v2/source/writer_raise_example.zig
 src/v2/test_root.zig
 test/v2/bpi1_admission.zig
 test/v2/borrow_returns.zig
+test/v2/cleanup_disposal.zig
 test/v2/compiler_phases.zig
 test/v2/economy_v1.zig
 test/v2/economy_v2.zig
