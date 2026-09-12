@@ -1,4 +1,4 @@
-import BoundaryV2.GeneralizedOwnedClause
+import BoundaryV2.GeneralizedOwnedResume
 
 namespace BoundaryV2.Generalized
 

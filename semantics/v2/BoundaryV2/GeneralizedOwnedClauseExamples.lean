@@ -27,12 +27,10 @@ def capturedOwners : List UseScope.Field :=
 
 def beforeOwnedDispatch : UseScope.State := ⟨capturedOwners ++ [.alias ⟨50⟩], [], []⟩
 
-def sourceBeforeOwnedDispatch : UseScope.ControlStore
-    (Source.Resumption signature algebra [] .shallow .choose (.leaf .boolean) (.leaf .boolean)) :=
+def sourceBeforeOwnedDispatch : Source.ControlHeap signature algebra [] :=
   ⟨beforeOwnedDispatch, [], []⟩
 
-def targetBeforeOwnedDispatch : UseScope.ControlStore
-    (Target.Resumption signature algebra [] .shallow .choose (.leaf .boolean) (.leaf .boolean)) :=
+def targetBeforeOwnedDispatch : Target.ControlHeap signature algebra [] :=
   ⟨beforeOwnedDispatch, [], []⟩
 
 def sourceOwnedDispatch := Source.dispatchOwnedClause (signature := signature) (algebra := algebra)
@@ -82,7 +80,7 @@ theorem target_dispatched_clause_performs_its_own_effect :
 theorem freshly_created_owned_future_is_resumable_once :
     ∃ selected acquired, targetOwnedDispatch = some selected ∧
       UseScope.acquire selected.view selected.store = some acquired ∧
-      acquired.future.future = (.done : Target.Stack signature algebra [] (.leaf .boolean) (.leaf .boolean)) ∧
+      acquired.future = ⟨⟨.shallow, .choose, .leaf .boolean, .leaf .boolean⟩, ⟨⟨8⟩, .done⟩⟩ ∧
       acquired.store.fields.active = capturedOwners ++ [.alias ⟨50⟩] ∧
       UseScope.acquire selected.view acquired.store = none := by
   exact ⟨_, _, rfl, rfl, rfl, rfl, rfl⟩

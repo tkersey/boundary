@@ -166,4 +166,41 @@ def select (wanted : Id .attachment) : Stack signature algebra definitions input
     else (select wanted rest).map (Selection.prepend (.handler effect mode identity returned clauses environment))
   | .push frame rest => (select wanted rest).map (Selection.prepend frame)
 
+theorem select_after_no_match (wanted : Id .attachment)
+    (before : Stack signature algebra definitions input middle) (after : Stack signature algebra definitions middle output)
+    (absent : select wanted before = none) :
+    select wanted (before.append after) =
+      (select wanted after).map (fun selected => { selected with inside := before.append selected.inside }) := by
+  induction before with
+  | done =>
+    simp only [Stack.append]
+    cases select wanted after <;> rfl
+  | push frame rest induction =>
+    cases frame <;> simp only [select] at absent
+    all_goals first
+      | (split at absent
+         · contradiction
+         · rename_i different
+           have tail := Option.map_eq_none_iff.mp absent
+           simp only [Stack.append, select, if_neg different, induction after tail, Option.map_map]
+           rfl)
+      | (have tail := Option.map_eq_none_iff.mp absent
+         simp only [Stack.append, select, induction after tail, Option.map_map]
+         rfl)
+
+/-- The operational prefix guard implies that the actual target selector picks
+this delimiter and retains the entire prefix as its captured inside context. -/
+theorem matching_delimiter_after_prefix (attachment : Id .attachment)
+    (inside : Stack signature algebra definitions input body)
+    (effect : signature.Effect) (mode : Mode)
+    (returned : Code signature algebra definitions (body :: context) [] answer)
+    (clauses : Clauses signature algebra definitions effect mode context body answer)
+    (bindings : RuntimeEnvironment signature algebra definitions context)
+    (outside : Stack signature algebra definitions answer output)
+    (absent : select attachment inside = none) :
+    select attachment (inside.append (.push (.handler effect mode attachment returned clauses bindings) outside)) =
+      some ⟨effect, mode, attachment, body, answer, context, returned, clauses, bindings, inside, outside⟩ := by
+  rw [select_after_no_match _ _ _ absent]
+  simp [select, Stack.append_done]
+
 end BoundaryV2.Generalized.Target

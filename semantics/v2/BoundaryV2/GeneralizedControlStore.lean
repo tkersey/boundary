@@ -302,3 +302,16 @@ theorem linear_drop_rejects (taken : takeControl view.identity store.controls = 
   simp [release, taken, linear, permittedRelease]
 
 end BoundaryV2.Generalized.UseScope
+
+namespace BoundaryV2.Generalized
+
+def UseScope.OneShotUse.type : UseScope.OneShotUse → Use
+  | .affine => .affine
+  | .linear => .linear
+
+def Use.oneShot : (use : Use) → Option { kind : UseScope.OneShotUse // use = kind.type }
+  | .affine => some ⟨.affine, rfl⟩
+  | .linear => some ⟨.linear, rfl⟩
+  | .reusable | .multi => none
+
+end BoundaryV2.Generalized

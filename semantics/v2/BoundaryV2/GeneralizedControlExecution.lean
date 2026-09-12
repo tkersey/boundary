@@ -1,4 +1,4 @@
-import BoundaryV2.GeneralizedControlMachine
+import BoundaryV2.GeneralizedOwnedClause
 import BoundaryV2.GeneralizedSourceExecution
 
 namespace BoundaryV2.Generalized
@@ -35,6 +35,45 @@ inductive OwnedStep (table : Definitions signature algebra program) :
       continuation.evaluate bindings = .ok (.continuation view.identity (some (view.authority, view.owner))) →
       response.evaluate bindings = .ok value → resumeControlWith view store value returned clauses bindings outside = some after →
       OwnedStep table ⟨store, outside.plug (.evaluate (.resumeWith effect continuation response returned clauses) bindings)⟩ after
+  | handled {effect : signature.Effect} {operation : signature.operation effect}
+      [DecidableEq (signature.operation effect)]
+      {mode : Mode} {context : List (TypeOf signature)} {body answer result : TypeOf signature}
+      {returned : Computation signature algebra program (body :: context) answer}
+      {clauses : Clauses signature algebra program effect mode context body answer}
+      {bindings : RuntimeEnvironment signature algebra program context}
+      {payload : RuntimeValue signature algebra program (signature.payload operation)}
+      {bodies : RuntimeEnvironment signature algebra program ((signature.bodies operation).map BodyType.type)}
+      {inside : Context signature algebra program (signature.result operation) body}
+      {outside : Context signature algebra program answer result}
+      {store : ControlHeap signature algebra program} {before captured after : List UseScope.Field}
+      {partition : store.fields.active = before ++ captured ++ after} {clause : OwnedClause signature algebra program result} :
+      select attachment inside = none →
+      dispatchOwnedClause operation attachment returned clauses bindings inside payload bodies outside
+        owner before captured after store partition = some clause →
+      OwnedStep table ⟨store, outside.plug (.handler effect mode attachment returned clauses bindings
+        (.request operation attachment payload bodies inside))⟩ clause.state
+
+inductive OwnedSteps (table : Definitions signature algebra program) :
+    {result : TypeOf signature} → ControlState signature algebra program result → Nat →
+    ControlState signature algebra program result → Prop where
+  | refl : OwnedSteps table state 0 state
+  | cons : OwnedStep table first middle → OwnedSteps table middle count last → OwnedSteps table first (count + 1) last
+
+theorem OwnedSteps.single {before after : ControlState signature algebra program result}
+    (step : OwnedStep table before after) : OwnedSteps table before 1 after := .cons step .refl
+
+theorem OwnedSteps.trans {before middle after : ControlState signature algebra program result}
+    (first : OwnedSteps table before count middle) (second : OwnedSteps table middle rest after) :
+    OwnedSteps table before (count + rest) after := by
+  induction first with
+  | refl => simpa using second
+  | cons step tail induction => simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using OwnedSteps.cons step (induction second)
+
+theorem Steps.with_owned_store (steps : Steps table before count after) (store : ControlHeap signature algebra program) :
+    OwnedSteps table ⟨store, before⟩ count ⟨store, after⟩ := by
+  induction steps with
+  | refl => exact .refl
+  | cons step tail induction => exact .cons (.ordinary step) induction
 
 end Source
 
@@ -68,6 +107,23 @@ inductive OwnedStep (table : Definitions signature algebra program) :
       resumeControlWith view store value returned clauses bindings (.push (.returnTo next bindings values) outside) = some after →
       OwnedStep table ⟨store, .code (.replaceHandler (use := use.type) effect returned clauses next) bindings
         (.cons value (.cons (.continuation view.identity (some (view.authority, view.owner))) values)) outside⟩ after
+  | handled {effect : signature.Effect} {operation : signature.operation effect}
+      [DecidableEq (signature.operation effect)]
+      {mode : Mode} {context : List (TypeOf signature)} {body answer result : TypeOf signature}
+      {returned : Code signature algebra program (body :: context) [] answer}
+      {clauses : Clauses signature algebra program effect mode context body answer}
+      {bindings : RuntimeEnvironment signature algebra program context}
+      {payload : RuntimeValue signature algebra program (signature.payload operation)}
+      {bodies : RuntimeEnvironment signature algebra program ((signature.bodies operation).map BodyType.type)}
+      {inside : Stack signature algebra program (signature.result operation) body}
+      {outside : Stack signature algebra program answer result}
+      {store : ControlHeap signature algebra program} {before captured after : List UseScope.Field}
+      {partition : store.fields.active = before ++ captured ++ after} {clause : OwnedClause signature algebra program result} :
+      select attachment inside = none →
+      dispatchOwnedClause operation attachment returned clauses bindings inside payload bodies outside
+        owner before captured after store partition = some clause →
+      OwnedStep table ⟨store, .requested operation attachment payload bodies
+        (inside.append (.push (.handler effect mode attachment returned clauses bindings) outside))⟩ clause.state
 
 inductive OwnedSteps (table : Definitions signature algebra program) :
     {result : TypeOf signature} →
@@ -101,6 +157,7 @@ theorem OwnedStep.preserves_ownership {before after : ControlState signature alg
   | ordinary step => exact valid
   | resume accepted => exact resume_control_preserves_ownership valid accepted
   | successor accepted => exact successor_control_preserves_ownership valid accepted
+  | handled nearest accepted => exact dispatch_owned_clause_preserves_ownership valid accepted
 
 theorem OwnedSteps.preserves_ownership {before after : ControlState signature algebra program result}
     (steps : OwnedSteps table before count after)
@@ -121,6 +178,50 @@ private theorem corresponding_acceptance (matched : Option.Rel related source ta
   subst source
   cases matched with
   | some proof => exact ⟨_, rfl, proof⟩
+
+/-- A selected operation now moves fields into a freshly named stored future
+and enters its clause in the same execution state used by later resumptions.
+The independent source selector prevents skipping an inner matching delimiter. -/
+theorem handled_operation_corresponds
+    (table : Source.Definitions signature algebra program)
+    (operation : signature.operation effect) [DecidableEq (signature.operation effect)]
+    (attachment : Id .attachment)
+    (returned : Source.Computation signature algebra program (body :: context) answer)
+    (clauses : Source.Clauses signature algebra program effect mode context body answer)
+    (bindings : Source.RuntimeEnvironment signature algebra program context)
+    {sourceInside : Source.Context signature algebra program (signature.result operation) body}
+    {targetInside : Target.Stack signature algebra program (signature.result operation) body}
+    (inside : ContextRelated signature algebra program sourceInside targetInside)
+    (payload : Source.RuntimeValue signature algebra program (signature.payload operation))
+    (bodies : Source.RuntimeEnvironment signature algebra program ((signature.bodies operation).map BodyType.type))
+    {sourceOutside : Source.Context signature algebra program answer result}
+    {targetOutside : Target.Stack signature algebra program answer result}
+    (outside : ContextRelated signature algebra program sourceOutside targetOutside)
+    (owner : Owner) (before captured after : List UseScope.Field)
+    {sourceStore : Source.ControlHeap signature algebra program} {targetStore : Target.ControlHeap signature algebra program}
+    (stores : ControlHeapRelated sourceStore targetStore)
+    (sourcePartition : sourceStore.fields.active = before ++ captured ++ after)
+    (targetPartition : targetStore.fields.active = before ++ captured ++ after)
+    (nearest : Source.select attachment sourceInside = none)
+    (accepted : Source.dispatchOwnedClause operation attachment returned clauses bindings sourceInside payload bodies sourceOutside
+      owner before captured after sourceStore sourcePartition = some sourceAfter) :
+    ∃ targetAfter : Target.OwnedClause signature algebra program result, ControlStateRelated sourceAfter.state targetAfter.state ∧
+      Source.OwnedStep table ⟨sourceStore, sourceOutside.plug (.handler effect mode attachment returned clauses bindings
+        (.request operation attachment payload bodies sourceInside))⟩ sourceAfter.state ∧
+      Target.OwnedSteps (definitions table) ⟨targetStore, .requested operation attachment (value payload) (environment bodies)
+        (targetInside.append (.push (.handler effect mode attachment (computation returned)
+          (Defunctionalization.clauses clauses) (environment bindings)) targetOutside))⟩ 1 targetAfter.state := by
+  have selected := selection_corresponds attachment inside
+  rw [nearest] at selected
+  have nearestTarget : Target.select attachment targetInside = none := by
+    cases found : Target.select attachment targetInside with
+    | none => rfl
+    | some selectedTarget => rw [found] at selected; cases selected
+  obtain ⟨targetAfter, targetAccepted, matched⟩ := corresponding_acceptance
+    (owned_clause_dispatch_corresponds operation attachment returned clauses bindings inside payload bodies outside
+      owner before captured after stores sourcePartition targetPartition) accepted
+  exact ⟨targetAfter, ⟨matched.store, matched.entry⟩, .handled nearest accepted,
+    .single (.handled nearestTarget targetAccepted)⟩
 
 /-- Every successful source owned resumption has a positive, finite compiled
 execution. Operand draining keeps both the lexical bindings and caller tail. -/
