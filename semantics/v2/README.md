@@ -346,6 +346,12 @@ all scope fields and binds every enumerated occurrence to the actual custody
 book. A checked closure-disposal witness covers the transfer of an owning
 field into the active queue and a suspended disposal frame; the full
 all-field custody bijection remains a separate proof obligation.
+`ObjectOwners.initialized_execution_preserves_object_owners` binds closure
+captures and wrapper contents to their actual heap node and field offset,
+including copied closures. The admitted cell rule proves contents token-free.
+`OwningFields.reachable_object_and_scope_entries_are_unique` combines those
+object addresses with scope slots to prove that no live token occurs twice
+across all heap-object fields and scope holdings.
 `SourceRequestLaws` additionally proves that every finite source trace contains
 exactly the consecutive request-opening identities allocated during that trace.
 Those identities are unique even when payloads are equal. Parked polling,
