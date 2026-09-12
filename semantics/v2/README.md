@@ -318,6 +318,11 @@ reachable addition, subtraction, multiplication, division, and remainder.
 The shared arithmetic evaluator accepts admitted, well-typed operands; overflow
 and division faults retain their declared failure constants and enter actual
 source unwind. Neither successful evaluation nor custody is assumed.
+The same initialized-execution progress result covers all four bitwise
+operations, integer conversion, integer and Boolean comparison, Boolean NOT,
+and enumeration tags. Conversions with an empty failure interface are proved
+total from their integer bounds; narrowing overflow follows the authored fault
+interface. These theorems do not assume evaluator or custody success.
 `SourceRequestLaws` additionally proves that every finite source trace contains
 exactly the consecutive request-opening identities allocated during that trace.
 Those identities are unique even when payloads are equal. Parked polling,
