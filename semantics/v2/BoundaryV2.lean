@@ -3,3 +3,5 @@ import BoundaryV2.Lowering
 import BoundaryV2.ControlLowering
 import BoundaryV2.Regions
 import BoundaryV2.EffectsExamples
+import BoundaryV2.GeneralizedHandlerEntry
+import BoundaryV2.GeneralizedExamples

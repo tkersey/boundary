@@ -1,4 +1,4 @@
-import BoundaryV2.GeneralizedContinuations
+import BoundaryV2.GeneralizedCalls
 import BoundaryV2.GeneralizedOwnership
 
 namespace BoundaryV2.Generalized
@@ -49,20 +49,20 @@ namespace ExitComposition
 variable {signature : Signature} {algebra : LeafAlgebra signature.Data}
   {definitions : List (BodyType signature.Data signature.Effect)}
 
-/-- A cleanup cursor is inspectable first-order execution state. A parked
-request retains its payload, scoped arguments, and typed return stack. -/
-inductive Cursor (signature : Signature) (algebra : LeafAlgebra signature.Data)
-    (definitions : List (BodyType signature.Data signature.Effect)) where
-  | code : Target.Code signature algebra definitions context operands result →
-    Target.RuntimeEnvironment signature algebra definitions context →
-    Target.RuntimeEnvironment signature algebra definitions operands →
-    Target.Stack signature algebra definitions result .unit → Cursor signature algebra definitions
-  | returned : Target.RuntimeValue signature algebra definitions result →
-    Target.Stack signature algebra definitions result .unit → Cursor signature algebra definitions
-  | requested : (operation : signature.operation effect) → Id .attachment →
-    Target.RuntimeValue signature algebra definitions (signature.payload operation) →
-    Target.RuntimeEnvironment signature algebra definitions ((signature.bodies operation).map BodyType.type) →
-    Target.Stack signature algebra definitions (signature.result operation) .unit → Cursor signature algebra definitions
+/-- Cleanup runs the same first-order target code as an ordinary computation,
+with a unit answer. There is no second cursor representation to keep in sync. -/
+abbrev Cursor (signature : Signature) (algebra : LeafAlgebra signature.Data)
+    (definitions : List (BodyType signature.Data signature.Effect)) :=
+  Target.Configuration signature algebra definitions .unit
+
+def pendingProtections : Target.Stack signature algebra definitions input result → List (Id .obligation)
+  | .done => []
+  | .push (.protection obligationId _ _) rest => obligationId :: pendingProtections rest
+  | .push _ rest => pendingProtections rest
+
+def cursorProtections : Cursor signature algebra definitions → List (Id .obligation)
+  | .code _ _ _ future | .returned _ future | .requested _ _ _ _ future | .failed _ future => pendingProtections future
+  | .yielded next => cursorProtections next
 
 inductive Location where
   | active
@@ -114,41 +114,54 @@ theorem repeated_cancellation (first later : algebra.Reason) (obligation : Oblig
   cases obligation
   simp only [cancel, ExitInfo.cancel_keeps_first_reason]
 
-/-- Local lifecycle transitions. Execution between cursors belongs to the
-control semantics; these transitions govern only initiation, storage, response
-handoff, and the three distinct terminal outcomes. The Nat label counts actual
+/-- Local lifecycle transitions include actual target instructions as well as
+initiation, storage, response handoff, and the three terminal outcomes. The Nat label counts actual
 initiations, not machine steps or semantic fuel. -/
-inductive Step : Obligation signature algebra definitions → Nat → Obligation signature algebra definitions → Prop where
-  | begin : Step ⟨obligationId, .pending entry, fields, exit⟩ 1
+inductive Step (table : Target.Definitions signature algebra definitions) : Obligation signature algebra definitions → Nat → Obligation signature algebra definitions → Prop where
+  | begin : Step table ⟨obligationId, .pending entry, fields, exit⟩ 1
       ⟨obligationId, .running (.code entry.body (.cons (.exit exit) entry.environment) .nil .done) .active, fields, exit⟩
-  | capture : Step ⟨obligationId, .running cursor .active, fields, exit⟩ 0
+  | execute : Target.CallStep table before after →
+      Step table ⟨obligationId, .running before .active, fields, exit⟩ 0
+        ⟨obligationId, .running after .active, fields, exit⟩
+  | capture : Step table ⟨obligationId, .running cursor .active, fields, exit⟩ 0
       ⟨obligationId, .running cursor (.captured controlId), fields, exit⟩
-  | reattach : Step ⟨obligationId, .running cursor (.captured controlId), fields, exit⟩ 0
+  | reattach : Step table ⟨obligationId, .running cursor (.captured controlId), fields, exit⟩ 0
       ⟨obligationId, .running cursor .active, fields, exit⟩
-  | park : Step ⟨obligationId, .running (.requested operation attachment payload bodies future) .active, fields, exit⟩ 0
+  | park : Step table ⟨obligationId, .running (.requested operation attachment payload bodies future) .active, fields, exit⟩ 0
       ⟨obligationId, .running (.requested operation attachment payload bodies future) .parked, fields, exit⟩
-  | response : Step ⟨obligationId, .running (.requested operation attachment payload bodies future) .parked, fields, exit⟩ 0
+  | parkYield : Step table ⟨obligationId, .running (.yielded future) .active, fields, exit⟩ 0
+      ⟨obligationId, .running (.yielded future) .parked, fields, exit⟩
+  | continueYield : Step table ⟨obligationId, .running (.yielded future) .parked, fields, exit⟩ 0
+      ⟨obligationId, .running future .active, fields, exit⟩
+  | response : Step table ⟨obligationId, .running (.requested operation attachment payload bodies future) .parked, fields, exit⟩ 0
       ⟨obligationId, .running (.returned response future) .active, fields, exit⟩
-  | cancelled : Step obligation 0 (cancel reason obligation)
-  | returned : Step ⟨obligationId, .running (.returned (.datum .unit) .done) .active, fields, exit⟩ 0
+  | cancelled : Step table obligation 0 (cancel reason obligation)
+  | returned : Step table ⟨obligationId, .running (.returned (.datum .unit) .done) .active, fields, exit⟩ 0
       ⟨obligationId, .finished .returned, fields, exit⟩
-  | failed : Step ⟨obligationId, .running (.code (.fault fault) environment operands future) .active, fields, exit⟩ 0
+  | failed : Step table ⟨obligationId, .running (.failed fault .done) .active, fields, exit⟩ 0
       ⟨obligationId, .finished (.failed fault), fields, exit.cleanupFailure fault⟩
-  | abandoned : Step ⟨obligationId, .running cursor location, fields, exit⟩ 0
+  | abandoned : cursorProtections cursor = [] → Step table ⟨obligationId, .running cursor location, fields, exit⟩ 0
       ⟨obligationId, .finished .abandoned, fields, exit.abandon⟩
 
-theorem step_preserves_fields (step : Step before initiations after) : after.fields = before.fields := by
+theorem step_preserves_fields (step : Step table before initiations after) : after.fields = before.fields := by
   cases step <;> rfl
 
-theorem initiation_conservation (step : Step before initiations after) :
+theorem initiation_conservation (step : Step table before initiations after) :
     initiations + after.phase.right = before.phase.right := by
   cases step <;> simp [Phase.right, cancel]
 
-inductive Steps : Obligation signature algebra definitions → Nat → Obligation signature algebra definitions → Prop where
-  | refl : Steps state 0 state
-  | cons : Step first count middle → Steps middle rest last → Steps first (count + rest) last
+inductive Steps (table : Target.Definitions signature algebra definitions) : Obligation signature algebra definitions → Nat → Obligation signature algebra definitions → Prop where
+  | refl : Steps table state 0 state
+  | cons : Step table first count middle → Steps table middle rest last → Steps table first (count + rest) last
 
-theorem finite_initiation_conservation (steps : Steps before initiations after) :
+theorem execute_steps (steps : Target.CallSteps table before count after) :
+    Steps table ⟨obligationId, .running before .active, fields, exit⟩ 0
+      ⟨obligationId, .running after .active, fields, exit⟩ := by
+  induction steps with
+  | refl => exact .refl
+  | cons step tail induction => exact .cons (.execute step) induction
+
+theorem finite_initiation_conservation (steps : Steps table before initiations after) :
     initiations + after.phase.right = before.phase.right := by
   induction steps with
   | refl => simp
@@ -156,18 +169,18 @@ theorem finite_initiation_conservation (steps : Steps before initiations after) 
     rw [Nat.add_assoc, induction]
     exact initiation_conservation step
 
-theorem at_most_one_initiation (steps : Steps before initiations after) : initiations ≤ 1 := by
+theorem at_most_one_initiation (steps : Steps table before initiations after) : initiations ≤ 1 := by
   have conserved := finite_initiation_conservation steps
   have bounded : before.phase.right ≤ 1 := by cases before.phase <;> simp [Phase.right]
   omega
 
 theorem running_never_restarts
-    (steps : Steps ⟨obligationId, .running cursor location, fields, exit⟩ initiations after) : initiations = 0 := by
+    (steps : Steps table ⟨obligationId, .running cursor location, fields, exit⟩ initiations after) : initiations = 0 := by
   have conserved := finite_initiation_conservation steps
   simp only [Phase.right] at conserved
   omega
 
-theorem finite_steps_preserve_fields (steps : Steps before initiations after) : after.fields = before.fields := by
+theorem finite_steps_preserve_fields (steps : Steps table before initiations after) : after.fields = before.fields := by
   induction steps with
   | refl => rfl
   | cons step rest induction => exact induction.trans (step_preserves_fields step)
