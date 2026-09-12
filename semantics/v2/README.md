@@ -344,8 +344,8 @@ lexical inheritance, and empty scopes copied during resumption cloning.
 erasing occurrence multiplicity. It proves uniqueness of live tokens across
 all scope fields and binds every enumerated occurrence to the actual custody
 book. A checked closure-disposal witness covers the transfer of an owning
-field into the active queue and a suspended disposal frame; the full
-all-field custody bijection remains a separate proof obligation.
+field into the active queue and a suspended disposal frame. The complete
+physical-inventory bijection is established below.
 `ObjectOwners.initialized_execution_preserves_object_owners` binds closure
 captures and wrapper contents to their actual heap node and field offset,
 including copied closures. The admitted cell rule proves contents token-free.
@@ -371,8 +371,17 @@ successful reusable instantiation introduces no disposal queues.
 `OwningFields.reachable_entries_are_unique` combines heap fields with all active
 and captured disposal queues. No live token occurs twice in the complete physical
 owning-field enumeration, and the existing reference-safety proof binds each
-enumerated entry to the custody book. Coverage of every custody-book entry,
-borrow preservation, and full source well-formedness remain separate obligations.
+enumerated entry to the custody book.
+`CustodyCoverage.initialized_execution_preserves_custody_coverage` proves the
+reverse inclusion: every book entry retains a physical owning occurrence. The
+proof accounts for values in transit within atomic calls, closure retirement,
+lexical inheritance, capture and activation, disposal, cleanup, and external
+responses. Parked responses replace ordinary control without dropping pending
+disposal work. `OwningFields.reachable_custody_bijection` combines coverage and
+uniqueness to prove a permutation of the complete live physical entry list and
+the actual custody book, including token, object, owner, and multiplicity. Its
+only premises are successful initialization and the actual source execution.
+Borrow preservation and full source well-formedness remain separate obligations.
 `SourceRequestLaws` additionally proves that every finite source trace contains
 exactly the consecutive request-opening identities allocated during that trace.
 Those identities are unique even when payloads are equal. Parked polling,
