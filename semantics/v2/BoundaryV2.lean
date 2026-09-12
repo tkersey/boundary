@@ -185,3 +185,9 @@ import BoundaryV2.SourceLexicalFrames
 import BoundaryV2.SourceLexicalTransitions
 import BoundaryV2.SourceLexicalCleanup
 import BoundaryV2.SourceLexicalExecution
+import BoundaryV2.SourceRegionIdentity
+import BoundaryV2.SourceRegionIdentityClone
+import BoundaryV2.SourceRegionIdentityHeap
+import BoundaryV2.SourceRegionIdentityControl
+import BoundaryV2.SourceRegionIdentityCleanup
+import BoundaryV2.SourceRegionIdentityExecution

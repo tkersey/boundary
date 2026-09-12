@@ -467,6 +467,10 @@ distinct logical identities throughout initialized source execution. The clone
 proof uses the actual copied-node order and fresh cell-identity map; aliases to
 one physical cell remain permitted. The theorem covers all internal and external
 steps, including cancellation, cleanup, disposal, and reusable activation.
+`SourceRegionIdentityExecution` proves the corresponding uniqueness of logical
+region identities among source region objects. Actual region creation and every
+object copied during reusable capture activation preserve it; aliases to a
+single region object remain permitted.
 `SourceLexicalExecution` proves source-code bounds and lexical binding availability
 through every initialized internal and external transition. Saved continuations,
 including dormant and cloned captures, retain the bindings their continuation
