@@ -313,6 +313,11 @@ leaf invariant covers active disposal lists and saved disposal callers in
 current and dormant continuations. Reference safety and object schemas then
 discharge the actual lookup and retirement guards; disposal never treats an
 aggregate or reusable object as an exclusive leaf.
+`NumericProgress.reachable_arithmetic_progress` discharges every tick guard for
+reachable addition, subtraction, multiplication, division, and remainder.
+The shared arithmetic evaluator accepts admitted, well-typed operands; overflow
+and division faults retain their declared failure constants and enter actual
+source unwind. Neither successful evaluation nor custody is assumed.
 `SourceRequestLaws` additionally proves that every finite source trace contains
 exactly the consecutive request-opening identities allocated during that trace.
 Those identities are unique even when payloads are equal. Parked polling,

@@ -208,3 +208,6 @@ import BoundaryV2.SourceDisposalShape
 import BoundaryV2.SourceDisposalCapture
 import BoundaryV2.SourceDisposalCleanup
 import BoundaryV2.SourceDisposalExecution
+import BoundaryV2.PrimitiveProgress
+import BoundaryV2.SourceFaultProgress
+import BoundaryV2.SourceNumericProgress
