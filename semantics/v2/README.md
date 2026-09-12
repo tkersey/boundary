@@ -381,6 +381,15 @@ disposal work. `OwningFields.reachable_custody_bijection` combines coverage and
 uniqueness to prove a permutation of the complete live physical entry list and
 the actual custody book, including token, object, owner, and multiplicity. Its
 only premises are successful initialization and the actual source execution.
+`ObligationLocations.initialized_execution_preserves_obligation_locations`
+proves that active and heap-captured protection/cleanup frames coincide, with
+multiplicity, with the pending/running obligation records. Capture, activation,
+one-shot disposal, cleanup failure, and cancellation preserve that correspondence;
+reusable instantiation copies no obligation frame. The derived
+`reachable_phase_frames_are_unique` and `reachable_phase_frame_iff` establish one
+frame per pending/running obligation, the exact running invocation, and no frame
+for a completed or failed obligation. This counts finite physical storage once;
+it does not establish reachability of every stored capture or cleanup termination.
 Borrow preservation and full source well-formedness remain separate obligations.
 `SourceRequestLaws` additionally proves that every finite source trace contains
 exactly the consecutive request-opening identities allocated during that trace.
