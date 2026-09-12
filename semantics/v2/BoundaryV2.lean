@@ -199,3 +199,6 @@ import BoundaryV2.SourceScopeTreeExecution
 import BoundaryV2.SourceInformationCapacity
 import BoundaryV2.SourceValueExecution
 import BoundaryV2.SourceEntryProgress
+import BoundaryV2.SourceInternalProgress
+import BoundaryV2.SourceResultContracts
+import BoundaryV2.SourceClosureProgress

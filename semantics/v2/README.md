@@ -289,6 +289,19 @@ normal returns through disposal frames. For initialized trajectories, variable
 entry's only remaining refusal is custody; missing-reference and schema-mismatch
 errors are excluded, and copyable variables always enter. These are
 progress components, not full progress for calls, primitive execution, and unwind.
+`SourceClosureProgress` derives successful ticks for copyable lambdas, including
+their captures. The checked capture bound, reachable lexical bindings, value
+shapes, scope identity, and custody bounds discharge the actual constructor's
+guards. `SourceResultContracts` connects each checked source row to the complete
+result table and proves that every invoked body's normal result matches its
+function declaration. Abrupt bodies remain distinct from normal returns.
+`SourceInternalProgress` proves (`InternalProgress.running_tick_changes`) that every
+successful internal tick from any running source state changes that state. The
+proof covers every control and frame rule, including heap retirement during
+disposal and stack removal during unwind, without a well-formedness premise.
+This excludes identity ticks as a progress witness; successful-step existence
+for all well-formed running states and well-founded target stuttering remain
+separate obligations.
 `SourceRequestLaws` additionally proves that every finite source trace contains
 exactly the consecutive request-opening identities allocated during that trace.
 Those identities are unique even when payloads are equal. Parked polling,

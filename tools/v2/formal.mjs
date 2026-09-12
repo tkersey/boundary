@@ -309,6 +309,9 @@ export async function semanticMutations(root) {
       /EffectsActivation\.lean[\s\S]*(unsolved goals|Type mismatch|Tactic)/],
     ['parked-poll-event', 'EffectsEvents.lean', '| .running _, .pending pending =>',
       '| _, .pending pending =>', /EffectsEvents\.lean[\s\S]*(unsolved goals|Type mismatch|Tactic)/],
+    ['source-running-identity-tick', 'SourceMachine.lean', '| .running => tickRunning state context',
+      '| .running => let _ := context; .ok ⟨state, []⟩',
+      /SourceCellExecution\.lean[\s\S]*Application type mismatch/],
   ];
   for (const [name, file, before, after, diagnostic] of cases) {
     const { directory, copy } = await isolatedCopy(root);
