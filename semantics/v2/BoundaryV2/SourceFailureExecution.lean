@@ -399,10 +399,7 @@ theorem reachable_unwind_preserves_value_shapes (context : Context) (arguments :
     (unwinding : machine.control = .unwind original) (after : Transition)
     (accepted : unwindStep machine context = .ok after)
     (typed : ValueInventory.All (ValueShape context.source.schemas) machine)
-    (failureBound : original.failures.length < wordLimit)
-    (reasonTypes : ∀ reason, (observedExit machine original).cancellation = some reason → match reason with
-      | .text data => data.length < wordLimit ∧ UTF8.valid data = true
-      | .bytes data => data.length < wordLimit) : ValueInventory.All (ValueShape context.source.schemas) after.state := by
+    : ValueInventory.All (ValueShape context.source.schemas) after.state := by
   have failureTyped := initialized_execution_preserves_failure_schemas _ _ _ _ _ initialized steps
   have originalTyped : Types context.source (exit original) := by
     simpa only [unwinding, control] using control_types _ _ failureTyped
@@ -412,7 +409,7 @@ theorem reachable_unwind_preserves_value_shapes (context : Context) (arguments :
     intro value member
     apply typed
     simp [ValueInventory.state, unwinding, ValueInventory.control, member]
-  apply unwindStep_preserves_value_shapes _ _ _ _ unwinding accepted typed _ failureBound reasonTypes
+  apply unwindStep_preserves_value_shapes _ _ _ _ unwinding accepted typed _
   intro value failed
   rcases failed with failed | member
   · exact ⟨originalValues value (ValueInventory.observed_exit_subset machine original (by simp [exitValues, failed])),

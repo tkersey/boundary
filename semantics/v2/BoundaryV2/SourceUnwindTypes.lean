@@ -57,10 +57,7 @@ theorem unwindStep_preserves_value_shapes (machine : State) (context : Context) 
     (typed : ValueInventory.All (ValueShape context.source.schemas) machine)
     (failureTypes : ∀ value, (observedExit machine original).primary = .failure value ∨ value ∈ original.failures →
       ValueShape context.source.schemas value ∧ value.schema = context.source.failure)
-    (failureBound : original.failures.length < wordLimit)
-    (reasonTypes : ∀ reason, (observedExit machine original).cancellation = some reason → match reason with
-      | .text data => data.length < wordLimit ∧ UTF8.valid data = true
-      | .bytes data => data.length < wordLimit) : ValueInventory.All (ValueShape context.source.schemas) after.state := by
+    : ValueInventory.All (ValueShape context.source.schemas) after.state := by
   have originalTyped : ∀ value ∈ exitValues original, ValueShape context.source.schemas value := by
     intro value member
     apply typed
@@ -119,10 +116,6 @@ theorem unwindStep_preserves_value_shapes (machine : State) (context : Context) 
     case protection identity =>
       apply beginCleanup_preserves_value_shapes _ _ _ _ _ _ _ accepted typed observedTyped (by simp) tailTyped
       · simpa only [observed_exit_idempotent, observed_exit_failures] using failureTypes
-      · simpa only [observed_exit_failures] using failureBound
-      · intro reason found
-        have acceptedReason := reasonTypes reason (by simpa only [observed_exit_idempotent] using found)
-        cases reason <;> exact acceptedReason
     case cleanupReturn identity invocation outer normal =>
       apply cleanupFailed_preserves_value_shapes _ _ _ _ _ _ _ _ accepted typed _ observedTyped _ tailTyped
       · intro value member

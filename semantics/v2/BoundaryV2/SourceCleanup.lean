@@ -1,9 +1,12 @@
 import BoundaryV2.SourceEffects
+import BoundaryV2.ProtocolCodec
 
 namespace BoundaryV2.Profile.Source.Machine
 
 def cleanupInformation (context : Context) (schema : SchemaId .source)
     (exit : Cleanup.Exit .source) : Except Invalid SemanticValue := do
+  require (exit.failures.length < wordLimit && exit.cancellation.all Codecs.reason.valid) .capacity
+  require (exit.cancellation.all Protocol.reasonValid) .type
   let .product [primary, optional, failures] ← fromOption context.source.schemas[schema.value]? .type | throw .type
   let .sum [unit, failure, reason, abandoned] ← fromOption context.source.schemas[primary.value]? .type | throw .type
   let .sum [absent, present] ← fromOption context.source.schemas[optional.value]? .type | throw .type

@@ -292,10 +292,7 @@ theorem beginCleanup_preserves_value_shapes (machine : State) (context : Context
     (tailTyped : ∀ value ∈ tail.flatMap ValueInventory.frame, ValueShape context.source.schemas value)
     (failureTypes : ∀ value, (observedExit machine exit).primary = .failure value ∨ value ∈ exit.failures →
       ValueShape context.source.schemas value ∧ value.schema = context.source.failure)
-    (failureBound : (observedExit machine exit).failures.length < wordLimit)
-    (reasonTypes : ∀ reason, (observedExit machine exit).cancellation = some reason → match reason with
-      | .text data => data.length < wordLimit ∧ UTF8.valid data = true
-      | .bytes data => data.length < wordLimit) : ValueInventory.All (ValueShape context.source.schemas) after.state := by
+    : ValueInventory.All (ValueShape context.source.schemas) after.state := by
   simp only [beginCleanup, bind, except_bind_ok, fromOption_ok, pure, Except.pure, Except.ok.injEq] at accepted
   obtain ⟨before, found, _, _, ⟨record, events⟩, begun, signature, _, infoType, _, information, informationAt, result, applied, rfl⟩ := accepted
   have beforeTyped := ValueInventory.lookup_obligation_preserves_all machine identity before found _ typed
@@ -307,7 +304,7 @@ theorem beginCleanup_preserves_value_shapes (machine : State) (context : Context
     unfold observedExit
     cases machine.cancellation <;> rfl
   have informationTyped := cleanupInformation_preserves_value_shapes context infoType (observedExit machine exit)
-    information informationAt (by simpa only [observedFailures] using failureTypes) failureBound reasonTypes
+    information informationAt (by simpa only [observedFailures] using failureTypes)
   have normalListTyped : ∀ value ∈ normal.toList, ValueShape context.source.schemas value.value := by simpa using normalTyped
   apply ValueInventory.applyClosure_preserves_all _ _ _ _ _ applied (ValueShape context.source.schemas)
   · simp only [ValueInventory.All, ValueInventory.state, List.flatMap_cons, ValueInventory.frame,

@@ -371,9 +371,10 @@ value and propagates structural traits to reference leaves. `TraitCompleteness`
 proves that every safe trait is accepted within the existing finite catalog
 bound. `SourceValueTypes` connects these results to the actual allocation modes:
 a typed copy-safe value has no owned tokens, including in aggregate fields and
-closure captures. Initialization, external interactions, identity renaming, and
-closure creation preserve this value-shape component. Live object compatibility
-and preservation through all internal transitions remain separate obligations.
+closure captures. `SourceValueExecution` proves this finite value-typing component
+through every initialized internal and external transition, including primitive evaluation,
+reusable activation, cancellation, and suspended cleanup. Complete heap, scope,
+and frame compatibility remain separate obligations.
 
 `TraitImplications` proves that clone safety entails copy safety, including
 recursive computation and resumption dependencies. A typed clone-safe value
@@ -387,8 +388,8 @@ application, lexical binding, pattern entry, the control-term dispatcher, and
 invocation return. `SourceLifetimeTypes` proves that extracting live owned
 leaves, leaving lexical scopes, releasing holdings, and disposing values
 preserve value shapes, including reinstated one-shot cleanup frames. These
-results cover finite value typing; they do not yet establish complete heap,
-scope, or obligation compatibility or preservation by every internal rule.
+local results supply the full value-typing induction. Complete heap, scope,
+and obligation compatibility remain separate obligations.
 `SourceCaptureValueTypes` proves preservation by the actual capture-instantiation
 path, including copied objects, frozen local-cell substitution, dormant
 captures, reference renaming, and newly allocated scopes.
@@ -400,12 +401,16 @@ from the predecessor state; they do not assume the successor is well-typed.
 `SourceCleanupValueTypes` proves value-shape preservation for the cleanup-term
 dispatcher, protection installation, cleanup completion and failure, and cleanup
 entry. `SourceInformationTypes` derives the type of the actual cleanup-information
-record from its checked layout and explicit failure-payload, cancellation-reason,
-and sequence-length constraints. Cleanup entry carries those input obligations;
-`SourceUnwindTypes` proves the full unwind path preserves value shapes under
-these constraints. Preservation of the constraints by the complete state
-machine remains open. `PrimitiveValueTypes` proves typing for the shared
-arithmetic, bitwise, conversion, comparison, natural, optional, collection, blob,
+record from its checked layout and typed failure values. The actual constructor
+checks payload sizes against the profile's 64-bit length limit and validates text
+reasons. An unrepresentable size returns an operational `capacity` rejection with
+no committed successor; it does not become an authored failure.
+`SourceInformationCapacity` checks both sides of the exact length boundary,
+malformed text, and absence of a successor after oversized cleanup preparation.
+`SourceUnwindTypes` proves preservation through the full unwind path without
+caller-supplied size or cancellation-validity premises. `PrimitiveValueTypes`
+proves typing for the shared arithmetic, bitwise, conversion, comparison, natural,
+optional, collection, blob,
 and slice constructors, deriving fixed-array bounds from schema admission.
 `IntegerTextTypes` checks the exact decimal byte construction for every supported
 integer width: ASCII UTF-8 with at most 21 bytes, including a possible minus sign.
@@ -443,8 +448,8 @@ prove that primary failures, accumulated cleanup failures, and failed obligation
 records retain the source module's failure schema through initialized execution.
 This includes failure data in captured continuations and its preservation under
 renaming, resumption, disposal, and cancellation. The unwind value-preservation
-lemma derives failure schemas from this invariant; finite failure-list and
-cancellation-payload bounds remain explicit premises.
+lemma derives failure schemas from this invariant; the cleanup information
+constructor supplies its own payload size and text checks.
 `SourceCancellation` and `SourceCancellationExecution` prove that internal
 source transitions retain the machine's cancellation reason and that all actual
 `Steps` preserve the first accepted reason. Initialized execution validates text

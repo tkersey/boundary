@@ -19,7 +19,7 @@ theorem cleanupInformation_preserves_references (context : Context) (schema : Sc
     (holds : ∀ value ∈ exitValues exit, Primitives.ReferencesSatisfy property value) :
     Primitives.ReferencesSatisfy property information := by
   simp only [cleanupInformation, bind, except_bind_ok, fromOption_ok] at accepted
-  obtain ⟨shape, _, accepted⟩ := accepted
+  obtain ⟨_, _, _, _, shape, _, accepted⟩ := accepted
   split at accepted <;> try contradiction
   rename_i primary optional failures productAt
   simp only [except_bind_ok, fromOption_ok] at accepted

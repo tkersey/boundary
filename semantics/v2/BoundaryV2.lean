@@ -196,3 +196,5 @@ import BoundaryV2.SourceScopeTreeHeap
 import BoundaryV2.SourceScopeTreeControl
 import BoundaryV2.SourceScopeTreeEffects
 import BoundaryV2.SourceScopeTreeExecution
+import BoundaryV2.SourceInformationCapacity
+import BoundaryV2.SourceValueExecution

@@ -16,18 +16,32 @@ private theorem require_ok (condition : Bool) (reason : Invalid) (result : Unit)
   split at accepted <;> first | assumption | contradiction
 
 /-- Cleanup information is constructed from a typed failure sequence and an
-admissible cancellation reason. These are input-field obligations. -/
+admissible cancellation reason. Size and text checks belong to the actual constructor. -/
 theorem cleanupInformation_preserves_value_shapes (context : Context) (schema : SchemaId .source)
     (exit : Cleanup.Exit .source) (information : SemanticValue)
     (accepted : cleanupInformation context schema exit = .ok information)
     (failureTypes : ∀ value, exit.primary = .failure value ∨ value ∈ exit.failures →
       ValueShape context.source.schemas value ∧ value.schema = context.source.failure)
-    (failureBound : exit.failures.length < wordLimit)
-    (reasonTypes : ∀ reason, exit.cancellation = some reason → match reason with
-      | .text data => data.length < wordLimit ∧ UTF8.valid data = true
-      | .bytes data => data.length < wordLimit) : ValueShape context.source.schemas information := by
+    : ValueShape context.source.schemas information := by
   simp only [cleanupInformation, bind, except_bind_ok, fromOption_ok] at accepted
-  obtain ⟨shape, productAt, accepted⟩ := accepted
+  obtain ⟨_, dimensions, _, textGate, shape, productAt, accepted⟩ := accepted
+  have dimensions := require_ok _ _ _ dimensions
+  have textGate := require_ok _ _ _ textGate
+  simp only [Bool.and_eq_true, decide_eq_true_eq] at dimensions
+  have failureBound := dimensions.1
+  have reasonTypes (reason : Protocol.Reason) (found : exit.cancellation = some reason) :
+      match reason with
+      | .text data => data.length < wordLimit ∧ UTF8.valid data = true
+      | .bytes data => data.length < wordLimit := by
+    have raw : Codecs.reason.valid reason = true := by simpa only [found, Option.all_some] using dimensions.2
+    have text : Protocol.reasonValid reason = true := by simpa only [found, Option.all_some] using textGate
+    cases reason with
+    | text data =>
+      change (decide (data.length < wordLimit) && true) = true at raw
+      exact ⟨by simpa using raw, text⟩
+    | bytes data =>
+      change (decide (data.length < wordLimit) && true) = true at raw
+      simpa using raw
   split at accepted <;> try contradiction
   rename_i primary optional failures
   simp only [except_bind_ok, fromOption_ok] at accepted

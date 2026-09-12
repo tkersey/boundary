@@ -26,7 +26,7 @@ theorem cleanupInformation_preserves_reference_structure (context : Context) (sc
       ValueStructure context.source.schemas value ∧ value.schema = context.source.failure)
  : ValueStructure context.source.schemas information := by
   simp only [cleanupInformation, bind, except_bind_ok, fromOption_ok] at accepted
-  obtain ⟨shape, productAt, accepted⟩ := accepted
+  obtain ⟨_, _, _, _, shape, productAt, accepted⟩ := accepted
   split at accepted <;> try contradiction
   rename_i primary optional failures
   simp only [except_bind_ok, fromOption_ok] at accepted

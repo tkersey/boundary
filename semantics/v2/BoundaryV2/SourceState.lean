@@ -210,6 +210,8 @@ structure Transition where
 
 inductive Invalid where
   | reference | type | operands | custody | scope | inactive
+  /-- A profile value cannot represent this payload size. No successor is committed. -/
+  | capacity
   deriving DecidableEq, Repr
 
 /-- Administrative paths use these actual syntax/control changes. Source
