@@ -9,3 +9,4 @@ import BoundaryV2.GeneralizedControlExamples
 import BoundaryV2.GeneralizedObservationExamples
 import BoundaryV2.GeneralizedInteractionExamples
 import BoundaryV2.GeneralizedOwnedClauseExamples
+import BoundaryV2.GeneralizedSuccessorExamples

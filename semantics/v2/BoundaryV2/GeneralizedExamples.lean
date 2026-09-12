@@ -46,7 +46,7 @@ inductive Operation : Effect → Type where
   | text : Operation .text
   | within : Operation .scoped
 
-def signature : Signature := {
+abbrev signature : Signature := {
   Data := Data
   Effect := Effect
   operation := Operation

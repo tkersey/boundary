@@ -22,6 +22,9 @@ execution, byte-format, refusal, or capacity certificates.
 - Core terms are intrinsically typed. Local operations take their actual use,
   capture, and finite-scope permissions. No premise assumes the translation,
   handler interpretation, cloning algorithm, or production verifier is correct.
+- Typed registry lookup uses decidable equality of data/effect indices, a pure
+  interface operation. The core implements structural type comparison. One
+  registry can contain continuations with different input and answer types.
 - Source evaluation and target dispatch are independent. Target closures and
   suspended futures contain inspectable code identities and environment/frame
   data, never callbacks or instructions to execute the source evaluator.
