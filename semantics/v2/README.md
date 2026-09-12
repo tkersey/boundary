@@ -329,6 +329,12 @@ operation. Successful source commit derives that input uniqueness from its
 actual custody transaction and returns a value whose retained tokens are
 unique and held by the receiving owner. The token inventory retains
 multiplicity.
+`ValueLinearity.initialized_execution_preserves_linearity` extends per-value
+uniqueness through every actual initialized source transition, including
+capture cloning, handler replacement, and cleanup. Failure aggregation is
+token-free because admitted failure schemas are external. Aliases remain
+separate inventory views; this theorem does not count them as distinct owning
+storage locations.
 `SourceRequestLaws` additionally proves that every finite source trace contains
 exactly the consecutive request-opening identities allocated during that trace.
 Those identities are unique even when payloads are equal. Parked polling,
