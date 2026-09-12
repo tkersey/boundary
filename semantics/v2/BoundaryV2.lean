@@ -218,3 +218,5 @@ import BoundaryV2.SourceOwningFieldDisposal
 import BoundaryV2.SourceOwningObjectFields
 import BoundaryV2.SourceOwningProtectionFields
 import BoundaryV2.SourceOwnerLocationExecution
+import BoundaryV2.SourceQueueExecution
+import BoundaryV2.SourceOwningQueues

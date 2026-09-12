@@ -356,14 +356,23 @@ across all heap-object fields and scope holdings.
 derives joint cleanup/resource token uniqueness from the actual protection
 creation transaction and preserves it throughout the cleanup lifecycle.
 `OwningFields.reachable_heap_entries_are_unique` combines object, scope, and
-protection fields; detached disposal queues remain a separate uniqueness
-obligation in the complete state inventory.
+protection fields in the heap inventory.
 `OwnerLocations.initialized_execution_preserves_owner_locations` proves that
 ordinary active values are lexical/temporary views or carry no owning tokens.
 Every raw disposal entry is such a view or names an in-range, already retired
 parent object. The invariant covers captured disposal frames,
 one-shot activation, clone-safe instantiation, cleanup, and cancellation;
 disposal's object-layout premise is derived from the initialized execution.
+`QueueCustody.initialized_execution_preserves_queue_custody` proves that raw
+closure-owned disposal leaves remain current and contain no duplicate token
+through every source transition. Request capture, activation, and disposal
+preserve their occurrence counts across active queues, frames, and heap objects;
+successful reusable instantiation introduces no disposal queues.
+`OwningFields.reachable_entries_are_unique` combines heap fields with all active
+and captured disposal queues. No live token occurs twice in the complete physical
+owning-field enumeration, and the existing reference-safety proof binds each
+enumerated entry to the custody book. Coverage of every custody-book entry,
+borrow preservation, and full source well-formedness remain separate obligations.
 `SourceRequestLaws` additionally proves that every finite source trace contains
 exactly the consecutive request-opening identities allocated during that trace.
 Those identities are unique even when payloads are equal. Parked polling,
