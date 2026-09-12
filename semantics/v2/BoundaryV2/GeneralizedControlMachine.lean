@@ -19,6 +19,13 @@ def resumeControl (shape : ControlShape signature) (view : UseScope.ControlView)
   (UseScope.acquireAt shape view store).map fun acquired =>
     ⟨acquired.store, outside.plug (reenter acquired.future (.returned value))⟩
 
+def injectControl (shape : ControlShape signature) (view : UseScope.ControlView)
+    (store : ControlHeap signature algebra program) (body : Computation signature algebra program context shape.input)
+    (bindings : RuntimeEnvironment signature algebra program context)
+    (outside : Context signature algebra program shape.answer result) : Option (ControlState signature algebra program result) :=
+  (UseScope.acquireAt shape view store).map fun acquired =>
+    ⟨acquired.store, outside.plug (reenter acquired.future (.evaluate body bindings))⟩
+
 def resumeControlWith (view : UseScope.ControlView) (store : ControlHeap signature algebra program)
     (value : RuntimeValue signature algebra program input)
     (returned : Computation signature algebra program (body :: context) answer)
@@ -44,6 +51,11 @@ def resumeControl (shape : ControlShape signature) (view : UseScope.ControlView)
     (store : ControlHeap signature algebra program) (value : RuntimeValue signature algebra program shape.input)
     (outside : Stack signature algebra program shape.answer result) : Option (ControlState signature algebra program result) :=
   (UseScope.acquireAt shape view store).map fun acquired => ⟨acquired.store, reenter acquired.future value outside⟩
+
+def injectControl (shape : ControlShape signature) (view : UseScope.ControlView)
+    (store : ControlHeap signature algebra program) (body : Entry signature algebra program shape.input)
+    (outside : Stack signature algebra program shape.answer result) : Option (ControlState signature algebra program result) :=
+  (UseScope.acquireAt shape view store).map fun acquired => ⟨acquired.store, inject acquired.future body outside⟩
 
 def resumeControlWith (view : UseScope.ControlView) (store : ControlHeap signature algebra program)
     (value : RuntimeValue signature algebra program input)
@@ -98,6 +110,24 @@ theorem resume_control_corresponds
   cases acquired with
   | none => exact .none
   | some matching => exact .some ⟨matching.store, resumption_reentry_corresponds matching.future input outside⟩
+
+theorem inject_control_corresponds
+    {sourceStore : Source.ControlHeap signature algebra program} {targetStore : Target.ControlHeap signature algebra program}
+    (stores : ControlHeapRelated sourceStore targetStore) (shape : ControlShape signature)
+    (view : UseScope.ControlView) (body : Source.Computation signature algebra program context shape.input)
+    (bindings : Source.RuntimeEnvironment signature algebra program context)
+    {sourceOutside : Source.Context signature algebra program shape.answer result}
+    {targetOutside : Target.Stack signature algebra program shape.answer result}
+    (outside : ContextRelated signature algebra program sourceOutside targetOutside) :
+    Option.Rel ControlStateRelated (Source.injectControl shape view sourceStore body bindings sourceOutside)
+      (Target.injectControl shape view targetStore ⟨context, computation body, environment bindings⟩ targetOutside) := by
+  have acquired := UseScope.acquire_at_corresponds controlPayloadRelated stores shape view
+  unfold Source.injectControl Target.injectControl
+  generalize sourceAt : UseScope.acquireAt shape view sourceStore = sourceTaken at acquired ⊢
+  generalize targetAt : UseScope.acquireAt shape view targetStore = targetTaken at acquired ⊢
+  cases acquired with
+  | none => exact .none
+  | some matching => exact .some ⟨matching.store, computation_injection_corresponds matching.future body bindings outside⟩
 
 theorem successor_control_corresponds
     {sourceStore : Source.ControlHeap signature algebra program} {targetStore : Target.ControlHeap signature algebra program}

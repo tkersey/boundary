@@ -1,5 +1,6 @@
 import BoundaryV2.GeneralizedValueRelocation
 import BoundaryV2.GeneralizedControlExecution
+import BoundaryV2.GeneralizedStoreRelocation
 
 namespace BoundaryV2.Generalized.Target
 
@@ -57,14 +58,12 @@ def relocateControlPayload (relocation : UseScope.Relocation) (packed : Sigma (C
 
 def relocateControlInfo (relocation : UseScope.Relocation) (record : UseScope.ControlInfo (Sigma (ControlPayload signature algebra program))) :
     UseScope.ControlInfo (Sigma (ControlPayload signature algebra program)) :=
-  ⟨relocation.name .control record.identity, relocation.name .custody record.authority, record.use,
-    relocateControlPayload relocation record.future⟩
+  record.relocate relocation (relocateControlPayload relocation)
 
 /-- The registry, disposal work, executable futures, and physical fields all
 receive the same maps. A dormant reference is not dropped because it is inactive. -/
 def relocateControlHeap (relocation : UseScope.Relocation) (store : ControlHeap signature algebra program) : ControlHeap signature algebra program :=
-  ⟨store.fields.relocate relocation, store.controls.map (relocateControlInfo relocation),
-    store.disposing.map (relocateControlInfo relocation)⟩
+  store.relocate relocation (relocateControlPayload relocation)
 
 def ControlState.relocate (relocation : UseScope.Relocation) (state : ControlState signature algebra program result) :
     ControlState signature algebra program result := ⟨relocateControlHeap relocation state.store, state.configuration.relocate relocation⟩

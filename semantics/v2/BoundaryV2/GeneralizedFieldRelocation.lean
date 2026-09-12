@@ -55,7 +55,7 @@ theorem relocate_inventory (relocation : Relocation) (state : State) :
     inventory (state.relocate relocation) = (inventory state).map (relocation.name .custody) := by
   simp only [inventory, State.relocate, relocate_fields_tokens, List.map_append]
 
-private theorem nodup_map_on {First Second : Type} {values : List First}
+theorem nodup_map_on {First Second : Type} {values : List First}
     (function : First → Second) (unique : values.Nodup)
     (injective : ∀ first ∈ values, ∀ second ∈ values, function first = function second → first = second) :
     (values.map function).Nodup := by

@@ -12,3 +12,4 @@ import BoundaryV2.GeneralizedOwnedClauseExamples
 import BoundaryV2.GeneralizedSuccessorExamples
 import BoundaryV2.GeneralizedHandlerExecutionExamples
 import BoundaryV2.GeneralizedRelocationExamples
+import BoundaryV2.GeneralizedOwnedRelocationExamples
