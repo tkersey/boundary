@@ -202,3 +202,9 @@ import BoundaryV2.SourceEntryProgress
 import BoundaryV2.SourceInternalProgress
 import BoundaryV2.SourceResultContracts
 import BoundaryV2.SourceClosureProgress
+import BoundaryV2.SourceInvocationProgress
+import BoundaryV2.SourceDisposalProgress
+import BoundaryV2.SourceDisposalShape
+import BoundaryV2.SourceDisposalCapture
+import BoundaryV2.SourceDisposalCleanup
+import BoundaryV2.SourceDisposalExecution

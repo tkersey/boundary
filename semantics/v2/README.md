@@ -302,6 +302,17 @@ disposal and stack removal during unwind, without a well-formedness premise.
 This excludes identity ticks as a progress witness; successful-step existence
 for all well-formed running states and well-founded target stuttering remain
 separate obligations.
+`InvocationProgress.initialized_enters_body` establishes the first actual
+tick from every successfully initialized source program: it enters the declared
+entry body and changes state. External argument admission proves that its scope
+allocation needs no ownership transfers, and the checked result table supplies
+the body's existence.
+`DisposalShape.reachable_discard_progress` proves that every reachable running
+source state in disposal can take a state-changing tick. Its owning-reference
+leaf invariant covers active disposal lists and saved disposal callers in
+current and dormant continuations. Reference safety and object schemas then
+discharge the actual lookup and retirement guards; disposal never treats an
+aggregate or reusable object as an exclusive leaf.
 `SourceRequestLaws` additionally proves that every finite source trace contains
 exactly the consecutive request-opening identities allocated during that trace.
 Those identities are unique even when payloads are equal. Parked polling,
@@ -740,6 +751,12 @@ buffer, and the alternating collector executes a frozen adapter copy. These
 larger cohorts remain differential conformance rather than kernel certificates
 for every recorded execution. General collection/transition preservation and
 source-level composition remain open.
+
+The same 139 cases and 316 complete invocations also passed on Linux x86-64
+under Docker, using Boundary `fefc88c` and World `87698f9`. Native, WASM, and
+alternating execution matched the macOS records and preserved input bytes;
+all 51 native tests passed. The Linux-built WASM kernel was byte-identical to
+the macOS kernel (`9afb0b65daa782064a729baa8846463f0660415fd9f098f715019cc6c2791d2b`).
 
 `TargetRejection` proves refusal uniformly over every admitted image
 interpretation and every invocation witness. This prevents a deliberately bad
