@@ -198,3 +198,4 @@ import BoundaryV2.SourceScopeTreeEffects
 import BoundaryV2.SourceScopeTreeExecution
 import BoundaryV2.SourceInformationCapacity
 import BoundaryV2.SourceValueExecution
+import BoundaryV2.SourceEntryProgress

@@ -283,6 +283,12 @@ first cancellation; relaying an existing failure does not record another cleanup
 failure. The source preservation theorems cover these transitions. Four authored
 regressions exercise non-tail disposal, prior failure and cancellation, and an
 owned generator result whose pending cleanup must run before the clause returns.
+`SourceEntryProgress` derives successful source ticks for term entry, literals,
+copyable variables, operand collection, scope release, empty disposal, and
+normal returns through disposal frames. For initialized trajectories, variable
+entry's only remaining refusal is custody; missing-reference and schema-mismatch
+errors are excluded, and copyable variables always enter. These are
+progress components, not full progress for calls, primitive execution, and unwind.
 `SourceRequestLaws` additionally proves that every finite source trace contains
 exactly the consecutive request-opening identities allocated during that trace.
 Those identities are unique even when payloads are equal. Parked polling,
@@ -637,10 +643,10 @@ bytes to those graph predicates and that admitted image. These results establish
 structural admission; transition preservation and historical reachability remain
 separate obligations.
 
-The native graph conformance tooling collected 28,665 `advance` invocations
-from all 122 source regression scenarios and 12 older-reference return cases.
-All 28,531 resulting snapshots passed full admission with 56,175 closed
-projections; 70 missing-row and 17 missing-output mutations rejected. Twelve
+The native graph conformance tooling collected 28,831 `advance` invocations
+from all 127 source regression scenarios and 12 older-reference return cases.
+All 28,692 resulting snapshots passed full admission with 56,535 closed
+projections; 75 missing-row and 17 missing-output mutations rejected. Twelve
 additional forged states retain valid current types, custody, capture, effect,
 and direct-scope checks but violate a future borrowed-value lifetime. Both the
 Lean checker and native state admission reject those states with rebuilt
@@ -703,13 +709,18 @@ not yet provide full fixture coverage or source/runtime certificate composition.
 The three-record `operand-failure-5` execution now passes ordinary kernel
 checking with composed internal fragments and checked descriptor evaluation.
 The actual producer's 20,003-step recursive certificate also passes ordinary
-kernel checking with shared state facts. Candidate generation covers all 134
-cases and 308 records, but the full cohort's kernel, trust, and replay gate
-remains incomplete. The complete cohort must pass before full runtime coverage
-is claimed.
+kernel checking with shared state facts. Cleanup abandonment and repeated
+cancellation now have complete kernel, trust, replay, and altered-subject checks
+for five records, including an intervening `advance` and both cancellation inputs.
+The current captured cohort contains 139 cases and 316 records; its complete
+certificate gate remains open. The complete cohort must pass before full runtime
+coverage is claimed.
 
-The invocation conformance cohort compares all 28,665 native `advance` records
-and 308 native `run` records from 134 cases against the formal target boundary.
+The invocation conformance cohort compares all 28,831 native `advance` records
+and 316 compacted native invocations from 139 cases against the formal target
+boundary. Compaction preserves intervening explicit controls as `advance` records
+when they cannot be represented by one `run`; complete sequence checking retains
+both modes and the ordered control bytes.
 Separate captures compare complete WASM records and alternating native/WASM
 restoration. The native adapter checks that invocation preserves its input
 buffer, and the alternating collector executes a frozen adapter copy. These

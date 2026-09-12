@@ -20,11 +20,16 @@ def main (arguments : List String) : IO UInt32 := do
     programs := entry :: programs.filter (fun previous => previous.path != imagePath)
     let mut clock : Boundary.Clock := ⟨0, none⟩
     let mut count := 0
-    let mut runRecords : List Boundary.PublicInvocation := []
-    let mut runWitnesses : List Boundary.InvocationWitness := []
+    let items := (← orError (← field group "transitions").getArr?).toList
+    let checkSegment ← items.anyM fun item => do
+      let bytes := (← IO.FS.readBinFile (← string item "input")).toList
+      let input ← required (Protocol.inputCodec.decode bytes) "malformed segment PKI2"
+      pure (input.mode == .run)
+    let mut records : List Boundary.PublicInvocation := []
+    let mut witnesses : List Boundary.InvocationWitness := []
     let mut firstInstance : Option Protocol.Instance := none
     let mut wrongResponseChecked := false
-    for item in (← orError (← field group "transitions").getArr?).toList do
+    for item in items do
       let inputPath ← string item "input"
       let outputPath ← string item "output"
       let inputBytes := (← IO.FS.readBinFile inputPath).toList
@@ -72,26 +77,26 @@ def main (arguments : List String) : IO UInt32 := do
           if (Boundary.checkInvocation entry.image { record with input := Protocol.inputCodec.encode changed } clock witness).isSome then
             throw (IO.userError "wrong response binding admitted")
           wrongResponseChecked := true
-      if input.mode == .run then
-        runRecords := runRecords ++ [record]
-        runWitnesses := runWitnesses ++ [witness]
+      if checkSegment then
+        records := records ++ [record]
+        witnesses := witnesses ++ [witness]
       clock := result.clock
       eventCount := eventCount + result.events.length
       count := count + 1
       total := total + 1
       if total % 1000 == 0 then IO.eprintln s!"target invocation: {total} complete outputs matched"
-    if !runRecords.isEmpty then
+    if checkSegment then
       let before : Boundary.Continuation := ⟨firstInstance, ⟨0, none⟩, false⟩
-      let result ← required (Boundary.checkExecution entry.image runRecords runWitnesses before .completed)
-        s!"{name}: complete run segment rejected"
+      let result ← required (Boundary.checkExecution entry.image records witnesses before .completed)
+        s!"{name}: complete invocation segment rejected"
       if !result.continuation.terminal || result.continuation.instanceData.isSome then
         throw (IO.userError "completed segment retained a resumable state")
-      if (Boundary.checkExecution entry.image runRecords.dropLast runWitnesses.dropLast before .completed).isSome then
+      if (Boundary.checkExecution entry.image records.dropLast witnesses.dropLast before .completed).isSome then
         throw (IO.userError "omitted final invocation certified as completed")
-      if runRecords.length > 1 then
-        if (Boundary.checkExecution entry.image runRecords.dropLast runWitnesses.dropLast before .prefix).isNone then
+      if records.length > 1 then
+        if (Boundary.checkExecution entry.image records.dropLast witnesses.dropLast before .prefix).isNone then
           throw (IO.userError "explicit nonempty execution prefix rejected")
-        if (Boundary.checkExecution entry.image (runRecords.take 1 ++ runRecords) (runWitnesses.take 1 ++ runWitnesses) before .completed).isSome then
+        if (Boundary.checkExecution entry.image (records.take 1 ++ records) (witnesses.take 1 ++ witnesses) before .completed).isSome then
           throw (IO.userError "repeated initial invocation admitted within one execution")
     cases := cases + 1
     IO.println s!"target invocation: {name} passed {count} exact PKO2 comparisons"
