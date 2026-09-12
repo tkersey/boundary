@@ -352,6 +352,12 @@ including copied closures. The admitted cell rule proves contents token-free.
 `OwningFields.reachable_object_and_scope_entries_are_unique` combines those
 object addresses with scope slots to prove that no live token occurs twice
 across all heap-object fields and scope holdings.
+`ProtectionLinearity.initialized_execution_preserves_protection_linearity`
+derives joint cleanup/resource token uniqueness from the actual protection
+creation transaction and preserves it throughout the cleanup lifecycle.
+`OwningFields.reachable_heap_entries_are_unique` combines object, scope, and
+protection fields; detached disposal queues remain a separate uniqueness
+obligation in the complete state inventory.
 `SourceRequestLaws` additionally proves that every finite source trace contains
 exactly the consecutive request-opening identities allocated during that trace.
 Those identities are unique even when payloads are equal. Parked polling,

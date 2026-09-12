@@ -216,3 +216,4 @@ import BoundaryV2.SourceLinearityExecution
 import BoundaryV2.SourceHoldingExecution
 import BoundaryV2.SourceOwningFieldDisposal
 import BoundaryV2.SourceOwningObjectFields
+import BoundaryV2.SourceOwningProtectionFields
