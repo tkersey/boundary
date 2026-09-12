@@ -323,6 +323,12 @@ operations, integer conversion, integer and Boolean comparison, Boolean NOT,
 and enumeration tags. Conversions with an empty failure interface are proved
 total from their integer bounds; narrowing overflow follows the authored fault
 interface. These theorems do not assume evaluator or custody success.
+`PrimitiveLinearity` proves that the pure evaluator preserves uniqueness of
+owned-token occurrences through constructors, projections, and every container
+operation. Successful source commit derives that input uniqueness from its
+actual custody transaction and returns a value whose retained tokens are
+unique and held by the receiving owner. The token inventory retains
+multiplicity.
 `SourceRequestLaws` additionally proves that every finite source trace contains
 exactly the consecutive request-opening identities allocated during that trace.
 Those identities are unique even when payloads are equal. Parked polling,
