@@ -467,6 +467,13 @@ distinct logical identities throughout initialized source execution. The clone
 proof uses the actual copied-node order and fresh cell-identity map; aliases to
 one physical cell remain permitted. The theorem covers all internal and external
 steps, including cancellation, cleanup, disposal, and reusable activation.
+`SourceLexicalExecution` proves source-code bounds and lexical binding availability
+through every initialized internal and external transition. Saved continuations,
+including dormant and cloned captures, retain the bindings their continuation
+code requires after capture trimming and renaming. Reachable variable evaluation
+cannot fail with a missing-reference error. These results concern lookup
+availability; complete typing, custody, borrowing, and progress remain separate
+obligations.
 `SourceFrozenCells`, `SourceFrozenClone`, and `SourceFrozenStorage` connect saved
 local contents to those cells, including nested dormant templates and every
 object copied by the actual capture instantiator. `SourceObjectSchemas` and the

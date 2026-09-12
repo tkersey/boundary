@@ -178,3 +178,10 @@ import BoundaryV2.SourceCellIdentityHeap
 import BoundaryV2.SourceCellIdentityControl
 import BoundaryV2.SourceCellIdentityCleanup
 import BoundaryV2.SourceCellIdentityExecution
+import BoundaryV2.SourceLexicalCoverage
+import BoundaryV2.SourceLexicalControl
+import BoundaryV2.SourceLexicalHeap
+import BoundaryV2.SourceLexicalFrames
+import BoundaryV2.SourceLexicalTransitions
+import BoundaryV2.SourceLexicalCleanup
+import BoundaryV2.SourceLexicalExecution
