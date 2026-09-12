@@ -478,6 +478,12 @@ code requires after capture trimming and renaming. Reachable variable evaluation
 cannot fail with a missing-reference error. These results concern lookup
 availability; complete typing, custody, borrowing, and progress remain separate
 obligations.
+`SourceScopeTreeExecution` proves that lexical parent records form an acyclic
+forest throughout initialized source execution. Every allocated scope reaches
+an actual parentless record. The proof follows scope creation and the actual
+fresh map used for copied scopes, including dormant templates; it does not
+assume parent IDs precede child IDs after cloning. Scope ownership and complete
+frame compatibility remain separate obligations.
 `SourceFrozenCells`, `SourceFrozenClone`, and `SourceFrozenStorage` connect saved
 local contents to those cells, including nested dormant templates and every
 object copied by the actual capture instantiator. `SourceObjectSchemas` and the

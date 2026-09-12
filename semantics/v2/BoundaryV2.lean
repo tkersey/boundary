@@ -191,3 +191,8 @@ import BoundaryV2.SourceRegionIdentityHeap
 import BoundaryV2.SourceRegionIdentityControl
 import BoundaryV2.SourceRegionIdentityCleanup
 import BoundaryV2.SourceRegionIdentityExecution
+import BoundaryV2.SourceScopeTree
+import BoundaryV2.SourceScopeTreeHeap
+import BoundaryV2.SourceScopeTreeControl
+import BoundaryV2.SourceScopeTreeEffects
+import BoundaryV2.SourceScopeTreeExecution
