@@ -11,3 +11,4 @@ import BoundaryV2.GeneralizedInteractionExamples
 import BoundaryV2.GeneralizedOwnedClauseExamples
 import BoundaryV2.GeneralizedSuccessorExamples
 import BoundaryV2.GeneralizedHandlerExecutionExamples
+import BoundaryV2.GeneralizedRelocationExamples
