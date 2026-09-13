@@ -19,7 +19,7 @@ inductive OwnedStep (table : Definitions signature algebra program) (reserved : 
     {result : TypeOf signature} →
     ControlState signature algebra program result →
     ControlState signature algebra program result → Prop where
-  | ordinary (step : Step table before after) (neutral : before.needsComputationEntry = false := by rfl) :
+  | ordinary (step : Step table before after) (neutral : before.needsOwnershipStep = false := by rfl) :
       OwnedStep table reserved ⟨store, before⟩ ⟨store, after⟩
   | resume {use : UseScope.OneShotUse}
       {continuation : Expression signature algebra program context (.continuation mode use.type effect input body)}
@@ -103,7 +103,7 @@ inductive OwnedStep (table : Definitions signature algebra program) (reserved : 
     {result : TypeOf signature} →
     ControlState signature algebra program result →
     ControlState signature algebra program result → Prop where
-  | ordinary (step : CallStep table before after) (neutral : before.needsComputationEntry = false := by rfl) :
+  | ordinary (step : CallStep table before after) (neutral : before.needsOwnershipStep = false := by rfl) :
       OwnedStep table reserved ⟨store, before⟩ ⟨store, after⟩
   | operand {bindings : RuntimeEnvironment signature algebra program context}
       {before after : Operands signature algebra program context answer}

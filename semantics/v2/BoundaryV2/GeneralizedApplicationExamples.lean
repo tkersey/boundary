@@ -52,13 +52,13 @@ theorem application_spends_its_grant_and_preserves_other_owners :
     UseScope.inventory applicationFieldsAfter = [⟨100⟩, ⟨6⟩] ∧ applicationFieldsAfter.spent = [⟨8⟩] := ⟨rfl, rfl⟩
 
 theorem ready_source_application_cannot_use_the_ordinary_path :
-    (Source.Program.evaluate (.apply (.reference .here) applicationArguments) applicationBindings).needsComputationEntry = true := rfl
+    (Source.Program.evaluate (.apply (.reference .here) applicationArguments) applicationBindings).needsOwnershipStep = true := rfl
 
 theorem ready_target_application_cannot_use_the_ordinary_path :
     (Target.Configuration.code (.callClosure (use := .linear) (parameters := [.leaf Data.boolean]) .ret)
       (Defunctionalization.environment applicationBindings)
       (.cons (.datum (.leaf false)) (.cons (Defunctionalization.value ownedApplication) .nil))
-      (.done : Target.Stack signature algebra [] (.leaf .boolean) (.leaf .boolean))).needsComputationEntry = true := rfl
+      (.done : Target.Stack signature algebra [] (.leaf .boolean) (.leaf .boolean))).needsOwnershipStep = true := rfl
 
 theorem application_cannot_reuse_a_consumed_grant (later : UseScope.State) :
     ¬ ComputationHandoff applicationCaptures .linear (some (⟨8⟩, applicationOwner)) applicationFieldsAfter later := by

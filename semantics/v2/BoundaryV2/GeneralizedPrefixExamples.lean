@@ -1,4 +1,5 @@
 import BoundaryV2.GeneralizedProgramSimulation
+import BoundaryV2.GeneralizedStatefulOperandExecution
 import BoundaryV2.GeneralizedCellExecutionExamples
 import BoundaryV2.GeneralizedSelectionRelocation
 
@@ -23,17 +24,27 @@ def failingCellAfter : Target.State signature algebra [] (.cell (.product (.reso
 /-- The earlier resource value remains in the evaluating fields for exit.
 The failing initializer neither allocates a cell nor transfers that owner. -/
 theorem failing_initializer_preserves_earlier_owner_before_exit :
-    (∃ count, Target.CellSteps (.nil : Target.Definitions signature algebra []) failingCellBefore count failingCellAfter) ∧
+    (∃ count, Target.ExecutionSteps (.nil : Target.Definitions signature algebra []) failingCellBefore count failingCellAfter) ∧
     failingCellBefore.physicalInventory = [⟨6⟩] ∧ failingCellAfter.physicalInventory = [⟨6⟩] ∧
     failingCellAfter.cells = [] ∧ failingCellAfter.control.store.fields.spent = [] := by
-  obtain ⟨next, compiled⟩ := Defunctionalization.computation_has_operand_prefix failingCellPrefix
-  obtain ⟨count, after, steps, faulted⟩ := Defunctionalization.arguments_fault_drains
-    failingCellPrefix.operandPrefix.arguments ownedCellSourceBindings next .nil .overflow rfl
+  have evaluated : Source.ArgumentsEvaluation ownedCellSourceBindings [] ownedCellSourceStore
+      failingCellPrefix.operandPrefix.arguments (.error .overflow) ownedCellSourceStore :=
+    .restFault .datum (.firstFault (.pairSecondFault .reference
+      (.primitiveFault (.cons .datum (.cons .datum .nil)) rfl)))
+  obtain ⟨count, targetStore, final, operands, faulted, related⟩ :=
+    Defunctionalization.owned_computation_operand_fault_drains
+      (UseScope.PackedControlRelated Defunctionalization.controlPayloadRelated)
+      ownedCellSourceBindings [] failingCellPrefix .overflow (targetStore := ownedCellTargetStore)
+      evaluated ⟨rfl, .nil, .nil⟩
+  have unchanged : targetStore = ownedCellTargetStore := by
+    have updated := operands.store_is_field_update
+    rw [← related.fields] at updated
+    exact updated
+  subst targetStore
   cases faulted
   refine ⟨⟨count + 1, ?_⟩, rfl, rfl, rfl, rfl⟩
-  have run := (steps.with_cells (.nil : Target.Definitions signature algebra []) .done ownedCellTargetStore [] [⟨0⟩]).trans
-    (Target.CellSteps.single (.ordinary .fault))
-  simpa only [failingCellBefore, failingCellAfter, compiled] using run
+  exact (operands.in_execution (.nil : Target.Definitions signature algebra []) .done [] [⟨0⟩]).trans
+    (.single (.cell (.ordinary .fault)))
 
 theorem initializer_fault_cannot_be_reported_as_return_yield_or_request
     (observation : Target.Observation signature algebra [] (.cell (.product (.resource ⟨0⟩) (.leaf .integer)))) :

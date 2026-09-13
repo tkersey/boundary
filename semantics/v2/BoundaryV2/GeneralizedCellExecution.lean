@@ -38,7 +38,7 @@ variable {program : List (BodyType signature.Data signature.Effect)}
 /-- Cell transitions act on source expressions and their source values. Region
 liveness is explicit; establishing and closing region scopes is a separate rule. -/
 inductive CellStep (table : Definitions signature algebra program) : State signature algebra program result → State signature algebra program result → Prop where
-  | ordinary (step : Step table before after) (neutral : before.needsComputationEntry = false := by rfl) :
+  | ordinary (step : Step table before after) (neutral : before.needsOwnershipStep = false := by rfl) :
       CellStep table ⟨⟨store, before⟩, cells, regions⟩ ⟨⟨store, after⟩, cells, regions⟩
   | allocate
       {regionExpr : Expression signature algebra program context .region}
@@ -48,28 +48,32 @@ inductive CellStep (table : Definitions signature algebra program) : State signa
       {store : ControlHeap signature algebra program}
       {cells : Cells signature algebra (Computation signature algebra program)}
       {value : RuntimeValue signature algebra program type} :
-      regionExpr.evaluate bindings = .ok (.datum (.region region)) → valueExpr.evaluate bindings = .ok value →
-      region ∈ regions → CellHandoff value store.fields fields →
+      ArgumentsEvaluation bindings cells.reservations.custody store (.cons regionExpr (.cons valueExpr .nil))
+        (.ok (.cons (.datum (.region region)) (.cons value .nil))) evaluated →
+      region ∈ regions → CellHandoff value evaluated.fields fields →
       CellStep table ⟨⟨store, outside.plug (.evaluate (.cellNew regionExpr valueExpr) bindings)⟩, cells, regions⟩
-        ⟨⟨{ store with fields := fields }, outside.plug (.returned (.cell (Cells.allocate region value cells reserved).identity region))⟩,
+        ⟨⟨{ evaluated with fields := fields }, outside.plug (.returned (.cell (Cells.allocate region value cells reserved).identity region))⟩,
           (Cells.allocate region value cells reserved).cells, regions⟩
   | read
       {reference : Expression signature algebra program context (.cell type)}
       {bindings : RuntimeEnvironment signature algebra program context}
-      {outside : Context signature algebra program type result} :
-      reference.evaluate bindings = .ok (.cell identity region) → region ∈ regions →
+      {outside : Context signature algebra program type result}
+      {cells : Cells signature algebra (Computation signature algebra program)} :
+      ExpressionEvaluation bindings cells.reservations.custody store reference (.ok (.cell identity region)) evaluated → region ∈ regions →
       Cells.readCopy identity region type cells = some value →
       CellStep table ⟨⟨store, outside.plug (.evaluate (.cellRead reference) bindings)⟩, cells, regions⟩
-        ⟨⟨store, outside.plug (.returned value)⟩, cells, regions⟩
+        ⟨⟨evaluated, outside.plug (.returned value)⟩, cells, regions⟩
   | write
       {reference : Expression signature algebra program context (.cell type)}
       {replacement : Expression signature algebra program context type}
       {bindings : RuntimeEnvironment signature algebra program context}
-      {outside : Context signature algebra program .unit result} :
-      reference.evaluate bindings = .ok (.cell identity region) → replacement.evaluate bindings = .ok value →
+      {outside : Context signature algebra program .unit result}
+      {cells : Cells signature algebra (Computation signature algebra program)} :
+      ArgumentsEvaluation bindings cells.reservations.custody store (.cons reference (.cons replacement .nil))
+        (.ok (.cons (.cell identity region) (.cons value .nil))) evaluated →
       region ∈ regions → Cells.writeCopy identity region value cells = some after →
       CellStep table ⟨⟨store, outside.plug (.evaluate (.cellWrite reference replacement) bindings)⟩, cells, regions⟩
-        ⟨⟨store, outside.plug (.returned (.datum .unit))⟩, after, regions⟩
+        ⟨⟨evaluated, outside.plug (.returned (.datum .unit))⟩, after, regions⟩
 
 end Source
 
@@ -85,7 +89,7 @@ variable {program : List (BodyType signature.Data signature.Effect)}
   [DecidableEq (TypeOf signature)]
 
 inductive CellStep (table : Definitions signature algebra program) : State signature algebra program result → State signature algebra program result → Prop where
-  | ordinary (step : CallStep table before after) (neutral : before.needsComputationEntry = false := by rfl) :
+  | ordinary (step : CallStep table before after) (neutral : before.needsOwnershipStep = false := by rfl) :
       CellStep table ⟨⟨store, before⟩, cells, regions⟩ ⟨⟨store, after⟩, cells, regions⟩
   | allocate
       {next : Code signature algebra program context (.cell type :: operands) answer}
@@ -132,19 +136,6 @@ theorem CellSteps.trans {before middle after : State signature algebra program r
   | refl => simpa using second
   | cons step tail induction => simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using CellSteps.cons step (induction second)
 
-theorem OperandSteps.with_cells
-    {bindings : RuntimeEnvironment signature algebra program context}
-    {before after : Operands signature algebra program context input}
-    (steps : OperandSteps bindings before count after)
-    (table : Definitions signature algebra program) (outside : Stack signature algebra program input result)
-    (store : ControlHeap signature algebra program)
-    (cells : Cells signature algebra (fun context result => Code signature algebra program context [] result)) (regions : List (Id .region)) :
-    CellSteps table ⟨⟨store, .code before.code bindings before.values outside⟩, cells, regions⟩ count
-      ⟨⟨store, .code after.code bindings after.values outside⟩, cells, regions⟩ := by
-  induction steps with
-  | refl => exact .refl
-  | cons step tail induction => exact .cons (.ordinary (.operand step) (step.no_computation_entry outside)) induction
-
 def State.physicalInventory (state : State signature algebra program result) : List (Id .custody) :=
   UseScope.inventory state.control.store.fields ++ UseScope.tokens (Cells.fields state.cells)
 
@@ -189,115 +180,6 @@ theorem cell_handoff_corresponds
   | unowned empty => exact .unowned (by simpa only [Defunctionalization.value, Value.map_preserves_owning_fields] using empty)
   | move => simpa only [Defunctionalization.value, Value.map_preserves_owning_fields] using
       (CellHandoff.move (value := Defunctionalization.value value))
-
-theorem compiled_cell_read
-    (table : Source.Definitions signature algebra program)
-    (reference : Source.Expression signature algebra program context (.cell type))
-    (bindings : Source.RuntimeEnvironment signature algebra program context)
-    (identity : Id .cell) (region : Id .region) (value : Source.RuntimeValue signature algebra program type)
-    (evaluated : reference.evaluate bindings = .ok (.cell identity region))
-    (sourceCells : Cells signature algebra (Source.Computation signature algebra program))
-    (regions : List (Id .region)) (live : region ∈ regions)
-    (read : Cells.readCopy identity region type sourceCells = some value)
-    {sourceStore : Source.ControlHeap signature algebra program} {targetStore : Target.ControlHeap signature algebra program}
-    (stores : ControlHeapRelated sourceStore targetStore)
-    {sourceOutside : Source.Context signature algebra program type result}
-    {targetOutside : Target.Stack signature algebra program type result}
-    (outside : ContextRelated signature algebra program sourceOutside targetOutside) :
-    ∃ count, 0 < count ∧
-      Source.CellStep table ⟨⟨sourceStore, sourceOutside.plug (.evaluate (.cellRead reference) bindings)⟩, sourceCells, regions⟩
-        ⟨⟨sourceStore, sourceOutside.plug (.returned value)⟩, sourceCells, regions⟩ ∧
-      Target.CellSteps (definitions table)
-        ⟨⟨targetStore, .code (computation (.cellRead reference)) (environment bindings) .nil targetOutside⟩, cells sourceCells, regions⟩ count
-        ⟨⟨targetStore, .returned (Defunctionalization.value value) targetOutside⟩, cells sourceCells, regions⟩ ∧
-      CellStateRelated ⟨⟨sourceStore, sourceOutside.plug (.returned value)⟩, sourceCells, regions⟩
-        ⟨⟨targetStore, .returned (Defunctionalization.value value) targetOutside⟩, cells sourceCells, regions⟩ := by
-  have targetRead : Cells.readCopy identity region type (cells sourceCells) = some (Defunctionalization.value value) := by
-    unfold cells
-    rw [Cells.readCopy_mapBodies, read]
-    rfl
-  obtain ⟨count, operands⟩ := expression_drains reference bindings (.cellRead .ret) .nil _ evaluated
-  refine ⟨count + 2, by omega, .read evaluated live read, ?_, ⟨⟨stores, .returned value outside⟩, rfl, rfl⟩⟩
-  exact (operands.with_cells (definitions table) targetOutside targetStore (cells sourceCells) regions).trans
-    (.cons (.read live targetRead) (.cons (.ordinary .returned) .refl))
-
-theorem compiled_cell_write
-    (table : Source.Definitions signature algebra program)
-    (reference : Source.Expression signature algebra program context (.cell type))
-    (replacement : Source.Expression signature algebra program context type)
-    (bindings : Source.RuntimeEnvironment signature algebra program context)
-    (identity : Id .cell) (region : Id .region) (value : Source.RuntimeValue signature algebra program type)
-    (referenceEvaluated : reference.evaluate bindings = .ok (.cell identity region))
-    (replacementEvaluated : replacement.evaluate bindings = .ok value)
-    (sourceCells afterCells : Cells signature algebra (Source.Computation signature algebra program))
-    (regions : List (Id .region)) (live : region ∈ regions)
-    (written : Cells.writeCopy identity region value sourceCells = some afterCells)
-    {sourceStore : Source.ControlHeap signature algebra program} {targetStore : Target.ControlHeap signature algebra program}
-    (stores : ControlHeapRelated sourceStore targetStore)
-    {sourceOutside : Source.Context signature algebra program .unit result}
-    {targetOutside : Target.Stack signature algebra program .unit result}
-    (outside : ContextRelated signature algebra program sourceOutside targetOutside) :
-    ∃ count, 0 < count ∧
-      Source.CellStep table ⟨⟨sourceStore, sourceOutside.plug (.evaluate (.cellWrite reference replacement) bindings)⟩, sourceCells, regions⟩
-        ⟨⟨sourceStore, sourceOutside.plug (.returned (.datum .unit))⟩, afterCells, regions⟩ ∧
-      Target.CellSteps (definitions table)
-        ⟨⟨targetStore, .code (computation (.cellWrite reference replacement)) (environment bindings) .nil targetOutside⟩, cells sourceCells, regions⟩ count
-        ⟨⟨targetStore, .returned (.datum .unit) targetOutside⟩, cells afterCells, regions⟩ ∧
-      CellStateRelated ⟨⟨sourceStore, sourceOutside.plug (.returned (.datum .unit))⟩, afterCells, regions⟩
-        ⟨⟨targetStore, .returned (.datum .unit) targetOutside⟩, cells afterCells, regions⟩ := by
-  have targetWritten : Cells.writeCopy identity region (Defunctionalization.value value) (cells sourceCells) = some (cells afterCells) := by
-    unfold cells Defunctionalization.value
-    rw [Cells.writeCopy_mapBodies, written]
-    rfl
-  obtain ⟨referenceCount, referenceSteps⟩ := expression_drains reference bindings (expression replacement (.cellWrite .ret)) .nil _ referenceEvaluated
-  obtain ⟨replacementCount, replacementSteps⟩ := expression_drains replacement bindings (.cellWrite .ret)
-    (.cons (.cell identity region) .nil) _ replacementEvaluated
-  refine ⟨referenceCount + replacementCount + 2, by omega, .write referenceEvaluated replacementEvaluated live written,
-    ?_, ⟨⟨stores, .returned (.datum .unit) outside⟩, rfl, rfl⟩⟩
-  exact ((referenceSteps.trans replacementSteps).with_cells (definitions table) targetOutside
-    targetStore (cells sourceCells) regions).trans (.cons (.write live targetWritten) (.cons (.ordinary .returned) .refl))
-
-theorem compiled_cell_allocation
-    (table : Source.Definitions signature algebra program)
-    (regionExpr : Source.Expression signature algebra program context .region)
-    (valueExpr : Source.Expression signature algebra program context type)
-    (bindings : Source.RuntimeEnvironment signature algebra program context)
-    (region : Id .region) (value : Source.RuntimeValue signature algebra program type)
-    (regionEvaluated : regionExpr.evaluate bindings = .ok (.datum (.region region)))
-    (valueEvaluated : valueExpr.evaluate bindings = .ok value)
-    (sourceCells : Cells signature algebra (Source.Computation signature algebra program)) (reserved : List (Id .cell))
-    (regions : List (Id .region)) (live : region ∈ regions)
-    {sourceStore : Source.ControlHeap signature algebra program} {targetStore : Target.ControlHeap signature algebra program}
-    (stores : ControlHeapRelated sourceStore targetStore) (fields : UseScope.State)
-    (handoff : CellHandoff value sourceStore.fields fields)
-    {sourceOutside : Source.Context signature algebra program (.cell type) result}
-    {targetOutside : Target.Stack signature algebra program (.cell type) result}
-    (outside : ContextRelated signature algebra program sourceOutside targetOutside) :
-    let allocated := Cells.allocate region value sourceCells reserved
-    ∃ count, 0 < count ∧
-      Source.CellStep table ⟨⟨sourceStore, sourceOutside.plug (.evaluate (.cellNew regionExpr valueExpr) bindings)⟩, sourceCells, regions⟩
-        ⟨⟨{ sourceStore with fields := fields }, sourceOutside.plug (.returned (.cell allocated.identity region))⟩, allocated.cells, regions⟩ ∧
-      Target.CellSteps (definitions table)
-        ⟨⟨targetStore, .code (computation (.cellNew regionExpr valueExpr)) (environment bindings) .nil targetOutside⟩, cells sourceCells, regions⟩ count
-        ⟨⟨{ targetStore with fields := fields }, .returned (.cell allocated.identity region) targetOutside⟩, cells allocated.cells, regions⟩ ∧
-      CellStateRelated
-        ⟨⟨{ sourceStore with fields := fields }, sourceOutside.plug (.returned (.cell allocated.identity region))⟩, allocated.cells, regions⟩
-        ⟨⟨{ targetStore with fields := fields }, .returned (.cell allocated.identity region) targetOutside⟩, cells allocated.cells, regions⟩ := by
-  dsimp only
-  have allocation := Cells.allocate_mapBodies (fun _ _ body => computation body) region value sourceCells reserved
-  have targetHandoff := cell_handoff_corresponds value handoff
-  rw [stores.fields] at targetHandoff
-  obtain ⟨regionCount, regionSteps⟩ := expression_drains regionExpr bindings (expression valueExpr (.cellNew .ret)) .nil _ regionEvaluated
-  obtain ⟨valueCount, valueSteps⟩ := expression_drains valueExpr bindings (.cellNew .ret)
-    (.cons (.datum (.region region)) .nil) _ valueEvaluated
-  refine ⟨regionCount + valueCount + 2, by omega, .allocate regionEvaluated valueEvaluated live handoff, ?_,
-    ⟨⟨⟨rfl, stores.controls, stores.disposing⟩, .returned (.cell _ region) outside⟩, rfl, rfl⟩⟩
-  apply ((regionSteps.trans valueSteps).with_cells (definitions table) targetOutside
-    targetStore (cells sourceCells) regions).trans
-  have entered := Target.CellSteps.cons (Target.CellStep.allocate (table := definitions table) (reserved := reserved)
-    (next := .ret) (bindings := environment bindings) (values := .nil) (outside := targetOutside) (cells := cells sourceCells) live targetHandoff)
-    (Target.CellSteps.cons (.ordinary .returned) .refl)
-  simpa only [Defunctionalization.value, cells, allocation.1, allocation.2] using entered
 
 end Defunctionalization
 end BoundaryV2.Generalized

@@ -30,3 +30,4 @@ import BoundaryV2.GeneralizedClosureEvaluationExamples
 import BoundaryV2.GeneralizedOwnedOperandExamples
 import BoundaryV2.GeneralizedStatefulOperandExamples
 import BoundaryV2.GeneralizedAllocatedInjectionExamples
+import BoundaryV2.GeneralizedOwnedCellExamples
