@@ -5,6 +5,14 @@ namespace BoundaryV2.Generalized
 variable {signature : Signature} {algebra : LeafAlgebra signature.Data}
   {Before After : List (TypeOf signature) → TypeOf signature → Type}
 
+theorem Value.relocate_asSum (relocation : UseScope.Relocation)
+    (body : ∀ context type, Before context type → After context type)
+    {left right : TypeOf signature} (value : Value signature algebra Before (.sum left right)) :
+    (value.relocate relocation body).asSum = value.asSum.map (Value.relocate relocation body) (Value.relocate relocation body) := by
+  cases value with
+  | datum datum => cases datum <;> rfl
+  | left value | right value => rfl
+
 theorem Value.relocate_first (relocation : UseScope.Relocation)
     (body : ∀ context type, Before context type → After context type)
     {leftType rightType : TypeOf signature} (value : Value signature algebra Before (.product leftType rightType)) :
@@ -102,6 +110,12 @@ theorem CallStep.relocate (relocation : UseScope.Relocation)
   | operand step => exact .operand (step.relocate relocation)
   | returned => exact .returned
   | enter => exact .enter
+  | branchLeft selected =>
+    apply CallStep.branchLeft
+    simp only [Value.relocate_asSum, selected, Sum.map_inl]
+  | branchRight selected =>
+    apply CallStep.branchRight
+    simp only [Value.relocate_asSum, selected, Sum.map_inr]
   | block => exact .block
   | named =>
     simp only [Configuration.relocate, Code.relocate, Stack.relocate, Frame.relocate,

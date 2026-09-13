@@ -175,6 +175,9 @@ inductive EntryRelated : Source.Program signature algebra program result → Tar
   | returned (value : Source.RuntimeValue signature algebra program input)
       (future : ContextRelated signature algebra program sourceFuture targetFuture) :
       EntryRelated (sourceFuture.plug (.returned value)) (.returned (Defunctionalization.value value) targetFuture)
+  | failed (fault : algebra.Fault)
+      (future : ContextRelated signature algebra program sourceFuture targetFuture) :
+      EntryRelated (sourceFuture.plug (.failed fault)) (.failed fault targetFuture)
 
 theorem resumption_reentry_corresponds
     (saved : ResumptionRelated (source : Source.Resumption signature algebra program mode effect input answer) target)

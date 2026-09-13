@@ -33,6 +33,15 @@ variable {signature : Signature} {algebra : LeafAlgebra signature.Data}
   {context left right types : List (TypeOf signature)} {type : TypeOf signature}
   {codeSignatures : List (BodyType signature.Data signature.Effect)}
 
+/-- Sum elimination exposes the tag and payload for both plain structured data
+and reference-bearing values. This is a pure data projection, not a dispatcher. -/
+def Value.asSum {left right : TypeOf signature} : Value signature algebra Body (.sum left right) →
+    Sum (Value signature algebra Body left) (Value signature algebra Body right)
+  | .datum (.left value) => .inl (.datum value)
+  | .datum (.right value) => .inr (.datum value)
+  | .left value => .inl value
+  | .right value => .inr value
+
 def Environment.lookup : {context : List (TypeOf signature)} → {type : TypeOf signature} →
     Variable context type → Environment signature algebra Body context → Value signature algebra Body type
   | _, _, .here, .cons value _ => value
@@ -61,6 +70,13 @@ mutual
     | _, .nil => .nil
     | _, .cons value rest => .cons (value.map transform) (rest.map transform)
 end
+
+theorem Value.map_asSum (transform : ∀ context type, Before context type → After context type)
+    {left right : TypeOf signature} (value : Value signature algebra Before (.sum left right)) :
+    (value.map transform).asSum = value.asSum.map (Value.map transform) (Value.map transform) := by
+  cases value with
+  | datum datum => cases datum <;> rfl
+  | left value | right value => rfl
 
 theorem Environment.map_append (transform : ∀ context type, Before context type → After context type)
     (first : Environment signature algebra Before left) (second : Environment signature algebra Before right) :

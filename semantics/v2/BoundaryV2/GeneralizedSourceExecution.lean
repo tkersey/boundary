@@ -32,6 +32,12 @@ inductive Step (table : Definitions signature algebra definitions) :
       Step table (.evaluate (.primitive operation arguments) environment) (.returned value)
   | primitiveFault : (Expression.primitive operation arguments).evaluate environment = .error fault →
       Step table (.evaluate (.primitive operation arguments) environment) (.failed fault)
+  | matchLeft : expression.evaluate environment = .ok value → value.asSum = .inl payload →
+      Step table (.evaluate (.matchSum expression left right) environment) (.evaluate left (.cons payload environment))
+  | matchRight : expression.evaluate environment = .ok value → value.asSum = .inr payload →
+      Step table (.evaluate (.matchSum expression left right) environment) (.evaluate right (.cons payload environment))
+  | matchFault : expression.evaluate environment = .error fault →
+      Step table (.evaluate (.matchSum expression left right) environment) (.failed fault)
   | perform : capability.evaluate environment = .ok (.datum (.capability attachment)) →
       payload.evaluate environment = .ok payloadValue → bodies.evaluate environment = .ok bodyValues →
       Step table (.evaluate (.perform operation capability payload bodies) environment)
@@ -80,6 +86,9 @@ inductive Step (table : Definitions signature algebra definitions) :
   | handlerStep : Step table before after →
       Step table (.handler effect mode attachment returned clauses environment before)
         (.handler effect mode attachment returned clauses environment after)
+  | regionStep : Step table before after → Step table (.region identity before) (.region identity after)
+  | protectionStep : Step table before after →
+      Step table (.protection identity cleanup environment before) (.protection identity cleanup environment after)
 
 inductive Steps (table : Definitions signature algebra definitions) :
     Program signature algebra definitions result → Nat → Program signature algebra definitions result → Prop where

@@ -58,6 +58,12 @@ inductive CallStep (table : Definitions signature algebra definitions) :
   | returned : CallStep table (.code .ret environment (.cons value operands) future) (.returned value future)
   | enter : CallStep table (.code (.enter body) environment (.cons value operands) future)
       (.code body (.cons value environment) operands future)
+  | branchLeft : value.asSum = .inl payload →
+      CallStep table (.code (.branch left right) environment (.cons value operands) future)
+        (.code left (.cons payload environment) operands future)
+  | branchRight : value.asSum = .inr payload →
+      CallStep table (.code (.branch left right) environment (.cons value operands) future)
+        (.code right (.cons payload environment) operands future)
   | block : CallStep table (.code (.callBlock body next) environment operands future)
       (.code body environment .nil (.push (.returnTo next environment operands) future))
   | named : CallStep table (.code (.callNamed reference next) environment (arguments.pushReverse operands) future)

@@ -19,3 +19,4 @@ import BoundaryV2.GeneralizedStateExecutionExamples
 import BoundaryV2.GeneralizedScopeExamples
 import BoundaryV2.GeneralizedResourceExamples
 import BoundaryV2.GeneralizedTemplateExamples
+import BoundaryV2.GeneralizedBranchingExamples
