@@ -136,7 +136,7 @@ theorem captured_cleanup_reattaches_and_accepts_typed_response :
     ExitComposition.Steps (.nil : Target.Definitions signature algebra []) (ExitComposition.cancel "stop" capturedCleanup) 0
       ⟨⟨2⟩, .running (.returned (.datum (.leaf true)) cleanupFuture) .active,
         capturedCleanup.fields, ⟨.failure .overflow, [], some "stop"⟩⟩ := by
-  exact .cons .reattach (.cons .park (.cons .response .refl))
+  exact .cons (.lifecycle .reattach) (.cons (.lifecycle .park) (.cons (.lifecycle .response) .refl))
 
 theorem two_cleanup_owners_remain_distinct : UseScope.Valid
     ⟨[], capturedCleanup.fields, []⟩ := by
@@ -148,10 +148,10 @@ theorem captured_cleanup_executes_its_saved_future :
     ExitComposition.Steps (.nil : Target.Definitions signature algebra [])
       (ExitComposition.cancel "stop" capturedCleanup) 0
       ⟨⟨2⟩, .finished .returned, capturedCleanup.fields, ⟨.failure .overflow, [], some "stop"⟩⟩ := by
-  exact .cons .reattach (.cons .park (.cons (.response (response := .datum (.leaf true)))
+  exact .cons (.lifecycle .reattach) (.cons (.lifecycle .park) (.cons (.lifecycle (.response (response := .datum (.leaf true))))
     (.cons (.execute (table := .nil) .caller)
       (.cons (.execute (table := .nil) (.operand .push))
-        (.cons (.execute (table := .nil) .returned) (.cons .returned .refl))))))
+        (.cons (.execute (table := .nil) .returned) (.cons (.lifecycle .returned) .refl))))))
 
 def unitCleanup : ExitComposition.Cleanup signature algebra [] :=
   ⟨[], .push .unit .ret, .nil⟩
@@ -160,7 +160,7 @@ theorem cleanup_initiates_once_and_executes :
     ExitComposition.Steps (.nil : Target.Definitions signature algebra [])
       ⟨⟨2⟩, .pending unitCleanup, capturedCleanup.fields, ⟨.normal, [], none⟩⟩ 1
       ⟨⟨2⟩, .finished .returned, capturedCleanup.fields, ⟨.normal, [], none⟩⟩ := by
-  exact .cons .begin (.cons (.execute (table := .nil) (.operand .push))
-    (.cons (.execute (table := .nil) .returned) (.cons .returned .refl)))
+  exact .cons (.lifecycle .begin) (.cons (.execute (table := .nil) (.operand .push))
+    (.cons (.execute (table := .nil) .returned) (.cons (.lifecycle .returned) .refl)))
 
 end BoundaryV2.Generalized.Examples

@@ -85,9 +85,9 @@ theorem effectful_cleanup_capture_keeps_its_cursor_and_single_start :
   have later : ExitComposition.Steps (.nil : Target.Definitions signature algebra [])
       ⟨⟨20⟩, .running cursor .active, pendingRequestingCleanup.fields, cleanupExit⟩ 0
       ⟨⟨20⟩, .running cursor (.captured ⟨55⟩), pendingRequestingCleanup.fields, (cleanupExit.cancel "first").cancel "later"⟩ :=
-    .cons (.capture (signature := signature) (algebra := algebra) (obligationId := ⟨20⟩) (cursor := cursor)
-      (controlId := ⟨55⟩) (fields := pendingRequestingCleanup.fields) (exit := cleanupExit))
-      (.cons (.cancelled (reason := "first")) (.cons (.cancelled (reason := "later")) .refl))
+    .cons (.lifecycle (.capture (signature := signature) (algebra := algebra) (obligationId := ⟨20⟩) (cursor := cursor)
+      (controlId := ⟨55⟩) (fields := pendingRequestingCleanup.fields) (exit := cleanupExit)))
+      (.cons (.lifecycle (.cancelled (reason := "first"))) (.cons (.lifecycle (.cancelled (reason := "later"))) .refl))
   exact ⟨cursor, steps.trans later, related, rfl, rfl⟩
 
 end BoundaryV2.Generalized.Examples

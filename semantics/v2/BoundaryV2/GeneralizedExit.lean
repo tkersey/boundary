@@ -147,41 +147,55 @@ theorem repeated_cancellation (first later : algebra.Reason) (obligation : Oblig
   cases obligation
   simp only [cancel, ExitInfo.cancel_keeps_first_reason]
 
-/-- Local lifecycle transitions include actual target instructions as well as
-initiation, storage, response handoff, and the three terminal outcomes. The Nat label counts actual
-initiations, not machine steps or semantic fuel. -/
-inductive Step (table : Target.Definitions signature algebra definitions) : Obligation signature algebra definitions → Nat → Obligation signature algebra definitions → Prop where
-  | begin : Step table ⟨obligationId, .pending entry, fields, exit⟩ 1
+/-- Shared lifecycle transitions govern initiation, storage, response handoff,
+and the three terminal outcomes. The Nat label counts actual initiations,
+not machine steps or semantic fuel. -/
+inductive LifecycleStep : Obligation signature algebra definitions → Nat → Obligation signature algebra definitions → Prop where
+  | begin : LifecycleStep ⟨obligationId, .pending entry, fields, exit⟩ 1
       ⟨obligationId, .running (.code entry.body (.cons (.exit exit) entry.environment) .nil .done) .active, fields, exit⟩
+  | capture : LifecycleStep ⟨obligationId, .running cursor .active, fields, exit⟩ 0
+      ⟨obligationId, .running cursor (.captured controlId), fields, exit⟩
+  | reattach : LifecycleStep ⟨obligationId, .running cursor (.captured controlId), fields, exit⟩ 0
+      ⟨obligationId, .running cursor .active, fields, exit⟩
+  | park : LifecycleStep ⟨obligationId, .running (.requested operation attachment payload bodies future) .active, fields, exit⟩ 0
+      ⟨obligationId, .running (.requested operation attachment payload bodies future) .parked, fields, exit⟩
+  | parkYield : LifecycleStep ⟨obligationId, .running (.yielded future) .active, fields, exit⟩ 0
+      ⟨obligationId, .running (.yielded future) .parked, fields, exit⟩
+  | continueYield : LifecycleStep ⟨obligationId, .running (.yielded future) .parked, fields, exit⟩ 0
+      ⟨obligationId, .running future .active, fields, exit⟩
+  | response : LifecycleStep ⟨obligationId, .running (.requested operation attachment payload bodies future) .parked, fields, exit⟩ 0
+      ⟨obligationId, .running (.returned response future) .active, fields, exit⟩
+  | cancelled : LifecycleStep obligation 0 (cancel reason obligation)
+  | returned : LifecycleStep ⟨obligationId, .running (.returned (.datum .unit) .done) .active, fields, exit⟩ 0
+      ⟨obligationId, .finished .returned, fields, exit⟩
+  | failed : LifecycleStep ⟨obligationId, .running (.failed fault .done) .active, fields, exit⟩ 0
+      ⟨obligationId, .finished (.failed fault), fields, exit.cleanupFailure fault⟩
+  | abandoned : cursorProtections cursor = [] → LifecycleStep ⟨obligationId, .running cursor location, fields, exit⟩ 0
+      ⟨obligationId, .finished .abandoned, fields, exit.abandon⟩
+
+inductive Step (table : Target.Definitions signature algebra definitions) : Obligation signature algebra definitions → Nat → Obligation signature algebra definitions → Prop where
+  | lifecycle : LifecycleStep before initiations after → Step table before initiations after
   | execute : Target.CallStep table before after →
       Step table ⟨obligationId, .running before .active, fields, exit⟩ 0
         ⟨obligationId, .running after .active, fields, exit⟩
-  | capture : Step table ⟨obligationId, .running cursor .active, fields, exit⟩ 0
-      ⟨obligationId, .running cursor (.captured controlId), fields, exit⟩
-  | reattach : Step table ⟨obligationId, .running cursor (.captured controlId), fields, exit⟩ 0
-      ⟨obligationId, .running cursor .active, fields, exit⟩
-  | park : Step table ⟨obligationId, .running (.requested operation attachment payload bodies future) .active, fields, exit⟩ 0
-      ⟨obligationId, .running (.requested operation attachment payload bodies future) .parked, fields, exit⟩
-  | parkYield : Step table ⟨obligationId, .running (.yielded future) .active, fields, exit⟩ 0
-      ⟨obligationId, .running (.yielded future) .parked, fields, exit⟩
-  | continueYield : Step table ⟨obligationId, .running (.yielded future) .parked, fields, exit⟩ 0
-      ⟨obligationId, .running future .active, fields, exit⟩
-  | response : Step table ⟨obligationId, .running (.requested operation attachment payload bodies future) .parked, fields, exit⟩ 0
-      ⟨obligationId, .running (.returned response future) .active, fields, exit⟩
-  | cancelled : Step table obligation 0 (cancel reason obligation)
-  | returned : Step table ⟨obligationId, .running (.returned (.datum .unit) .done) .active, fields, exit⟩ 0
-      ⟨obligationId, .finished .returned, fields, exit⟩
-  | failed : Step table ⟨obligationId, .running (.failed fault .done) .active, fields, exit⟩ 0
-      ⟨obligationId, .finished (.failed fault), fields, exit.cleanupFailure fault⟩
-  | abandoned : cursorProtections cursor = [] → Step table ⟨obligationId, .running cursor location, fields, exit⟩ 0
-      ⟨obligationId, .finished .abandoned, fields, exit.abandon⟩
+
+theorem LifecycleStep.preserves_fields (step : LifecycleStep before initiations after) : after.fields = before.fields := by
+  cases step <;> rfl
 
 theorem step_preserves_fields (step : Step table before initiations after) : after.fields = before.fields := by
-  cases step <;> rfl
+  cases step with
+  | lifecycle step => exact step.preserves_fields
+  | execute => rfl
+
+theorem LifecycleStep.initiation_conservation (step : LifecycleStep before initiations after) :
+    initiations + after.phase.right = before.phase.right := by
+  cases step <;> simp [Phase.right, cancel]
 
 theorem initiation_conservation (step : Step table before initiations after) :
     initiations + after.phase.right = before.phase.right := by
-  cases step <;> simp [Phase.right, cancel]
+  cases step with
+  | lifecycle step => exact step.initiation_conservation
+  | execute => rfl
 
 inductive Steps (table : Target.Definitions signature algebra definitions) : Obligation signature algebra definitions → Nat → Obligation signature algebra definitions → Prop where
   | refl : Steps table state 0 state

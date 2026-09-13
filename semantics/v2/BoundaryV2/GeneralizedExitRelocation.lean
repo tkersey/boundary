@@ -45,12 +45,11 @@ theorem relocation_commutes_with_cancellation (relocation : UseScope.Relocation)
     (obligation : Obligation signature algebra program) :
     (cancel reason obligation).relocate relocation = cancel reason (obligation.relocate relocation) := rfl
 
-theorem Step.relocate (relocation : UseScope.Relocation)
-    (step : Step (table : Target.Definitions signature algebra program) before initiations after) :
-    Step (Target.relocateDefinitions relocation table) (before.relocate relocation) initiations (after.relocate relocation) := by
+theorem LifecycleStep.relocate (relocation : UseScope.Relocation)
+    (step : LifecycleStep (signature := signature) (algebra := algebra) (definitions := program) before initiations after) :
+    LifecycleStep (before.relocate relocation) initiations (after.relocate relocation) := by
   cases step with
   | begin => exact .begin
-  | execute step => exact .execute (step.relocate relocation)
   | capture => exact .capture
   | reattach => exact .reattach
   | park => exact .park
@@ -61,8 +60,15 @@ theorem Step.relocate (relocation : UseScope.Relocation)
   | returned => exact .returned
   | failed => exact .failed
   | abandoned clear =>
-    apply Step.abandoned
+    apply LifecycleStep.abandoned
     simp only [cursor_protections_relocate, clear, List.map_nil]
+
+theorem Step.relocate (relocation : UseScope.Relocation)
+    (step : Step (table : Target.Definitions signature algebra program) before initiations after) :
+    Step (Target.relocateDefinitions relocation table) (before.relocate relocation) initiations (after.relocate relocation) := by
+  cases step with
+  | lifecycle step => exact .lifecycle (step.relocate relocation)
+  | execute step => exact .execute (step.relocate relocation)
 
 /-- The actual running cleanup cursor relocates with its capture location and
 held fields. Relocation preserves every lifecycle transition and initiation count;

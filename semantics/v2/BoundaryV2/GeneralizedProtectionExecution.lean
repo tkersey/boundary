@@ -58,7 +58,7 @@ theorem compiled_cleanup_begin
       ⟨identity, .running (.code (computation cleanup) (.cons (.exit exit) (environment bindings)) .nil .done) .active, fields, exit⟩ ∧
     EntryRelated (.evaluate cleanup (.cons (.exit exit) bindings))
       (.code (computation cleanup) (.cons (.exit exit) (environment bindings)) .nil .done) :=
-  ⟨.begin, .evaluate cleanup (.cons (.exit exit) bindings) .done⟩
+  ⟨.lifecycle .begin, .evaluate cleanup (.cons (.exit exit) bindings) .done⟩
 
 /- Any finite ordinary source cleanup run has a corresponding running target
 cursor. The lifecycle consumes no second initiation right during that run. -/
@@ -74,6 +74,6 @@ theorem finite_cleanup_execution_corresponds
       ⟨identity, .running targetAfter .active, fields, exit⟩ ∧ ProgramRelated sourceAfter .done targetAfter := by
   obtain ⟨targetCount, targetAfter, executed, related⟩ := finite_program_steps_simulate table steps
     (ProgramRelated.evaluate cleanup (.cons (.exit exit) bindings) .done)
-  exact ⟨targetAfter, .cons .begin (ExitComposition.execute_steps executed), related⟩
+  exact ⟨targetAfter, .cons (.lifecycle .begin) (ExitComposition.execute_steps executed), related⟩
 
 end BoundaryV2.Generalized.Defunctionalization
