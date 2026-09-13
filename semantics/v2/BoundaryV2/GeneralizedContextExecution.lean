@@ -74,6 +74,8 @@ theorem CallStep.in_context {before after : Configuration signature algebra prog
   | attach => exact .attach
   | handlerReturned => exact .handlerReturned
   | caller => exact .caller
+  | callerFault => exact .callerFault
+  | handlerFault => exact .handlerFault
   | fault => exact .fault
   | yield => exact .yield
 

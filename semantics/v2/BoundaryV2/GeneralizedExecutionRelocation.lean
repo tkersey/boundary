@@ -134,6 +134,8 @@ theorem CallStep.relocate (relocation : UseScope.Relocation)
   | attach => exact .attach
   | handlerReturned => exact .handlerReturned
   | caller => exact .caller
+  | callerFault => exact .callerFault
+  | handlerFault => exact .handlerFault
   | fault => exact .fault
   | yield => exact .yield
 

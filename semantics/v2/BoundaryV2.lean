@@ -20,3 +20,4 @@ import BoundaryV2.GeneralizedScopeExamples
 import BoundaryV2.GeneralizedResourceExamples
 import BoundaryV2.GeneralizedTemplateExamples
 import BoundaryV2.GeneralizedBranchingExamples
+import BoundaryV2.GeneralizedProgramExamples
