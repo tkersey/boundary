@@ -26,7 +26,7 @@ def templateFuture : Target.Resumption signature algebra [] .shallow .choose .un
 
 def templateImage : Image signature algebra [] templateShape :=
   ⟨templateFuture, [⟨⟨7⟩, ⟨3⟩, .leaf .integer, .datum (.leaf 0)⟩],
-    [⟨⟨6⟩, templateShape, templateFuture⟩], [⟨9⟩], [⟨3⟩], []⟩
+    [Record.bare ⟨6⟩ templateShape templateFuture], [⟨9⟩], [⟨3⟩], []⟩
 
 def branchingTemplate : Template signature algebra [] templateShape := ⟨templateImage, by decide⟩
 

@@ -1,4 +1,5 @@
 import BoundaryV2.GeneralizedRegisteredFreeze
+import BoundaryV2.GeneralizedDormantRegistry
 
 namespace BoundaryV2.Generalized
 
@@ -23,6 +24,7 @@ structure Activated (signature : Signature) (algebra : LeafAlgebra signature.Dat
     (program : List (BodyType signature.Data signature.Effect)) (shape : ControlShape signature) where
   activation : Activation signature algebra program shape
   regions : List (Id .region)
+  registry : Registry signature algebra program
 
 def Runtime.support (runtime : Runtime signature algebra program result) (external : List Reference) : List Reference :=
   registryReferences runtime.registry ++ UseScope.stateReferences runtime.control.store.fields ++ external
@@ -32,15 +34,17 @@ futures. Registry templates, physical fields, and arena support are included
 here, so activation cannot omit another retained template or live branch. -/
 def Runtime.activate [DecidableEq (ControlShape signature)] (shape : ControlShape signature) (identity : Id .control)
     (runtime : Runtime signature algebra program result) (external : List Reference) : Option (Activated signature algebra program shape) :=
-  (TemplateRegistry.lookup shape identity runtime.registry).map fun template =>
+  (TemplateRegistry.lookup shape identity runtime.registry).bind fun template =>
     let supported := runtime.support external
-    ⟨instantiate template runtime.arena supported,
-      template.image.regions.map ((allocation template.image runtime.arena supported).name .region) ++ runtime.regions⟩
+    let relocation := allocation template.image runtime.arena supported
+    (registerRecords (relocateRecords relocation template.image.dormant) runtime.registry).map fun registry =>
+      ⟨instantiate template runtime.arena supported,
+        template.image.regions.map (relocation.name .region) ++ runtime.regions, registry⟩
 
 def Runtime.afterActivation (runtime : Runtime signature algebra program result)
     (active : Activated signature algebra program shape) (computation : Program signature algebra program result) :
     Runtime signature algebra program result :=
-  ⟨⟨runtime.control.store, computation⟩, active.activation.arena, active.regions, runtime.registry⟩
+  ⟨⟨runtime.control.store, computation⟩, active.activation.arena, active.regions, active.registry⟩
 
 def Runtime.resume [DecidableEq (ControlShape signature)] (shape : ControlShape signature) (identity : Id .control)
     (runtime : Runtime signature algebra program result) (value : RuntimeValue signature algebra program shape.input)
@@ -83,21 +87,24 @@ structure Activated (signature : Signature) (algebra : LeafAlgebra signature.Dat
     (program : List (BodyType signature.Data signature.Effect)) (shape : ControlShape signature) where
   activation : Activation signature algebra program shape
   regions : List (Id .region)
+  registry : Registry signature algebra program
 
 def Runtime.support (runtime : Runtime signature algebra program result) (external : List Reference) : List Reference :=
   registryReferences runtime.registry ++ UseScope.stateReferences runtime.control.store.fields ++ external
 
 def Runtime.activate [DecidableEq (ControlShape signature)] (shape : ControlShape signature) (identity : Id .control)
     (runtime : Runtime signature algebra program result) (external : List Reference) : Option (Activated signature algebra program shape) :=
-  (TemplateRegistry.lookup shape identity runtime.registry).map fun template =>
+  (TemplateRegistry.lookup shape identity runtime.registry).bind fun template =>
     let supported := runtime.support external
-    ⟨instantiate template runtime.arena supported,
-      template.image.regions.map ((allocation template.image runtime.arena supported).name .region) ++ runtime.regions⟩
+    let relocation := allocation template.image runtime.arena supported
+    (registerRecords (relocateRecords relocation template.image.dormant) runtime.registry).map fun registry =>
+      ⟨instantiate template runtime.arena supported,
+        template.image.regions.map (relocation.name .region) ++ runtime.regions, registry⟩
 
 def Runtime.afterActivation (runtime : Runtime signature algebra program result)
     (active : Activated signature algebra program shape) (configuration : Configuration signature algebra program result) :
     Runtime signature algebra program result :=
-  ⟨⟨runtime.control.store, configuration⟩, active.activation.arena, active.regions, runtime.registry⟩
+  ⟨⟨runtime.control.store, configuration⟩, active.activation.arena, active.regions, active.registry⟩
 
 def Runtime.resume [DecidableEq (ControlShape signature)] (shape : ControlShape signature) (identity : Id .control)
     (runtime : Runtime signature algebra program result) (value : RuntimeValue signature algebra program shape.input)
@@ -137,7 +144,7 @@ structure MultiRuntimeRelated (source : Source.Multi.Runtime signature algebra p
   entry : EntryRelated source.control.computation target.control.configuration
 
 def registeredActivation (source : Source.Multi.Activated signature algebra program shape) : Target.Multi.Activated signature algebra program shape :=
-  ⟨templateActivation source.activation, source.regions⟩
+  ⟨templateActivation source.activation, source.regions, templateRegistry source.registry⟩
 
 theorem runtime_support_corresponds (related : MultiDataRelated source target) (external : List Reference) :
     target.support external = source.support external := by
@@ -153,17 +160,29 @@ theorem registered_activation_corresponds [DecidableEq (ControlShape signature)]
   cases TemplateRegistry.lookup shape identity source.registry with
   | none => rfl
   | some selected =>
-    simp only [Option.map_some, registeredActivation, runtime_support_corresponds related, related.arena]
-    rw [template_instantiation_corresponds]
-    simp only [template, template_allocation_corresponds, related.regions]
-    rfl
+    simp only [Option.map_some, Option.bind_some, runtime_support_corresponds related, related.arena]
+    change (Target.Multi.registerRecords
+      (Target.Multi.relocateRecords (Target.Multi.allocation (templateImage selected.image) (templateArena source.arena) (source.support external))
+        ((templateImage selected.image).dormant)) (templateRegistry source.registry)).map _ = _
+    rw [template_allocation_corresponds]
+    simp only [templateImage, ← template_records_map, template_records_relocation, dormant_registrations_correspond]
+    generalize Source.Multi.registerRecords
+      (Source.Multi.relocateRecords (Source.Multi.allocation selected.image source.arena (source.support external)) selected.image.dormant)
+      source.registry = installed
+    cases installed with
+    | none => rfl
+    | some registry =>
+      simp only [Option.map_some, registeredActivation]
+      rw [template_instantiation_corresponds]
+      simp only [template, template_allocation_corresponds, related.regions]
+      rfl
 
 theorem after_activation_corresponds (related : MultiDataRelated source target)
     (active : Source.Multi.Activated signature algebra program shape)
     (entry : EntryRelated sourceEntry targetEntry) :
     MultiRuntimeRelated (source.afterActivation active sourceEntry)
       (target.afterActivation (registeredActivation active) targetEntry) :=
-  ⟨⟨related.store, rfl, rfl, related.registry⟩, entry⟩
+  ⟨⟨related.store, rfl, rfl, rfl⟩, entry⟩
 
 theorem registered_resume_corresponds [DecidableEq (ControlShape signature)]
     {source : Source.Multi.Runtime signature algebra program result} {target : Target.Multi.Runtime signature algebra program result}

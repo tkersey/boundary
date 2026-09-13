@@ -38,7 +38,7 @@ def sourceClonedFuture : Source.Multi.Future signature algebra [] templateShape 
 
 theorem source_activation_relocates_dormant_code_and_every_alias_together :
     sourceFirstActivation.saved = sourceClonedFuture ∧
-    sourceFirstActivation.arena.dormant = [⟨⟨13⟩, templateShape, sourceClonedFuture⟩] := ⟨rfl, rfl⟩
+    sourceFirstActivation.arena.dormant = [Source.Multi.Record.bare ⟨13⟩ templateShape sourceClonedFuture] := ⟨rfl, rfl⟩
 
 def sourceWrittenCells : Cells signature algebra (Source.Computation signature algebra []) :=
   [⟨⟨23⟩, ⟨11⟩, .leaf .integer, .datum (.leaf 0)⟩,

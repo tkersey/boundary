@@ -23,7 +23,7 @@ def sourceCurrentOuterCell : Cells signature algebra (Source.Computation signatu
   [⟨⟨2⟩, ⟨0⟩, .leaf .integer, .datum (.leaf 99)⟩]
 
 def sourceFreezeArena : Source.Multi.Arena signature algebra [] :=
-  ⟨sourceLocalCell ++ sourceCurrentOuterCell, [⟨⟨6⟩, templateShape, sourceTemplateFuture⟩], []⟩
+  ⟨sourceLocalCell ++ sourceCurrentOuterCell, [Source.Multi.Record.bare ⟨6⟩ templateShape sourceTemplateFuture], []⟩
 
 def sourceFreezeStore : Source.Multi.DescribedHeap signature algebra [] :=
   ⟨freezeStore.fields, [⟨⟨10⟩, ⟨100⟩, .linear, ⟨templateShape, sourceTemplateFuture⟩⟩], []⟩

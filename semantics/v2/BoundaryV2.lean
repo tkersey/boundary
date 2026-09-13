@@ -41,3 +41,4 @@ import BoundaryV2.GeneralizedProvenanceExamples
 import BoundaryV2.GeneralizedRegistryExamples
 import BoundaryV2.GeneralizedMultiControlExamples
 import BoundaryV2.GeneralizedLifetimeExamples
+import BoundaryV2.GeneralizedDormantExamples

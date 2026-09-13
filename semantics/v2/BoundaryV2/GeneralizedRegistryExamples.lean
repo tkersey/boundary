@@ -35,18 +35,23 @@ def registeredExternal : List Reference :=
 def registeredActivation := Source.Multi.instantiate sourceBranchingTemplate sourceRegistered.arena
   (sourceRegistered.support (Source.valueReferences (.datum .unit : Source.RuntimeValue signature algebra [] .unit) ++ registeredExternal))
 
+def registeredDormantTemplate : Source.Multi.Template signature algebra [] templateShape :=
+  ⟨⟨registeredActivation.saved, [], [], [], [], []⟩, by decide⟩
+def activatedRegistry : Source.Multi.Registry signature algebra [] :=
+  ⟨⟨17⟩, ⟨templateShape, registeredDormantTemplate⟩⟩ :: sourceRegistry
+
 def sourceRegisteredAfter : Source.Multi.Runtime signature algebra [] (.leaf .integer) :=
-  sourceRegistered.afterActivation ⟨registeredActivation, [⟨7⟩, ⟨0⟩]⟩
+  sourceRegistered.afterActivation ⟨registeredActivation, [⟨7⟩, ⟨0⟩], activatedRegistry⟩
     (Source.reenter registeredActivation.saved.payload (.returned (.datum .unit)))
 
 theorem registered_resume_uses_current_cells_and_makes_local_regions_live :
     sourceRegistered.resume templateShape freezeView.identity (.datum .unit) .done registeredExternal = some sourceRegisteredAfter ∧
     sourceRegisteredAfter.regions = [⟨7⟩, ⟨0⟩] ∧ sourceRegisteredAfter.arena.cells.identities = [⟨15⟩, ⟨2⟩] ∧
-    sourceRegisteredAfter.registry = sourceRegistry ∧
+    sourceRegisteredAfter.registry = activatedRegistry ∧
     sourceRegisteredAfter.control.store = sourceRegistered.control.store := by
   refine ⟨?_, rfl, rfl, rfl, rfl⟩
   unfold Source.Multi.Runtime.resume Source.Multi.Runtime.activate
-  change ((TemplateRegistry.lookup templateShape freezeView.identity sourceRegistry).map _).map _ = _
+  change ((TemplateRegistry.lookup templateShape freezeView.identity sourceRegistry).bind _).map _ = _
   rw [registered_template_lookup]
   rfl
 

@@ -71,6 +71,29 @@ theorem lookup_after_insert [DecidableEq (ControlShape signature)] {payload : Be
   · cases inserted
     simp only [lookup, find, ↓reduceIte, Option.bind_some, UseScope.unpack_control_exact]
 
+theorem find_absent (registry : Registry Before) (absent : identity ∉ identities registry) : find identity registry = none := by
+  induction registry with
+  | nil => rfl
+  | cons first rest induction =>
+    have parts : identity ≠ first.identity ∧ identity ∉ identities rest := by simpa [identities] using absent
+    simp only [find, if_neg parts.1, induction parts.2]
+
+theorem inserted_lookup_preserves_existing [DecidableEq (ControlShape signature)]
+    {registry after : Registry Before} {payload : Before original} {old : Before shape}
+    (inserted : insert identity payload registry = some after) (present : lookup shape wanted registry = some old) :
+    lookup shape wanted after = some old := by
+  unfold insert at inserted
+  split at inserted
+  · cases inserted
+  · rename_i fresh
+    cases inserted
+    have different : wanted ≠ identity := by
+      intro same
+      subst wanted
+      simp only [lookup, find_absent registry fresh, Option.bind_none] at present
+      cases present
+    simpa only [lookup, find, if_neg different] using present
+
 theorem find_map (convert : ∀ shape, Before shape → After shape) (registry : Registry Before) :
     find identity (map convert registry) = (find identity registry).map (UseScope.mapPacked convert) := by
   induction registry with

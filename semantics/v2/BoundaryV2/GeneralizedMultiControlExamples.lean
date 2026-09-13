@@ -35,7 +35,7 @@ def injectionExternal : List Reference := Source.Multi.callSupport .nil injectio
 def injectedActivation := Source.Multi.instantiate sourceBranchingTemplate sourceInjectionReady.arena
   (sourceInjectionReady.support (injectedYieldBody.references ++ Source.environmentReferences injectedCapture ++ injectionExternal))
 def sourceInjectionAfter : Source.Multi.Runtime signature algebra [] (.leaf .integer) :=
-  sourceInjectionReady.afterActivation ⟨injectedActivation, [⟨7⟩, ⟨0⟩]⟩
+  sourceInjectionReady.afterActivation ⟨injectedActivation, [⟨7⟩, ⟨0⟩], activatedRegistry⟩
     (Source.reenter injectedActivation.saved.payload (.evaluate injectedYieldBody injectedCapture))
 
 theorem injected_owned_body_handoff : ComputationHandoff injectedCapture .linear
@@ -46,7 +46,7 @@ theorem registered_injection_enters_the_body_after_handoff :
     sourceInjectionReady.inject templateShape freezeView.identity injectedYieldBody injectedCapture .done injectionExternal =
       some sourceInjectionAfter := by
   unfold Source.Multi.Runtime.inject Source.Multi.Runtime.activate
-  change ((TemplateRegistry.lookup templateShape freezeView.identity sourceRegistry).map _).map _ = _
+  change ((TemplateRegistry.lookup templateShape freezeView.identity sourceRegistry).bind _).map _ = _
   rw [registered_template_lookup]
   rfl
 
@@ -93,14 +93,14 @@ def successorActivation := Source.Multi.instantiate sourceBranchingTemplate sour
   (sourceSuccessor.support (Source.valueReferences (.datum .unit : Source.RuntimeValue signature algebra [] .unit) ++
     successorReturn.references ++ [] ++ Source.environmentReferences registeredBindings ++ successorExternal))
 def sourceSuccessorAfter : Source.Multi.Runtime signature algebra [] .unit :=
-  sourceSuccessor.afterActivation ⟨successorActivation, [⟨7⟩, ⟨0⟩]⟩
+  sourceSuccessor.afterActivation ⟨successorActivation, [⟨7⟩, ⟨0⟩], activatedRegistry⟩
     (Source.reenterWith successorActivation.saved.payload (.datum .unit) successorReturn .nil registeredBindings .done)
 
 theorem registered_successor_retains_its_effectful_changed_answer_clause :
     sourceSuccessor.successor (effect := Effect.choose) freezeView.identity (.datum .unit) successorReturn .nil registeredBindings .done successorExternal =
       some sourceSuccessorAfter := by
   unfold Source.Multi.Runtime.successor Source.Multi.Runtime.activate
-  change ((TemplateRegistry.lookup templateShape freezeView.identity sourceRegistry).map _).map _ = _
+  change ((TemplateRegistry.lookup templateShape freezeView.identity sourceRegistry).bind _).map _ = _
   rw [registered_template_lookup]
   rfl
 

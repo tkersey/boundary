@@ -20,12 +20,21 @@ structure Partition where
   scopes : List (Id .scope)
   dormant : List (Id .control)
 
+mutual
+  def Record.cloneView : Record signature algebra program → Record signature algebra program
+    | .mk identity shape saved cells dormant attachments regions scopes =>
+      ⟨identity, shape, { saved with future := saved.future.cloneView }, cells,
+        recordsCloneView dormant, attachments, regions, scopes⟩
+  def recordsCloneView : List (Record signature algebra program) → List (Record signature algebra program)
+    | [] => []
+    | first :: rest => first.cloneView :: recordsCloneView rest
+end
+
 def Partition.image (partition : Partition) (saved : ControlPayload signature algebra program shape)
     (arena : Arena signature algebra program) : Image signature algebra program shape :=
   ⟨{ saved with future := saved.future.cloneView },
     arena.cells.filter (fun cell => partition.regions.contains cell.region),
-    (arena.dormant.filter (fun record => partition.dormant.contains record.identity)).map
-      (fun record => { record with saved := { record.saved with future := record.saved.future.cloneView } }),
+    (arena.dormant.filter (fun record => partition.dormant.contains record.identity)).map Record.cloneView,
     partition.attachments, partition.regions, partition.scopes⟩
 
 def Partition.remaining (partition : Partition) (arena : Arena signature algebra program) : Arena signature algebra program :=

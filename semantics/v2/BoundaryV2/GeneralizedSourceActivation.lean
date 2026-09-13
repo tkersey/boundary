@@ -8,11 +8,11 @@ variable {signature : Signature} {algebra : LeafAlgebra signature.Data}
 namespace Source.Multi
 
 def Image.locals (image : Image signature algebra program shape) : (domain : Domain) → List (Id domain)
-  | .attachment => image.attachments
-  | .region => image.regions
-  | .scope => image.scopes
-  | .cell => Cells.identities image.cells
-  | .control => image.dormant.map Record.identity
+  | .attachment => image.attachments ++ recordsLocals image.dormant .attachment
+  | .region => image.regions ++ recordsLocals image.dormant .region
+  | .scope => image.scopes ++ recordsLocals image.dormant .scope
+  | .cell => Cells.identities image.cells ++ recordsLocals image.dormant .cell
+  | .control => recordsLocals image.dormant .control
   | .resource | .custody | .occurrence | .obligation => []
 
 def Arena.references (arena : Arena signature algebra program) : List Reference :=
@@ -67,10 +67,29 @@ theorem template_arena_references (source : Source.Multi.Arena signature algebra
     List.flatMap_map, template_record_references, Source.Multi.Arena.references,
     Target.Multi.payloadReferences, templateFuture, capture_references, Source.Multi.Future.references]
 
+mutual
+  theorem template_record_locals (source : Source.Multi.Record signature algebra program) (domain : Domain) :
+      (templateRecord source).locals domain = source.locals domain := by
+    cases source with
+    | mk identity shape saved localCells dormant attachments regions scopes =>
+      cases domain <;> simp only [templateRecord, Target.Multi.Record.locals, Source.Multi.Record.locals,
+        template_records_locals dormant, cells, Cells.mapBodies, Cells.identities, List.map_map, Cell.map, Function.comp_def]
+  termination_by sizeOf source
+  decreasing_by all_goals (cases source <;> simp_all <;> omega)
+
+  theorem template_records_locals (records : List (Source.Multi.Record signature algebra program)) (domain : Domain) :
+      Target.Multi.recordsLocals (templateRecords records) domain = Source.Multi.recordsLocals records domain := by
+    cases records with
+    | nil => rfl
+    | cons first rest => simp only [templateRecords, Target.Multi.recordsLocals, Source.Multi.recordsLocals,
+        template_record_locals first, template_records_locals rest]
+  termination_by sizeOf records
+end
+
 theorem template_image_locals (source : Source.Multi.Image signature algebra program shape) (domain : Domain) :
     (templateImage source).locals domain = source.locals domain := by
   cases domain <;> simp [Target.Multi.Image.locals, Source.Multi.Image.locals, templateImage,
-    cells, Cells.mapBodies, Cells.identities, Cell.map, templateRecord, List.map_map]
+    cells, Cells.mapBodies, Cells.identities, Cell.map, ← template_records_map, template_records_locals, List.map_map]
 
 /-- Fresh names are computed independently from identical finite support;
 neither implementation receives the other's allocation as an assumption. -/

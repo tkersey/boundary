@@ -32,8 +32,17 @@ def relocateCell (relocation : UseScope.Relocation) (cell : Cell signature algeb
 def Multi.Future.relocate (relocation : UseScope.Relocation) (future : Multi.Future signature algebra program shape) :
     Multi.Future signature algebra program shape := ⟨relocation.name .attachment future.attachment, future.capture.relocate relocation⟩
 
-def Multi.Record.relocate (relocation : UseScope.Relocation) (record : Multi.Record signature algebra program) :
-    Multi.Record signature algebra program := ⟨relocation.name .control record.identity, record.shape, record.saved.relocate relocation⟩
+mutual
+  def Multi.Record.relocate (relocation : UseScope.Relocation) : Multi.Record signature algebra program → Multi.Record signature algebra program
+    | .mk identity shape saved cells dormant attachments regions scopes =>
+      ⟨relocation.name .control identity, shape, saved.relocate relocation,
+        cells.map (relocateCell relocation), Multi.relocateRecords relocation dormant,
+        attachments.map (relocation.name .attachment), regions.map (relocation.name .region),
+        scopes.map (relocation.name .scope)⟩
+  def Multi.relocateRecords (relocation : UseScope.Relocation) : List (Multi.Record signature algebra program) → List (Multi.Record signature algebra program)
+    | [] => []
+    | first :: rest => first.relocate relocation :: Multi.relocateRecords relocation rest
+end
 
 end Source
 
@@ -92,10 +101,6 @@ theorem template_future_relocation (relocation : UseScope.Relocation) (source : 
     (templateFuture source).relocate relocation = templateFuture (source.relocate relocation) := by
   simp only [templateFuture, Target.Resumption.relocate, Source.Multi.Future.relocate, capture_relocation_commutes]
 
-theorem template_record_relocation (relocation : UseScope.Relocation) (source : Source.Multi.Record signature algebra program) :
-    (templateRecord source).relocate relocation = templateRecord (source.relocate relocation) := by
-  simp only [templateRecord, Target.Multi.Record.relocate, Source.Multi.Record.relocate, template_future_relocation]
-
 theorem cell_relocation_commutes (relocation : UseScope.Relocation)
     (source : Cell signature algebra (Source.Computation signature algebra program)) :
     Target.relocateCell relocation (source.map (fun _ _ body => computation body)) =
@@ -103,6 +108,26 @@ theorem cell_relocation_commutes (relocation : UseScope.Relocation)
   change Cell.mk _ _ _ (Target.relocateValue relocation (value source.value)) = Cell.mk _ _ _ (value (Source.relocateValue relocation source.value))
   rw [value_relocation_commutes]
   rfl
+
+mutual
+  theorem template_record_relocation (relocation : UseScope.Relocation) (source : Source.Multi.Record signature algebra program) :
+      (templateRecord source).relocate relocation = templateRecord (source.relocate relocation) := by
+    cases source with
+    | mk identity shape saved localCells dormant attachments regions scopes =>
+      simp only [templateRecord, Target.Multi.Record.relocate, Source.Multi.Record.relocate, template_future_relocation,
+        cells, Cells.mapBodies, List.map_map, Function.comp_def, cell_relocation_commutes,
+        template_records_relocation relocation dormant]
+  termination_by sizeOf source
+  decreasing_by cases source; simp_all; omega
+
+  theorem template_records_relocation (relocation : UseScope.Relocation) (records : List (Source.Multi.Record signature algebra program)) :
+      Target.Multi.relocateRecords relocation (templateRecords records) = templateRecords (Source.Multi.relocateRecords relocation records) := by
+    cases records with
+    | nil => rfl
+    | cons first rest => simp only [templateRecords, Target.Multi.relocateRecords, Source.Multi.relocateRecords,
+        template_record_relocation relocation first, template_records_relocation relocation rest]
+  termination_by sizeOf records
+end
 
 end Defunctionalization
 end BoundaryV2.Generalized

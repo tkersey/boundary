@@ -94,9 +94,17 @@ entries. Injection completes operand evaluation and consumes the supplied
 closure's authority before entering its actual body; successor clauses retain
 their effectful computations and separate body/answer types. Checked examples
 cover owned captures, a yielded injected body, and a changed-answer successor.
-Remaining runtime integration includes dormant-template bindings and
-allocation/retirement across the complete registry lifetime. These local laws
-do not close the whole-core milestone.
+Dormant records retain complete private snapshots, including their cells,
+local names, and nested owned captures. Nominal reference edges can still form
+aliases or cycles. Parent activation relocates the whole captured forest and
+registers its templates atomically; each later child activation copies only its
+private snapshot and uses current outer state. Duplicate bindings and exclusive
+captures reject without publishing a partial registry. General registration
+laws preserve existing lookups, and the freshness proof includes nested private
+cells. The nested source/target example checks a child snapshot, current parent
+and shared cells, and a back-reference to an existing child binding.
+Allocation/retirement across the complete registry lifetime remains unfinished;
+these local laws do not close the whole-core milestone.
 
 `GeneralizedScopeClosure` checks actual surviving fields, code, returned values,
 and saved control before detaching a lifetime subtree. Source and target checks
