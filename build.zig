@@ -133,14 +133,16 @@ pub fn build(b: *std.Build) void {
     semantics.dependOn(&oracleScopeChecks(b, boundary, optimize).step);
     semantics.dependOn(&borrowReturnChecks(b, boundary, optimize).step);
     semantics.dependOn(&b.addRunArtifact(authoring).step);
-    const formal = b.addSystemCommand(&.{ "lake", "build" });
-    formal.setCwd(b.path("semantics/v2"));
-    formal.has_side_effects = true;
-    const trust = b.addSystemCommand(&.{ "lake", "env", "lean", "Trust.lean" });
-    trust.setCwd(b.path("semantics/v2"));
+    const formal = b.step("check-v2-formal", "Check discovered Lean declarations, trust mutations and fresh replay");
+    const trust = b.addSystemCommand(&.{"node"});
+    trust.addFileArg(b.path("semantics/v2/check.mjs"));
     trust.has_side_effects = true;
-    trust.step.dependOn(&formal.step);
-    semantics.dependOn(&trust.step);
+    const trust_mutations = b.addSystemCommand(&.{"node"});
+    trust_mutations.addFileArg(b.path("semantics/v2/check.test.mjs"));
+    trust_mutations.has_side_effects = true;
+    formal.dependOn(&trust.step);
+    formal.dependOn(&trust_mutations.step);
+    semantics.dependOn(formal);
     const conformance = b.addSystemCommand(&.{"node"});
     conformance.addFileArg(b.path("test/v2/conformance.mjs"));
     if (b.option([]const u8, "world-source", "Pinned unmodified World checkout for conformance")) |world| {

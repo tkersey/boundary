@@ -2,8 +2,9 @@
 
 This is a model of Boundary control and lowering, checked with the pinned
 Lean 4.33.1 toolchain and bundled Std. It has no external package dependencies.
-Run `lake build` and `lake env lean Trust.lean` in this directory, or use
-`zig build check-v2-semantics` from the repository. Importing Boundary's
+Run `zig build check-v2-formal` from the repository for module discovery,
+the positive trust policy, mutation checks, and fresh kernel replay.
+`lake --wfail build` remains the focused proof-build command. Importing Boundary's
 Zig modules does not execute these commands or require Lean.
 
 The artifacts under proof are the Lean definitions here. The production Zig
@@ -66,9 +67,25 @@ and selective compiler optimizations have separate executable evidence and are
 outside this formal core. Finite script lengths in `drive` and the closed-example
 `ticks` helper are observation horizons; no machine transition reads semantic fuel.
 
-`Trust.lean` prints the kernel dependencies of every current theorem. Depending
-on the theorem, these include Lean's standard `propext`, `Quot.sound`, and
-`Classical.choice`; several direct control and renaming laws use no axioms.
-There are no custom admitted axioms, unfinished proof placeholders, native
-decision shortcuts, unsafe definitions, or partial definitions in this core.
-The Lean kernel and standard logical axioms are the logical trust boundary.
+`check.mjs` discovers every `.lean` file in this project except generated `.lake`
+contents. Explicit Lake roots build orphan files even outside `BoundaryV2`.
+`Trust.lean` inspects Lean's declaration provenance and follows types, bodies,
+and inductive constructors transitively. Only `propext`, `Quot.sound`, and
+`Classical.choice` are allowed axioms. Private declarations and unused definitions
+are included. Unsafe or partial logical definitions reject; compiler-generated
+executable companions are recognized only when their safe parent and type agree,
+and a logical dependency on such a companion still rejects. The checker itself
+is executable tooling and cannot become a semantic dependency.
+
+The same run uses Lean 4.33.1's `Lean.Environment.replay` API with a fresh empty environment
+at trust level zero. `check.test.mjs` checks a valid orphan and rejected private
+unfinished proofs, hidden axioms, unfinished definitions, native-evaluation
+dependencies, unsafe definitions, and partial definitions in isolated projects.
+Run these commands separately with `node semantics/v2/check.mjs` and
+`node semantics/v2/check.test.mjs` from the repository.
+
+This gate checks logical trust, not the meaning or completeness of the five
+generalized contract statements. Their final exported types and claim-weakening
+mutation checks remain unfinished; the replacement specification and
+`CONTRACT.md` describe the intended scope. The earlier model inventory above is
+retained pending the replacement's documentation and root cleanup.
