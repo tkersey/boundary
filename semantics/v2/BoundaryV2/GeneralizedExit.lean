@@ -96,6 +96,39 @@ structure Obligation (signature : Signature) (algebra : LeafAlgebra signature.Da
   fields : List UseScope.Field
   exit : ExitInfo algebra.Fault algebra.Reason
 
+/-- Detaching a completed protected scope transfers its pending cleanup and
+returns the remaining continuation. The pending frame is absent from that
+continuation, so the same logical frame cannot be started there again. -/
+structure ProtectionHandoff (signature : Signature) (algebra : LeafAlgebra signature.Data)
+    (definitions : List (BodyType signature.Data signature.Effect)) (input result : TypeOf signature) where
+  obligation : Obligation signature algebra definitions
+  outside : Target.Stack signature algebra definitions input result
+
+def detachProtection (future : Target.Stack signature algebra definitions input result)
+    (fields : List UseScope.Field) (exit : ExitInfo algebra.Fault algebra.Reason) :
+    Option (ProtectionHandoff signature algebra definitions input result) :=
+  match future with
+  | .push (.protection identity cleanup bindings) outside =>
+    some ⟨⟨identity, .pending ⟨_, cleanup, bindings⟩, fields, exit⟩, outside⟩
+  | _ => none
+
+theorem protection_handoff_removes_exactly_one_pending_frame
+    (accepted : detachProtection future fields exit = some handoff) :
+    pendingProtections future = handoff.obligation.id :: pendingProtections handoff.outside := by
+  cases future with
+  | done => cases accepted
+  | push frame rest =>
+    cases frame <;> simp only [detachProtection] at accepted
+    all_goals cases accepted
+    rfl
+
+theorem detached_pending_frame_is_not_in_the_remaining_continuation
+    (unique : (pendingProtections future).Nodup)
+    (accepted : detachProtection future fields exit = some handoff) :
+    handoff.obligation.id ∉ pendingProtections handoff.outside := by
+  rw [protection_handoff_removes_exactly_one_pending_frame accepted] at unique
+  exact (List.nodup_cons.mp unique).1
+
 def Phase.right : Phase signature algebra definitions → Nat
   | .pending _ => 1
   | .running _ _ | .finished _ => 0
@@ -153,6 +186,13 @@ theorem initiation_conservation (step : Step table before initiations after) :
 inductive Steps (table : Target.Definitions signature algebra definitions) : Obligation signature algebra definitions → Nat → Obligation signature algebra definitions → Prop where
   | refl : Steps table state 0 state
   | cons : Step table first count middle → Steps table middle rest last → Steps table first (count + rest) last
+
+theorem Steps.trans (first : Steps table before count middle) (second : Steps table middle rest after) :
+    Steps table before (count + rest) after := by
+  induction first with
+  | refl => simpa only [Nat.zero_add] using second
+  | cons step tail induction =>
+    simpa only [Nat.add_assoc] using Steps.cons step (induction second)
 
 theorem execute_steps (steps : Target.CallSteps table before count after) :
     Steps table ⟨obligationId, .running before .active, fields, exit⟩ 0

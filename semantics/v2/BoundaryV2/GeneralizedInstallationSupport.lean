@@ -8,6 +8,23 @@ namespace BoundaryV2.Generalized
 variable {signature : Signature} {algebra : LeafAlgebra signature.Data}
   {program : List (BodyType signature.Data signature.Effect)}
 
+mutual
+  def UseScope.Field.references : UseScope.Field → List Reference
+    | .owned token owner => [.name .custody token, .owner owner]
+    | .alias token => [.name .custody token]
+    | .borrowed scope => [.name .scope scope]
+    | .group fields | .closure fields | .package fields => UseScope.fieldsReferences fields
+    | .continuation identity fields => .name .control identity :: UseScope.fieldsReferences fields
+    | .cleanup identity fields => .name .obligation identity :: UseScope.fieldsReferences fields
+
+  def UseScope.fieldsReferences : List UseScope.Field → List Reference
+    | [] => []
+    | first :: rest => first.references ++ UseScope.fieldsReferences rest
+end
+
+def UseScope.stateReferences (state : UseScope.State) : List Reference :=
+  fieldsReferences state.active ++ fieldsReferences state.retained
+
 namespace Source
 
 mutual
@@ -61,7 +78,8 @@ inductive ControlInfosSupported : List (UseScope.ControlInfo (Sigma (ControlPayl
   | cons : ControlSupported first.future head → ControlInfosSupported rest tail → ControlInfosSupported (first :: rest) (head ++ tail)
 
 def StoreSupported (store : ControlHeap signature algebra program) (support : List Reference) : Prop :=
-  ∃ active disposing, ControlInfosSupported store.controls active ∧ ControlInfosSupported store.disposing disposing ∧ support = active ++ disposing
+  ∃ active disposing, ControlInfosSupported store.controls active ∧ ControlInfosSupported store.disposing disposing ∧
+    support = UseScope.stateReferences store.fields ++ active ++ disposing
 
 def definitionReferences : {types : List (BodyType signature.Data signature.Effect)} →
     Tuple (fun body => Computation signature algebra program body.parameters body.result) types → List Reference
@@ -81,6 +99,13 @@ def freshAttachment (table : Definitions signature algebra program)
     (outside stored : List Reference) (cells : Cells signature algebra (Computation signature algebra program))
     (extra : List Reference) : Id .attachment :=
   UseScope.freshName (referenceNames (installationSupport table code bindings outside stored cells extra) .attachment)
+
+def freshObligation (table : Definitions signature algebra program)
+    (code : Computation signature algebra program context result)
+    (bindings : RuntimeEnvironment signature algebra program context)
+    (outside stored : List Reference) (cells : Cells signature algebra (Computation signature algebra program))
+    (extra : List Reference) : Id .obligation :=
+  UseScope.freshName (referenceNames (installationSupport table code bindings outside stored cells extra) .obligation)
 
 end Source
 
@@ -106,7 +131,7 @@ def controlReferences (packed : Sigma (ControlPayload signature algebra program)
   .name .attachment packed.snd.attachment :: packed.snd.future.installationReferences
 
 def storeReferences (store : ControlHeap signature algebra program) : List Reference :=
-  (store.controls ++ store.disposing).flatMap fun record => controlReferences record.future
+  UseScope.stateReferences store.fields ++ (store.controls ++ store.disposing).flatMap fun record => controlReferences record.future
 
 def definitionReferences : {types : List (BodyType signature.Data signature.Effect)} →
     Tuple (fun body => Code signature algebra program body.parameters [] body.result) types → List Reference
@@ -131,6 +156,15 @@ def freshAttachment (table : Definitions signature algebra program)
     (cells : Cells signature algebra (fun context result => Code signature algebra program context [] result))
     (extra : List Reference) : Id .attachment :=
   UseScope.freshName (referenceNames (installationSupport table code bindings values outside store cells extra) .attachment)
+
+def freshObligation (table : Definitions signature algebra program)
+    (code : Code signature algebra program context operands input)
+    (bindings : RuntimeEnvironment signature algebra program context)
+    (values : RuntimeEnvironment signature algebra program operands)
+    (outside : Stack signature algebra program input result) (store : ControlHeap signature algebra program)
+    (cells : Cells signature algebra (fun context result => Code signature algebra program context [] result))
+    (extra : List Reference) : Id .obligation :=
+  UseScope.freshName (referenceNames (installationSupport table code bindings values outside store cells extra) .obligation)
 
 end Target
 
@@ -211,7 +245,7 @@ theorem records_installation_support
 theorem store_installation_support (related : ControlHeapRelated source target) :
     Source.StoreSupported source (Target.storeReferences target) := by
   refine ⟨_, _, records_installation_support related.controls, records_installation_support related.disposing, ?_⟩
-  simp only [Target.storeReferences, List.flatMap_append]
+  simp only [Target.storeReferences, List.flatMap_append, List.append_assoc, related.fields]
 
 theorem definition_reference_support
     (source : Tuple (fun body : BodyType signature.Data signature.Effect => Source.Computation signature algebra program body.parameters body.result) types) :
@@ -234,6 +268,19 @@ theorem fresh_attachment_corresponds
     definitions, definition_reference_support, computation_reference_support, environment_reference_support,
     Target.environmentReferences, cell_installation_support, List.append_nil]
 
+theorem fresh_obligation_corresponds
+    (table : Source.Definitions signature algebra program)
+    (code : Source.Computation signature algebra program context input)
+    (bindings : Source.RuntimeEnvironment signature algebra program context)
+    (outside : Target.Stack signature algebra program input result)
+    (store : Target.ControlHeap signature algebra program)
+    (sourceCells : Cells signature algebra (Source.Computation signature algebra program)) (extra : List Reference) :
+    Source.freshObligation table code bindings outside.installationReferences (Target.storeReferences store) sourceCells extra =
+      Target.freshObligation (definitions table) (computation code) (environment bindings) .nil outside store (cells sourceCells) extra := by
+  simp only [Source.freshObligation, Target.freshObligation, Source.installationSupport, Target.installationSupport,
+    definitions, definition_reference_support, computation_reference_support, environment_reference_support,
+    Target.environmentReferences, cell_installation_support, List.append_nil]
+
 end Defunctionalization
 
 theorem Source.fresh_attachment_avoids_support
@@ -252,6 +299,16 @@ theorem Target.fresh_attachment_avoids_support
     (cells : Cells signature algebra (fun context result => Target.Code signature algebra program context [] result)) (extra : List Reference) :
     Target.freshAttachment table code bindings values outside store cells extra ∉
       referenceNames (Target.installationSupport table code bindings values outside store cells extra) .attachment :=
+  UseScope.fresh_name_not_supported _
+
+theorem Target.fresh_obligation_avoids_support
+    (table : Target.Definitions signature algebra program) (code : Target.Code signature algebra program context operands input)
+    (bindings : Target.RuntimeEnvironment signature algebra program context)
+    (values : Target.RuntimeEnvironment signature algebra program operands)
+    (outside : Target.Stack signature algebra program input result) (store : Target.ControlHeap signature algebra program)
+    (cells : Cells signature algebra (fun context result => Target.Code signature algebra program context [] result)) (extra : List Reference) :
+    Target.freshObligation table code bindings values outside store cells extra ∉
+      referenceNames (Target.installationSupport table code bindings values outside store cells extra) .obligation :=
   UseScope.fresh_name_not_supported _
 
 end BoundaryV2.Generalized
