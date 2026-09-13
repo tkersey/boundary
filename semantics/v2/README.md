@@ -155,8 +155,17 @@ checked run writes a cell, yields, is captured, receives repeated cancellation,
 resumes, and fails; both parents keep the new cell contents, physical authority,
 original failure, ordered nested failures, and first cancellation reason. Region
 boundaries encountered during abandonment remain with their closing owner;
-integration with the full registry/owned-disposal flow and the general stateful
-observation theorem is still unfinished.
+integration with the full registry and the general stateful observation theorem
+is still unfinished.
+
+The existing `DisposalRun` now enters and executes the nested driver while
+retaining both the abandoned future's resume point and the disposal caller.
+Only a finished nested machine can return its current runtime to unwinding;
+there is no direct nested-to-resolved transition. A checked authored-dispose
+example consumes its real grant, enters nested protection, waits through an
+inner cleanup yield, finishes both cleanups, and reenters the original caller.
+Its spent grant, unrelated owner, and existing caller-to-42 result are preserved.
+The original flat-cleanup disposal proofs remain checked.
 
 ## Verification commands
 

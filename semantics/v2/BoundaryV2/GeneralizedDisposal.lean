@@ -1,5 +1,6 @@
 import BoundaryV2.GeneralizedRegionRetirement
 import BoundaryV2.GeneralizedOwnedOperandLowering
+import BoundaryV2.GeneralizedNestedCleanup
 
 namespace BoundaryV2.Generalized
 
@@ -153,6 +154,9 @@ inductive DisposalProgress (signature : Signature) (algebra : LeafAlgebra signat
     (program : List (BodyType signature.Data signature.Effect)) (result : TypeOf signature) where
   | evaluating : State signature algebra program result → DisposalProgress signature algebra program result
   | disposing : Disposal signature algebra program result → DisposalProgress signature algebra program result
+  | nested {answer : TypeOf signature} : ExitComposition.NestedCleanup signature algebra program →
+      ExitComposition.ResumePoint signature algebra program answer → Stack signature algebra program .unit result →
+      DisposalProgress signature algebra program result
   | resolved : ExitComposition.Resolution signature algebra program result → DisposalProgress signature algebra program result
 
 inductive DisposalRunStep [DecidableEq (ControlShape signature)] [DecidableEq (TypeOf signature)]
@@ -166,6 +170,17 @@ inductive DisposalRunStep [DecidableEq (ControlShape signature)] [DecidableEq (T
       DisposalRunStep table (.evaluating ⟨⟨store, .failed fault future⟩, cells, regions⟩)
         (.resolved (.reenter ⟨⟨store, .failed fault future⟩, cells, regions⟩ ⟨.failure fault, [], none⟩))
   | unwind : DisposalStep table before selected after → DisposalRunStep table (.disposing before) (.disposing after)
+  | enterNested {scope : ExitComposition.ScopeExit signature algebra program answer}
+      {outside : Stack signature algebra program .unit result} :
+      DisposalRunStep table (.disposing ⟨answer, .cleaning scope, outside⟩)
+        (.nested (ExitComposition.NestedCleanup.start scope.cleanup) scope.resume outside)
+  | nested {resume : ExitComposition.ResumePoint signature algebra program answer}
+      {outside : Stack signature algebra program .unit result} :
+      ExitComposition.NestedStep table before initiations after →
+      DisposalRunStep table (.nested before resume outside) (.nested after resume outside)
+  | leaveNested {resume : ExitComposition.ResumePoint signature algebra program answer}
+      {outside : Stack signature algebra program .unit result} : machine.finished = some runtime →
+      DisposalRunStep table (.nested machine resume outside) (.disposing ⟨answer, .cleaning ⟨runtime, resume⟩, outside⟩)
   | finish : disposal.finish = some result → DisposalRunStep table (.disposing disposal) (.resolved result)
 
 inductive DisposalRun [DecidableEq (ControlShape signature)] [DecidableEq (TypeOf signature)]
@@ -203,6 +218,42 @@ theorem DisposalRun.finish_after_unwind [DecidableEq (ControlShape signature)] [
   | cons step rest induction =>
     obtain ⟨count, tail⟩ := induction finished
     exact ⟨count + 1, .cons (.unwind step) tail⟩
+
+/-- The disposal caller and root cleanup resume point are fixed throughout
+the nested run. Only the active nested machine owns resource state. -/
+theorem DisposalRun.nested_steps [DecidableEq (ControlShape signature)] [DecidableEq (TypeOf signature)]
+    {table : Definitions signature algebra program}
+    {before after : ExitComposition.NestedCleanup signature algebra program}
+    (resume : ExitComposition.ResumePoint signature algebra program answer)
+    (outside : Stack signature algebra program .unit result)
+    (steps : ExitComposition.NestedSteps table before initiations after) :
+    ∃ count, DisposalRun table (.nested before resume outside) count (.nested after resume outside) := by
+  induction steps with
+  | refl => exact ⟨0, .refl⟩
+  | cons step tail induction =>
+    obtain ⟨count, rest⟩ := induction
+    exact ⟨count + 1, .cons (.nested step) rest⟩
+
+theorem DisposalRun.run_nested_cleanup [DecidableEq (ControlShape signature)] [DecidableEq (TypeOf signature)]
+    {table : Definitions signature algebra program}
+    (scope : ExitComposition.ScopeExit signature algebra program answer)
+    (outside : Stack signature algebra program .unit result)
+    (steps : ExitComposition.NestedSteps table (ExitComposition.NestedCleanup.start scope.cleanup) initiations after)
+    (finished : after.finished = some runtime) :
+    ∃ count, DisposalRun table (.disposing ⟨answer, .cleaning scope, outside⟩) count
+      (.disposing ⟨answer, .cleaning ⟨runtime, scope.resume⟩, outside⟩) := by
+  obtain ⟨count, run⟩ := DisposalRun.nested_steps scope.resume outside steps
+  exact ⟨1 + count + 1, ((DisposalRun.cons .enterNested .refl).trans run).trans (.cons (.leaveNested finished) .refl)⟩
+
+theorem nested_disposal_cannot_resolve_directly [DecidableEq (ControlShape signature)] [DecidableEq (TypeOf signature)]
+    {table : Definitions signature algebra program}
+    {machine : ExitComposition.NestedCleanup signature algebra program}
+    {resume : ExitComposition.ResumePoint signature algebra program answer}
+    {outside : Stack signature algebra program .unit result}
+    {resolution : ExitComposition.Resolution signature algebra program result} :
+    ¬ DisposalRunStep table (.nested machine resume outside) (.resolved resolution) := by
+  intro step
+  cases step
 
 theorem DisposalRun.operand_failure [DecidableEq (ControlShape signature)] [DecidableEq (TypeOf signature)]
     {table : Definitions signature algebra program} {before : State signature algebra program result}

@@ -45,3 +45,4 @@ import BoundaryV2.GeneralizedDormantExamples
 import BoundaryV2.GeneralizedRegionClosureExamples
 import BoundaryV2.GeneralizedScopedRegionExamples
 import BoundaryV2.GeneralizedNestedCleanupExamples
+import BoundaryV2.GeneralizedNestedDisposalExamples
