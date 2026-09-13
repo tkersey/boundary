@@ -112,9 +112,18 @@ agree. Registered runtimes include their retained templates and dormant/active
 futures automatically. `GeneralizedLifetimeExit` performs that check only after
 cleanup finishes and preserves its exact resolution and exit history. Examples
 retain owned work past creator closure and reject younger dependencies in
-fields, future code, stored closures, and template registries. Region-to-scope
-association, final region-storage retirement, and complete lifecycle integration
-remain separate unfinished obligations.
+fields, future code, stored closures, and template registries.
+`GeneralizedRegionClosure` now retires selected region storage and liveness
+together after cleanup completes. It checks actual remaining cell owners and
+surviving references in returned values, callers, retained/disposal futures,
+other cells, and declared external roots. General laws preserve physical owner
+multiplicity, unrelated cell reads, and exact exit information, and exclude
+aliases to retired cells or regions. The higher-order return operation agrees
+with the target operation, including refusal, and preserves the state relation.
+Examples reject pending/captured cleanup, live linear cells, and stale aliases;
+successful failure/cancellation exits retain their history and continuation.
+Region-to-scope association and complete lifecycle integration remain separate
+unfinished obligations.
 
 `GeneralizedDisposal` and `GeneralizedDisposalExecution` connect an authored
 one-shot dispose operand to authority release and its actual saved unwind
