@@ -17,3 +17,4 @@ import BoundaryV2.GeneralizedCellExamples
 import BoundaryV2.GeneralizedCellExecutionExamples
 import BoundaryV2.GeneralizedStateExecutionExamples
 import BoundaryV2.GeneralizedScopeExamples
+import BoundaryV2.GeneralizedResourceExamples
