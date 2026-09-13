@@ -13,7 +13,7 @@ def negateFutureBody : Source.Computation signature algebra []
   .primitive Primitive.negate (.cons (.reference .here) .nil)
 
 def sourceNegateFuture : Source.Context signature algebra [] (.leaf .boolean) (.leaf .boolean) :=
-  .push (.bind (fun input => .evaluate negateFutureBody (.cons input textBindings))) .done
+  .push (.bindAuthored negateFutureBody textBindings) .done
 
 def targetNegateFuture : Target.Stack signature algebra [] (.leaf .boolean) (.leaf .boolean) :=
   .push (.returnTo (.enter (Defunctionalization.computation negateFutureBody))
@@ -47,7 +47,7 @@ def resumingChoiceBindings : Source.RuntimeEnvironment signature algebra []
   .cons (.continuation ⟨12⟩ (some (⟨102⟩, .lexical ⟨3⟩ 0))) (.cons (.datum .unit) textBindings)
 
 def resumingSourceCaller : Source.Context signature algebra [] (.leaf .boolean) (.leaf .text) :=
-  .push (.bind (fun value => .evaluate afterChoiceResume (.cons value resumingChoiceBindings))) .done
+  .push (.bindAuthored afterChoiceResume resumingChoiceBindings) .done
 
 def resumingTargetCaller : Target.Stack signature algebra [] (.leaf .boolean) (.leaf .text) :=
   .push (.returnTo (.enter (Defunctionalization.computation afterChoiceResume))

@@ -43,12 +43,35 @@ mutual
     | _, .cons value rest => valueReferences value ++ environmentReferences rest
 end
 
+/-- Capture metadata is retained with the source callback, including when its
+input type is uninhabited. Computing support never inspects a Lean function. -/
+def Frame.referenceSupport : Frame signature algebra program input result → List Reference
+  | .bind _ description => description.body.references ++ environmentReferences description.environment
+  | .handler _ _ attachment returned clauses captured =>
+      .name .attachment attachment :: (returned.references ++ clauses.references ++ environmentReferences captured)
+  | .region identity => [.name .region identity]
+  | .protection identity cleanup captured => .name .obligation identity :: (cleanup.references ++ environmentReferences captured)
+
+def Context.referenceSupport : Context signature algebra program input result → List Reference
+  | .done => []
+  | .push frame rest => frame.referenceSupport ++ rest.referenceSupport
+
+def Frame.copyable : Frame signature algebra program input result → Bool
+  | .bind _ description => description.environment.copyable
+  | .handler _ _ _ _ _ captured => captured.copyable
+  | .region _ => true
+  | .protection _ _ _ => false
+
+def Context.copyable : Context signature algebra program input result → Bool
+  | .done => true
+  | .push frame rest => frame.copyable && rest.copyable
+
 /-- Higher-order continuations carry a structural support witness. It is
 derived from their authored body and environment, not by inspecting a Lean function. -/
 inductive FrameSupported : Frame signature algebra program input result → List Reference → Prop where
   | bind (body : Computation signature algebra program (input :: context) result)
       (captured : RuntimeEnvironment signature algebra program context) :
-      FrameSupported (.bind (fun value => .evaluate body (.cons value captured)))
+      FrameSupported (.bindAuthored body captured)
         (body.references ++ environmentReferences captured)
   | handler (effect : signature.Effect) (mode : Mode) (attachment : Id .attachment)
       (returned : Computation signature algebra program (input :: context) result)
@@ -66,6 +89,27 @@ inductive ContextSupported : Context signature algebra program input result → 
   | push : FrameSupported frame first → ContextSupported rest remaining →
       ContextSupported (.push frame rest) (first ++ remaining)
 
+theorem FrameSupported.references_eq {frame : Frame signature algebra program input result}
+    (supported : FrameSupported frame references) : references = frame.referenceSupport := by
+  cases supported <;> rfl
+
+theorem ContextSupported.references_eq {context : Context signature algebra program input result}
+    (supported : ContextSupported context references) : references = context.referenceSupport := by
+  induction supported with
+  | done => rfl
+  | push frame rest induction =>
+      simp only [Context.referenceSupport, frame.references_eq, induction]
+
+theorem ContextSupported.unique {context : Context signature algebra program input result}
+    (first : ContextSupported context before) (second : ContextSupported context after) :
+    before = after := first.references_eq.trans second.references_eq.symm
+
+def controlReferences (payload : Sigma (ControlPayload signature algebra program)) : List Reference :=
+  .name .attachment payload.snd.attachment :: payload.snd.future.referenceSupport
+
+def storeReferences (store : ControlHeap signature algebra program) : List Reference :=
+  UseScope.stateReferences store.fields ++ (store.controls ++ store.disposing).flatMap (fun record => controlReferences record.future)
+
 def cellsReferences (cells : Cells signature algebra (Computation signature algebra program)) : List Reference :=
   cells.flatMap fun cell => .name .cell cell.identity :: .name .region cell.region :: valueReferences cell.value
 
@@ -77,9 +121,32 @@ inductive ControlInfosSupported : List (UseScope.ControlInfo (Sigma (ControlPayl
   | nil : ControlInfosSupported [] []
   | cons : ControlSupported first.future head → ControlInfosSupported rest tail → ControlInfosSupported (first :: rest) (head ++ tail)
 
+theorem ControlSupported.references_eq {payload : Sigma (ControlPayload signature algebra program)}
+    (supported : ControlSupported payload references) : references = controlReferences payload := by
+  cases supported with
+  | supported context => simp only [controlReferences, context.references_eq]
+
+theorem ControlInfosSupported.references_eq
+    {records : List (UseScope.ControlInfo (Sigma (ControlPayload signature algebra program)))}
+    (supported : ControlInfosSupported records references) :
+    references = records.flatMap (fun record => controlReferences record.future) := by
+  induction supported with
+  | nil => rfl
+  | cons first rest induction => simp only [List.flatMap_cons, first.references_eq, induction]
+
 def StoreSupported (store : ControlHeap signature algebra program) (support : List Reference) : Prop :=
   ∃ active disposing, ControlInfosSupported store.controls active ∧ ControlInfosSupported store.disposing disposing ∧
     support = UseScope.stateReferences store.fields ++ active ++ disposing
+
+theorem StoreSupported.references_eq {store : ControlHeap signature algebra program}
+    (supported : StoreSupported store references) : references = storeReferences store := by
+  obtain ⟨active, disposing, activeSupport, disposingSupport, same⟩ := supported
+  simp only [same, activeSupport.references_eq, disposingSupport.references_eq, storeReferences,
+    List.flatMap_append, List.append_assoc]
+
+theorem StoreSupported.unique {store : ControlHeap signature algebra program}
+    (first : StoreSupported store before) (second : StoreSupported store after) :
+    before = after := first.references_eq.trans second.references_eq.symm
 
 def definitionReferences : {types : List (BodyType signature.Data signature.Effect)} →
     Tuple (fun body => Computation signature algebra program body.parameters body.result) types → List Reference
@@ -233,6 +300,9 @@ theorem context_installation_support (related : ContextRelated signature algebra
   | push frame rest induction => exact .push (frame_installation_support frame) induction
   | passthrough bindings rest induction => exact induction
 
+theorem context_reference_support (related : ContextRelated signature algebra program source target) :
+    target.installationReferences = source.referenceSupport := (context_installation_support related).references_eq
+
 theorem cell_installation_support (source : Cells signature algebra (Source.Computation signature algebra program)) :
     Target.cellsReferences (cells source) = Source.cellsReferences source := by
   induction source with
@@ -262,6 +332,9 @@ theorem store_installation_support (related : ControlHeapRelated source target) 
     Source.StoreSupported source (Target.storeReferences target) := by
   refine ⟨_, _, records_installation_support related.controls, records_installation_support related.disposing, ?_⟩
   simp only [Target.storeReferences, List.flatMap_append, List.append_assoc, related.fields]
+
+theorem store_reference_support (related : ControlHeapRelated source target) :
+    Target.storeReferences target = Source.storeReferences source := (store_installation_support related).references_eq
 
 theorem definition_reference_support
     (source : Tuple (fun body : BodyType signature.Data signature.Effect => Source.Computation signature algebra program body.parameters body.result) types) :

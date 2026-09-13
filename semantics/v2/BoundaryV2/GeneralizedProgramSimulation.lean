@@ -108,7 +108,7 @@ theorem program_step_simulates (table : Source.Definitions signature algebra pro
     | bindRequest =>
       obtain ⟨future, saved, rfl⟩ := inner.requested_view _ _ _ _ _ rfl
       refine ⟨0, _, .refl, ?_⟩
-      simpa only [Target.Stack.append_associative, Target.Stack.append] using
+      simpa only [Target.Stack.append_associative, Target.Stack.append, Source.Frame.bindAuthored] using
         ProgramRelated.requested _ _ _ _ (context_composition saved (.push (.bind body bindings) .done)) _
     | bindStep sourceStep =>
       obtain ⟨count, targetAfter, steps, related⟩ := induction sourceStep

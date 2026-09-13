@@ -9,7 +9,7 @@ inductive FrameRelated (signature : Signature) (algebra : LeafAlgebra signature.
     Source.Frame signature algebra program input output → Target.Frame signature algebra program input output → Prop where
   | bind (body : Source.Computation signature algebra program (input :: context) output)
       (captured : Source.RuntimeEnvironment signature algebra program context) :
-      FrameRelated signature algebra program (.bind (fun value => .evaluate body (.cons value captured)))
+      FrameRelated signature algebra program (.bindAuthored body captured)
         (.returnTo (.enter (computation body)) (environment captured) .nil)
   | handler (effect : signature.Effect) (mode : Mode) (identity : Id .attachment)
       (returned : Source.Computation signature algebra program (body :: context) answer)
@@ -139,7 +139,7 @@ theorem non_tail_caller_corresponds
     (later : Source.Computation signature algebra program (answer :: context) result)
     (captured : Source.RuntimeEnvironment signature algebra program context) :
     ContextRelated signature algebra program
-      (sourceInside.append (.push (.bind (fun value => .evaluate later (.cons value captured))) .done))
+      (sourceInside.append (.push (.bindAuthored later captured) .done))
       (targetInside.append (.push (.returnTo (.enter (computation later)) (environment captured) .nil) .done)) :=
   context_composition inside (.push (.bind later captured) .done)
 
@@ -147,8 +147,8 @@ theorem non_tail_source_keeps_both_computations (inside : Source.Context signatu
     (replacement : Source.Program signature algebra program input)
     (later : Source.Computation signature algebra program (answer :: context) result)
     (captured : Source.RuntimeEnvironment signature algebra program context) :
-    (inside.append (.push (.bind (fun value => .evaluate later (.cons value captured))) .done)).plug replacement =
-      Source.Program.bind (inside.plug replacement) (fun value => .evaluate later (.cons value captured)) :=
+    (inside.append (.push (.bindAuthored later captured) .done)).plug replacement =
+      Source.Program.bindAuthored (inside.plug replacement) later captured :=
   Source.Context.append_plug _ _ _
 
 end BoundaryV2.Generalized.Defunctionalization

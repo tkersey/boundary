@@ -69,7 +69,7 @@ def successorPostprocessing : Source.Computation signature algebra []
   .yieldThen (.returnValue (.reference .here))
 
 def successorSourceCaller : Source.Context signature algebra [] (.leaf .text) (.leaf .text) :=
-  .push (.bind (fun value => .evaluate successorPostprocessing (.cons value successorBindings))) .done
+  .push (.bindAuthored successorPostprocessing successorBindings) .done
 
 def successorTargetCaller : Target.Stack signature algebra [] (.leaf .text) (.leaf .text) :=
   .push (.returnTo (.enter (Defunctionalization.computation successorPostprocessing))

@@ -43,8 +43,7 @@ def ordinaryYieldProgram : Source.Computation signature algebra [] [] .unit :=
   .bind (.yieldThen (.returnValue (.datum .unit))) (.returnValue (.reference .here))
 
 def ordinaryYieldFuture : Source.Program signature algebra [] .unit :=
-  .bind (.evaluate (.returnValue (.datum .unit)) .nil)
-    (fun value => .evaluate (.returnValue (.reference .here)) (.cons value .nil))
+  .bindAuthored (.evaluate (.returnValue (.datum .unit)) .nil) (.returnValue (.reference .here)) .nil
 
 theorem source_yield_retains_lexical_caller :
     Source.Steps (.nil : Source.Definitions signature algebra []) (.evaluate ordinaryYieldProgram .nil) 3 (.yielded ordinaryYieldFuture) :=

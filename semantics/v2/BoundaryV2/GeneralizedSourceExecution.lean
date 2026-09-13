@@ -18,7 +18,7 @@ inductive Step (table : Definitions signature algebra definitions) :
   | returnValue : expression.evaluate environment = .ok value →
       Step table (.evaluate (.returnValue expression) environment) (.returned value)
   | bind : Step table (.evaluate (.bind first rest) environment)
-      (.bind (.evaluate first environment) (fun value => .evaluate rest (.cons value environment)))
+      (.bindAuthored (.evaluate first environment) rest environment)
   | call : arguments.evaluate environment = .ok values →
       Step table (.evaluate (.call reference arguments) environment) (unfoldCall table reference values)
   | apply : function.evaluate environment = .ok (.closure body captured authority) →
@@ -39,12 +39,12 @@ inductive Step (table : Definitions signature algebra definitions) :
         (.evaluate body (.cons (.datum (.capability attachment)) environment)))
   | fail : Step table (.evaluate (.fail fault) environment) (.failed fault)
   | yield : Step table (.evaluate (.yieldThen body) environment) (.yielded (.evaluate body environment))
-  | bindValue : Step table (.bind (.returned value) next) (next value)
-  | bindFault : Step table (.bind (.failed fault) next) (.failed fault)
-  | bindYield : Step table (.bind (.yielded body) next) (.yielded (.bind body next))
-  | bindRequest : Step table (.bind (.request operation attachment payload bodies saved) next)
-      (.request operation attachment payload bodies (saved.append (.push (.bind next) .done)))
-  | bindStep : Step table before after → Step table (.bind before next) (.bind after next)
+  | bindValue : Step table (.bind (.returned value) next description) (next value)
+  | bindFault : Step table (.bind (.failed fault) next description) (.failed fault)
+  | bindYield : Step table (.bind (.yielded body) next description) (.yielded (.bind body next description))
+  | bindRequest : Step table (.bind (.request operation attachment payload bodies saved) next description)
+      (.request operation attachment payload bodies (saved.append (.push (.bind next description) .done)))
+  | bindStep : Step table before after → Step table (.bind before next description) (.bind after next description)
   | handlerValue : Step table (.handler effect mode attachment returned clauses environment (.returned value))
       (.evaluate returned (.cons value environment))
   | handlerFault : Step table (.handler effect mode attachment returned clauses environment (.failed fault)) (.failed fault)
@@ -161,8 +161,9 @@ theorem Steps.trans (first : Steps table before count middle) (second : Steps ta
 
 theorem Steps.under_bind {input result : TypeOf signature}
     {before after : Program signature algebra definitions input} (steps : Steps table before count after)
-    (next : RuntimeValue signature algebra definitions input → Program signature algebra definitions result) :
-    Steps table (.bind before next) count (.bind after next) := by
+    (next : RuntimeValue signature algebra definitions input → Program signature algebra definitions result)
+    (description : BindDescription signature algebra definitions input result) :
+    Steps table (.bind before next description) count (.bind after next description) := by
   induction steps with
   | refl => exact .refl
   | cons step tail induction => exact .cons (.bindStep step) induction

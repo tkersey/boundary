@@ -58,7 +58,12 @@ reentrant fresh names, shared outer cells, and refusal of exclusive captures or
 cleanup obligations.
 
 `GeneralizedCaptureDescription` retains the authored bodies and environments
-that produced higher-order source callbacks. Every context already related by
+that produced higher-order source callbacks. Source bind nodes now store this
+provenance beside the executable function and preserve it through capture and
+yield. Equal functions alone cannot recover it: an uninhabited-input regression
+has equal callbacks with different capture permissions. Actual source futures
+now distinguish those captures, and their reference support is unique.
+Every context already related by
 the core has such a description; its compilation preserves copyability and
 reference occurrences after removing target identity frames.
 `GeneralizedSourceTemplates`, `GeneralizedSourceFreeze`, and
@@ -76,9 +81,18 @@ rebuilds its callbacks from the renamed bodies and environments. Compiling the
 result yields exactly the independently instantiated target future, cells,
 dormant aliases, and active branch inventory. Checked reentrant source runs
 preserve current shared state, keep branch writes separate, and execute the
-actual source callback against its branch cell. Integration of these local
-operations with the common template registry and activation entry remains
-unfinished.
+actual source callback against its branch cell.
+
+`GeneralizedTemplateRegistry` retains typed immutable bindings and rejects
+rebinding an existing identity. `GeneralizedRegisteredFreeze` returns the
+consumed successor together with its registered template. Registered resume,
+injection, and successor functions instantiate the stored template against the
+current arena; source/target correspondence preserves the resulting future,
+cells, regions, registry, and unrelated owning fields. `GeneralizedMultiEntry`
+connects authored multi-resume operands to a finite positive target entry.
+Remaining runtime integration includes injection/successor opcode entries,
+dormant-template bindings, and allocation/retirement across the complete
+registry lifetime. These local laws do not close the whole-core milestone.
 
 `GeneralizedDisposal` and `GeneralizedDisposalExecution` connect an authored
 one-shot dispose operand to authority release and its actual saved unwind

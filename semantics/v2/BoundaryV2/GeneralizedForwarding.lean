@@ -19,7 +19,8 @@ inductive Source.Forwards (operation : signature.operation effect) (attachment :
     {input result : TypeOf signature} → Source.Context signature algebra program input result → Prop where
   | done : Forwards operation attachment .done
   | bind (next : Source.RuntimeValue signature algebra program input → Source.Program signature algebra program middle)
-      (tail : Forwards operation attachment rest) : Forwards operation attachment (.push (.bind next) rest)
+      (description : Source.BindDescription signature algebra program input middle)
+      (tail : Forwards operation attachment rest) : Forwards operation attachment (.push (.bind next description) rest)
   | region (identity : Id .region) (tail : Forwards operation attachment rest) : Forwards operation attachment (.push (.region identity) rest)
   | protection (identity : Id .obligation) (cleanup : Source.Computation signature algebra program (.exit :: context) .unit)
       (bindings : Source.RuntimeEnvironment signature algebra program context) (tail : Forwards operation attachment rest) :
@@ -112,9 +113,9 @@ theorem Defunctionalization.forwarding_corresponds
     | bind body bindings =>
       constructor
       · intro forward; cases forward with
-        | bind next tail => exact .returnTo _ _ _ (induction.mp tail)
+        | bind next description tail => exact .returnTo _ _ _ (induction.mp tail)
       · intro forward; cases forward with
-        | returnTo next bindings values tail => exact .bind _ (induction.mpr tail)
+        | returnTo next bindings values tail => exact .bind _ _ (induction.mpr tail)
     | region identity =>
       constructor
       · intro forward; cases forward with
@@ -140,7 +141,7 @@ theorem Source.Forwards.append (first : Source.Forwards operation attachment ins
     (second : Source.Forwards operation attachment outside) : Source.Forwards operation attachment (inside.append outside) := by
   induction first with
   | done => exact second
-  | bind next tail induction => exact .bind next (induction second)
+  | bind next description tail induction => exact .bind next description (induction second)
   | region identity tail induction => exact .region identity (induction second)
   | protection identity cleanup bindings tail induction => exact .protection identity cleanup bindings (induction second)
   | different effect mode identity returned clauses bindings different tail induction =>
@@ -169,7 +170,7 @@ theorem Source.Forwards.append_right
     | push frame rest =>
       have smaller : rest.length ≤ bound := by simpa [Source.Context.length] using sized
       cases forward with
-      | bind next tail | region identity tail | protection identity cleanup bindings tail => exact induction rest smaller outside tail
+      | bind next description tail | region identity tail | protection identity cleanup bindings tail => exact induction rest smaller outside tail
       | different effect mode identity returned clauses bindings different tail | unhandled mode returned clauses bindings absent tail =>
         exact induction rest smaller outside tail
 
@@ -187,7 +188,7 @@ theorem Source.Forwards.expose_request
   induction forward with
   | done => simpa only [Source.Context.plug, Source.Context.length, Source.Context.append_done] using
       (Source.Steps.refl (table := table) (program := Source.Program.request operation attachment payload bodies saved))
-  | bind next tail induction =>
+  | bind next description tail induction =>
     simpa only [Source.Context.append_associative, Source.Context.append, Source.Context.plug, Source.Frame.plug, Source.Context.length] using
       Source.Steps.cons (Source.Step.in_context .bindRequest _) (induction _)
   | region identity tail induction =>

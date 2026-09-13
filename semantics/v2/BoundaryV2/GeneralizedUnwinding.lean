@@ -19,7 +19,7 @@ inductive UnwindBoundary (signature : Signature) (algebra : LeafAlgebra signatur
 clauses. Regions remain explicit boundaries for their owning close operation. -/
 def unwindBoundary : Context signature algebra program input result → UnwindBoundary signature algebra program result
   | .done => .complete
-  | .push (.bind _) rest | .push (.handler _ _ _ _ _ _) rest => unwindBoundary rest
+  | .push (.bind _ _) rest | .push (.handler _ _ _ _ _ _) rest => unwindBoundary rest
   | .push (.region identity) rest => .region identity rest
   | .push (.protection identity cleanup bindings) rest => .protection identity cleanup bindings rest
 

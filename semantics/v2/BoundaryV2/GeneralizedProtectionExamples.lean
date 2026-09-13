@@ -47,7 +47,7 @@ def sourceCleanupBindings : Source.RuntimeEnvironment signature algebra [] [.exi
   .cons (.exit cleanupExit) protectionBindings
 
 def sourceCleanupFuture : Source.Context signature algebra [] (.leaf .text) .unit :=
-  .push (.bind (fun value => .evaluate (.returnValue (.datum .unit)) (.cons value sourceCleanupBindings))) .done
+  .push (.bindAuthored (.returnValue (.datum .unit)) sourceCleanupBindings) .done
 
 theorem source_cleanup_reaches_its_effect_request :
     Source.Steps (.nil : Source.Definitions signature algebra []) (.evaluate requestingCleanup sourceCleanupBindings) 3

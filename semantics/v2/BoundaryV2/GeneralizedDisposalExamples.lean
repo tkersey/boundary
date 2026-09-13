@@ -12,7 +12,7 @@ def disposalReturn : Source.Computation signature algebra [] [.leaf .boolean] .u
 def disposalCaller : Source.Computation signature algebra [] [.unit] (.leaf .integer) := .returnValue (.datum (.leaf 42))
 def disposalSourceFuture : Source.Resumption signature algebra [] .shallow .choose (.leaf .boolean) .unit :=
   ⟨⟨8⟩, .push (.protection ⟨7⟩ disposalCleanup .nil)
-    (.push (.bind (fun value => .evaluate disposalReturn (.cons value .nil))) .done)⟩
+    (.push (.bindAuthored disposalReturn .nil) .done)⟩
 def disposalTargetFuture : Target.Resumption signature algebra [] .shallow .choose (.leaf .boolean) .unit :=
   ⟨⟨8⟩, .push (.protection ⟨7⟩ (Defunctionalization.computation disposalCleanup) .nil)
     (.push (.returnTo (.enter (Defunctionalization.computation disposalReturn)) .nil .nil) .done)⟩
@@ -30,7 +30,7 @@ def disposalBindings : Source.RuntimeEnvironment signature algebra [] [DisposeTy
   .cons (.continuation disposeView.identity (some (disposeView.authority, disposeView.owner))) .nil
 
 def disposalSourceOutside : Source.Context signature algebra [] .unit (.leaf .integer) :=
-  .push (.bind (fun value => .evaluate disposalCaller (.cons value .nil))) .done
+  .push (.bindAuthored disposalCaller .nil) .done
 def disposalTargetOutside : Target.Stack signature algebra [] .unit (.leaf .integer) :=
   .push (.returnTo (.enter (Defunctionalization.computation disposalCaller)) .nil .nil) .done
 

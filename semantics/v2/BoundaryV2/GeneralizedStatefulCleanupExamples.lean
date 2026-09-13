@@ -74,7 +74,7 @@ abbrev cleanupControlShape : ControlShape signature := ⟨.shallow, .choose, .le
 def cleanupControlView : UseScope.ControlView := ⟨⟨0⟩, ⟨5⟩, .cleanup 21⟩
 
 def cleanupControlSourceFuture : Source.Resumption signature algebra [] .shallow .choose (.leaf .boolean) .unit :=
-  ⟨⟨4⟩, .push (.bind (fun value => .evaluate (.returnValue (.datum .unit)) (.cons value .nil))) .done⟩
+  ⟨⟨4⟩, .push (.bindAuthored (.returnValue (.datum .unit)) .nil) .done⟩
 
 def cleanupControlTargetFuture : Target.Resumption signature algebra [] .shallow .choose (.leaf .boolean) .unit :=
   ⟨⟨4⟩, .push (.returnTo (.enter (.push .unit .ret)) .nil .nil) .done⟩

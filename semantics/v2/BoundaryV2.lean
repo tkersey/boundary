@@ -37,3 +37,5 @@ import BoundaryV2.GeneralizedRegionRetirementExamples
 import BoundaryV2.GeneralizedPackageExamples
 import BoundaryV2.GeneralizedDisposalExamples
 import BoundaryV2.GeneralizedSourceActivationExamples
+import BoundaryV2.GeneralizedProvenanceExamples
+import BoundaryV2.GeneralizedRegistryExamples

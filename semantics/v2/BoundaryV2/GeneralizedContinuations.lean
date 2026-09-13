@@ -9,6 +9,15 @@ abbrev RuntimeValue (signature : Signature) (algebra : LeafAlgebra signature.Dat
 abbrev RuntimeEnvironment (signature : Signature) (algebra : LeafAlgebra signature.Data) (program) :=
   Environment signature algebra (Computation signature algebra program)
 
+/-- Authored capture provenance remains data beside the executable callback.
+It describes that callback's body and shared environment; it is not another
+owning occurrence. Function equality alone cannot recover this information. -/
+structure BindDescription (signature : Signature) (algebra : LeafAlgebra signature.Data)
+    (program : List (BodyType signature.Data signature.Effect)) (input result : TypeOf signature) where
+  context : List (TypeOf signature)
+  body : Computation signature algebra program (input :: context) result
+  environment : RuntimeEnvironment signature algebra program context
+
 /- The source uses ordinary higher-order continuation functions. Recursive
 calls still refer to the finite authored code table, rather than unfolding an
 infinite computation into this datatype. -/
@@ -20,6 +29,7 @@ mutual
     | returned : RuntimeValue signature algebra definitions result → Program signature algebra definitions result
     | bind : Program signature algebra definitions input →
       (RuntimeValue signature algebra definitions input → Program signature algebra definitions result) →
+      BindDescription signature algebra definitions input result →
       Program signature algebra definitions result
     | request : (operation : signature.operation effect) → Id .attachment →
       RuntimeValue signature algebra definitions (signature.payload operation) →
@@ -40,6 +50,7 @@ mutual
   inductive Frame (signature : Signature) (algebra : LeafAlgebra signature.Data)
       (definitions : List (BodyType signature.Data signature.Effect)) : TypeOf signature → TypeOf signature → Type where
     | bind : (RuntimeValue signature algebra definitions input → Program signature algebra definitions result) →
+      BindDescription signature algebra definitions input result →
       Frame signature algebra definitions input result
     | handler : (effect : signature.Effect) → (mode : Mode) → Id .attachment →
       Computation signature algebra definitions (body :: context) answer →
@@ -56,9 +67,18 @@ mutual
       Context signature algebra definitions input result
 end
 
+def Program.bindAuthored (first : Program signature algebra definitions input)
+    (body : Computation signature algebra definitions (input :: context) result)
+    (captured : RuntimeEnvironment signature algebra definitions context) : Program signature algebra definitions result :=
+  .bind first (fun value => .evaluate body (.cons value captured)) ⟨context, body, captured⟩
+
+def Frame.bindAuthored (body : Computation signature algebra definitions (input :: context) result)
+    (captured : RuntimeEnvironment signature algebra definitions context) : Frame signature algebra definitions input result :=
+  .bind (fun value => .evaluate body (.cons value captured)) ⟨context, body, captured⟩
+
 def Frame.plug : Frame signature algebra definitions input result → Program signature algebra definitions input →
     Program signature algebra definitions result
-  | .bind next, computation => .bind computation next
+  | .bind next description, computation => .bind computation next description
   | .handler effect mode id returned clauses environment, computation => .handler effect mode id returned clauses environment computation
   | .region id, computation => .region id computation
   | .protection id cleanup environment, computation => .protection id cleanup environment computation

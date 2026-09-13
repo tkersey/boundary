@@ -29,7 +29,7 @@ inductive Capture (signature : Signature) (algebra : LeafAlgebra signature.Data)
 
 def Capture.future : Capture signature algebra program input result → Context signature algebra program input result
   | .done => .done
-  | .bind body bindings rest => .push (.bind (fun value => .evaluate body (.cons value bindings))) rest.future
+  | .bind body bindings rest => .push (.bindAuthored body bindings) rest.future
   | .handler effect mode identity returned clauses bindings rest =>
       .push (.handler effect mode identity returned clauses bindings) rest.future
   | .region identity rest => .push (.region identity) rest.future
@@ -59,6 +59,20 @@ theorem Capture.supported (capture : Capture signature algebra program input res
       exact .push (.handler effect mode identity returned clauses bindings) induction
   | region identity rest induction => exact .push (.region identity) induction
   | protection identity cleanup bindings rest induction => exact .push (.protection identity cleanup bindings) induction
+
+theorem Capture.future_copyable (capture : Capture signature algebra program input result) :
+    capture.future.copyable = capture.copyable := by
+  induction capture <;> simp_all only [Capture.future, Capture.copyable, Context.copyable,
+    Frame.copyable, Frame.bindAuthored, Bool.true_and, Bool.false_and]
+
+/-- Equality of actual source futures now preserves capture admission data,
+even when callback extensionality alone cannot distinguish their bodies. -/
+theorem Capture.equal_futures_preserve_provenance
+    {first second : Capture signature algebra program input result} (same : first.future = second.future) :
+    first.references = second.references ∧ first.copyable = second.copyable := by
+  constructor
+  · exact first.supported.references_eq.trans ((congrArg Context.referenceSupport same).trans second.supported.references_eq.symm)
+  · exact first.future_copyable.symm.trans ((congrArg Context.copyable same).trans second.future_copyable)
 
 end Source
 

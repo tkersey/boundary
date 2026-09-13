@@ -74,7 +74,7 @@ theorem unwinding_hands_a_region_to_its_close_operation :
     firstUnwindFinished.liveRegions = [⟨1⟩] := ⟨rfl, rfl⟩
 
 def sourceUnwindStack : Source.Context signature algebra [] .unit .unit :=
-  .push (.bind (fun value => .evaluate (.fail .overflow : Source.Computation signature algebra [] [.unit] .unit) (.cons value .nil)))
+  .push (.bindAuthored (.fail .overflow : Source.Computation signature algebra [] [.unit] .unit) .nil)
     (.push (.handler .text .deep ⟨8⟩ (.fail .overflow) .nil .nil)
       (.push (.protection ⟨2⟩ (.fail .overflow) .nil) .done))
 

@@ -24,7 +24,7 @@ inductive ProgramRelated : {input result : TypeOf signature} →
   | bind (body : Source.Computation signature algebra program (input :: context) answer)
       (bindings : Source.RuntimeEnvironment signature algebra program context)
       (inner : ProgramRelated source (.push (.returnTo (.enter (computation body)) (environment bindings) .nil) outside) target) :
-      ProgramRelated (.bind source (fun value => .evaluate body (.cons value bindings))) outside target
+      ProgramRelated (.bindAuthored source body bindings) outside target
   | handler (effect : signature.Effect) (mode : Mode) (attachment : Id .attachment)
       (returned : Source.Computation signature algebra program (input :: context) answer)
       (clauses : Source.Clauses signature algebra program effect mode context input answer)

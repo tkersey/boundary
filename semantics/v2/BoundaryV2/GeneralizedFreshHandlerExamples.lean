@@ -23,7 +23,7 @@ def afterFreshHandler : Source.Computation signature algebra [] [.leaf .boolean]
   .returnValue (.datum (.capability ⟨15⟩))
 
 def freshSourceOutside : Source.Context signature algebra [] (.leaf .boolean) (.capability .text) :=
-  .push (.bind (fun value => .evaluate afterFreshHandler (.cons value .nil))) .done
+  .push (.bindAuthored afterFreshHandler .nil) .done
 
 def unusedCallerBindings : Source.RuntimeEnvironment signature algebra [] [.capability .text] :=
   .cons (.datum (.capability ⟨99⟩)) .nil

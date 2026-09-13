@@ -89,7 +89,7 @@ private theorem ordinary_reflect_bounded (table : Source.Definitions signature a
       obtain ⟨sourceObservation, observed, same⟩ := smaller (by omega) related outside tail head
       exact ⟨sourceObservation, observed.prepend (.single (sourceStep.in_context sourceOutside)), same⟩
     | bind body bindings inner induction =>
-      simpa only [Source.Context.plug, Source.Frame.plug] using
+      simpa only [Source.Context.plug, Source.Frame.plug, Source.Frame.bindAuthored, Source.Program.bindAuthored] using
         induction (.push (.bind body bindings) outside) run head
     | handler effect mode attachment returned clauses bindings inner induction =>
       simpa only [Source.Context.plug, Source.Frame.plug] using
