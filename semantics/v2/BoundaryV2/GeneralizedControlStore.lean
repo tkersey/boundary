@@ -301,6 +301,38 @@ theorem linear_drop_rejects (taken : takeControl view.identity store.controls = 
     (linear : record.use = .linear) : release .affineDrop view store = none := by
   simp [release, taken, linear, permittedRelease]
 
+/-- A released grant has already been consumed. Disposal now transfers its
+captured fields from retained storage to the active exit interpreter and returns
+the actual saved future; it does not resume that future with an invented input. -/
+def beginDisposal (store : ControlStore Future) : Option (Acquisition Future) :=
+  match store.disposing with
+  | [] => none
+  | record :: rest => (takeCapture record.identity store.fields.retained).map fun (saved, remaining) =>
+    ⟨⟨⟨saved ++ store.fields.active, remaining, store.fields.spent⟩, store.controls, rest⟩, record.future⟩
+
+theorem begin_disposal_preserves_ownership (valid : ControlStore.Valid store)
+    (started : beginDisposal store = some result) : ControlStore.Valid result.store := by
+  unfold beginDisposal at started
+  split at started
+  · cases started
+  · obtain ⟨⟨saved, remaining⟩, moved, equal⟩ := Option.map_eq_some_iff.mp started
+    cases equal
+    refine ⟨valid_of_inventory _ _ valid.1 ?_ rfl, valid.2⟩
+    have captured := (take_capture_inventory moved).append_left (tokens store.fields.active)
+    apply captured.trans
+    simp only [inventory, tokens_append, List.append_assoc]
+    simpa only [List.append_assoc] using
+      (List.perm_append_comm (l₁ := tokens store.fields.active) (l₂ := tokens saved)).append_right (tokens remaining)
+
+theorem begin_disposal_keeps_spent_authority (started : beginDisposal store = some result) :
+    result.store.fields.spent = store.fields.spent ∧ result.store.controls = store.controls := by
+  unfold beginDisposal at started
+  split at started
+  · cases started
+  · obtain ⟨⟨saved, remaining⟩, _, equal⟩ := Option.map_eq_some_iff.mp started
+    cases equal
+    exact ⟨rfl, rfl⟩
+
 end BoundaryV2.Generalized.UseScope
 
 namespace BoundaryV2.Generalized

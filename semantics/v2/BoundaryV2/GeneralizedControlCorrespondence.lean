@@ -105,4 +105,20 @@ theorem acquire_corresponds (stores : ControlStore.Related related source target
     · simp only [if_neg allowed]
       exact .none
 
+theorem begin_disposal_corresponds (stores : ControlStore.Related related source target) :
+    Option.Rel (Acquisition.Related related) (beginDisposal source) (beginDisposal target) := by
+  have pending := stores.disposing
+  unfold beginDisposal
+  generalize sourceAt : source.disposing = sourcePending at pending ⊢
+  generalize targetAt : target.disposing = targetPending at pending ⊢
+  cases pending with
+  | nil => exact .none
+  | @cons first second left right matching rest =>
+    simp only [matching.identity, stores.fields]
+    cases takeCapture second.identity target.fields.retained with
+    | none => exact .none
+    | some captured =>
+      rcases captured with ⟨saved, retained⟩
+      exact .some ⟨⟨rfl, stores.controls, rest⟩, matching.future⟩
+
 end BoundaryV2.Generalized.UseScope

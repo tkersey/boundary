@@ -38,3 +38,4 @@ import BoundaryV2.GeneralizedStatefulCleanupExamples
 import BoundaryV2.GeneralizedExitCompletionExamples
 import BoundaryV2.GeneralizedUnwindingExamples
 import BoundaryV2.GeneralizedRegionExamples
+import BoundaryV2.GeneralizedRegionRetirementExamples
