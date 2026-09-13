@@ -13,6 +13,7 @@ inductive OwnedStep.NonAllocating (table : Definitions signature algebra program
   | ordinary : NonAllocating table (.ordinary step)
   | resume : NonAllocating table (.resume continuation response accepted)
   | successor : NonAllocating table (.successor continuation response accepted)
+  | injection : NonAllocating table (.injection continuation body handoff accepted)
 
 variable [DecidableEq (TypeOf signature)]
 
@@ -53,6 +54,21 @@ inductive OwnedStep.NonAllocating (table : Definitions signature algebra program
   | ordinary : NonAllocating table (.ordinary step)
   | resume : NonAllocating table (.resume accepted)
   | successor : NonAllocating table (.successor accepted)
+  | injection {use : UseScope.OneShotUse} {bodyUse : Use}
+      {context operands capturedTypes : List (TypeOf signature)} {mode : Mode} {effect : signature.Effect}
+      {input answer rest result : TypeOf signature}
+      {next : Code signature algebra program context (answer :: operands) rest}
+      {body : Code signature algebra program capturedTypes [] input}
+      {captured : RuntimeEnvironment signature algebra program capturedTypes}
+      {bindings : RuntimeEnvironment signature algebra program context}
+      {values : RuntimeEnvironment signature algebra program operands}
+      {outside : Stack signature algebra program rest result}
+      {authority : Option (Id .custody × Owner)} {store : ControlHeap signature algebra program} {fields : UseScope.State}
+      {view : UseScope.ControlView} {after : ControlState signature algebra program result}
+      {handoff : ComputationHandoff captured bodyUse authority store.fields fields}
+      {accepted : injectControl ⟨mode, effect, input, answer⟩ view { store with fields := fields }
+        ⟨capturedTypes, body, captured⟩ (.push (.returnTo next bindings values) outside) = some after} :
+      NonAllocating table (.injection (use := use) (bodyUse := bodyUse) handoff accepted)
 
 variable [DecidableEq (TypeOf signature)]
 
@@ -87,6 +103,13 @@ inductive ExecutionSteps (table : Definitions signature algebra program) :
 
 theorem ExecutionSteps.single {before after : State signature algebra program result}
     (step : ExecutionStep table before after) : ExecutionSteps table before 1 after := .cons step .refl
+
+theorem ExecutionSteps.trans {before middle after : State signature algebra program result}
+    (first : ExecutionSteps table before count middle) (second : ExecutionSteps table middle rest after) :
+    ExecutionSteps table before (count + rest) after := by
+  induction first with
+  | refl => simpa using second
+  | cons step tail induction => simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using ExecutionSteps.cons step (induction second)
 
 theorem CellSteps.in_execution {before after : State signature algebra program result}
     (steps : CellSteps table before count after) : ExecutionSteps table before count after := by

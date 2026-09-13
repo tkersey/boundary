@@ -1,5 +1,6 @@
 import BoundaryV2.GeneralizedOwnedClause
 import BoundaryV2.GeneralizedSourceExecution
+import BoundaryV2.GeneralizedComputationHandoff
 
 namespace BoundaryV2.Generalized
 
@@ -35,6 +36,18 @@ inductive OwnedStep (table : Definitions signature algebra program) :
       continuation.evaluate bindings = .ok (.continuation view.identity (some (view.authority, view.owner))) →
       response.evaluate bindings = .ok value → resumeControlWith view store value returned clauses bindings outside = some after →
       OwnedStep table ⟨store, outside.plug (.evaluate (.resumeWith effect continuation response returned clauses) bindings)⟩ after
+  | injection {use : UseScope.OneShotUse} {bodyUse : Use}
+      {continuation : Expression signature algebra program context (.continuation mode use.type effect input answer)}
+      {injected : Expression signature algebra program context (.computation bodyUse [] input)}
+      {body : Computation signature algebra program capturedTypes input}
+      {captured : RuntimeEnvironment signature algebra program capturedTypes}
+      {bindings : RuntimeEnvironment signature algebra program context}
+      {outside : Context signature algebra program answer result} :
+      continuation.evaluate bindings = .ok (.continuation view.identity (some (view.authority, view.owner))) →
+      injected.evaluate bindings = .ok (.closure body captured authority) →
+      ComputationHandoff captured bodyUse authority store.fields fields →
+      injectControl ⟨mode, effect, input, answer⟩ view { store with fields := fields } body captured outside = some after →
+      OwnedStep table ⟨store, outside.plug (.evaluate (.inject continuation injected) bindings)⟩ after
   | handled {effect : signature.Effect} {operation : signature.operation effect}
       [DecidableEq (signature.operation effect)]
       {mode : Mode} {context : List (TypeOf signature)} {body answer result : TypeOf signature}
@@ -83,7 +96,9 @@ variable {signature : Signature} {algebra : LeafAlgebra signature.Data}
   {program : List (BodyType signature.Data signature.Effect)} [DecidableEq (ControlShape signature)]
 
 /-- Target control inspects its own instruction and operand data. Authority is
-consumed by the store operation before the resulting configuration is exposed. -/
+consumed by the store operation before the resulting configuration is exposed.
+Instruction mode/effect indices are bound explicitly to the acquisition shape;
+independent implicit indices would admit a differently typed view of the grant. -/
 inductive OwnedStep (table : Definitions signature algebra program) :
     {result : TypeOf signature} →
     ControlState signature algebra program result →
@@ -95,7 +110,7 @@ inductive OwnedStep (table : Definitions signature algebra program) :
       {values : RuntimeEnvironment signature algebra program operands}
       {outside : Stack signature algebra program answer result} :
       resumeControl ⟨mode, effect, input, body⟩ view store value (.push (.returnTo next bindings values) outside) = some after →
-      OwnedStep table ⟨store, .code (.resume (use := use.type) next) bindings
+      OwnedStep table ⟨store, .code (.resume (mode := mode) (effect := effect) (use := use.type) next) bindings
         (.cons value (.cons (.continuation view.identity (some (view.authority, view.owner))) values)) outside⟩ after
   | successor {use : UseScope.OneShotUse}
       {next : Code signature algebra program context (answer :: operands) rest}
@@ -107,6 +122,18 @@ inductive OwnedStep (table : Definitions signature algebra program) :
       resumeControlWith view store value returned clauses bindings (.push (.returnTo next bindings values) outside) = some after →
       OwnedStep table ⟨store, .code (.replaceHandler (use := use.type) effect returned clauses next) bindings
         (.cons value (.cons (.continuation view.identity (some (view.authority, view.owner))) values)) outside⟩ after
+  | injection {use : UseScope.OneShotUse} {bodyUse : Use}
+      {next : Code signature algebra program context (answer :: operands) rest}
+      {body : Code signature algebra program capturedTypes [] input}
+      {captured : RuntimeEnvironment signature algebra program capturedTypes}
+      {bindings : RuntimeEnvironment signature algebra program context}
+      {values : RuntimeEnvironment signature algebra program operands}
+      {outside : Stack signature algebra program rest result} :
+      ComputationHandoff captured bodyUse authority store.fields fields →
+      injectControl ⟨mode, effect, input, answer⟩ view { store with fields := fields } ⟨capturedTypes, body, captured⟩
+        (.push (.returnTo next bindings values) outside) = some after →
+      OwnedStep table ⟨store, .code (.inject (mode := mode) (effect := effect) (use := use.type) (useBody := bodyUse) next) bindings
+        (.cons (.closure body captured authority) (.cons (.continuation view.identity (some (view.authority, view.owner))) values)) outside⟩ after
   | handled {effect : signature.Effect} {operation : signature.operation effect}
       [DecidableEq (signature.operation effect)]
       {mode : Mode} {context : List (TypeOf signature)} {body answer result : TypeOf signature}
@@ -157,6 +184,9 @@ theorem OwnedStep.preserves_ownership {before after : ControlState signature alg
   | ordinary step => exact valid
   | resume accepted => exact resume_control_preserves_ownership valid accepted
   | successor accepted => exact successor_control_preserves_ownership valid accepted
+  | injection handoff accepted =>
+    have law := injection_control_consumes_before_entry (accepted := accepted)
+    exact (law ⟨handoff.preserves_ownership valid.1, valid.2⟩).1
   | handled nearest accepted => exact dispatch_owned_clause_preserves_ownership valid accepted
 
 theorem OwnedSteps.preserves_ownership {before after : ControlState signature algebra program result}
@@ -173,7 +203,7 @@ namespace Defunctionalization
 variable {signature : Signature} {algebra : LeafAlgebra signature.Data}
   {program : List (BodyType signature.Data signature.Effect)} [DecidableEq (ControlShape signature)]
 
-private theorem corresponding_acceptance (matched : Option.Rel related source target) (accepted : source = some first) :
+theorem corresponding_acceptance (matched : Option.Rel related source target) (accepted : source = some first) :
     ∃ second, target = some second ∧ related first second := by
   subst source
   cases matched with

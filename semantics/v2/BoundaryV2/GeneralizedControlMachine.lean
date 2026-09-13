@@ -80,6 +80,15 @@ theorem successor_control_preserves_ownership {store : ControlHeap signature alg
   obtain ⟨acquired, consumed, rfl⟩ := Option.map_eq_some_iff.mp accepted
   exact (UseScope.acquire_at_consumes_before_entry valid consumed).1
 
+theorem injection_control_consumes_before_entry {store : ControlHeap signature algebra program}
+    (valid : UseScope.ControlStore.Valid store)
+    (accepted : injectControl shape view store body outside = some result) :
+    UseScope.ControlStore.Valid result.store ∧ view.authority ∉ UseScope.inventory result.store.fields ∧
+      injectControl shape view result.store body outside = none := by
+  obtain ⟨acquired, consumed, rfl⟩ := Option.map_eq_some_iff.mp accepted
+  obtain ⟨preserved, absent, rejected⟩ := UseScope.acquire_at_consumes_before_entry valid consumed
+  exact ⟨preserved, absent, by simp only [injectControl, rejected, Option.map_none]⟩
+
 end Target
 
 namespace Defunctionalization
