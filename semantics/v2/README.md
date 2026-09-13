@@ -122,8 +122,16 @@ aliases to retired cells or regions. The higher-order return operation agrees
 with the target operation, including refusal, and preserves the state relation.
 Examples reject pending/captured cleanup, live linear cells, and stale aliases;
 successful failure/cancellation exits retain their history and continuation.
-Region-to-scope association and complete lifecycle integration remain separate
-unfinished obligations.
+`GeneralizedScopedRegions` associates each region with its nominal owning scope.
+Registration rejects rebinding and unknown scopes; moving or retaining a scope
+preserves its associations. The combined close derives its region set from the
+actual detached subtree, checks complete agreement with runtime liveness without
+requiring binding-list order, and publishes scope, bindings, storage, and
+liveness together. General laws keep the resulting bindings valid, remove every
+closed scope's region, and preserve regions owned by retained work. Examples
+connect the ordinary computed region identity to registration and retain a
+child's storage after creator closure. Complete lifecycle integration, including
+registry allocation/retirement and nested captured cleanup, remains unfinished.
 
 `GeneralizedDisposal` and `GeneralizedDisposalExecution` connect an authored
 one-shot dispose operand to authority release and its actual saved unwind
