@@ -34,6 +34,26 @@ theorem Steps.in_context {before after : Program signature algebra program input
   | refl => exact .refl
   | cons step tail induction => exact .cons (step.in_context outside) induction
 
+theorem Frame.forward_yield (table : Definitions signature algebra program)
+    (frame : Frame signature algebra program input result) (body : Program signature algebra program input) :
+    Step table (frame.plug (.yielded body)) (.yielded (frame.plug body)) := by
+  cases frame with
+  | bind next => exact .bindYield
+  | handler effect mode attachment returned clauses bindings => exact .handlerYield
+  | region identity => exact .regionYield
+  | protection identity cleanup bindings => exact .protectionYield
+
+/-- A yield crosses each enclosing frame once, preserving the entire suspended
+future. Region and protection frames remain present; no cleanup is discharged. -/
+theorem Context.forward_yield (table : Definitions signature algebra program)
+    (outside : Context signature algebra program input result) (body : Program signature algebra program input) :
+    Steps table (outside.plug (.yielded body)) outside.length (.yielded (outside.plug body)) := by
+  cases outside with
+  | done => exact .refl
+  | push frame rest => exact .cons ((frame.forward_yield table body).in_context rest) (rest.forward_yield table (frame.plug body))
+termination_by outside.length
+decreasing_by simp_all [Context.length]
+
 end Source
 
 namespace Target

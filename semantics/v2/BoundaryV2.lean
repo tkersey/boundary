@@ -21,3 +21,4 @@ import BoundaryV2.GeneralizedResourceExamples
 import BoundaryV2.GeneralizedTemplateExamples
 import BoundaryV2.GeneralizedBranchingExamples
 import BoundaryV2.GeneralizedProgramExamples
+import BoundaryV2.GeneralizedPrefixExamples

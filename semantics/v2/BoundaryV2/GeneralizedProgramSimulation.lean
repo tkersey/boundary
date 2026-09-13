@@ -1,5 +1,6 @@
 import BoundaryV2.GeneralizedProgramRelation
 import BoundaryV2.GeneralizedBranching
+import BoundaryV2.GeneralizedOperandPrefix
 
 namespace BoundaryV2.Generalized.Target
 
@@ -46,67 +47,31 @@ theorem computation_step_simulates (table : Source.Definitions signature algebra
     ∃ count targetAfter, 0 < count ∧ Target.CallSteps (definitions table)
       (.code (computation body) (environment bindings) .nil outside) count targetAfter ∧ ProgramRelated after outside targetAfter := by
   cases step with
+  | operandFault failed =>
+    obtain ⟨next, compiled⟩ := computation_has_operand_prefix body
+    obtain ⟨count, positive, steps⟩ := fault_execution (definitions table)
+      (arguments_fault_drains body.operandPrefix.arguments bindings next .nil _ failed) outside
+    exact ⟨count, _, positive, by simpa only [compiled] using steps, .failed _ _⟩
   | returnValue evaluated | primitive evaluated =>
     obtain ⟨count, steps⟩ := expression_drains _ _ .ret .nil _ evaluated
     exact ⟨count + 1, _, by omega, (steps.in_context (definitions table) outside).trans (.single .returned), .returned _ _⟩
-  | returnFault failed | primitiveFault failed =>
-    obtain ⟨count, positive, steps⟩ := fault_execution (definitions table) (expression_fault_drains _ _ .ret .nil _ failed) outside
-    exact ⟨count, _, positive, steps, .failed _ _⟩
   | bind => exact ⟨1, _, by omega, .single .block, .bind _ _ (.evaluate _ _ _)⟩
   | @call definition reference context arguments bindings values evaluated =>
     obtain ⟨count, positive, steps⟩ := compiled_recursive_call table reference arguments bindings values evaluated outside
     exact ⟨count, _, positive, steps, .passthrough bindings (.evaluate _ _ _)⟩
-  | @callFault definition reference context arguments bindings fault failed =>
-    obtain ⟨count, positive, steps⟩ := fault_execution (definitions table)
-      (arguments_fault_drains arguments bindings (.callNamed reference .ret) .nil fault failed) outside
-    exact ⟨count, _, positive, steps, .failed fault _⟩
   | apply functionEvaluated argumentsEvaluated =>
     obtain ⟨count, positive, steps⟩ := compiled_closure_call table _ _ _ _ _ _ _ functionEvaluated argumentsEvaluated outside
     exact ⟨count, _, positive, steps, .passthrough _ (.evaluate _ _ _)⟩
-  | @applyFunctionFault context use parameters answer function arguments bindings fault failed =>
-    obtain ⟨count, positive, steps⟩ := fault_execution (definitions table)
-      (expression_fault_drains function bindings (Defunctionalization.arguments arguments (.callClosure .ret)) .nil fault failed) outside
-    exact ⟨count, _, positive, steps, .failed fault _⟩
-  | @applyArgumentFault context use parameters answer function arguments bindings fault functionValue evaluated failed =>
-    obtain ⟨count, steps⟩ := expression_drains function bindings (Defunctionalization.arguments arguments (.callClosure .ret)) .nil functionValue evaluated
-    obtain ⟨rest, positive, faultSteps⟩ := fault_execution (definitions table)
-      (arguments_fault_drains arguments bindings (.callClosure .ret) (.cons (value functionValue) .nil) fault failed) outside
-    exact ⟨count + rest, _, by omega, (steps.in_context (definitions table) outside).trans faultSteps, .failed fault _⟩
   | matchLeft evaluated selected =>
     obtain ⟨_, count, positive, steps⟩ := compiled_match_left table _ _ _ _ _ _ evaluated selected outside
     exact ⟨count, _, positive, steps, .evaluate _ _ _⟩
   | matchRight evaluated selected =>
     obtain ⟨_, count, positive, steps⟩ := compiled_match_right table _ _ _ _ _ _ evaluated selected outside
     exact ⟨count, _, positive, steps, .evaluate _ _ _⟩
-  | matchFault failed =>
-    obtain ⟨_, count, positive, steps⟩ := compiled_match_fault table _ _ _ _ failed outside
-    exact ⟨count, _, positive, steps, .failed _ _⟩
   | @perform effect operation context capability payload bodies bindings attachment payloadValue bodyValues capabilityAt payloadAt bodiesAt =>
     obtain ⟨count, positive, steps⟩ := compiled_operation_opens_typed_future table operation capability payload bodies bindings
       attachment payloadValue bodyValues capabilityAt payloadAt bodiesAt outside
     exact ⟨count, _, positive, steps, .passthrough bindings (.requested operation attachment payloadValue bodyValues .done _)⟩
-  | @performCapabilityFault effect operation context capability payload bodies bindings fault failed =>
-    obtain ⟨count, positive, steps⟩ := fault_execution (definitions table)
-      (expression_fault_drains capability bindings
-        (expression payload (arguments bodies (.dispatch operation .ret))) .nil fault failed) outside
-    exact ⟨count, _, positive, steps, .failed fault _⟩
-  | @performPayloadFault effect operation context capability payload bodies bindings fault capabilityValue evaluated failed =>
-    obtain ⟨count, steps⟩ := expression_drains capability bindings
-      (expression payload (arguments bodies (.dispatch operation .ret))) .nil capabilityValue evaluated
-    obtain ⟨rest, positive, faultSteps⟩ := fault_execution (definitions table)
-      (expression_fault_drains payload bindings (arguments bodies (.dispatch operation .ret))
-        (.cons (value capabilityValue) .nil) fault failed) outside
-    exact ⟨count + rest, _, by omega, (steps.in_context (definitions table) outside).trans faultSteps, .failed fault _⟩
-  | @performBodyFault effect operation context capability payload bodies bindings fault capabilityValue payloadValue capabilityAt payloadAt failed =>
-    obtain ⟨count, steps⟩ := expression_drains capability bindings
-      (expression payload (arguments bodies (.dispatch operation .ret))) .nil capabilityValue capabilityAt
-    obtain ⟨nextCount, nextSteps⟩ := expression_drains payload bindings (arguments bodies (.dispatch operation .ret))
-      (.cons (value capabilityValue) .nil) payloadValue payloadAt
-    obtain ⟨rest, positive, faultSteps⟩ := fault_execution (definitions table)
-      (arguments_fault_drains bodies bindings (.dispatch operation .ret)
-        (.cons (value payloadValue) (.cons (value capabilityValue) .nil)) fault failed) outside
-    exact ⟨count + nextCount + rest, _, by omega,
-      ((steps.trans nextSteps).in_context (definitions table) outside).trans faultSteps, .failed fault _⟩
   | @handle effect mode bodyType context answer returned clauses body bindings attachment =>
     exact ⟨1, _, by omega, .single .attach,
       .passthrough bindings (.handler effect mode attachment returned clauses bindings (.evaluate _ _ _))⟩
@@ -173,11 +138,27 @@ theorem program_step_simulates (table : Source.Definitions signature algebra pro
     | regionStep sourceStep =>
       obtain ⟨count, targetAfter, steps, related⟩ := induction sourceStep
       exact ⟨count, targetAfter, steps, .region identity related⟩
+    | regionYield =>
+      obtain ⟨targetNext, rfl, nextRelated⟩ := inner.yielded_view _ rfl
+      exact ⟨0, _, .refl, .yielded (.region identity nextRelated)⟩
+    | regionRequest =>
+      obtain ⟨future, saved, rfl⟩ := inner.requested_view _ _ _ _ _ rfl
+      refine ⟨0, _, .refl, ?_⟩
+      simpa only [Target.Stack.append_associative, Target.Stack.append] using
+        ProgramRelated.requested _ _ _ _ (context_composition saved (.push (.region identity) .done)) _
   | protection identity cleanup bindings inner induction =>
     cases step with
     | protectionStep sourceStep =>
       obtain ⟨count, targetAfter, steps, related⟩ := induction sourceStep
       exact ⟨count, targetAfter, steps, .protection identity cleanup bindings related⟩
+    | protectionYield =>
+      obtain ⟨targetNext, rfl, nextRelated⟩ := inner.yielded_view _ rfl
+      exact ⟨0, _, .refl, .yielded (.protection identity cleanup bindings nextRelated)⟩
+    | protectionRequest =>
+      obtain ⟨future, saved, rfl⟩ := inner.requested_view _ _ _ _ _ rfl
+      refine ⟨0, _, .refl, ?_⟩
+      simpa only [Target.Stack.append_associative, Target.Stack.append] using
+        ProgramRelated.requested _ _ _ _ (context_composition saved (.push (.protection identity cleanup bindings) .done)) _
 
 theorem finite_program_steps_simulate (table : Source.Definitions signature algebra program)
     {source after : Source.Program signature algebra program input}

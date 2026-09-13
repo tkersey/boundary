@@ -99,6 +99,31 @@ mutual
       Clauses signature algebra definitions effect mode context body answer
 end
 
+/-- The ordered, pure operands evaluated before a computation enters its
+control operation. This uses the existing typed argument list, including
+computation-valued operands; it does not execute authored bodies or clauses. -/
+structure OperandPrefix (signature : Signature) (algebra : LeafAlgebra signature.Data)
+    (definitions : List (BodyType signature.Data signature.Effect)) (context : List (TypeOf signature)) where
+  types : List (TypeOf signature)
+  arguments : Arguments signature algebra definitions context types
+
+abbrev Computation.operandPrefix : Computation signature algebra definitions context result →
+    OperandPrefix signature algebra definitions context
+  | .returnValue value => ⟨_, .cons value .nil⟩
+  | .primitive operation inputs => ⟨_, .cons (.primitive operation inputs) .nil⟩
+  | .apply function inputs => ⟨_, .cons function inputs⟩
+  | .call _ inputs => ⟨_, inputs⟩
+  | .matchSum value _ _ => ⟨_, .cons value .nil⟩
+  | .perform _ capability payload bodies => ⟨_, .cons capability (.cons payload bodies)⟩
+  | .resume continuation value | .resumeWith _ continuation value _ _ => ⟨_, .cons continuation (.cons value .nil)⟩
+  | .inject continuation body => ⟨_, .cons continuation (.cons body .nil)⟩
+  | .cellNew region value => ⟨_, .cons region (.cons value .nil)⟩
+  | .cellRead cell => ⟨_, .cons cell .nil⟩
+  | .cellWrite cell value => ⟨_, .cons cell (.cons value .nil)⟩
+  | .dispose continuation | .clone continuation => ⟨_, .cons continuation .nil⟩
+  | .package value | .unpackage value => ⟨_, .cons value .nil⟩
+  | .bind _ _ | .handle _ _ _ _ _ | .withRegion _ | .protect _ _ | .fail _ | .yieldThen _ => ⟨[], .nil⟩
+
 /-- Recursive calls name positions in this finite table. The bodies contain
 ordinary recursive references; no evaluation horizon belongs to the syntax. -/
 abbrev Definitions (signature : Signature) (algebra : LeafAlgebra signature.Data)
