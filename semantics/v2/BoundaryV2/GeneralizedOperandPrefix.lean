@@ -5,42 +5,50 @@ namespace BoundaryV2.Generalized.Defunctionalization
 variable {signature : Signature} {algebra : LeafAlgebra signature.Data}
   {program : List (BodyType signature.Data signature.Effect)}
 
-/-- Every compiled computation begins with exactly its source operand prefix.
-The remaining instruction retains all authored code, scope, and control work.
-This constructor-complete equation ties generic operand failure to compilation. -/
+/-- The first control instruction after the typed operand prefix, together
+with its authored bodies and clauses. This is computable first-order code. -/
+def operandTail (body : Source.Computation signature algebra program context result) :
+    Target.Code signature algebra program context (body.operandPrefix.types.reverse ++ []) result := by
+  cases body with
+  | returnValue value | primitive operation inputs => exact .ret
+  | call reference inputs => exact .callNamed reference .ret
+  | @apply context use parameters result function inputs =>
+    simpa [Source.Computation.operandPrefix, List.reverse_cons, List.append_assoc] using
+      (Target.Code.callClosure (signature := signature) (algebra := algebra) (definitions := program)
+        (context := context) (use := use) (parameters := parameters) (stack := []) (answer := result) .ret)
+  | matchSum value left right => exact .branch (computation left) (computation right)
+  | perform operation capability payload bodies =>
+    simpa [Source.Computation.operandPrefix, List.reverse_cons, List.append_assoc] using
+      (Target.Code.dispatch (signature := signature) (algebra := algebra) (definitions := program)
+        (context := context) (stack := []) operation .ret)
+  | resume continuation value => exact .resume .ret
+  | resumeWith effect continuation value returned clauses => exact .replaceHandler effect (computation returned) (Defunctionalization.clauses clauses) .ret
+  | inject continuation body => exact .inject .ret
+  | cellNew region value => exact .cellNew .ret
+  | cellRead cell => exact .cellRead .ret
+  | cellWrite cell value => exact .cellWrite .ret
+  | dispose continuation => exact .dispose .ret
+  | clone continuation => exact .clone .ret
+  | package value => exact .package .ret
+  | unpackage value => exact .unpackage .ret
+  | bind first rest => exact computation (.bind first rest)
+  | handle effect mode returned clauses body => exact computation (.handle effect mode returned clauses body)
+  | withRegion body => exact computation (.withRegion body)
+  | protect cleanup body => exact computation (.protect cleanup body)
+  | fail fault => exact computation (.fail fault)
+  | yieldThen body => exact computation (.yieldThen body)
+
+/-- The source prefix and the effective target tail reconstruct the unchanged
+compiler for every computation constructor. -/
+theorem computation_operand_prefix (body : Source.Computation signature algebra program context result) :
+    computation body = arguments body.operandPrefix.arguments (operandTail body) := by
+  cases body <;> simp [computation, Source.Computation.operandPrefix, arguments, operandTail]
+  all_goals rfl
+
 theorem computation_has_operand_prefix (body : Source.Computation signature algebra program context result) :
     ∃ next : Target.Code signature algebra program context (body.operandPrefix.types.reverse ++ []) result,
-      computation body = arguments body.operandPrefix.arguments next := by
-  cases body with
-  | returnValue value | primitive operation inputs => exact ⟨.ret, rfl⟩
-  | call reference inputs => exact ⟨.callNamed reference .ret, rfl⟩
-  | @apply context use parameters result function inputs =>
-    refine ⟨by simpa [Source.Computation.operandPrefix, List.reverse_cons, List.append_assoc] using
-      (Target.Code.callClosure (signature := signature) (algebra := algebra) (definitions := program)
-        (context := context) (use := use) (parameters := parameters) (stack := []) (answer := result) .ret), ?_⟩
-    simp [computation, Source.Computation.operandPrefix, arguments]
-  | matchSum value left right => exact ⟨.branch (computation left) (computation right), rfl⟩
-  | perform operation capability payload bodies =>
-    refine ⟨by simpa [Source.Computation.operandPrefix, List.reverse_cons, List.append_assoc] using
-      (Target.Code.dispatch (signature := signature) (algebra := algebra) (definitions := program)
-        (context := context) (stack := []) operation .ret), ?_⟩
-    simp [computation, Source.Computation.operandPrefix, arguments]
-  | resume continuation value => exact ⟨.resume .ret, rfl⟩
-  | resumeWith effect continuation value returned clauses => exact ⟨.replaceHandler effect (computation returned) (Defunctionalization.clauses clauses) .ret, rfl⟩
-  | inject continuation body => exact ⟨.inject .ret, rfl⟩
-  | cellNew region value => exact ⟨.cellNew .ret, rfl⟩
-  | cellRead cell => exact ⟨.cellRead .ret, rfl⟩
-  | cellWrite cell value => exact ⟨.cellWrite .ret, rfl⟩
-  | dispose continuation => exact ⟨.dispose .ret, rfl⟩
-  | clone continuation => exact ⟨.clone .ret, rfl⟩
-  | package value => exact ⟨.package .ret, rfl⟩
-  | unpackage value => exact ⟨.unpackage .ret, rfl⟩
-  | bind first rest => exact ⟨computation (.bind first rest), rfl⟩
-  | handle effect mode returned clauses body => exact ⟨computation (.handle effect mode returned clauses body), rfl⟩
-  | withRegion body => exact ⟨computation (.withRegion body), rfl⟩
-  | protect cleanup body => exact ⟨computation (.protect cleanup body), rfl⟩
-  | fail fault => exact ⟨computation (.fail fault), rfl⟩
-  | yieldThen body => exact ⟨computation (.yieldThen body), rfl⟩
+      computation body = arguments body.operandPrefix.arguments next :=
+  ⟨operandTail body, computation_operand_prefix body⟩
 
 /-- A failed pure prefix determines the ordinary fault observation before the
 receiving opcode can run. This covers every computation constructor through

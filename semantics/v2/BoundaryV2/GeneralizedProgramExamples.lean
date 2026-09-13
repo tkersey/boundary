@@ -1,4 +1,5 @@
 import BoundaryV2.GeneralizedProgramSimulation
+import BoundaryV2.GeneralizedComputationReflection
 import BoundaryV2.GeneralizedObservationExamples
 
 namespace BoundaryV2.Generalized.Examples
@@ -64,5 +65,30 @@ theorem general_simulation_preserves_yield_and_its_future :
     .nil source_yield_future_returns related
   obtain ⟨drainCount, drain⟩ := finalRelated.returned_drains .nil (.datum .unit) rfl
   exact ⟨beforeCount, afterCount + drainCount, future, beforeSteps, afterSteps.trans drain⟩
+
+theorem observed_closure_run_reflects_a_source_step :
+    ∃ sourceAfter targetAfter,
+      Source.Step (.nil : Source.Definitions signature algebra []) (.evaluate (.apply textClosure textArguments) textBindings) sourceAfter ∧
+      Defunctionalization.ProgramRelated sourceAfter .done targetAfter ∧
+      Target.Observes .nil targetAfter textTargetObservation :=
+  Defunctionalization.observing_computation_reflects .nil (.apply textClosure textArguments) textBindings .done
+    target_captured_closure_observes_open_effect
+
+def reflectedHandler : Source.Computation signature algebra [] [] .unit :=
+  .handle .choose .deep (.returnValue (.reference .here)) .nil (.yieldThen (.returnValue (.datum .unit)))
+
+def reflectedHandlerAfter (attachment : Id .attachment) : Target.Configuration signature algebra [] .unit :=
+  .code (Defunctionalization.computation (.returnValue (.datum .unit))) (.cons (.datum (.capability (effect := Effect.choose) attachment)) .nil) .nil
+    (.push (.handler .choose .deep attachment (.load .here .ret) .nil .nil) (.push (.returnTo .ret .nil .nil) .done))
+
+theorem every_chosen_handler_name_has_a_matching_source_step (attachment : Id .attachment) :
+    ∃ sourceAfter targetAfter remaining, remaining < 2 ∧
+      Source.Step (.nil : Source.Definitions signature algebra []) (.evaluate reflectedHandler .nil) sourceAfter ∧
+      Defunctionalization.ProgramRelated sourceAfter .done targetAfter ∧
+      Target.CallSteps .nil targetAfter remaining (.yielded (reflectedHandlerAfter attachment)) := by
+  have run : Target.CallSteps (.nil : Target.Definitions signature algebra [])
+      (.code (Defunctionalization.computation reflectedHandler) .nil .nil .done) 2 (.yielded (reflectedHandlerAfter attachment)) :=
+    .cons (.attach (attachment := attachment)) (.cons .yield .refl)
+  exact Defunctionalization.computation_step_reflects .nil reflectedHandler .nil .done run .yielded
 
 end BoundaryV2.Generalized.Examples
