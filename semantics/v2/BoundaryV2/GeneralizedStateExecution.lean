@@ -1,6 +1,7 @@
 import BoundaryV2.GeneralizedCellExecution
 import BoundaryV2.GeneralizedCellReservations
 import BoundaryV2.GeneralizedOwnedOperands
+import BoundaryV2.GeneralizedInstallationSupport
 
 namespace BoundaryV2.Generalized
 
@@ -18,6 +19,19 @@ inductive ExecutionStep (table : Definitions signature algebra program) : State 
   | control {cells : Cells signature algebra (Computation signature algebra program)} :
       OwnedStep table cells.reservations before after →
       ExecutionStep table ⟨before, cells, regions⟩ ⟨after, cells, regions⟩
+  | installHandler
+      {returned : Computation signature algebra program (bodyType :: context) answer}
+      {clauses : Clauses signature algebra program effect mode context bodyType answer}
+      {body : Computation signature algebra program (.capability effect :: context) bodyType}
+      {bindings : RuntimeEnvironment signature algebra program context}
+      {outside : Context signature algebra program answer result}
+      {cells : Cells signature algebra (Computation signature algebra program)}
+      (extra : List Reference) :
+      ContextSupported outside outsideSupport → StoreSupported store storedSupport →
+      attachment = freshAttachment table (.handle effect mode returned clauses body) bindings outsideSupport storedSupport cells extra →
+      ExecutionStep table ⟨⟨store, outside.plug (.evaluate (.handle effect mode returned clauses body) bindings)⟩, cells, regions⟩
+        ⟨⟨store, outside.plug (.handler effect mode attachment returned clauses bindings
+          (.evaluate body (.cons (.datum (.capability attachment)) bindings)))⟩, cells, regions⟩
   | returnOperand
       {expression : Expression signature algebra program context answer}
       {bindings : RuntimeEnvironment signature algebra program context}
@@ -119,6 +133,20 @@ inductive ExecutionStep (table : Definitions signature algebra program) : State 
   | control {cells : Cells signature algebra (fun context result => Code signature algebra program context [] result)} :
       OwnedStep table cells.reservations before after →
       ExecutionStep table ⟨before, cells, regions⟩ ⟨after, cells, regions⟩
+  | installHandler
+      {returned : Code signature algebra program (bodyType :: context) [] answer}
+      {clauses : Clauses signature algebra program effect mode context bodyType answer}
+      {body : Code signature algebra program (.capability effect :: context) [] bodyType}
+      {next : Code signature algebra program context (answer :: operands) resultType}
+      {bindings : RuntimeEnvironment signature algebra program context}
+      {values : RuntimeEnvironment signature algebra program operands}
+      {outside : Stack signature algebra program resultType result}
+      {cells : Cells signature algebra (fun context result => Code signature algebra program context [] result)}
+      (extra : List Reference) :
+      attachment = freshAttachment table (.attach effect mode returned clauses body next) bindings values outside store cells extra →
+      ExecutionStep table ⟨⟨store, .code (.attach effect mode returned clauses body next) bindings values outside⟩, cells, regions⟩
+        ⟨⟨store, .code body (.cons (.datum (.capability attachment)) bindings) .nil
+          (.push (.handler effect mode attachment returned clauses bindings) (.push (.returnTo next bindings values) outside))⟩, cells, regions⟩
 
 inductive ExecutionSteps (table : Definitions signature algebra program) :
     State signature algebra program result → Nat → State signature algebra program result → Prop where

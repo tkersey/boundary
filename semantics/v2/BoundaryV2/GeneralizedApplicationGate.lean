@@ -23,12 +23,13 @@ operand fails. A ready application additionally requires its consumption handoff
 def Source.Program.needsOwnershipStep : Source.Program signature algebra program result → Bool
   | .evaluate body bindings => body.operandPrefix.arguments.containsClosure || match body with
     | .apply function arguments => ((Source.Arguments.cons function arguments).evaluate bindings).isOk
+    | .handle _ _ _ _ _ => true
     | _ => false
   | .bind body _ | .handler _ _ _ _ _ _ body | .region _ body | .protection _ _ _ body => body.needsOwnershipStep
   | .returned _ | .failed _ | .yielded _ | .request _ _ _ _ _ => false
 
 def Target.Code.needsOwnershipStep : Target.Code signature algebra program context operands result → Bool
-  | .callClosure _ | .close _ _ => true
+  | .callClosure _ | .close _ _ | .attach _ _ _ _ _ _ => true
   | _ => false
 
 def Target.Configuration.needsOwnershipStep : Target.Configuration signature algebra program result → Bool
