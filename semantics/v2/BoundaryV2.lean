@@ -31,3 +31,4 @@ import BoundaryV2.GeneralizedOwnedOperandExamples
 import BoundaryV2.GeneralizedStatefulOperandExamples
 import BoundaryV2.GeneralizedAllocatedInjectionExamples
 import BoundaryV2.GeneralizedOwnedCellExamples
+import BoundaryV2.GeneralizedOrdinaryOwnedExamples

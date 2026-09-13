@@ -48,6 +48,62 @@ inductive ExecutionStep (table : Definitions signature algebra program) : State 
       ComputationHandoff captured use authority evaluated.fields fields →
       ExecutionStep table ⟨⟨before, outside.plug (.evaluate (.apply function arguments) bindings)⟩, cells, regions⟩
         ⟨⟨{ evaluated with fields := fields }, outside.plug (enterClosure body actual captured)⟩, cells, regions⟩
+  | namedOperands
+      {reference : Variable program body}
+      {arguments : Arguments signature algebra program context body.parameters}
+      {bindings : RuntimeEnvironment signature algebra program context}
+      {outside : Context signature algebra program body.result result}
+      {cells : Cells signature algebra (Computation signature algebra program)} :
+      ArgumentsEvaluation bindings cells.reservations.custody before arguments (.ok actual) after →
+      ExecutionStep table ⟨⟨before, outside.plug (.evaluate (.call reference arguments) bindings)⟩, cells, regions⟩
+        ⟨⟨after, outside.plug (unfoldCall table reference actual)⟩, cells, regions⟩
+  | primitiveOperands {parameters : List signature.Data} {answer : signature.Data}
+      {operation : algebra.operation parameters answer}
+      {value : algebra.Value answer}
+      {inputs : Arguments signature algebra program context (parameters.map Ty.leaf)}
+      {bindings : RuntimeEnvironment signature algebra program context}
+      {outside : Context signature algebra program (.leaf answer) result}
+      {cells : Cells signature algebra (Computation signature algebra program)} :
+      ExpressionEvaluation bindings cells.reservations.custody before (.primitive operation inputs)
+        (.ok (.datum (.leaf value))) after →
+      ExecutionStep table ⟨⟨before, outside.plug (.evaluate (.primitive operation inputs) bindings)⟩, cells, regions⟩
+        ⟨⟨after, outside.plug (.returned (.datum (.leaf value)))⟩, cells, regions⟩
+  | branchLeftOperands
+      {test : Expression signature algebra program context (.sum leftType rightType)}
+      {left : Computation signature algebra program (leftType :: context) answer}
+      {right : Computation signature algebra program (rightType :: context) answer}
+      {bindings : RuntimeEnvironment signature algebra program context}
+      {outside : Context signature algebra program answer result}
+      {cells : Cells signature algebra (Computation signature algebra program)} :
+      ExpressionEvaluation bindings cells.reservations.custody before test (.ok value) after →
+      value.asSum = .inl payload →
+      ExecutionStep table ⟨⟨before, outside.plug (.evaluate (.matchSum test left right) bindings)⟩, cells, regions⟩
+        ⟨⟨after, outside.plug (.evaluate left (.cons payload bindings))⟩, cells, regions⟩
+  | branchRightOperands
+      {test : Expression signature algebra program context (.sum leftType rightType)}
+      {left : Computation signature algebra program (leftType :: context) answer}
+      {right : Computation signature algebra program (rightType :: context) answer}
+      {bindings : RuntimeEnvironment signature algebra program context}
+      {outside : Context signature algebra program answer result}
+      {cells : Cells signature algebra (Computation signature algebra program)} :
+      ExpressionEvaluation bindings cells.reservations.custody before test (.ok value) after →
+      value.asSum = .inr payload →
+      ExecutionStep table ⟨⟨before, outside.plug (.evaluate (.matchSum test left right) bindings)⟩, cells, regions⟩
+        ⟨⟨after, outside.plug (.evaluate right (.cons payload bindings))⟩, cells, regions⟩
+  | performOperands
+      {operation : signature.operation effect}
+      {payloadValue : RuntimeValue signature algebra program (signature.payload operation)}
+      {bodyValues : RuntimeEnvironment signature algebra program ((signature.bodies operation).map BodyType.type)}
+      {capability : Expression signature algebra program context (.capability effect)}
+      {payload : Expression signature algebra program context (signature.payload operation)}
+      {bodies : Arguments signature algebra program context ((signature.bodies operation).map BodyType.type)}
+      {bindings : RuntimeEnvironment signature algebra program context}
+      {outside : Context signature algebra program (signature.result operation) result}
+      {cells : Cells signature algebra (Computation signature algebra program)} :
+      ArgumentsEvaluation bindings cells.reservations.custody before (.cons capability (.cons payload bodies))
+        (.ok (.cons (.datum (.capability attachment)) (.cons payloadValue bodyValues))) after →
+      ExecutionStep table ⟨⟨before, outside.plug (.evaluate (.perform operation capability payload bodies) bindings)⟩, cells, regions⟩
+        ⟨⟨after, outside.plug (.request operation attachment payloadValue bodyValues .done)⟩, cells, regions⟩
 
 end Source
 

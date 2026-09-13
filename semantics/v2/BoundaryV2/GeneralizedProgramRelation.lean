@@ -102,6 +102,8 @@ theorem EntryRelated.as_program
   | evaluate body bindings outside => exact outside.close_program (.evaluate body bindings _)
   | returned value outside => exact outside.close_program (.returned value _)
   | failed fault outside => exact outside.close_program (.failed fault _)
+  | requested operation attachment payload bodies outside =>
+    exact outside.close_program (.requested operation attachment payload bodies .done _)
 
 theorem ProgramRelated.returned_drains
     (related : ProgramRelated (source : Source.Program signature algebra program input) outside target)

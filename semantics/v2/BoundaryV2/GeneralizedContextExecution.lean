@@ -124,6 +124,9 @@ theorem EntryRelated.in_context
   | failed fault future =>
     simpa only [Target.Configuration.in_context, Source.Context.append_plug] using
       EntryRelated.failed fault (context_composition future outside)
+  | requested operation attachment payload bodies future =>
+    simpa only [Target.Configuration.in_context, Source.Context.append_plug] using
+      EntryRelated.requested operation attachment payload bodies (context_composition future outside)
 
 /-- Finite corresponding executions compose with every represented enclosing
 context without adding execution fuel or replacing its handler interpretation.

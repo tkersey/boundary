@@ -178,6 +178,14 @@ inductive EntryRelated : Source.Program signature algebra program result → Tar
   | failed (fault : algebra.Fault)
       (future : ContextRelated signature algebra program sourceFuture targetFuture) :
       EntryRelated (sourceFuture.plug (.failed fault)) (.failed fault targetFuture)
+  | requested (operation : signature.operation effect) (attachment : Id .attachment)
+      (payload : Source.RuntimeValue signature algebra program (signature.payload operation))
+      (bodies : Source.RuntimeEnvironment signature algebra program ((signature.bodies operation).map BodyType.type))
+      {sourceFuture : Source.Context signature algebra program (signature.result operation) result}
+      {targetFuture : Target.Stack signature algebra program (signature.result operation) result}
+      (future : ContextRelated signature algebra program sourceFuture targetFuture) :
+      EntryRelated (sourceFuture.plug (.request operation attachment payload bodies .done))
+        (.requested operation attachment (value payload) (environment bodies) targetFuture)
 
 theorem resumption_reentry_corresponds
     (saved : ResumptionRelated (source : Source.Resumption signature algebra program mode effect input answer) target)
