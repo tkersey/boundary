@@ -1,5 +1,6 @@
 import BoundaryV2.GeneralizedCellExecution
 import BoundaryV2.GeneralizedCellReservations
+import BoundaryV2.GeneralizedOwnedOperands
 
 namespace BoundaryV2.Generalized
 
@@ -11,18 +12,6 @@ variable {signature : Signature} {algebra : LeafAlgebra signature.Data}
 inductive OwnedStep.NonAllocating (table : Definitions signature algebra program) :
     {before after : ControlState signature algebra program result} → OwnedStep table before after → Prop where
   | ordinary : NonAllocating table (.ordinary step neutral)
-  | application {context parameters capturedTypes : List (TypeOf signature)} {use : Use} {answer result : TypeOf signature}
-      {function : Expression signature algebra program context (.computation use parameters answer)}
-      {arguments : Arguments signature algebra program context parameters}
-      {body : Computation signature algebra program (parameters ++ capturedTypes) answer}
-      {captured : RuntimeEnvironment signature algebra program capturedTypes}
-      {values : RuntimeEnvironment signature algebra program parameters} {authority : Option (Id .custody × Owner)}
-      {bindings : RuntimeEnvironment signature algebra program context} {outside : Context signature algebra program answer result}
-      {store : ControlHeap signature algebra program} {fields : UseScope.State}
-      (functionAt : function.evaluate bindings = .ok (.closure body captured authority))
-      (argumentsAt : arguments.evaluate bindings = .ok values)
-      (handoff : ComputationHandoff captured use authority store.fields fields) :
-      NonAllocating table (.application (outside := outside) functionAt argumentsAt handoff)
   | resume : NonAllocating table (.resume continuation response accepted)
   | successor : NonAllocating table (.successor continuation response accepted)
   | injection : NonAllocating table (.injection continuation body handoff accepted)
@@ -35,6 +24,36 @@ inductive ExecutionStep (table : Definitions signature algebra program) : State 
   | cell : CellStep table before after → ExecutionStep table before after
   | control (step : OwnedStep table before after) : step.NonAllocating table →
       ExecutionStep table ⟨before, cells, regions⟩ ⟨after, cells, regions⟩
+  | returnOperand
+      {expression : Expression signature algebra program context answer}
+      {bindings : RuntimeEnvironment signature algebra program context}
+      {outside : Context signature algebra program answer result}
+      {cells : Cells signature algebra (Computation signature algebra program)} :
+      ExpressionEvaluation bindings cells.reservations.custody before expression (.ok value) after →
+      ExecutionStep table ⟨⟨before, outside.plug (.evaluate (.returnValue expression) bindings)⟩, cells, regions⟩
+        ⟨⟨after, outside.plug (.returned value)⟩, cells, regions⟩
+  | operandFault
+      {body : Computation signature algebra program context answer}
+      {bindings : RuntimeEnvironment signature algebra program context}
+      {outside : Context signature algebra program answer result}
+      {cells : Cells signature algebra (Computation signature algebra program)} :
+      ArgumentsEvaluation bindings cells.reservations.custody before body.operandPrefix.arguments (.error fault) after →
+      ExecutionStep table ⟨⟨before, outside.plug (.evaluate body bindings)⟩, cells, regions⟩
+        ⟨⟨after, outside.plug (.failed fault)⟩, cells, regions⟩
+  | applicationOperands
+      {function : Expression signature algebra program context (.computation use parameters answer)}
+      {arguments : Arguments signature algebra program context parameters}
+      {body : Computation signature algebra program (parameters ++ capturedTypes) answer}
+      {captured : RuntimeEnvironment signature algebra program capturedTypes}
+      {actual : RuntimeEnvironment signature algebra program parameters}
+      {bindings : RuntimeEnvironment signature algebra program context}
+      {outside : Context signature algebra program answer result}
+      {cells : Cells signature algebra (Computation signature algebra program)} :
+      ArgumentsEvaluation bindings cells.reservations.custody before (.cons function arguments)
+        (.ok (.cons (.closure body captured authority) actual)) evaluated →
+      ComputationHandoff captured use authority evaluated.fields fields →
+      ExecutionStep table ⟨⟨before, outside.plug (.evaluate (.apply function arguments) bindings)⟩, cells, regions⟩
+        ⟨⟨{ evaluated with fields := fields }, outside.plug (enterClosure body actual captured)⟩, cells, regions⟩
   | handled {effect : signature.Effect} {operation : signature.operation effect}
       [DecidableEq (signature.operation effect)]
       {mode : Mode} {context : List (TypeOf signature)} {body answer result : TypeOf signature}
@@ -98,6 +117,14 @@ inductive ExecutionStep (table : Definitions signature algebra program) : State 
   | cell : CellStep table before after → ExecutionStep table before after
   | control (step : OwnedStep table before after) : step.NonAllocating table →
       ExecutionStep table ⟨before, cells, regions⟩ ⟨after, cells, regions⟩
+  | operand
+      {bindings : RuntimeEnvironment signature algebra program context}
+      {before after : Operands signature algebra program context answer}
+      {outside : Stack signature algebra program answer result}
+      {cells : Cells signature algebra (fun context result => Code signature algebra program context [] result)} :
+      OwnedOperandStep bindings cells.reservations.custody beforeStore before afterStore after →
+      ExecutionStep table ⟨⟨beforeStore, .code before.code bindings before.values outside⟩, cells, regions⟩
+        ⟨⟨afterStore, .code after.code bindings after.values outside⟩, cells, regions⟩
   | handled {effect : signature.Effect} {operation : signature.operation effect}
       [DecidableEq (signature.operation effect)]
       {mode : Mode} {context : List (TypeOf signature)} {body answer result : TypeOf signature}
@@ -138,6 +165,31 @@ theorem CellSteps.in_execution {before after : State signature algebra program r
   induction steps with
   | refl => exact .refl
   | cons step tail induction => exact .cons (.cell step) induction
+
+theorem OwnedOperandSteps.in_execution
+    {bindings : RuntimeEnvironment signature algebra program context}
+    {before after : Operands signature algebra program context answer}
+    {beforeStore afterStore : ControlHeap signature algebra program}
+    (table : Definitions signature algebra program) (outside : Stack signature algebra program answer result)
+    (cells : Cells signature algebra (fun context result => Code signature algebra program context [] result))
+    (regions : List (Id .region))
+    (steps : OwnedOperandSteps bindings cells.reservations.custody beforeStore before count afterStore after) :
+    ExecutionSteps table ⟨⟨beforeStore, .code before.code bindings before.values outside⟩, cells, regions⟩ count
+      ⟨⟨afterStore, .code after.code bindings after.values outside⟩, cells, regions⟩ := by
+  induction steps with
+  | refl => exact .refl
+  | cons step tail induction => exact .cons (.operand step) (induction outside)
+
+omit [DecidableEq (ControlShape signature)] [DecidableEq (TypeOf signature)] in
+theorem OwnedOperandSteps.preserves_cell_inventory
+    {bindings : RuntimeEnvironment signature algebra program context}
+    {before after : Operands signature algebra program context answer}
+    {beforeStore afterStore : ControlHeap signature algebra program}
+    (cells : Cells signature algebra (fun context result => Code signature algebra program context [] result))
+    (steps : OwnedOperandSteps bindings cells.reservations.custody beforeStore before count afterStore after)
+    (unique : (UseScope.inventory beforeStore.fields ++ UseScope.tokens cells.fields).Nodup) :
+    (UseScope.inventory afterStore.fields ++ UseScope.tokens cells.fields).Nodup :=
+  steps.preserves_external_inventory _ unique (fun _ member => cells.owning_tokens_reserved member)
 
 end Target
 

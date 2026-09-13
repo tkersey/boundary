@@ -71,12 +71,13 @@ theorem created_closure_has_corresponding_application :
           (Defunctionalization.environment (.cons (.datum (.leaf false)) applicationCaptures)) .nil
           (.push (.returnTo .ret (Defunctionalization.environment createdApplicationBindings) .nil) .done)⟩,
         Defunctionalization.cells creationCells, [⟨1⟩]⟩ := by
-  obtain ⟨_, count, positive, steps, _⟩ := Defunctionalization.compiled_computation_application
+  obtain ⟨_, count, positive, steps, _⟩ := Defunctionalization.compiled_owned_operand_application
     (signature := signature) (algebra := algebra) .nil (.reference .here) applicationArguments createdApplicationBindings
     applicationBody applicationCaptures (.cons (.datum (.leaf false)) .nil)
-    (some (createdSourceComputation.authority, applicationOwner)) rfl rfl
-    (sourceStore := createdSourceComputation.store) (targetStore := createdTargetComputation.store)
-    ⟨rfl, .nil, .nil⟩ created_application_handoff .done creationCells [⟨1⟩]
+    (some (createdSourceComputation.authority, applicationOwner)) creationCells [⟨1⟩]
+    (sourceStore := createdSourceComputation.store) (sourceEvaluated := createdSourceComputation.store)
+    (targetStore := createdTargetComputation.store)
+    (.cons .reference (.cons .datum .nil)) created_application_handoff ⟨rfl, .nil, .nil⟩ .done
   exact ⟨count, positive, steps⟩
 
 theorem created_closure_application_preserves_existing_owners :

@@ -1,4 +1,4 @@
-import BoundaryV2.GeneralizedApplicationExecution
+import BoundaryV2.GeneralizedStatefulOperandExecution
 import BoundaryV2.GeneralizedCellExecutionExamples
 
 namespace BoundaryV2.Generalized.Examples
@@ -41,10 +41,11 @@ theorem owned_application_has_corresponding_stateful_execution :
         .code (Defunctionalization.computation applicationBody)
           (Defunctionalization.environment (.cons (.datum (.leaf false)) applicationCaptures)) .nil
           (.push (.returnTo .ret (Defunctionalization.environment applicationBindings) .nil) .done)⟩, [], []⟩ := by
-  obtain ⟨_, count, positive, steps, _⟩ := Defunctionalization.compiled_computation_application
+  obtain ⟨_, count, positive, steps, _⟩ := Defunctionalization.compiled_owned_operand_application
     (signature := signature) (algebra := algebra) .nil (.reference .here) applicationArguments applicationBindings
-    applicationBody applicationCaptures (.cons (.datum (.leaf false)) .nil) (some (⟨8⟩, applicationOwner)) rfl rfl
-    (sourceStore := applicationSourceStore) (targetStore := applicationTargetStore) ⟨rfl, .nil, .nil⟩ application_handoff .done [] []
+    applicationBody applicationCaptures (.cons (.datum (.leaf false)) .nil) (some (⟨8⟩, applicationOwner)) [] []
+    (sourceStore := applicationSourceStore) (sourceEvaluated := applicationSourceStore) (targetStore := applicationTargetStore)
+    (.cons .reference (.cons .datum .nil)) application_handoff ⟨rfl, .nil, .nil⟩ .done
   exact ⟨count, positive, steps⟩
 
 theorem application_spends_its_grant_and_preserves_other_owners :

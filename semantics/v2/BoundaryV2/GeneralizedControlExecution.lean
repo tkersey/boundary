@@ -20,18 +20,6 @@ inductive OwnedStep (table : Definitions signature algebra program) :
     ControlState signature algebra program result → Prop where
   | ordinary (step : Step table before after) (neutral : before.needsComputationEntry = false := by rfl) :
       OwnedStep table ⟨store, before⟩ ⟨store, after⟩
-  | application
-      {function : Expression signature algebra program context (.computation use parameters answer)}
-      {arguments : Arguments signature algebra program context parameters}
-      {body : Computation signature algebra program (parameters ++ capturedTypes) answer}
-      {captured : RuntimeEnvironment signature algebra program capturedTypes}
-      {values : RuntimeEnvironment signature algebra program parameters}
-      {bindings : RuntimeEnvironment signature algebra program context}
-      {outside : Context signature algebra program answer result} :
-      function.evaluate bindings = .ok (.closure body captured authority) → arguments.evaluate bindings = .ok values →
-      ComputationHandoff captured use authority store.fields fields →
-      OwnedStep table ⟨store, outside.plug (.evaluate (.apply function arguments) bindings)⟩
-        ⟨{ store with fields := fields }, outside.plug (enterClosure body values captured)⟩
   | resume {use : UseScope.OneShotUse}
       {continuation : Expression signature algebra program context (.continuation mode use.type effect input body)}
       {response : Expression signature algebra program context input}

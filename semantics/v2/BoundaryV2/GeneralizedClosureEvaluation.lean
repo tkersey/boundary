@@ -148,6 +148,51 @@ theorem OwnedOperandSteps.preserves_ownership
   | refl => exact valid
   | cons step tail induction => exact induction (step.preserves_ownership valid)
 
+theorem OwnedOperandStep.preserves_external_inventory
+    (step : OwnedOperandStep bindings reserved before initial after final)
+    (external : List (Id .custody))
+    (unique : (UseScope.inventory before.fields ++ external).Nodup)
+    (supported : ∀ token ∈ external, token ∈ reserved) :
+    (UseScope.inventory after.fields ++ external).Nodup := by
+  cases step with
+  | ordinary | sharedClose => exact unique
+  | ownedClose use body captured next values owner before after store partition =>
+    exact created_computation_preserves_combined_inventory partition external unique supported
+
+theorem OwnedOperandSteps.preserves_external_inventory
+    (steps : OwnedOperandSteps bindings reserved before initial count after final)
+    (external : List (Id .custody))
+    (unique : (UseScope.inventory before.fields ++ external).Nodup)
+    (supported : ∀ token ∈ external, token ∈ reserved) :
+    (UseScope.inventory after.fields ++ external).Nodup := by
+  induction steps with
+  | refl => exact unique
+  | cons step tail induction => exact induction (step.preserves_external_inventory external unique supported)
+
+theorem OwnedOperandStep.registry_unchanged
+    (step : OwnedOperandStep bindings reserved before initial after final) :
+    after.controls = before.controls ∧ after.disposing = before.disposing := by
+  cases step <;> exact ⟨rfl, rfl⟩
+
+theorem OwnedOperandSteps.registry_unchanged
+    (steps : OwnedOperandSteps bindings reserved before initial count after final) :
+    after.controls = before.controls ∧ after.disposing = before.disposing := by
+  induction steps with
+  | refl => exact ⟨rfl, rfl⟩
+  | cons step tail induction =>
+    exact ⟨induction.1.trans step.registry_unchanged.1, induction.2.trans step.registry_unchanged.2⟩
+
+theorem OwnedOperandSteps.store_is_field_update
+    (steps : OwnedOperandSteps bindings reserved before initial count after final) :
+    after = { before with fields := after.fields } := by
+  have unchanged := steps.registry_unchanged
+  cases after with
+  | mk afterFields afterControls afterDisposing =>
+    cases before with
+    | mk beforeFields beforeControls beforeDisposing =>
+      obtain ⟨rfl, rfl⟩ := unchanged
+      rfl
+
 end Target
 
 namespace Defunctionalization
