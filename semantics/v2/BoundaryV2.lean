@@ -26,3 +26,4 @@ import BoundaryV2.GeneralizedForwardingExamples
 import BoundaryV2.GeneralizedInjectionExamples
 import BoundaryV2.GeneralizedApplicationExamples
 import BoundaryV2.GeneralizedComputationCreationExamples
+import BoundaryV2.GeneralizedClosureEvaluationExamples
