@@ -90,7 +90,8 @@ approved, unmodified World checkout:
 zig build check-v2-conformance -Dworld-source="$WORLD_CHECKOUT" -Doptimize=ReleaseSafe -j2 --summary all
 ```
 
-This runs the ordinary source/compiler bridge, including the
+This runs the ordinary source/compiler bridge, with a
+[fixture-to-core interpretation map](test/v2/core_mappings.md) and the
 [seeded generated sample](test/v2/generated_programs.md). It tests production
 correspondence and does not issue proof certificates for emitted programs.
 

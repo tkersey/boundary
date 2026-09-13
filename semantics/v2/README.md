@@ -159,9 +159,13 @@ World commit `87698f92ca7be4d5442e97ba27a2468aa3ff6a7c`. It compares complete
 native/WASM outcomes in fresh instances, preserves observable event order,
 checks polling and response rejection, and alternates the restored backend.
 
-The suite includes a [reproducible generated sample](../../test/v2/generated_programs.md)
-with an explicit core-to-production mapping. Additional fixture mappings remain
-to be completed. The [Linux workflow](../../.github/workflows/lean.yml) pins the
+The [fixture interpretation map](../../test/v2/core_mappings.md) covers all 41
+baseline source programs, their distinguishing observations, and static refusal
+counterparts. The [reproducible generated sample](../../test/v2/generated_programs.md)
+maps the additional 16 programs. Conformance also rejects an earlier valid
+response at a later typed request and requires the scripted terminal outcome;
+an unfinished source or runtime run cannot count as success.
+The [Linux workflow](../../.github/workflows/lean.yml) pins the
 tools and World dependency and records clean proof-build and test costs.
 
 These are kernel-checked laws about the Lean core and executable tests of the

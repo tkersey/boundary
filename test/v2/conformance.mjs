@@ -74,8 +74,10 @@ for (const test of selected) {
   const source = parseExactJson(await readFile(join(fixtures, `source-${test.program}.json`)));
   const image = new Uint8Array(await readFile(join(fixtures, `source-${test.program}.bpi2`)));
   const expected = execute(source, test.initial, test.responses, test.cancellations);
+  assert.ok(terminal.has(expected.kind), `${test.name}: independent source run is unfinished (${expected.kind})`);
   const trace = [], applied = new Set();
-  let responseIndex = 0, state = await compare('run', { image, initialArgs: Uint8Array.from(test.initial) });
+  let responseIndex = 0, previousResult, staleResponseChecked = false;
+  let state = await compare('run', { image, initialArgs: Uint8Array.from(test.initial) });
   for (let boundaryIndex = 0; !terminal.has(state.kind); boundaryIndex++) {
     assert.ok(boundaryIndex < 10000, `${test.name}: unfinished at test horizon`);
     if (state.kind === 'Progressed') { state = await compare('run', { image, state: state.state }); continue; }
@@ -103,7 +105,14 @@ for (const test of selected) {
     }
     if (leftBoundary) continue;
     if (state.kind === 'Requested') {
-      if (responseIndex === test.responses.length) break;
+      assert.ok(responseIndex < test.responses.length, `${test.name}: runtime requested an unscripted response`);
+      if (test.name === 'indexed' && responseIndex === 1) {
+        assert.ok(previousResult, 'stale-response probe needs the earlier accepted response');
+        await compare('run', { image, state: state.state, result: previousResult }, true);
+        const unchanged = await compare('run', { image, state: state.state });
+        assert.deepEqual(unchanged.bytes, state.bytes, 'stale response consumed or changed the pending future');
+        staleResponseChecked = true;
+      }
       const result = encodeResult(state.request, Uint8Array.from(test.responses[responseIndex++]));
       if (checks === 0 && result.length > 20) {
         const invalid = result.slice(); invalid[20] ^= 1;
@@ -113,15 +122,18 @@ for (const test of selected) {
         checks++;
       }
       state = await compare('run', { image, state: state.state, result });
+      previousResult = result;
     } else state = await compare('run', { image, state: state.state });
   }
   const actual = { trace, kind: state.kind };
+  assert.ok(terminal.has(state.kind), `${test.name}: runtime did not reach a terminal outcome`);
   if (state.kind === 'Completed' || state.kind === 'Failed') actual.value = [...state.value];
   if (state.kind === 'Failed' || state.kind === 'Cancelled') actual.cleanupFailures = state.cleanupFailures.map(value => [...value]);
   if (state.kind === 'Failed' && state.cancellation !== null && state.cancellation !== undefined) actual.cancellation = state.cancellation;
   if (state.kind === 'Cancelled') actual.reason = state.reason;
   assert.equal(responseIndex, test.responses.length, `${test.name}: unused responses`);
   assert.equal(applied.size, test.cancellations.length, `${test.name}: unused cancellation`);
+  if (test.name === 'indexed') assert.ok(staleResponseChecked, 'indexed case did not exercise stale response rejection');
   assert.deepEqual(actual, expected, `${test.name}: runtime differs from independent source semantics`);
   console.log(`conformance: ${test.name} passed`);
 }

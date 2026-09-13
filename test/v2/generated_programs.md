@@ -34,6 +34,8 @@ This is a finite executable bridge to the core's contracts, not a proof of the
 production compiler, a verified encoding, or a program certificate. It adds a
 small generated sample to the existing distinguishing fixtures; it does not
 replace their handler, ownership, lifetime, cancellation, or library cases.
+Those baseline fixtures and their static refusal counterparts are mapped in
+[core_mappings.md](core_mappings.md).
 
 ## Running and reproducing
 
