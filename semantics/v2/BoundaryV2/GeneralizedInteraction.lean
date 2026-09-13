@@ -40,7 +40,7 @@ def openRequest (operation : signature.operation effect) (supply : OccurrenceSup
     (attachment : Id .attachment) (payload : RuntimeValue signature algebra program (signature.payload operation))
     (bodies : RuntimeEnvironment signature algebra program ((signature.bodies operation).map BodyType.type))
     (future : Stack signature algebra program (signature.result operation) result)
-    (owners : UseScope.State) (_external : ¬ Handles operation attachment future) :
+    (owners : UseScope.State) (_external : Forwards operation attachment future) :
     Opened signature algebra program operation result :=
   ⟨⟨⟨supply.next⟩, attachment, payload, bodies, future, owners⟩, ⟨supply.next + 1⟩⟩
 
@@ -111,7 +111,7 @@ theorem equal_requests_have_distinct_occurrences (operation : signature.operatio
     (attachment : Id .attachment) (payload : RuntimeValue signature algebra program (signature.payload operation))
     (bodies : RuntimeEnvironment signature algebra program ((signature.bodies operation).map BodyType.type))
     (future : Stack signature algebra program (signature.result operation) result) (owners : UseScope.State)
-    (external : ¬ Handles operation attachment future) :
+    (external : Forwards operation attachment future) :
     (openRequest operation supply attachment payload bodies future owners external).pending.occurrence ≠
       (openRequest operation (openRequest operation supply attachment payload bodies future owners external).supply
         attachment payload bodies future owners external).pending.occurrence := by
@@ -182,7 +182,7 @@ theorem opening_records_its_issued_name (operation : signature.operation effect)
     (attachment : Id .attachment) (payload : RuntimeValue signature algebra program (signature.payload operation))
     (bodies : RuntimeEnvironment signature algebra program ((signature.bodies operation).map BodyType.type))
     (future : Stack signature algebra program (signature.result operation) result) (owners : UseScope.State)
-    (external : ¬ Handles operation attachment future) :
+    (external : Forwards operation attachment future) :
     (openRequest operation history.supply attachment payload bodies future owners external).supply = history.record.supply ∧
       history.record.issued =
         (openRequest operation history.supply attachment payload bodies future owners external).pending.occurrence :: history.issued :=

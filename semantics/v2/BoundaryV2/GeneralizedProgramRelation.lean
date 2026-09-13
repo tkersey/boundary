@@ -75,6 +75,34 @@ theorem ProgramRelated.in_context
   | yielded inner induction => exact .yielded (induction outside)
   | passthrough bindings inner induction => exact .passthrough bindings (induction outside)
 
+/-- Reify the enclosing context into the source program while closing the
+target's outside parameter. This preserves the actual suspended target state. -/
+theorem ContextRelated.close_program
+    {sourceOutside : Source.Context signature algebra program input result}
+    {targetOutside : Target.Stack signature algebra program input result}
+    (outside : ContextRelated signature algebra program sourceOutside targetOutside)
+    {source : Source.Program signature algebra program input}
+    {target : Target.Configuration signature algebra program result}
+    (related : ProgramRelated source targetOutside target) :
+    ProgramRelated (sourceOutside.plug source) .done target := by
+  induction outside with
+  | done => exact related
+  | passthrough bindings rest induction => exact induction (.passthrough bindings related)
+  | push frame rest induction =>
+    cases frame with
+    | bind body bindings => exact induction (.bind body bindings related)
+    | handler effect mode attachment returned clauses bindings => exact induction (.handler effect mode attachment returned clauses bindings related)
+    | region identity => exact induction (.region identity related)
+    | protection identity cleanup bindings => exact induction (.protection identity cleanup bindings related)
+
+theorem EntryRelated.as_program
+    (related : EntryRelated (source : Source.Program signature algebra program result) target) :
+    ProgramRelated source .done target := by
+  cases related with
+  | evaluate body bindings outside => exact outside.close_program (.evaluate body bindings _)
+  | returned value outside => exact outside.close_program (.returned value _)
+  | failed fault outside => exact outside.close_program (.failed fault _)
+
 theorem ProgramRelated.returned_drains
     (related : ProgramRelated (source : Source.Program signature algebra program input) outside target)
     (table : Target.Definitions signature algebra program)

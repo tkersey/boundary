@@ -14,7 +14,7 @@ def textTargetObservation : Target.Observation signature algebra [] (.leaf .text
 
 theorem source_captured_closure_observes_open_effect :
     Source.Observes .nil (.evaluate (.apply textClosure textArguments) textBindings) textSourceObservation := by
-  exact ⟨2, _, .cons (.apply rfl rfl) (.cons (.perform rfl rfl rfl) .refl), .requested⟩
+  exact ⟨2, _, .cons (.apply rfl rfl) (.cons (.perform rfl rfl rfl) .refl), .requested .done⟩
 
 theorem target_captured_closure_observes_open_effect :
     Target.Observes .nil
