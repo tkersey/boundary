@@ -123,9 +123,7 @@ theorem compiled_owned_operand_application
       have entered := Target.ExecutionSteps.single (Target.ExecutionStep.control (table := definitions table)
         (cells := cells sourceCells) (regions := regions)
         (Target.OwnedStep.application (body := computation body) (arguments := environment actual) (next := .ret)
-          (bindings := environment bindings) (values := .nil) (outside := targetOutside) targetHandoff)
-        (Target.OwnedStep.NonAllocating.application (body := computation body) (arguments := environment actual)
-          (next := .ret) (bindings := environment bindings) (values := .nil) (outside := targetOutside) targetHandoff))
+          (bindings := environment bindings) (values := .nil) (outside := targetOutside) targetHandoff))
       simpa only [Source.enterClosure, value, Value.map, environment, Environment.map_append] using entered
     · rw [← replaced]
       exact ⟨⟨⟨rfl, evaluatedRelated.controls, evaluatedRelated.disposing⟩,

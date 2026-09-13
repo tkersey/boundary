@@ -85,7 +85,7 @@ def successorSourceAfter := Source.resumeControlWith (signature := signature) (a
 theorem compiled_successor_executes_with_two_different_control_types :
     ∃ sourceAfter targetAfter count, successorSourceAfter = some sourceAfter ∧ 0 < count ∧
       Defunctionalization.ControlStateRelated sourceAfter targetAfter ∧
-      Target.OwnedSteps .nil ⟨mixedTargetControls,
+      Target.OwnedSteps .nil {} ⟨mixedTargetControls,
         .code (Defunctionalization.computation compiledSuccessor)
           (Defunctionalization.environment successorBindings) .nil successorTargetCaller⟩ count targetAfter := by
   have accepted : ∃ after, successorSourceAfter = some after := by
@@ -94,9 +94,9 @@ theorem compiled_successor_executes_with_two_different_control_types :
     exact ⟨_, rfl⟩
   obtain ⟨sourceAfter, accepted⟩ := accepted
   obtain ⟨targetAfter, count, positive, matched, _, steps⟩ := Defunctionalization.compiled_owned_successor
-    (signature := signature) (algebra := algebra) .nil .affine
+    (signature := signature) (algebra := algebra) .nil {} .affine
     (.reference .here) (.datum (.leaf true)) effectfulSuccessorReturn .nil successorBindings successorView
-    (.datum (.leaf true)) rfl rfl mixed_controls_correspond
+    (.datum (.leaf true)) (.cons .reference (.cons .datum .nil)) mixed_controls_correspond
     (.push (.bind successorPostprocessing successorBindings) .done) accepted
   exact ⟨sourceAfter, targetAfter, count, accepted, positive, matched, steps⟩
 

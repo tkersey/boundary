@@ -130,6 +130,34 @@ theorem owned_arguments_drains
   (owned_results_bounded related bindings reserved (sizeOf source + 1)).2
     source (Nat.lt_succ_self _) returned evaluated next values stores
 
+theorem owned_two_operands_drains
+    (related : SourceFuture → TargetFuture → Prop)
+    (bindings : Source.RuntimeEnvironment signature algebra program context) (reserved : List (Id .custody))
+    (first : Source.Expression signature algebra program context firstType)
+    (second : Source.Expression signature algebra program context secondType)
+    (firstValue : Source.RuntimeValue signature algebra program firstType)
+    (secondValue : Source.RuntimeValue signature algebra program secondType)
+    {sourceStore sourceAfter : UseScope.ControlStore SourceFuture} {targetStore : UseScope.ControlStore TargetFuture}
+    (evaluated : Source.ArgumentsEvaluation bindings reserved sourceStore (.cons first (.cons second .nil))
+      (.ok (.cons firstValue (.cons secondValue .nil))) sourceAfter)
+    (next : Code signature algebra program context [secondType, firstType] result)
+    (stores : UseScope.ControlStore.Related related sourceStore targetStore) :
+    ∃ count targetAfter, OwnedOperandSteps (environment bindings) reserved targetStore
+      ⟨_, expression first (expression second next), .nil⟩ count targetAfter
+      ⟨_, next, .cons (value secondValue) (.cons (value firstValue) .nil)⟩ ∧
+      UseScope.ControlStore.Related related sourceAfter targetAfter := by
+  cases evaluated with
+  | cons firstStep tail =>
+    cases tail with
+    | cons secondStep rest =>
+      cases rest
+      obtain ⟨firstCount, middle, _, firstSteps, middleRelated⟩ :=
+        owned_expression_drains related bindings reserved first firstValue firstStep (expression second next) .nil stores
+      obtain ⟨secondCount, after, _, secondSteps, afterRelated⟩ :=
+        owned_expression_drains related bindings reserved second secondValue secondStep next
+          (.cons (value firstValue) .nil) middleRelated
+      exact ⟨firstCount + secondCount, after, firstSteps.trans secondSteps, afterRelated⟩
+
 private theorem owned_faults_bounded
     (related : SourceFuture → TargetFuture → Prop)
     (bindings : Source.RuntimeEnvironment signature algebra program context)

@@ -84,8 +84,9 @@ theorem owned_body_and_resumption_are_consumed_with_cells_retained :
         count ⟨targetAfter, [], [⟨0⟩]⟩ := by
   obtain ⟨targetAfter, count, positive, related, _, steps⟩ := Defunctionalization.compiled_computation_injection
     (signature := signature) (algebra := algebra) .nil .linear (.reference .here) (.reference (.there .here)) injectionBindings
-    injectedBody injectionCaptures (some (⟨8⟩, injectionOwner)) injectionView rfl rfl injection_stores_are_related injection_body_handoff
-    injection_outsides_are_related [] [⟨0⟩] injection_source_accepted
+    injectedBody injectionCaptures (some (⟨8⟩, injectionOwner)) injectionView [] [⟨0⟩]
+    (sourceEvaluated := injectionSourceStore) (.cons .reference (.cons .reference .nil))
+    injection_stores_are_related injection_body_handoff injection_outsides_are_related injection_source_accepted
   exact ⟨targetAfter, count, positive, related, steps⟩
 
 theorem injection_keeps_captured_resource_and_spends_both_grants :
@@ -123,9 +124,7 @@ theorem actual_injection_enters_the_restored_future :
       (some (⟨8⟩, injectionOwner)) injectionTargetStore.fields injectionBodyFields :=
     injection_body_handoff.map (fun _ _ body => Defunctionalization.computation body)
   exact .cons (.cell (.ordinary (.operand .load))) (.cons (.cell (.ordinary (.operand .load)))
-    (.cons (.control (.injection (use := .linear) (bodyUse := .linear) handoff injection_target_accepted)
-      (.injection (table := (.nil : Target.Definitions signature algebra [])) (use := .linear)
-        (bodyUse := .linear) (handoff := handoff) (accepted := injection_target_accepted))) .refl))
+    (.cons (.control (.injection (use := .linear) (bodyUse := .linear) handoff injection_target_accepted)) .refl))
 
 def injectionRequestPrefix : Target.Stack signature algebra [] (.leaf .text) (.leaf .boolean) :=
   .push (.returnTo .ret (Defunctionalization.environment injectionCaptures) .nil)

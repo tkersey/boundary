@@ -127,12 +127,13 @@ theorem dispatch_owned_clause_preserves_ownership {signature : Signature} {algeb
     {outside : Stack signature algebra program answer resultType}
     {result : OwnedClause signature algebra program resultType}
     {store : ControlHeap signature algebra program} {before captured after : List UseScope.Field}
-    {partition : store.fields.active = before ++ captured ++ after} (valid : UseScope.ControlStore.Valid store)
+    {partition : store.fields.active = before ++ captured ++ after} {reserved : UseScope.ReservedNames}
+    (valid : UseScope.ControlStore.Valid store)
     (accepted : dispatchOwnedClause operation attachment returned clauses bindings inside payload bodies outside
-      owner before captured after store partition = some result) : UseScope.ControlStore.Valid result.store := by
+      owner before captured after store partition reserved = some result) : UseScope.ControlStore.Valid result.store := by
   obtain ⟨selected, _, picked⟩ := Option.bind_eq_some_iff.mp accepted
   obtain ⟨admitted, _, rfl⟩ := Option.map_eq_some_iff.mp picked
-  exact UseScope.create_control_preserves_ownership valid partition
+  exact UseScope.create_reserved_control_preserves_ownership reserved valid partition
 
 end Target
 

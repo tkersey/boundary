@@ -103,22 +103,23 @@ def afterChoiceRequestFuture : Target.Stack signature algebra [] (.leaf .text) (
 
 /-- Source control captures, evaluates the effectful clause, resumes the saved
 negation, and sends its result to the next effect. It retains both older owners. -/
-theorem source_handler_capture_resume_and_postprocessing : Source.OwnedSteps .nil sourceHandledChoice 7
+theorem source_handler_capture_resume_and_postprocessing : Source.OwnedSteps .nil {} sourceHandledChoice 7
     ⟨sourceAfterCapturedChoice, .request Operation.text ⟨4⟩ (.datum (.leaf false)) .nil .done⟩ := by
   refine .cons (.handled (signature := signature) (algebra := algebra) (operation := Operation.choice) (outside := .done)
     (inside := sourceNegateFuture) (returned := distinctNormalReturn) (clauses := resumingChoiceClauses)
     (bindings := textBindings) (owner := .lexical ⟨3⟩ 0) (before := []) (captured := [])
     (after := mixedControlFields.active) (partition := rfl) (clause := capturedSourceChoice) rfl rfl) (.cons (.ordinary .bind)
-    (.cons (.resume (use := .affine) (continuation := .reference .here)
+    (.cons (.resume (signature := signature) (algebra := algebra) (use := .affine) (continuation := .reference .here)
       (response := .datum (.leaf true)) (bindings := resumingChoiceBindings)
       (outside := resumingSourceCaller) (view := capturedSourceChoice.view)
-      rfl rfl source_resumes_newly_captured_future) ?_))
+      (value := .datum (.leaf (type := Data.boolean) true)) (evaluated := capturedSourceChoice.store)
+      (.cons .reference (.cons .datum .nil)) (by simpa only [choiceShape] using source_resumes_newly_captured_future)) ?_))
   exact .cons (.ordinary (.bindStep .bindValue)) (.cons (.ordinary (.bindStep (.primitive rfl)))
     (.cons (.ordinary .bindValue) (.cons (.ordinary (.perform rfl rfl rfl)) .refl)))
 
 /-- This trace uses target code, operand instructions, registry capture and
 acquisition, and return frames. No source-evaluator step occurs in the target. -/
-theorem target_handler_capture_resume_and_postprocessing : Target.OwnedSteps .nil targetHandledChoice 17
+theorem target_handler_capture_resume_and_postprocessing : Target.OwnedSteps .nil {} targetHandledChoice 17
     ⟨targetAfterCapturedChoice, .requested Operation.text ⟨4⟩ (.datum (.leaf false)) .nil afterChoiceRequestFuture⟩ := by
   refine .cons (.handled (clause := capturedTargetChoice) rfl rfl) (.cons (.ordinary .block)
     (.cons (.ordinary (.operand .load)) (.cons (.ordinary (.operand .push))
