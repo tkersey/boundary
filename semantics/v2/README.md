@@ -98,6 +98,16 @@ Remaining runtime integration includes dormant-template bindings and
 allocation/retirement across the complete registry lifetime. These local laws
 do not close the whole-core milestone.
 
+`GeneralizedScopeClosure` checks actual surviving fields, code, returned values,
+and saved control before detaching a lifetime subtree. Source and target checks
+agree. Registered runtimes include their retained templates and dormant/active
+futures automatically. `GeneralizedLifetimeExit` performs that check only after
+cleanup finishes and preserves its exact resolution and exit history. Examples
+retain owned work past creator closure and reject younger dependencies in
+fields, future code, stored closures, and template registries. Region-to-scope
+association, final region-storage retirement, and complete lifecycle integration
+remain separate unfinished obligations.
+
 `GeneralizedDisposal` and `GeneralizedDisposalExecution` connect an authored
 one-shot dispose operand to authority release and its actual saved unwind
 context. The local driver retains the caller separately, waits through cleanup
