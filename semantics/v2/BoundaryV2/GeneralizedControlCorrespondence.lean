@@ -105,6 +105,32 @@ theorem acquire_corresponds (stores : ControlStore.Related related source target
     · simp only [if_neg allowed]
       exact .none
 
+theorem release_corresponds (stores : ControlStore.Related related source target) (action : Release) (view : ControlView) :
+    Option.Rel (ControlStore.Related related) (release action view source) (release action view target) := by
+  have records := take_control_corresponds related stores.controls view.identity
+  unfold release
+  generalize sourceAt : takeControl view.identity source.controls = sourceTaken at records ⊢
+  generalize targetAt : takeControl view.identity target.controls = targetTaken at records ⊢
+  cases records with
+  | none => exact .none
+  | @some first second pair =>
+    rcases first with ⟨sourceRecord, sourceRest⟩
+    rcases second with ⟨targetRecord, targetRest⟩
+    dsimp only
+    have authorities : sourceRecord.authority = targetRecord.authority := pair.1.authority
+    have uses : sourceRecord.use = targetRecord.use := pair.1.use
+    simp only [authorities, uses, stores.fields]
+    by_cases allowed : targetRecord.authority = view.authority ∧ permittedRelease action targetRecord.use
+    · simp only [if_pos allowed]
+      cases takeGrant view.authority view.owner (activeFields target.fields.active) with
+      | none => cases takeCapture view.identity target.fields.retained <;> exact .none
+      | some active =>
+        cases takeCapture view.identity target.fields.retained with
+        | none => exact .none
+        | some captured => exact .some ⟨rfl, pair.2, .cons pair.1 stores.disposing⟩
+    · simp only [if_neg allowed]
+      exact .none
+
 theorem begin_disposal_corresponds (stores : ControlStore.Related related source target) :
     Option.Rel (Acquisition.Related related) (beginDisposal source) (beginDisposal target) := by
   have pending := stores.disposing

@@ -48,6 +48,13 @@ only that outer grant before returning its contents. The package and cell
 operations share `GeneralizedValueHandoff`. Borrow retention and lifetime checks
 remain separate scope obligations; sealing a value does not extend its lifetime.
 
+`GeneralizedDisposal` and `GeneralizedDisposalExecution` connect an authored
+one-shot dispose operand to authority release and its actual saved unwind
+context. The local driver retains the caller separately, waits through cleanup
+suspension, and returns unit only after abandonment completes. Cleanup failure
+and cancellation retain their distinct outcomes. The remaining nested
+cleanup/lifetime composition still belongs to the unfinished X contract.
+
 ## Verification commands
 
 From the repository root:
