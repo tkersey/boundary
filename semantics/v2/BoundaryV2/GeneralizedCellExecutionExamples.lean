@@ -32,7 +32,7 @@ theorem compiled_owned_initializer_moves_into_its_cell :
     (signature := signature) (algebra := algebra) .nil (.datum (.region ⟨0⟩)) (.reference .here)
     ownedCellSourceBindings ⟨0⟩ ownedCellSourceValue [] [] [⟨0⟩] List.mem_cons_self
     (sourceStore := ownedCellSourceStore) (sourceEvaluated := ownedCellSourceStore) (targetStore := ownedCellTargetStore)
-    (.cons .datum (.cons .reference .nil)) ⟨rfl, .nil, .nil⟩ ⟨[], [], []⟩ (CellHandoff.move (before := []) (after := [])) .done
+    (.cons .datum (.cons .reference .nil)) ⟨rfl, .nil, .nil⟩ ⟨[], [], []⟩ (ValueHandoff.move (before := []) (after := [])) .done
   exact ⟨count, positive, executed⟩
 
 theorem owned_initializer_has_one_physical_holder_after_handoff :

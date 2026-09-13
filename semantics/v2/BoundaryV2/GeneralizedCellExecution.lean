@@ -1,3 +1,4 @@
+import BoundaryV2.GeneralizedValueHandoff
 import BoundaryV2.GeneralizedCellLowering
 import BoundaryV2.GeneralizedControlExecution
 
@@ -5,25 +6,6 @@ namespace BoundaryV2.Generalized
 
 variable {signature : Signature} {algebra : LeafAlgebra signature.Data}
   {Body : List (TypeOf signature) → TypeOf signature → Type}
-
-/-- Ownership moves only once the cell initializer is complete. Copyable/plain
-values need no owning-field transfer; an owned value moves its actual field. -/
-inductive CellHandoff (value : Value signature algebra Body type) : UseScope.State → UseScope.State → Prop where
-  | unowned : value.owningField.tokens = [] → CellHandoff value fields fields
-  | move : CellHandoff value
-      ⟨before ++ value.owningField :: after, retained, spent⟩ ⟨before ++ after, retained, spent⟩
-
-theorem CellHandoff.conserves_owners (handoff : CellHandoff value before after) :
-    (UseScope.inventory before).Perm (value.owningField.tokens ++ UseScope.inventory after) ∧ after.spent = before.spent := by
-  cases handoff with
-  | unowned empty => exact ⟨by simp only [empty, List.nil_append]; exact .refl _, rfl⟩
-  | move =>
-    constructor
-    · simp only [UseScope.inventory, UseScope.tokens_append, UseScope.tokens, List.append_assoc]
-      simpa only [List.append_assoc] using
-        (List.perm_append_comm (l₁ := UseScope.tokens _) (l₂ := value.owningField.tokens)).append_right _
-    · rfl
-
 namespace Source
 
 structure State (signature : Signature) (algebra : LeafAlgebra signature.Data)
@@ -50,7 +32,7 @@ inductive CellStep (table : Definitions signature algebra program) : State signa
       {value : RuntimeValue signature algebra program type} :
       ArgumentsEvaluation bindings cells.reservations.custody store (.cons regionExpr (.cons valueExpr .nil))
         (.ok (.cons (.datum (.region region)) (.cons value .nil))) evaluated →
-      region ∈ regions → CellHandoff value evaluated.fields fields →
+      region ∈ regions → ValueHandoff value evaluated.fields fields →
       CellStep table ⟨⟨store, outside.plug (.evaluate (.cellNew regionExpr valueExpr) bindings)⟩, cells, regions⟩
         ⟨⟨{ evaluated with fields := fields }, outside.plug (.returned (.cell (Cells.allocate region value cells reserved).identity region))⟩,
           (Cells.allocate region value cells reserved).cells, regions⟩
@@ -99,7 +81,7 @@ inductive CellStep (table : Definitions signature algebra program) : State signa
       {store : ControlHeap signature algebra program}
       {cells : Cells signature algebra (fun context result => Code signature algebra program context [] result)}
       {value : RuntimeValue signature algebra program type} :
-      region ∈ regions → CellHandoff value store.fields fields →
+      region ∈ regions → ValueHandoff value store.fields fields →
       CellStep table ⟨⟨store, .code (.cellNew next) bindings (.cons value (.cons (.datum (.region region)) values)) outside⟩, cells, regions⟩
         ⟨⟨{ store with fields := fields }, .code next bindings
           (.cons (.cell (Cells.allocate region value cells reserved).identity region) values) outside⟩,
@@ -174,12 +156,9 @@ structure CellStateRelated (source : Source.State signature algebra program resu
 
 omit [DecidableEq (TypeOf signature)] in
 theorem cell_handoff_corresponds
-    (value : Source.RuntimeValue signature algebra program type) (handoff : CellHandoff value before after) :
-    CellHandoff (Defunctionalization.value value) before after := by
-  cases handoff with
-  | unowned empty => exact .unowned (by simpa only [Defunctionalization.value, Value.map_preserves_owning_fields] using empty)
-  | move => simpa only [Defunctionalization.value, Value.map_preserves_owning_fields] using
-      (CellHandoff.move (value := Defunctionalization.value value))
+    (value : Source.RuntimeValue signature algebra program type) (handoff : ValueHandoff value before after) :
+    ValueHandoff (Defunctionalization.value value) before after :=
+  handoff.map (fun _ _ body => computation body)
 
 end Defunctionalization
 end BoundaryV2.Generalized

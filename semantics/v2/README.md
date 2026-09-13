@@ -41,6 +41,13 @@ copyability of a computation does not grant permission to duplicate exclusive
 captures or exit obligations. Consistent relocation is a logical renaming law,
 not a codec or hash-injectivity theorem.
 
+Package and unpackage now execute in the common control/cell state through
+`GeneralizedPackages` and `GeneralizedPackageExecution`. Packaging transfers the
+operand's actual owning fields into a fresh-grant container; unpacking consumes
+only that outer grant before returning its contents. The package and cell
+operations share `GeneralizedValueHandoff`. Borrow retention and lifetime checks
+remain separate scope obligations; sealing a value does not extend its lifetime.
+
 ## Verification commands
 
 From the repository root:

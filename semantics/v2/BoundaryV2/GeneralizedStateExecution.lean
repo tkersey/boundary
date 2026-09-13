@@ -2,6 +2,7 @@ import BoundaryV2.GeneralizedCellExecution
 import BoundaryV2.GeneralizedCellReservations
 import BoundaryV2.GeneralizedOwnedOperands
 import BoundaryV2.GeneralizedInstallationSupport
+import BoundaryV2.GeneralizedPackages
 
 namespace BoundaryV2.Generalized
 
@@ -54,6 +55,30 @@ inductive ExecutionStep (table : Definitions signature algebra program) : State 
       ExecutionStep table ⟨⟨store, outside.plug (.evaluate (.withRegion body) bindings)⟩, cells, regions⟩
         ⟨⟨store, outside.plug (.region identity (.evaluate body (.cons (.datum (.region identity)) bindings)))⟩,
           cells, identity :: regions⟩
+  | packageOperand
+      {expression : Expression signature algebra program context content}
+      {value : RuntimeValue signature algebra program content}
+      {bindings : RuntimeEnvironment signature algebra program context}
+      {outside : Context signature algebra program (.package content) result}
+      {store evaluated : ControlHeap signature algebra program} {moved : UseScope.State}
+      {cells : Cells signature algebra (Computation signature algebra program)}
+      (owner : Owner) (handoff : ValueHandoff value evaluated.fields moved) :
+      ExpressionEvaluation bindings cells.reservations.custody store expression (.ok value) evaluated →
+      ExecutionStep table ⟨⟨store, outside.plug (.evaluate (.package expression) bindings)⟩, cells, regions⟩
+        ⟨⟨(createPackage value owner evaluated moved handoff cells.reservations.custody).store,
+          outside.plug (.returned (createPackage value owner evaluated moved handoff cells.reservations.custody).value)⟩,
+          cells, regions⟩
+  | unpackageOperand
+      {expression : Expression signature algebra program context (.package content)}
+      {value : RuntimeValue signature algebra program content}
+      {bindings : RuntimeEnvironment signature algebra program context}
+      {outside : Context signature algebra program content result}
+      {store evaluated : ControlHeap signature algebra program}
+      {cells : Cells signature algebra (Computation signature algebra program)} :
+      ExpressionEvaluation bindings cells.reservations.custody store expression (.ok (.package token owner value)) evaluated →
+      PackageHandoff value token owner evaluated.fields fields →
+      ExecutionStep table ⟨⟨store, outside.plug (.evaluate (.unpackage expression) bindings)⟩, cells, regions⟩
+        ⟨⟨{ evaluated with fields := fields }, outside.plug (.returned value)⟩, cells, regions⟩
   | returnOperand
       {expression : Expression signature algebra program context answer}
       {bindings : RuntimeEnvironment signature algebra program context}
@@ -194,6 +219,31 @@ inductive ExecutionStep (table : Definitions signature algebra program) : State 
       ExecutionStep table ⟨⟨store, .code (.enterRegion body next) bindings values outside⟩, cells, regions⟩
         ⟨⟨store, .code body (.cons (.datum (.region identity)) bindings) .nil
           (.push (.region identity) (.push (.returnTo next bindings values) outside))⟩, cells, identity :: regions⟩
+
+  | packageOperand
+      {value : RuntimeValue signature algebra program content}
+      {next : Code signature algebra program context (.package content :: operands) answer}
+      {bindings : RuntimeEnvironment signature algebra program context}
+      {values : RuntimeEnvironment signature algebra program operands}
+      {outside : Stack signature algebra program answer result}
+      {store : ControlHeap signature algebra program} {moved : UseScope.State}
+      {cells : Cells signature algebra (fun context result => Code signature algebra program context [] result)}
+      (owner : Owner) (handoff : ValueHandoff value store.fields moved) :
+      ExecutionStep table ⟨⟨store, .code (.package next) bindings (.cons value values) outside⟩, cells, regions⟩
+        ⟨⟨(createPackage value owner store moved handoff cells.reservations.custody).store,
+          .code next bindings (.cons (createPackage value owner store moved handoff cells.reservations.custody).value values) outside⟩,
+          cells, regions⟩
+  | unpackageOperand
+      {value : RuntimeValue signature algebra program content}
+      {next : Code signature algebra program context (content :: operands) answer}
+      {bindings : RuntimeEnvironment signature algebra program context}
+      {values : RuntimeEnvironment signature algebra program operands}
+      {outside : Stack signature algebra program answer result}
+      {store : ControlHeap signature algebra program}
+      {cells : Cells signature algebra (fun context result => Code signature algebra program context [] result)} :
+      PackageHandoff value token owner store.fields fields →
+      ExecutionStep table ⟨⟨store, .code (.unpackage next) bindings (.cons (.package token owner value) values) outside⟩, cells, regions⟩
+        ⟨⟨{ store with fields := fields }, .code next bindings (.cons value values) outside⟩, cells, regions⟩
 
 inductive ExecutionSteps (table : Definitions signature algebra program) :
     State signature algebra program result → Nat → State signature algebra program result → Prop where

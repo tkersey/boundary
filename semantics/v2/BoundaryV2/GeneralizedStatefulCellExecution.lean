@@ -102,7 +102,7 @@ theorem compiled_cell_allocation
     (evaluated : Source.ArgumentsEvaluation bindings sourceCells.reservations.custody sourceStore (.cons regionExpr (.cons valueExpr .nil))
       (.ok (.cons (.datum (.region region)) (.cons value .nil))) sourceEvaluated)
     (stores : ControlHeapRelated sourceStore targetStore) (fields : UseScope.State)
-    (handoff : CellHandoff value sourceEvaluated.fields fields)
+    (handoff : ValueHandoff value sourceEvaluated.fields fields)
     {sourceOutside : Source.Context signature algebra program (.cell type) result}
     {targetOutside : Target.Stack signature algebra program (.cell type) result}
     (outside : ContextRelated signature algebra program sourceOutside targetOutside) :

@@ -27,7 +27,7 @@ theorem closure_initializer_moves_grant_and_capture_into_its_cell :
       closureCellProgram.operandPrefix.arguments
       (.ok (.cons (.datum (.region ⟨1⟩)) (.cons createdSourceComputation.value .nil))) createdSourceComputation.store :=
     .cons .datum (.cons compound_function_evaluates_with_its_grant .nil)
-  have handoff : CellHandoff createdSourceComputation.value createdSourceComputation.store.fields closureCellFields :=
+  have handoff : ValueHandoff createdSourceComputation.value createdSourceComputation.store.fields closureCellFields :=
     .move (before := [.owned ⟨100⟩ (.lexical ⟨0⟩ 1)]) (after := [])
   obtain ⟨count, positive, _, steps, _⟩ := Defunctionalization.compiled_cell_allocation
     (signature := signature) (algebra := algebra) .nil (.datum (.region ⟨1⟩)) compoundOwnedFunction lambdaBindings
