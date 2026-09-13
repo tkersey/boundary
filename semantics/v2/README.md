@@ -140,6 +140,24 @@ suspension, and returns unit only after abandonment completes. Cleanup failure
 and cancellation retain their distinct outcomes. The remaining nested
 cleanup/lifetime composition still belongs to the unfinished X contract.
 
+`GeneralizedNestedCleanup` executes nested protection boundaries with one shared
+control/cell/region state. Saved parents retain typed return/unwind continuations
+and exit records. Child completion restores the parent with current resources;
+the parent is running again and receives no new initiation right. Nested body
+failure details stay separate until the enclosing cleanup completes, preserving
+the primary-before-details order and repeated equal faults. External cancellation
+updates the outermost running cleanup's exit and preserves the active or captured
+cursor. Abandonment follows the actual installed protection frames. Scope/region
+completion rejects while any parent remains suspended.
+
+Every finite ordinary target execution lifts into the driver. A three-level
+checked run writes a cell, yields, is captured, receives repeated cancellation,
+resumes, and fails; both parents keep the new cell contents, physical authority,
+original failure, ordered nested failures, and first cancellation reason. Region
+boundaries encountered during abandonment remain with their closing owner;
+integration with the full registry/owned-disposal flow and the general stateful
+observation theorem is still unfinished.
+
 ## Verification commands
 
 From the repository root:
