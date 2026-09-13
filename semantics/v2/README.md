@@ -85,7 +85,10 @@ Fresh replay uses Lean 4.33.1's `Lean.Environment.replay` API with an empty
 kernel environment at trust level zero. The isolated mutation suite accepts a
 valid orphan and rejects private unfinished proofs, hidden axioms, unfinished
 definitions, native-evaluation dependencies, unsafe definitions, and partial
-definitions. The final five exported claim types and claim-weakening mutations
+definitions. It also covers private declarations in Lean's module system and a
+spoofed recursive-companion name. A forged declaration inserted with kernel
+checking disabled deliberately passes the axiom-only control and must fail
+fresh replay. The final five exported claim types and claim-weakening mutations
 are still open; this logical trust gate is not a statement-meaning review.
 
 ## Production correspondence
