@@ -30,12 +30,12 @@ def captureOwnedClause {effect : signature.Effect} {operation : signature.operat
     (outside : Context signature algebra program answer result)
     (owner : Owner) (before captured after : List UseScope.Field)
     (store : ControlHeap signature algebra program)
-    (partition : store.fields.active = before ++ captured ++ after) :
+    (partition : store.fields.active = before ++ captured ++ after) (reserved : UseScope.ReservedNames := {}) :
     OwnedClause signature algebra program result :=
   let future : Sigma (ControlPayload signature algebra program) :=
     ⟨⟨mode, effect, signature.result operation, resumedType mode body answer⟩,
       captureResumption mode effect attachment returned clauses bindings inside⟩
-  let created := UseScope.createControl use future owner before captured after store partition
+  let created := UseScope.createControl use future owner before captured after store partition reserved
   ⟨created.store, created.view, outside.plug (enterClause selected created.view.identity
     (some (created.view.authority, created.view.owner)) payload bodies bindings)⟩
 
@@ -52,11 +52,11 @@ def dispatchOwnedClause (operation : signature.operation effect) [DecidableEq (s
     (outside : Context signature algebra program answer result)
     (owner : Owner) (before captured after : List UseScope.Field)
     (store : ControlHeap signature algebra program)
-    (partition : store.fields.active = before ++ captured ++ after) :
+    (partition : store.fields.active = before ++ captured ++ after) (reserved : UseScope.ReservedNames := {}) :
     Option (OwnedClause signature algebra program result) :=
   (clauses.lookup operation).bind fun selected => selected.use.oneShot.map fun admitted =>
     captureOwnedClause selected admitted.val admitted.property attachment returned clauses bindings inside payload bodies
-      outside owner before captured after store partition
+      outside owner before captured after store partition reserved
 
 
 end Source
@@ -87,12 +87,12 @@ def captureOwnedClause {effect : signature.Effect} {operation : signature.operat
     (outside : Stack signature algebra program answer result)
     (owner : Owner) (before captured after : List UseScope.Field)
     (store : ControlHeap signature algebra program)
-    (partition : store.fields.active = before ++ captured ++ after) :
+    (partition : store.fields.active = before ++ captured ++ after) (reserved : UseScope.ReservedNames := {}) :
     OwnedClause signature algebra program result :=
   let future : Sigma (ControlPayload signature algebra program) :=
     ⟨⟨mode, effect, signature.result operation, resumedType mode body answer⟩,
       captureResumption mode effect attachment returned clauses bindings inside⟩
-  let created := UseScope.createControl use future owner before captured after store partition
+  let created := UseScope.createControl use future owner before captured after store partition reserved
   ⟨created.store, created.view, enterClause selected created.view.identity
     (some (created.view.authority, created.view.owner)) payload bodies bindings outside⟩
 
@@ -107,11 +107,11 @@ def dispatchOwnedClause (operation : signature.operation effect) [DecidableEq (s
     (outside : Stack signature algebra program answer result)
     (owner : Owner) (before captured after : List UseScope.Field)
     (store : ControlHeap signature algebra program)
-    (partition : store.fields.active = before ++ captured ++ after) :
+    (partition : store.fields.active = before ++ captured ++ after) (reserved : UseScope.ReservedNames := {}) :
     Option (OwnedClause signature algebra program result) :=
   (clauses.lookup operation).bind fun selected => selected.use.oneShot.map fun admitted =>
     captureOwnedClause selected admitted.val admitted.property attachment returned clauses bindings inside payload bodies
-      outside owner before captured after store partition
+      outside owner before captured after store partition reserved
 
 theorem dispatch_owned_clause_preserves_ownership {signature : Signature} {algebra : LeafAlgebra signature.Data}
     {program : List (BodyType signature.Data signature.Effect)} {effect : signature.Effect}
@@ -159,12 +159,12 @@ theorem owned_clause_capture_corresponds {effect : signature.Effect} {operation 
     (owner : Owner) (before captured after : List UseScope.Field)
     (stores : ControlHeapRelated sourceStore targetStore)
     (sourcePartition : sourceStore.fields.active = before ++ captured ++ after)
-    (targetPartition : targetStore.fields.active = before ++ captured ++ after) :
+    (targetPartition : targetStore.fields.active = before ++ captured ++ after) (reserved : UseScope.ReservedNames := {}) :
     let left := Source.captureOwnedClause selected use permitted attachment returned clauses bindings sourceInside
-      payload bodies sourceOutside owner before captured after sourceStore sourcePartition
+      payload bodies sourceOutside owner before captured after sourceStore sourcePartition reserved
     let right := Target.captureOwnedClause (selectedClause selected) use permitted attachment (computation returned)
       (Defunctionalization.clauses clauses) (environment bindings) targetInside (value payload) (environment bodies)
-      targetOutside owner before captured after targetStore targetPartition
+      targetOutside owner before captured after targetStore targetPartition reserved
     left.view = right.view ∧ ControlHeapRelated left.store right.store ∧
       EntryRelated left.computation right.configuration := by
   have futures := captured_resumption_corresponds mode effect attachment returned clauses bindings inside
@@ -174,7 +174,7 @@ theorem owned_clause_capture_corresponds {effect : signature.Effect} {operation 
       ⟨⟨mode, effect, signature.result operation, resumedType mode body answer⟩,
         Target.captureResumption mode effect attachment (computation returned) (Defunctionalization.clauses clauses)
           (environment bindings) targetInside⟩ := .same futures
-  have created := UseScope.create_control_corresponds (UseScope.PackedControlRelated controlPayloadRelated) stores packed sourcePartition targetPartition
+  have created := UseScope.create_control_corresponds (UseScope.PackedControlRelated controlPayloadRelated) stores packed sourcePartition targetPartition reserved
     (use := use) (owner := owner)
   refine ⟨created.1, created.2, ?_⟩
   dsimp only [Source.captureOwnedClause, Target.captureOwnedClause]
@@ -207,13 +207,13 @@ theorem owned_clause_dispatch_corresponds
     {targetStore : Target.ControlHeap signature algebra program}
     (stores : ControlHeapRelated sourceStore targetStore)
     (sourcePartition : sourceStore.fields.active = before ++ captured ++ after)
-    (targetPartition : targetStore.fields.active = before ++ captured ++ after) :
+    (targetPartition : targetStore.fields.active = before ++ captured ++ after) (reserved : UseScope.ReservedNames := {}) :
     Option.Rel OwnedClauseRelated
       (Source.dispatchOwnedClause operation attachment returned clauses bindings sourceInside payload bodies sourceOutside
-        owner before captured after sourceStore sourcePartition)
+        owner before captured after sourceStore sourcePartition reserved)
       (Target.dispatchOwnedClause operation attachment (computation returned) (Defunctionalization.clauses clauses)
         (environment bindings) targetInside (value payload) (environment bodies) targetOutside
-        owner before captured after targetStore targetPartition) := by
+        owner before captured after targetStore targetPartition reserved) := by
   unfold Source.dispatchOwnedClause Target.dispatchOwnedClause
   rw [clause_lookup_corresponds]
   generalize lookupAt : clauses.lookup operation = found
@@ -225,7 +225,7 @@ theorem owned_clause_dispatch_corresponds
     | none => exact .none
     | some admitted =>
       have matched := owned_clause_capture_corresponds selected admitted.val admitted.property attachment returned clauses
-        bindings inside payload bodies outside owner before captured after stores sourcePartition targetPartition
+        bindings inside payload bodies outside owner before captured after stores sourcePartition targetPartition reserved
       exact .some ⟨matched.1, matched.2.1, matched.2.2⟩
 
 

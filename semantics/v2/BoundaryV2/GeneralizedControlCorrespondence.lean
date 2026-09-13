@@ -35,8 +35,8 @@ theorem related_control_authorities (records : ControlInfosRelated related sourc
   | nil => rfl
   | cons first rest induction => simp only [List.map_cons, first.authority, induction]
 
-theorem related_fresh_views (stores : ControlStore.Related related source target) (owner : Owner) :
-    freshControlView owner source = freshControlView owner target := by
+theorem related_fresh_views (stores : ControlStore.Related related source target) (owner : Owner) (reserved : ReservedNames := {}) :
+    freshControlView owner source reserved = freshControlView owner target reserved := by
   simp only [freshControlView, ControlStore.controlSupport, ControlStore.custodySupport, stores.fields,
     List.map_append, related_control_identities related stores.controls,
     related_control_identities related stores.disposing, related_control_authorities related stores.controls,
@@ -45,11 +45,11 @@ theorem related_fresh_views (stores : ControlStore.Related related source target
 theorem create_control_corresponds (stores : ControlStore.Related related source target)
     (futures : related sourceFuture targetFuture)
     (sourcePartition : source.fields.active = before ++ selected ++ after)
-    (targetPartition : target.fields.active = before ++ selected ++ after) :
-    let left := createControl use sourceFuture owner before selected after source sourcePartition
-    let right := createControl use targetFuture owner before selected after target targetPartition
+    (targetPartition : target.fields.active = before ++ selected ++ after) (reserved : ReservedNames := {}) :
+    let left := createControl use sourceFuture owner before selected after source sourcePartition reserved
+    let right := createControl use targetFuture owner before selected after target targetPartition reserved
     left.view = right.view ∧ ControlStore.Related related left.store right.store := by
-  have views := related_fresh_views related stores owner
+  have views := related_fresh_views related stores owner reserved
   refine ⟨views, ?_, ?_, stores.disposing⟩
   · simp only [createControl, views, stores.fields]
   · exact .cons ⟨congrArg ControlView.identity views, congrArg ControlView.authority views, rfl, futures⟩ stores.controls

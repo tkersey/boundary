@@ -69,8 +69,13 @@ theorem fresh_name_not_supported (support : List (Id domain)) : freshName suppor
   have impossible := FreshNames.member_below_bound member
   exact Nat.lt_irrefl _ impossible
 
-def freshControlView (owner : Owner) (store : ControlStore Future) : ControlView :=
-  ⟨freshName store.controlSupport, freshName store.custodySupport, owner⟩
+structure ReservedNames where
+  controls : List (Id .control) := []
+  custody : List (Id .custody) := []
+  deriving Inhabited
+
+def freshControlView (owner : Owner) (store : ControlStore Future) (reserved : ReservedNames := {}) : ControlView :=
+  ⟨freshName (reserved.controls ++ store.controlSupport), freshName (reserved.custody ++ store.custodySupport), owner⟩
 
 structure Creation (Future : Type) where
   store : ControlStore Future
@@ -81,31 +86,41 @@ of roots. Existing registry entries are nonowning and remain available, includin
 those whose grants move into the new continuation's sealed fields. -/
 def createControl (use : OneShotUse) (future : Future) (owner : Owner)
     (before selected after : List Field) (store : ControlStore Future)
-    (_partition : store.fields.active = before ++ selected ++ after) : Creation Future :=
-  let view := freshControlView owner store
+    (_partition : store.fields.active = before ++ selected ++ after) (reserved : ReservedNames := {}) : Creation Future :=
+  let view := freshControlView owner store reserved
   ⟨⟨⟨.owned view.authority owner :: (before ++ after),
       .continuation view.identity selected :: store.fields.retained, store.fields.spent⟩,
     ⟨view.identity, view.authority, use, future⟩ :: store.controls, store.disposing⟩, view⟩
 
-theorem create_control_preserves_ownership (valid : ControlStore.Valid store)
+theorem reserved_grant_is_fresh (owner : Owner) (store : ControlStore Future) (reserved : ReservedNames) :
+    (freshControlView owner store reserved).authority ∉ reserved.custody ++ store.custodySupport :=
+  fresh_name_not_supported _
+
+theorem reserved_control_is_fresh (owner : Owner) (store : ControlStore Future) (reserved : ReservedNames) :
+    (freshControlView owner store reserved).identity ∉ reserved.controls ++ store.controlSupport :=
+  fresh_name_not_supported _
+
+theorem create_reserved_control_preserves_ownership (reserved : ReservedNames) (valid : ControlStore.Valid store)
     (partition : store.fields.active = before ++ selected ++ after) :
-    ControlStore.Valid (createControl use future owner before selected after store partition).store := by
+    ControlStore.Valid (createControl use future owner before selected after store partition reserved).store := by
   have oldValid : Valid ⟨before ++ selected ++ after, store.fields.retained, store.fields.spent⟩ := by
     simpa only [← partition] using valid.1
   have moved := capture_preserves_ownership before selected after store.fields.retained store.fields.spent
-    (freshControlView owner store).identity oldValid
+    (freshControlView owner store reserved).identity oldValid
   have permuted := capture_inventory before selected after store.fields.retained store.fields.spent
-    (freshControlView owner store).identity
-  have fresh := fresh_name_not_supported store.custodySupport
-  have absent : (freshControlView owner store).authority ∉
-      inventory (capture before selected after store.fields.retained store.fields.spent (freshControlView owner store).identity) := by
+    (freshControlView owner store reserved).identity
+  have fresh := reserved_grant_is_fresh owner store reserved
+  have absent : (freshControlView owner store reserved).authority ∉
+      inventory (capture before selected after store.fields.retained store.fields.spent (freshControlView owner store reserved).identity) := by
     intro member
     apply fresh
+    apply List.mem_append_right
     apply inventory_is_supported store
     simpa only [inventory, ← partition, freshControlView] using permuted.mem_iff.mpr member
-  have unspent : (freshControlView owner store).authority ∉ store.fields.spent := by
+  have unspent : (freshControlView owner store reserved).authority ∉ store.fields.spent := by
     intro member
     apply fresh
+    apply List.mem_append_right
     simp only [ControlStore.custodySupport, List.mem_append]
     exact Or.inl (Or.inr member)
   refine ⟨?_, ?_, ?_⟩
@@ -117,21 +132,48 @@ theorem create_control_preserves_ownership (valid : ControlStore.Valid store)
   · apply List.nodup_cons.mpr
     refine ⟨?_, valid.2.1⟩
     intro member
-    apply fresh_name_not_supported store.controlSupport
-    have old : (freshControlView owner store).identity ∈ store.controlSupport := by
-      unfold ControlStore.controlSupport
-      rw [List.map_append]
-      exact List.mem_append_right _ (List.mem_append_left _ member)
-    exact old
+    apply reserved_control_is_fresh owner store reserved
+    apply List.mem_append_right
+    unfold ControlStore.controlSupport
+    rw [List.map_append]
+    exact List.mem_append_right _ (List.mem_append_left _ member)
   · apply List.nodup_cons.mpr
     refine ⟨?_, valid.2.2⟩
     intro member
     apply fresh
-    have old : (freshControlView owner store).authority ∈ store.custodySupport := by
-      unfold ControlStore.custodySupport
-      rw [List.map_append]
-      exact List.mem_append_right _ (List.mem_append_left _ member)
-    exact old
+    apply List.mem_append_right
+    unfold ControlStore.custodySupport
+    rw [List.map_append]
+    exact List.mem_append_right _ (List.mem_append_left _ member)
+
+
+theorem create_control_preserves_ownership (valid : ControlStore.Valid store)
+    (partition : store.fields.active = before ++ selected ++ after) :
+    ControlStore.Valid (createControl use future owner before selected after store partition).store :=
+  create_reserved_control_preserves_ownership {} valid partition
+
+theorem created_control_inventory (reserved : ReservedNames)
+    (partition : store.fields.active = before ++ selected ++ after) :
+    ((freshControlView owner store reserved).authority :: inventory store.fields).Perm
+      (inventory (createControl use future owner before selected after store partition reserved).store.fields) := by
+  have moved := capture_inventory before selected after store.fields.retained store.fields.spent
+    (freshControlView owner store reserved).identity
+  simpa only [inventory, createControl, capture, tokens, Field.tokens, List.cons_append, List.nil_append, ← partition] using
+    moved.cons (freshControlView owner store reserved).authority
+
+theorem create_control_preserves_combined_inventory (reserved : ReservedNames)
+    (partition : store.fields.active = before ++ selected ++ after) (external : List (Id .custody))
+    (unique : (inventory store.fields ++ external).Nodup)
+    (supported : ∀ token ∈ external, token ∈ reserved.custody) :
+    (inventory (createControl use future owner before selected after store partition reserved).store.fields ++ external).Nodup := by
+  have fresh := reserved_grant_is_fresh owner store reserved
+  have absent : (freshControlView owner store reserved).authority ∉ inventory store.fields ++ external := by
+    intro member
+    rcases List.mem_append.mp member with internal | outside
+    · exact fresh (List.mem_append_right _ (inventory_is_supported store internal))
+    · exact fresh (List.mem_append_left _ (supported _ outside))
+  have prepared := List.nodup_cons.mpr ⟨absent, unique⟩
+  exact ((created_control_inventory reserved partition (use := use) (future := future) (owner := owner)).append_right external).nodup_iff.mp prepared
 
 theorem created_control_acquires_its_own_future
     (partition : store.fields.active = before ++ selected ++ after) :
@@ -146,5 +188,6 @@ theorem created_grant_is_not_an_old_alias
     (partition : store.fields.active = before ++ selected ++ after) :
     (createControl use future owner before selected after store partition).view.authority ∉ store.custodySupport :=
   fresh_name_not_supported _
+
 
 end BoundaryV2.Generalized.UseScope
