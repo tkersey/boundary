@@ -1,6 +1,7 @@
 import BoundaryV2.GeneralizedOwnedClause
 import BoundaryV2.GeneralizedSourceExecution
 import BoundaryV2.GeneralizedComputationHandoff
+import BoundaryV2.GeneralizedApplicationGate
 
 namespace BoundaryV2.Generalized
 
@@ -17,7 +18,20 @@ inductive OwnedStep (table : Definitions signature algebra program) :
     {result : TypeOf signature} →
     ControlState signature algebra program result →
     ControlState signature algebra program result → Prop where
-  | ordinary : Step table before after → OwnedStep table ⟨store, before⟩ ⟨store, after⟩
+  | ordinary (step : Step table before after) (neutral : before.needsComputationEntry = false := by rfl) :
+      OwnedStep table ⟨store, before⟩ ⟨store, after⟩
+  | application
+      {function : Expression signature algebra program context (.computation use parameters answer)}
+      {arguments : Arguments signature algebra program context parameters}
+      {body : Computation signature algebra program (parameters ++ capturedTypes) answer}
+      {captured : RuntimeEnvironment signature algebra program capturedTypes}
+      {values : RuntimeEnvironment signature algebra program parameters}
+      {bindings : RuntimeEnvironment signature algebra program context}
+      {outside : Context signature algebra program answer result} :
+      function.evaluate bindings = .ok (.closure body captured authority) → arguments.evaluate bindings = .ok values →
+      ComputationHandoff captured use authority store.fields fields →
+      OwnedStep table ⟨store, outside.plug (.evaluate (.apply function arguments) bindings)⟩
+        ⟨{ store with fields := fields }, outside.plug (enterClosure body values captured)⟩
   | resume {use : UseScope.OneShotUse}
       {continuation : Expression signature algebra program context (.continuation mode use.type effect input body)}
       {response : Expression signature algebra program context input}
@@ -82,11 +96,6 @@ theorem OwnedSteps.trans {before middle after : ControlState signature algebra p
   | refl => simpa using second
   | cons step tail induction => simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using OwnedSteps.cons step (induction second)
 
-theorem Steps.with_owned_store (steps : Steps table before count after) (store : ControlHeap signature algebra program) :
-    OwnedSteps table ⟨store, before⟩ count ⟨store, after⟩ := by
-  induction steps with
-  | refl => exact .refl
-  | cons step tail induction => exact .cons (.ordinary step) induction
 
 end Source
 
@@ -103,7 +112,20 @@ inductive OwnedStep (table : Definitions signature algebra program) :
     {result : TypeOf signature} →
     ControlState signature algebra program result →
     ControlState signature algebra program result → Prop where
-  | ordinary : CallStep table before after → OwnedStep table ⟨store, before⟩ ⟨store, after⟩
+  | ordinary (step : CallStep table before after) (neutral : before.needsComputationEntry = false := by rfl) :
+      OwnedStep table ⟨store, before⟩ ⟨store, after⟩
+  | application
+      {body : Code signature algebra program (parameters ++ capturedTypes) [] answer}
+      {captured : RuntimeEnvironment signature algebra program capturedTypes}
+      {arguments : RuntimeEnvironment signature algebra program parameters}
+      {next : Code signature algebra program context (answer :: operands) rest}
+      {bindings : RuntimeEnvironment signature algebra program context}
+      {values : RuntimeEnvironment signature algebra program operands}
+      {outside : Stack signature algebra program rest result} :
+      ComputationHandoff captured use authority store.fields fields →
+      OwnedStep table ⟨store, .code (.callClosure (use := use) next) bindings
+        (arguments.pushReverse (.cons (.closure body captured authority) values)) outside⟩
+        ⟨{ store with fields := fields }, .code body (arguments.append captured) .nil (.push (.returnTo next bindings values) outside)⟩
   | resume {use : UseScope.OneShotUse}
       {next : Code signature algebra program context (body :: operands) answer}
       {bindings : RuntimeEnvironment signature algebra program context}
@@ -169,19 +191,24 @@ theorem OwnedSteps.trans {before middle after : ControlState signature algebra p
   | refl => simpa using second
   | cons step tail induction => simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using OwnedSteps.cons step (induction second)
 
-theorem CallSteps.with_owned_store
-    (steps : CallSteps table before count after)
+theorem OperandSteps.with_owned_store
+    {bindings : RuntimeEnvironment signature algebra program context}
+    {before after : Operands signature algebra program context input}
+    (steps : OperandSteps bindings before count after)
+    (table : Definitions signature algebra program) (outside : Stack signature algebra program input result)
     (store : ControlHeap signature algebra program) :
-    OwnedSteps table ⟨store, before⟩ count ⟨store, after⟩ := by
+    OwnedSteps table ⟨store, .code before.code bindings before.values outside⟩ count
+      ⟨store, .code after.code bindings after.values outside⟩ := by
   induction steps with
   | refl => exact .refl
-  | cons step tail induction => exact .cons (.ordinary step) induction
+  | cons step tail induction => exact .cons (.ordinary (.operand step) (step.no_computation_entry outside)) induction
 
 theorem OwnedStep.preserves_ownership {before after : ControlState signature algebra program result}
     (step : OwnedStep table before after)
     (valid : UseScope.ControlStore.Valid before.store) : UseScope.ControlStore.Valid after.store := by
   cases step with
-  | ordinary step => exact valid
+  | ordinary step neutral => exact valid
+  | application handoff => exact ⟨handoff.preserves_ownership valid.1, valid.2⟩
   | resume accepted => exact resume_control_preserves_ownership valid accepted
   | successor accepted => exact successor_control_preserves_ownership valid accepted
   | injection handoff accepted =>
@@ -283,7 +310,7 @@ theorem compiled_owned_resumption
     (.cons (.continuation view.identity (some (view.authority, view.owner))) .nil) _ responseEvaluated
   refine ⟨targetAfter, firstCount + secondCount + 1, by omega, matched,
     .resume continuationEvaluated responseEvaluated accepted, ?_⟩
-  exact (((firstSteps.trans secondSteps).in_context (definitions table) targetOutside).with_owned_store targetStore).trans
+  exact ((firstSteps.trans secondSteps).with_owned_store (definitions table) targetOutside targetStore).trans
     (.single (.resume targetAccepted))
 
 theorem compiled_owned_successor
@@ -317,7 +344,7 @@ theorem compiled_owned_successor
     (.cons (.continuation view.identity (some (view.authority, view.owner))) .nil) _ responseEvaluated
   refine ⟨targetAfter, firstCount + secondCount + 1, by omega, matched,
     .successor continuationEvaluated responseEvaluated accepted, ?_⟩
-  exact (((firstSteps.trans secondSteps).in_context (definitions table) targetOutside).with_owned_store targetStore).trans
+  exact ((firstSteps.trans secondSteps).with_owned_store (definitions table) targetOutside targetStore).trans
     (.single (.successor targetAccepted))
 
 end Defunctionalization

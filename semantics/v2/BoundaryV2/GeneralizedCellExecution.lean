@@ -38,7 +38,8 @@ variable {program : List (BodyType signature.Data signature.Effect)}
 /-- Cell transitions act on source expressions and their source values. Region
 liveness is explicit; establishing and closing region scopes is a separate rule. -/
 inductive CellStep (table : Definitions signature algebra program) : State signature algebra program result → State signature algebra program result → Prop where
-  | ordinary : Step table before after → CellStep table ⟨⟨store, before⟩, cells, regions⟩ ⟨⟨store, after⟩, cells, regions⟩
+  | ordinary (step : Step table before after) (neutral : before.needsComputationEntry = false := by rfl) :
+      CellStep table ⟨⟨store, before⟩, cells, regions⟩ ⟨⟨store, after⟩, cells, regions⟩
   | allocate
       {regionExpr : Expression signature algebra program context .region}
       {valueExpr : Expression signature algebra program context type}
@@ -84,7 +85,8 @@ variable {program : List (BodyType signature.Data signature.Effect)}
   [DecidableEq (TypeOf signature)]
 
 inductive CellStep (table : Definitions signature algebra program) : State signature algebra program result → State signature algebra program result → Prop where
-  | ordinary : CallStep table before after → CellStep table ⟨⟨store, before⟩, cells, regions⟩ ⟨⟨store, after⟩, cells, regions⟩
+  | ordinary (step : CallStep table before after) (neutral : before.needsComputationEntry = false := by rfl) :
+      CellStep table ⟨⟨store, before⟩, cells, regions⟩ ⟨⟨store, after⟩, cells, regions⟩
   | allocate
       {next : Code signature algebra program context (.cell type :: operands) answer}
       {bindings : RuntimeEnvironment signature algebra program context}
@@ -130,13 +132,18 @@ theorem CellSteps.trans {before middle after : State signature algebra program r
   | refl => simpa using second
   | cons step tail induction => simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using CellSteps.cons step (induction second)
 
-theorem CallSteps.with_cells (steps : CallSteps (table : Definitions signature algebra program) before count after)
+theorem OperandSteps.with_cells
+    {bindings : RuntimeEnvironment signature algebra program context}
+    {before after : Operands signature algebra program context input}
+    (steps : OperandSteps bindings before count after)
+    (table : Definitions signature algebra program) (outside : Stack signature algebra program input result)
     (store : ControlHeap signature algebra program)
     (cells : Cells signature algebra (fun context result => Code signature algebra program context [] result)) (regions : List (Id .region)) :
-    CellSteps table ⟨⟨store, before⟩, cells, regions⟩ count ⟨⟨store, after⟩, cells, regions⟩ := by
+    CellSteps table ⟨⟨store, .code before.code bindings before.values outside⟩, cells, regions⟩ count
+      ⟨⟨store, .code after.code bindings after.values outside⟩, cells, regions⟩ := by
   induction steps with
   | refl => exact .refl
-  | cons step tail induction => exact .cons (.ordinary step) induction
+  | cons step tail induction => exact .cons (.ordinary (.operand step) (step.no_computation_entry outside)) induction
 
 def State.physicalInventory (state : State signature algebra program result) : List (Id .custody) :=
   UseScope.inventory state.control.store.fields ++ UseScope.tokens (Cells.fields state.cells)
@@ -144,7 +151,7 @@ def State.physicalInventory (state : State signature algebra program result) : L
 theorem CellStep.conserves_physical_owners {before after : State signature algebra program result}
     (step : CellStep table before after) : before.physicalInventory.Perm after.physicalInventory := by
   cases step with
-  | ordinary step | read live found => exact .refl _
+  | ordinary step neutral | read live found => exact .refl _
   | write live written => simp only [State.physicalInventory, Cells.write_copy_preserves_ownership_inventory written]; exact .refl _
   | allocate live handoff =>
     have moved := handoff.conserves_owners
@@ -211,7 +218,7 @@ theorem compiled_cell_read
     rfl
   obtain ⟨count, operands⟩ := expression_drains reference bindings (.cellRead .ret) .nil _ evaluated
   refine ⟨count + 2, by omega, .read evaluated live read, ?_, ⟨⟨stores, .returned value outside⟩, rfl, rfl⟩⟩
-  exact ((operands.in_context (definitions table) targetOutside).with_cells targetStore (cells sourceCells) regions).trans
+  exact (operands.with_cells (definitions table) targetOutside targetStore (cells sourceCells) regions).trans
     (.cons (.read live targetRead) (.cons (.ordinary .returned) .refl))
 
 theorem compiled_cell_write
@@ -247,7 +254,7 @@ theorem compiled_cell_write
     (.cons (.cell identity region) .nil) _ replacementEvaluated
   refine ⟨referenceCount + replacementCount + 2, by omega, .write referenceEvaluated replacementEvaluated live written,
     ?_, ⟨⟨stores, .returned (.datum .unit) outside⟩, rfl, rfl⟩⟩
-  exact (((referenceSteps.trans replacementSteps).in_context (definitions table) targetOutside).with_cells
+  exact ((referenceSteps.trans replacementSteps).with_cells (definitions table) targetOutside
     targetStore (cells sourceCells) regions).trans (.cons (.write live targetWritten) (.cons (.ordinary .returned) .refl))
 
 theorem compiled_cell_allocation
@@ -285,7 +292,7 @@ theorem compiled_cell_allocation
     (.cons (.datum (.region region)) .nil) _ valueEvaluated
   refine ⟨regionCount + valueCount + 2, by omega, .allocate regionEvaluated valueEvaluated live handoff, ?_,
     ⟨⟨⟨rfl, stores.controls, stores.disposing⟩, .returned (.cell _ region) outside⟩, rfl, rfl⟩⟩
-  apply (((regionSteps.trans valueSteps).in_context (definitions table) targetOutside).with_cells
+  apply ((regionSteps.trans valueSteps).with_cells (definitions table) targetOutside
     targetStore (cells sourceCells) regions).trans
   have entered := Target.CellSteps.cons (Target.CellStep.allocate (table := definitions table) (reserved := reserved)
     (next := .ret) (bindings := environment bindings) (values := .nil) (outside := targetOutside) (cells := cells sourceCells) live targetHandoff)

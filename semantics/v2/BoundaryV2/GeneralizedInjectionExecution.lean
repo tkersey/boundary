@@ -48,7 +48,7 @@ theorem compiled_computation_injection
   refine ⟨targetAfter, firstCount + secondCount + 1, by omega, ⟨matched, rfl, rfl⟩,
     .control (.injection continuationAt bodyAt handoff accepted)
       (.injection (continuation := continuationAt) (body := bodyAt) (handoff := handoff) (accepted := accepted)), ?_⟩
-  have prefixSteps := ((firstSteps.trans secondSteps).in_context (definitions table) targetOutside).with_cells
+  have prefixSteps := (firstSteps.trans secondSteps).with_cells (definitions table) targetOutside
     targetStore (cells sourceCells) regions
   exact prefixSteps.in_execution.trans (.single (.control (.injection targetHandoff targetAccepted)
     (.injection (handoff := targetHandoff) (accepted := targetAccepted))))

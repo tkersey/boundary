@@ -24,3 +24,4 @@ import BoundaryV2.GeneralizedProgramExamples
 import BoundaryV2.GeneralizedPrefixExamples
 import BoundaryV2.GeneralizedForwardingExamples
 import BoundaryV2.GeneralizedInjectionExamples
+import BoundaryV2.GeneralizedApplicationExamples

@@ -63,12 +63,9 @@ theorem ordinary_execution_retains_the_cell_holder :
     ∃ count future, Target.ExecutionSteps .nil ⟨reservedTargetCapture.state, reservedTargetCells, [⟨0⟩]⟩ count
       ⟨⟨reservedTargetCapture.store, .requested Operation.text ⟨4⟩ (.datum (.leaf true)) .nil future⟩,
         reservedTargetCells, [⟨0⟩]⟩ := by
-  obtain ⟨count, _, executed⟩ := Defunctionalization.compiled_operation_opens_typed_future
-    (signature := signature) (algebra := algebra) .nil Operation.text
-    (.reference (.there (.there .here))) (.reference (.there (.there (.there .here)))) .nil
-    (.cons (.continuation (mode := .shallow) (use := .affine) (effect := Effect.choose)
-      (input := .leaf Data.boolean) (answer := .leaf Data.boolean) ⟨0⟩ (some (⟨1⟩, .lexical ⟨1⟩ 0)))
-      (.cons (.datum .unit) textBindings)) ⟨4⟩ (.datum (.leaf true)) .nil rfl rfl rfl .done
-  exact ⟨count, _, (executed.with_cells reservedTargetCapture.store reservedTargetCells [⟨0⟩]).in_execution⟩
+  exact ⟨3, _, .cons (.cell (.ordinary (.operand .load)))
+    (.cons (.cell (.ordinary (.operand .load)))
+      (.cons (.cell (.ordinary (.dispatch (signature := signature) (algebra := algebra)
+        (operation := Operation.text) (bodies := .nil) (payload := .datum (.leaf true)) (attachment := ⟨4⟩)))) .refl))⟩
 
 end BoundaryV2.Generalized.Examples

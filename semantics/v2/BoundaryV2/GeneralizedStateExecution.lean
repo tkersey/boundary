@@ -10,7 +10,19 @@ variable {signature : Signature} {algebra : LeafAlgebra signature.Data}
 
 inductive OwnedStep.NonAllocating (table : Definitions signature algebra program) :
     {before after : ControlState signature algebra program result} → OwnedStep table before after → Prop where
-  | ordinary : NonAllocating table (.ordinary step)
+  | ordinary : NonAllocating table (.ordinary step neutral)
+  | application {context parameters capturedTypes : List (TypeOf signature)} {use : Use} {answer result : TypeOf signature}
+      {function : Expression signature algebra program context (.computation use parameters answer)}
+      {arguments : Arguments signature algebra program context parameters}
+      {body : Computation signature algebra program (parameters ++ capturedTypes) answer}
+      {captured : RuntimeEnvironment signature algebra program capturedTypes}
+      {values : RuntimeEnvironment signature algebra program parameters} {authority : Option (Id .custody × Owner)}
+      {bindings : RuntimeEnvironment signature algebra program context} {outside : Context signature algebra program answer result}
+      {store : ControlHeap signature algebra program} {fields : UseScope.State}
+      (functionAt : function.evaluate bindings = .ok (.closure body captured authority))
+      (argumentsAt : arguments.evaluate bindings = .ok values)
+      (handoff : ComputationHandoff captured use authority store.fields fields) :
+      NonAllocating table (.application (outside := outside) functionAt argumentsAt handoff)
   | resume : NonAllocating table (.resume continuation response accepted)
   | successor : NonAllocating table (.successor continuation response accepted)
   | injection : NonAllocating table (.injection continuation body handoff accepted)
@@ -51,7 +63,17 @@ variable {signature : Signature} {algebra : LeafAlgebra signature.Data}
 
 inductive OwnedStep.NonAllocating (table : Definitions signature algebra program) :
     {before after : ControlState signature algebra program result} → OwnedStep table before after → Prop where
-  | ordinary : NonAllocating table (.ordinary step)
+  | ordinary : NonAllocating table (.ordinary step neutral)
+  | application {context parameters capturedTypes operands : List (TypeOf signature)} {use : Use} {answer rest result : TypeOf signature}
+      {body : Code signature algebra program (parameters ++ capturedTypes) [] answer}
+      {captured : RuntimeEnvironment signature algebra program capturedTypes}
+      {arguments : RuntimeEnvironment signature algebra program parameters} {authority : Option (Id .custody × Owner)}
+      {next : Code signature algebra program context (answer :: operands) rest}
+      {bindings : RuntimeEnvironment signature algebra program context} {values : RuntimeEnvironment signature algebra program operands}
+      {outside : Stack signature algebra program rest result} {store : ControlHeap signature algebra program} {fields : UseScope.State}
+      (handoff : ComputationHandoff captured use authority store.fields fields) :
+      NonAllocating table (.application (body := body) (arguments := arguments) (next := next)
+        (bindings := bindings) (values := values) (outside := outside) handoff)
   | resume : NonAllocating table (.resume accepted)
   | successor : NonAllocating table (.successor accepted)
   | injection {use : UseScope.OneShotUse} {bodyUse : Use}

@@ -26,9 +26,14 @@ theorem failing_initializer_preserves_earlier_owner_before_exit :
     (∃ count, Target.CellSteps (.nil : Target.Definitions signature algebra []) failingCellBefore count failingCellAfter) ∧
     failingCellBefore.physicalInventory = [⟨6⟩] ∧ failingCellAfter.physicalInventory = [⟨6⟩] ∧
     failingCellAfter.cells = [] ∧ failingCellAfter.control.store.fields.spent = [] := by
-  obtain ⟨count, steps⟩ := Defunctionalization.compiled_finite_fault .nil failingCellPrefix ownedCellSourceBindings
-    .overflow (.single failing_initializer_has_a_source_transition)
-  exact ⟨⟨count, steps.with_cells ownedCellTargetStore [] [⟨0⟩]⟩, rfl, rfl, rfl, rfl⟩
+  obtain ⟨next, compiled⟩ := Defunctionalization.computation_has_operand_prefix failingCellPrefix
+  obtain ⟨count, after, steps, faulted⟩ := Defunctionalization.arguments_fault_drains
+    failingCellPrefix.operandPrefix.arguments ownedCellSourceBindings next .nil .overflow rfl
+  cases faulted
+  refine ⟨⟨count + 1, ?_⟩, rfl, rfl, rfl, rfl⟩
+  have run := (steps.with_cells (.nil : Target.Definitions signature algebra []) .done ownedCellTargetStore [] [⟨0⟩]).trans
+    (Target.CellSteps.single (.ordinary .fault))
+  simpa only [failingCellBefore, failingCellAfter, compiled] using run
 
 theorem initializer_fault_cannot_be_reported_as_return_yield_or_request
     (observation : Target.Observation signature algebra [] (.cell (.product (.resource ⟨0⟩) (.leaf .integer)))) :
