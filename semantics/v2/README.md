@@ -67,9 +67,18 @@ agreement with target freeze success or refusal, and connect authored clone
 operands to a finite positive target drain and the returned template binding.
 Acquisition in the ordinary source heap yields the same actual callback future
 and consumed successor, and the source branching fixture compiles to the
-existing target fixture. Descriptions supply explicit authored provenance;
-source activation correspondence and integration with the common template
-registry remain unfinished.
+existing target fixture. Descriptions supply explicit authored provenance.
+
+`GeneralizedSourceRelocation` renames arbitrary typed source expressions,
+bodies, and clauses and proves that compilation commutes with that operation.
+`GeneralizedSourceActivation` computes fresh names from source support and
+rebuilds its callbacks from the renamed bodies and environments. Compiling the
+result yields exactly the independently instantiated target future, cells,
+dormant aliases, and active branch inventory. Checked reentrant source runs
+preserve current shared state, keep branch writes separate, and execute the
+actual source callback against its branch cell. Integration of these local
+operations with the common template registry and activation entry remains
+unfinished.
 
 `GeneralizedDisposal` and `GeneralizedDisposalExecution` connect an authored
 one-shot dispose operand to authority release and its actual saved unwind
