@@ -4,6 +4,9 @@ This replaces the full-profile proof-closure and production-certification projec
 The accepted specification is **Boundary — Generalized Effects Proof Core**,
 version 1.0, September 12, 2026. The five claims below are the required exported
 statements; this contract does not assert that their implementations exist yet.
+The names below are required export targets, not existing Lean declarations or
+evidence of completion. The [current proof inventory](README.md) gives the
+checked scope and remaining composition work.
 
 The proof subject is a typed symbolic calculus and its independently defined,
 first-order control representation. The production compiler and pinned World
@@ -129,5 +132,6 @@ existing fix above passed all 127 cases in native/WASM comparison and was
 explicitly approved as the unmodified test dependency.
 
 Preserve both donor branches and unfinished work. Neither PR is merged intact.
-After the replacement PR has a durable link, document supersession and close the
-donors without merging. Do not merge the replacement or publish a release.
+The replacement is draft PR #149. Both donors are closed as superseded without
+merging; their branches/history and unfinished work are preserved. Do not merge
+the replacement or publish a release.

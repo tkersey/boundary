@@ -64,6 +64,7 @@ source or evaluate instructions, handlers or continuations.
 
 ```sh
 zig build check-v2-data
+zig build check-v2-formal
 zig build check-v2-semantics
 zig build check-v2-economy
 zig build check-v2 -Doptimize=ReleaseSafe
@@ -79,6 +80,19 @@ The five files appear under `zig-out/v2/release`: semantic JSON and indexed
 binary fixtures, the source/examples archive, a source/asset receipt, and
 `SHA256SUMS`. Receipts record the actual Git head and whether source is dirty;
 a development emission is not evidence of a published clean commit.
+
+The generalized Lean proof core is an in-progress replacement; its
+[contract and current limits](semantics/v2/README.md) distinguish checked local
+laws from unfinished composition. Explicit cross-runtime conformance uses the
+approved, unmodified World checkout:
+
+```sh
+zig build check-v2-conformance -Dworld-source="$WORLD_CHECKOUT" -Doptimize=ReleaseSafe -j2 --summary all
+```
+
+This runs the ordinary source/compiler bridge, including the
+[seeded generated sample](test/v2/generated_programs.md). It tests production
+correspondence and does not issue proof certificates for emitted programs.
 
 See [the wire specification](docs/bpi2-wire.md),
 [the formal inventory](semantics/v2/README.md),

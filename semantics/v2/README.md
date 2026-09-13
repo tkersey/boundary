@@ -1,91 +1,95 @@
-# Checked core and its current proof boundary
+# Generalized effects proof core
 
-This is a model of Boundary control and lowering, checked with the pinned
-Lean 4.33.1 toolchain and bundled Std. It has no external package dependencies.
-Run `zig build check-v2-formal` from the repository for module discovery,
-the positive trust policy, mutation checks, and fresh kernel replay.
-`lake --wfail build` remains the focused proof-build command. Importing Boundary's
-Zig modules does not execute these commands or require Lean.
+This is the in-progress replacement defined by [CONTRACT.md](CONTRACT.md).
+Lean 4.33.1 with bundled Std checks a signature-parametric symbolic source and
+its separately defined first-order representation. The complete five-contract
+milestone remains unfinished; passing the current proof build does not establish
+all of its acceptance requirements.
 
-The artifacts under proof are the Lean definitions here. The production Zig
-compiler and World interpreter are not Lean programs and do not have a checked
-refinement link to this model. Their correspondence is tested separately by the
-independent source oracle and cross-runtime conformance.
+The source represents authored computations, lexical environments, effectful
+clauses, and higher-order continuation functions. The target represents code,
+closure environments, handler attachments, and return stacks as inspectable
+first-order data. Its control fields contain no source-evaluator callbacks.
+The translation is total over the typed source syntax. Pure leaf data and
+primitive value-or-fault outcomes remain an explicit abstract interface;
+internal control, resource, region, and ownership references are structural.
 
-| File | Checked claims |
-| --- | --- |
-| Lowering.lean | Typed lexical expressions with Unit, Boolean, mathematical Nat, products, de Bruijn variables, and bind compile to explicit first-order instruction lists. `compile_preserves_value_and_scope` proves result equality, unchanged caller environment, and unchanged operand-stack tail for every expression, environment, and stack. |
-| Control.lean | Typed context composition; selection by explicit attachment identity; exact reconstruction of both sides of a selected delimiter; deep/shallow capture; no second return-clause application to clause answers; preservation of non-tail postprocessing; operation progress to a selected delimiter or a residual operation. |
-| ControlLowering.lean | An independently defined stack of first-order blocks preserves source context values, composition, attachment selection, and deep/shallow capture. `compilation_preserves_non_tail_resume` combines these properties. `return_step_simulation` and `return_trace_simulation` relate each return transition and any finite sequence of such transitions. |
-| Ownership.lean | Fresh/live/spent token invariants; consumption preserves disjoint unique ownership; a consumed token cannot resume again; multi activations obtain distinct control identities; lexical region entry and checked exit preserve scope. |
-| Regions.lean | Immutable local-cell templates; consistently renamed local references; reads from current outer storage; alias and scope preservation; distinct names under disjoint fresh maps; multi activation preserves scope and ownership; freezing consumes the original token. |
-| Effects.lean | A complete finite effectful machine: effects on either side of bind, branches, explicit capability environments, nested deep/shallow handlers, non-tail clause callers, immutable multi templates, region reads/writes, and residual resume/dispose/transfer. `machine_progress`, `tick_preserves_invariants`, and `transition_preserves_invariants` cover every control constructor. |
-| EffectsLowering.lean | All embedded lexical expressions compile into first-order instruction blocks, including expressions in dormant nested templates. `effectful_step_simulation` and `effectful_trace_simulation` preserve transitions and complete finite observable traces. `drive_preserves_invariants` extends ownership preservation to any accepted external script. |
-| EffectsExamples.lean | Kernel reductions establish deep/non-tail result 114, shallow/non-tail result 104, direct operation-clause answer 7, the two State/Choice results `(1,1)` and `(1,2)`, effectful binds across two residual responses, and consumed sender custody on disposal/transfer. Compiled examples independently reduce to the same expected values. |
+## Checked laws and their current scope
 
-The planned formal-core inventory is covered by the following construction and
-theorems. Type and scope preservation are intrinsic: `Flow` indexes lexical
-variables, capability evidence, region count, and result type; each `Position`
-contains a heap with exactly its indexed region count and a typed stack to the
-same root scope/result. A cell reference is a `Fin` index into that heap.
-`tick` is total over this complete typed control state. There is no stuck or
-unchecked-cast alternative. The additional `Machine.Valid` predicate requires
-unique, disjoint live/spent token sets and exact custody: the pending position
-owns the sole live token, and every other state owns none.
+| Contract | Main proof surfaces | Checked content and limits |
+| --- | --- | --- |
+| D: defunctionalization | `GeneralizedValues`, `GeneralizedReification`, `GeneralizedOwnedOperandLowering`, `GeneralizedProgramSimulation`, `GeneralizedProgramObservations` | Closure/environment and context laws, recursive call unfolding, positive finite operand drains, and preservation/reflection of finite **ordinary** observations. Open requests retain related typed futures under every accepted response. Full stateful observation composition remains open. |
+| H: handlers | `GeneralizedSelection`, `GeneralizedForwarding`, `GeneralizedHandlerEntry`, `GeneralizedControlExecution`, `GeneralizedSuccessor`, `GeneralizedInjectionExecution`, `GeneralizedFreshHandlerExecution` | Nominal selection and forwarding, deep/shallow capture, effectful clause entry, distinct body/answer types, successor handling, non-tail resumption, and use-site injection have local correspondence laws. Installation computes fresh support-aware identities. Remaining scoped and multi-use composition is unfinished. |
+| U: use and scope | `GeneralizedFields`, `GeneralizedOwnership`, `GeneralizedControlStore`, `GeneralizedScopes`, `GeneralizedScopeCapture`, `GeneralizedResources`, `GeneralizedTemplates`, `GeneralizedStateExecution` | Actual owning occurrences preserve multiplicity across control stores, closures, cells, and retained containers. Local transfer, one-shot consumption, packaging, release, scope/borrow, resource-authority, and computed template-instantiation laws are checked. Stateful region entry is connected to cell allocation. Full lifetime closure and remaining activation/composition laws are open. |
+| X: exits | `GeneralizedOperandPrefix`, `GeneralizedExit`, `GeneralizedStatefulCleanup`, `GeneralizedExitCompletion`, `GeneralizedUnwinding`, `GeneralizedRegionRetirement` | Ordered handoff, retained cleanup cursors, single initiation, first cancellation reason, failure precedence, cleanup completion, and finite outer-unwinding order are checked. Cell-held control can transfer into saved-context disposal; plain cells remain readable for later cleanup. Final region/resource lifetime closure remains open. |
+| O: observation and relocation | `GeneralizedInteraction`, `GeneralizedObservations`, `GeneralizedCodeRelocation`, `GeneralizedOwnedRelocation`, `GeneralizedExitRelocation`, `GeneralizedRuntimeSupport` | Local laws distinguish logical request openings from polling, preserve typed response reentry, and transport finite supported identities through values, code, captures, and control stores. Full composition over the remaining stateful mechanisms is unfinished. |
 
-| Required formal observation | Evidence |
-| --- | --- |
-| Type, scope, and linear-ownership preservation | Indexed `tick`/`transition` results; `tick_preserves_invariants`, `transition_preserves_invariants`, and `drive_preserves_invariants`. |
-| Progress up to residual effects | `machine_progress`; `live_residual_progress` proves each typed residual disposition has a valid successor. |
-| Simulation into first-order code | `compile_preserves_value_and_scope`, `effectful_step_simulation`, and `effectful_trace_simulation`. |
-| Return, bind, deep/shallow handling, non-tail resume | Every corresponding `Flow`/`Frame` constructor participates in the global step/trace proofs; closed examples distinguish the return-clause and non-tail rules. |
-| Regions and linear/multi disposition | `LocalHeap` stores only the captured prefix; `rebasing_preserves_current_outer_heap`; exact one-shot custody and `residual_disposition_consumes_once`; multi activation and nested template remapping are covered by the global simulation. |
+`BoundaryV2.lean` exports the generalized modules and their distinguishing
+examples. The older `Lowering`, `Control`, `ControlLowering`, `Ownership`,
+`Regions`, and `Effects*` models are retired from the active tree. Their single
+operation family, pure-clause/shared-dispatcher interpretation, and sole-token
+custody model are not used to justify the generalized claims. Their source
+remains available at baseline commit
+`55e8feedcae0b9ee1492da11f9fbd4a1ac7ff328` and in the donor history. The ordinary
+production regressions remain active, including State/Choice, recursive calls,
+non-tail handlers, and disposal/transfer cases.
 
-The effectful core uses one mathematical `Nat -> Nat` operation family with
-arbitrarily many explicit instances. Its bind bodies can perform effects.
-Handler return clauses and clause postprocessors are pure; clause plans dispose,
-resume once, or fold a finite list of reusable resumptions. The control algebra
-is shared by the source and target instantiations. Compilation replaces every
-source expression with typed instruction data; it does not claim a separately
-derived production interpreter or flatten the whole model into BPI2 blocks.
-The natural-number attachment supply must initially be reserved above ambient
-capability identities. The ownership invariant is not a proof of global fresh
-name allocation or of a serialized graph's complete admission rules.
+Local capture/support and lifetime premises delimit the claims. The core does
+not prove that every production source checker or saved-state validator
+establishes them. Borrowed references remain distinct from physical owners;
+copyability of a computation does not grant permission to duplicate exclusive
+captures or exit obligations. Consistent relocation is a logical renaming law,
+not a codec or hash-injectivity theorem.
 
-The separate `Regions.lean` model uses number-valued cells and explicit local/outer references.
-Fresh-name injectivity and disjointness are hypotheses of the corresponding
-renaming theorems. No theorem silently assumes those properties of an arbitrary
-allocator. The clone-safe modeled template types have no exclusive resources or
-exit obligations. The ownership ledger models logical custody, not serialized
-allocation history or the entire portable ownership graph. Transfer consumes
-the sender's custody; an independent receiver graph is outside this model.
+## Verification commands
 
-Fixed-width arithmetic faults, recursive application code, arbitrary effectful
-operation clauses, first-class suspension packages, scoped forwarding,
-cleanup/cancellation, graph cycles, canonical wire formats, garbage collection,
-and selective compiler optimizations have separate executable evidence and are
-outside this formal core. Finite script lengths in `drive` and the closed-example
-`ticks` helper are observation horizons; no machine transition reads semantic fuel.
+From the repository root:
 
-`check.mjs` discovers every `.lean` file in this project except generated `.lake`
+```sh
+zig build check-v2-formal -Doptimize=ReleaseSafe -j2 --summary all
+zig build check-v2 -Doptimize=ReleaseSafe -j2 --summary all
+zig build check-v2-conformance -Dworld-source="$WORLD_CHECKOUT" -Doptimize=ReleaseSafe -j2 --summary all
+```
+
+For focused proof development, run `lake --wfail build` in this directory.
+`check-v2-formal` discovers project modules, enforces logical trust, runs trust
+mutations, and performs fresh kernel replay. `check-v2` includes that gate and
+the existing Boundary-only checks. World is required only by the explicit
+conformance command. Ordinary compiler/data imports continue to require only Zig.
+
+`check.mjs` discovers every project `.lean` file except generated `.lake`
 contents. Explicit Lake roots build orphan files even outside `BoundaryV2`.
-`Trust.lean` inspects Lean's declaration provenance and follows types, bodies,
-and inductive constructors transitively. Only `propext`, `Quot.sound`, and
-`Classical.choice` are allowed axioms. Private declarations and unused definitions
-are included. Unsafe or partial logical definitions reject; compiler-generated
-executable companions are recognized only when their safe parent and type agree,
-and a logical dependency on such a companion still rejects. The checker itself
-is executable tooling and cannot become a semantic dependency.
+`Trust.lean` uses Lean's declaration provenance and follows types, bodies, and
+inductive constructors transitively. Private declarations and unused definitions
+are included. The only permitted axioms are `propext`, `Quot.sound`, and
+`Classical.choice`. Unsafe or partial logical definitions reject; recognized
+executable companions of safe recursive definitions contribute no logical
+permission to depend on unsafe code. The checker is executable tooling and
+cannot become a semantic dependency.
 
-The same run uses Lean 4.33.1's `Lean.Environment.replay` API with a fresh empty environment
-at trust level zero. `check.test.mjs` checks a valid orphan and rejected private
-unfinished proofs, hidden axioms, unfinished definitions, native-evaluation
-dependencies, unsafe definitions, and partial definitions in isolated projects.
-Run these commands separately with `node semantics/v2/check.mjs` and
-`node semantics/v2/check.test.mjs` from the repository.
+Fresh replay uses Lean 4.33.1's `Lean.Environment.replay` API with an empty
+kernel environment at trust level zero. The isolated mutation suite accepts a
+valid orphan and rejects private unfinished proofs, hidden axioms, unfinished
+definitions, native-evaluation dependencies, unsafe definitions, and partial
+definitions. The final five exported claim types and claim-weakening mutations
+are still open; this logical trust gate is not a statement-meaning review.
 
-This gate checks logical trust, not the meaning or completeness of the five
-generalized contract statements. Their final exported types and claim-weakening
-mutation checks remain unfinished; the replacement specification and
-`CONTRACT.md` describe the intended scope. The earlier model inventory above is
-retained pending the replacement's documentation and root cleanup.
+## Production correspondence
+
+The ordinary bridge uses public-builder programs, the normal compiler and
+encoding path, an independent source oracle, and the user-approved unmodified
+World commit `87698f92ca7be4d5442e97ba27a2468aa3ff6a7c`. It compares complete
+native/WASM outcomes in fresh instances, preserves observable event order,
+checks polling and response rejection, and alternates the restored backend.
+
+The suite includes a [reproducible generated sample](../../test/v2/generated_programs.md)
+with an explicit core-to-production mapping. Additional fixture mappings remain
+to be completed. The [Linux workflow](../../.github/workflows/lean.yml) pins the
+tools and World dependency and records clean proof-build and test costs.
+
+These are kernel-checked laws about the Lean core and executable tests of the
+production implementation. They are not universal Zig/World refinement,
+verified BPI bytes, complete borrow inference, environmental correctness,
+universal termination, or global replay protection. Whole-profile operational
+replicas, codec/hash/schema theories, and production certification tooling are
+excluded from this milestone, not deferred prerequisites.
