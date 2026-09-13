@@ -36,3 +36,4 @@ import BoundaryV2.GeneralizedRegionExamples
 import BoundaryV2.GeneralizedRegionRetirementExamples
 import BoundaryV2.GeneralizedPackageExamples
 import BoundaryV2.GeneralizedDisposalExamples
+import BoundaryV2.GeneralizedFreezeExamples

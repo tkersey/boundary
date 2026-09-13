@@ -48,6 +48,16 @@ only that outer grant before returning its contents. The package and cell
 operations share `GeneralizedValueHandoff`. Borrow retention and lifetime checks
 remain separate scope obligations; sealing a value does not extend its lifetime.
 
+`GeneralizedFreeze` connects owned target control to the existing reusable
+instantiator. It takes the actual registered future, selects current local cells
+and dormant records using the capture owner's explicit partition, and publishes
+the consumed successor only after copy-safety admission succeeds. Identity
+return frames are removed from the clone view; the source-context relation and
+all pending protections are preserved. Tests cover emitted clone entry,
+reentrant fresh names, shared outer cells, and refusal of exclusive captures or
+cleanup obligations. General source-side template conversion and activation
+correspondence remain unfinished.
+
 `GeneralizedDisposal` and `GeneralizedDisposalExecution` connect an authored
 one-shot dispose operand to authority release and its actual saved unwind
 context. The local driver retains the caller separately, waits through cleanup
