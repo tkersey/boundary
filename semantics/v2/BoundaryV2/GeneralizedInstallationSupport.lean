@@ -107,6 +107,13 @@ def freshObligation (table : Definitions signature algebra program)
     (extra : List Reference) : Id .obligation :=
   UseScope.freshName (referenceNames (installationSupport table code bindings outside stored cells extra) .obligation)
 
+def freshRegion (table : Definitions signature algebra program)
+    (code : Computation signature algebra program context result)
+    (bindings : RuntimeEnvironment signature algebra program context)
+    (outside stored : List Reference) (cells : Cells signature algebra (Computation signature algebra program))
+    (regions : List (Id .region)) (extra : List Reference) : Id .region :=
+  UseScope.freshName (regions ++ referenceNames (installationSupport table code bindings outside stored cells extra) .region)
+
 end Source
 
 namespace Target
@@ -165,6 +172,15 @@ def freshObligation (table : Definitions signature algebra program)
     (cells : Cells signature algebra (fun context result => Code signature algebra program context [] result))
     (extra : List Reference) : Id .obligation :=
   UseScope.freshName (referenceNames (installationSupport table code bindings values outside store cells extra) .obligation)
+
+def freshRegion (table : Definitions signature algebra program)
+    (code : Code signature algebra program context operands input)
+    (bindings : RuntimeEnvironment signature algebra program context)
+    (values : RuntimeEnvironment signature algebra program operands)
+    (outside : Stack signature algebra program input result) (store : ControlHeap signature algebra program)
+    (cells : Cells signature algebra (fun context result => Code signature algebra program context [] result))
+    (regions : List (Id .region)) (extra : List Reference) : Id .region :=
+  UseScope.freshName (regions ++ referenceNames (installationSupport table code bindings values outside store cells extra) .region)
 
 end Target
 
@@ -278,6 +294,20 @@ theorem fresh_obligation_corresponds
     Source.freshObligation table code bindings outside.installationReferences (Target.storeReferences store) sourceCells extra =
       Target.freshObligation (definitions table) (computation code) (environment bindings) .nil outside store (cells sourceCells) extra := by
   simp only [Source.freshObligation, Target.freshObligation, Source.installationSupport, Target.installationSupport,
+    definitions, definition_reference_support, computation_reference_support, environment_reference_support,
+    Target.environmentReferences, cell_installation_support, List.append_nil]
+
+theorem fresh_region_corresponds
+    (table : Source.Definitions signature algebra program)
+    (code : Source.Computation signature algebra program context input)
+    (bindings : Source.RuntimeEnvironment signature algebra program context)
+    (outside : Target.Stack signature algebra program input result)
+    (store : Target.ControlHeap signature algebra program)
+    (sourceCells : Cells signature algebra (Source.Computation signature algebra program))
+    (regions : List (Id .region)) (extra : List Reference) :
+    Source.freshRegion table code bindings outside.installationReferences (Target.storeReferences store) sourceCells regions extra =
+      Target.freshRegion (definitions table) (computation code) (environment bindings) .nil outside store (cells sourceCells) regions extra := by
+  simp only [Source.freshRegion, Target.freshRegion, Source.installationSupport, Target.installationSupport,
     definitions, definition_reference_support, computation_reference_support, environment_reference_support,
     Target.environmentReferences, cell_installation_support, List.append_nil]
 

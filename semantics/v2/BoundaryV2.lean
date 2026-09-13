@@ -37,3 +37,4 @@ import BoundaryV2.GeneralizedProtectionExamples
 import BoundaryV2.GeneralizedStatefulCleanupExamples
 import BoundaryV2.GeneralizedExitCompletionExamples
 import BoundaryV2.GeneralizedUnwindingExamples
+import BoundaryV2.GeneralizedRegionExamples

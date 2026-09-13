@@ -43,6 +43,17 @@ inductive ExecutionStep (table : Definitions signature algebra program) : State 
       identity = freshObligation table (.protect cleanup body) bindings outsideSupport storedSupport cells extra →
       ExecutionStep table ⟨⟨store, outside.plug (.evaluate (.protect cleanup body) bindings)⟩, cells, regions⟩
         ⟨⟨store, outside.plug (.protection identity cleanup bindings (.evaluate body bindings))⟩, cells, regions⟩
+  | enterRegion
+      {body : Computation signature algebra program (.region :: context) answer}
+      {bindings : RuntimeEnvironment signature algebra program context}
+      {outside : Context signature algebra program answer result}
+      {cells : Cells signature algebra (Computation signature algebra program)}
+      (extra : List Reference) :
+      ContextSupported outside outsideSupport → StoreSupported store storedSupport →
+      identity = freshRegion table (.withRegion body) bindings outsideSupport storedSupport cells regions extra →
+      ExecutionStep table ⟨⟨store, outside.plug (.evaluate (.withRegion body) bindings)⟩, cells, regions⟩
+        ⟨⟨store, outside.plug (.region identity (.evaluate body (.cons (.datum (.region identity)) bindings)))⟩,
+          cells, identity :: regions⟩
   | returnOperand
       {expression : Expression signature algebra program context answer}
       {bindings : RuntimeEnvironment signature algebra program context}
@@ -171,6 +182,18 @@ inductive ExecutionStep (table : Definitions signature algebra program) : State 
       ExecutionStep table ⟨⟨store, .code (.protect cleanup body next) bindings values outside⟩, cells, regions⟩
         ⟨⟨store, .code body bindings .nil
           (.push (.protection identity cleanup bindings) (.push (.returnTo next bindings values) outside))⟩, cells, regions⟩
+  | enterRegion
+      {body : Code signature algebra program (.region :: context) [] answer}
+      {next : Code signature algebra program context (answer :: operands) resultType}
+      {bindings : RuntimeEnvironment signature algebra program context}
+      {values : RuntimeEnvironment signature algebra program operands}
+      {outside : Stack signature algebra program resultType result}
+      {cells : Cells signature algebra (fun context result => Code signature algebra program context [] result)}
+      (extra : List Reference) :
+      identity = freshRegion table (.enterRegion body next) bindings values outside store cells regions extra →
+      ExecutionStep table ⟨⟨store, .code (.enterRegion body next) bindings values outside⟩, cells, regions⟩
+        ⟨⟨store, .code body (.cons (.datum (.region identity)) bindings) .nil
+          (.push (.region identity) (.push (.returnTo next bindings values) outside))⟩, cells, identity :: regions⟩
 
 inductive ExecutionSteps (table : Definitions signature algebra program) :
     State signature algebra program result → Nat → State signature algebra program result → Prop where
