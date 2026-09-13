@@ -55,8 +55,21 @@ the consumed successor only after copy-safety admission succeeds. Identity
 return frames are removed from the clone view; the source-context relation and
 all pending protections are preserved. Tests cover emitted clone entry,
 reentrant fresh names, shared outer cells, and refusal of exclusive captures or
-cleanup obligations. General source-side template conversion and activation
-correspondence remain unfinished.
+cleanup obligations.
+
+`GeneralizedCaptureDescription` retains the authored bodies and environments
+that produced higher-order source callbacks. Every context already related by
+the core has such a description; its compilation preserves copyability and
+reference occurrences after removing target identity frames.
+`GeneralizedSourceTemplates`, `GeneralizedSourceFreeze`, and
+`GeneralizedFreezeExecution` independently admit source templates, prove exact
+agreement with target freeze success or refusal, and connect authored clone
+operands to a finite positive target drain and the returned template binding.
+Acquisition in the ordinary source heap yields the same actual callback future
+and consumed successor, and the source branching fixture compiles to the
+existing target fixture. Descriptions supply explicit authored provenance;
+source activation correspondence and integration with the common template
+registry remain unfinished.
 
 `GeneralizedDisposal` and `GeneralizedDisposalExecution` connect an authored
 one-shot dispose operand to authority release and its actual saved unwind

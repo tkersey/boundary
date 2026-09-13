@@ -1,7 +1,12 @@
 import BoundaryV2.GeneralizedCloneView
 import BoundaryV2.GeneralizedInstallationSupport
 
-namespace BoundaryV2.Generalized.Target.Multi
+namespace BoundaryV2.Generalized
+
+def UseScope.captureCanFreeze (fields : List UseScope.Field) : Bool :=
+  (UseScope.tokens fields).isEmpty && (referenceNames (UseScope.fieldsReferences fields) .obligation).isEmpty
+
+namespace Target.Multi
 
 variable {signature : Signature} {algebra : LeafAlgebra signature.Data}
   {program : List (BodyType signature.Data signature.Effect)}
@@ -41,8 +46,7 @@ def Frozen.value (frozen : Frozen signature algebra program shape) :
     RuntimeValue signature algebra program (.continuation shape.mode .multi shape.effect shape.input shape.answer) :=
   .continuation frozen.identity none
 
-def captureCanFreeze (fields : List UseScope.Field) : Bool :=
-  (UseScope.tokens fields).isEmpty && (referenceNames (UseScope.fieldsReferences fields) .obligation).isEmpty
+abbrev captureCanFreeze := UseScope.captureCanFreeze
 
 /-- No consumed successor escapes a failed admission. Successful conversion
 uses the actual registered future and preserves the current outer arena. -/
@@ -95,7 +99,7 @@ theorem freeze_preserves_ownership_and_consumes_original
 theorem freeze_rejects_owned_capture
     (selected : UseScope.takeCapture view.identity store.fields.retained = some (captured, retained))
     (owned : UseScope.tokens captured ≠ []) : freezeOwned shape view store arena partition = none := by
-  simp [freezeOwned, selected, captureCanFreeze, owned]
+  simp [freezeOwned, selected, captureCanFreeze, UseScope.captureCanFreeze, owned]
 
 theorem frozen_capture_has_no_owner_or_obligation
     (accepted : freezeOwned shape view store arena partition = some frozen) :
@@ -103,7 +107,7 @@ theorem frozen_capture_has_no_owner_or_obligation
       UseScope.takeCapture view.identity store.fields.retained = some (captured, retained) ∧
       UseScope.tokens captured = [] ∧ referenceNames (UseScope.fieldsReferences captured) .obligation = [] := by
   obtain ⟨captured, retained, _, selected, allowed, _, _, _, _⟩ := frozen_future_is_the_acquired_future accepted
-  simp only [captureCanFreeze, Bool.and_eq_true, List.isEmpty_iff] at allowed
+  simp only [captureCanFreeze, UseScope.captureCanFreeze, Bool.and_eq_true, List.isEmpty_iff] at allowed
   exact ⟨captured, retained, selected, allowed⟩
 
 theorem frozen_local_cells_are_actual_current_cells
@@ -147,4 +151,5 @@ inductive CloneEntry (table : Definitions signature algebra program) : State sig
         ⟨⟨mode, effect, input, answer⟩, ⟨frozen, .code next bindings (.cons frozen.value values) outside,
           regions.filter (fun region => !partition.regions.contains region)⟩⟩
 
-end BoundaryV2.Generalized.Target.Multi
+end Target.Multi
+end BoundaryV2.Generalized
