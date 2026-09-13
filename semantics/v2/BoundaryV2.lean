@@ -39,3 +39,4 @@ import BoundaryV2.GeneralizedDisposalExamples
 import BoundaryV2.GeneralizedSourceActivationExamples
 import BoundaryV2.GeneralizedProvenanceExamples
 import BoundaryV2.GeneralizedRegistryExamples
+import BoundaryV2.GeneralizedMultiControlExamples

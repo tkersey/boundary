@@ -89,10 +89,14 @@ consumed successor together with its registered template. Registered resume,
 injection, and successor functions instantiate the stored template against the
 current arena; source/target correspondence preserves the resulting future,
 cells, regions, registry, and unrelated owning fields. `GeneralizedMultiEntry`
-connects authored multi-resume operands to a finite positive target entry.
-Remaining runtime integration includes injection/successor opcode entries,
-dormant-template bindings, and allocation/retirement across the complete
-registry lifetime. These local laws do not close the whole-core milestone.
+connects all three authored multi-resumption forms to finite positive target
+entries. Injection completes operand evaluation and consumes the supplied
+closure's authority before entering its actual body; successor clauses retain
+their effectful computations and separate body/answer types. Checked examples
+cover owned captures, a yielded injected body, and a changed-answer successor.
+Remaining runtime integration includes dormant-template bindings and
+allocation/retirement across the complete registry lifetime. These local laws
+do not close the whole-core milestone.
 
 `GeneralizedDisposal` and `GeneralizedDisposalExecution` connect an authored
 one-shot dispose operand to authority release and its actual saved unwind

@@ -30,6 +30,39 @@ inductive ResumeEntry (table : Definitions signature algebra program) :
         (callSupport table bindings outside evaluated) = some after →
       ResumeEntry table
         ⟨⟨store, outside.plug (.evaluate (.resume continuation response) bindings)⟩, arena, regions, registry⟩ after
+  | injection {bodyUse : Use}
+      {continuation : Expression signature algebra program context (.continuation mode .multi effect input answer)}
+      {injected : Expression signature algebra program context (.computation bodyUse [] input)}
+      {body : Computation signature algebra program capturedTypes input}
+      {captured : RuntimeEnvironment signature algebra program capturedTypes}
+      {bindings : RuntimeEnvironment signature algebra program context}
+      {outside : Context signature algebra program answer result}
+      {store evaluated : ControlHeap signature algebra program} {arena : Arena signature algebra program}
+      {registry : Registry signature algebra program} :
+      ArgumentsEvaluation bindings arena.cells.reservations.custody store (.cons continuation (.cons injected .nil))
+        (.ok (.cons (.continuation identity none) (.cons (.closure body captured authority) .nil))) evaluated →
+      ComputationHandoff captured bodyUse authority evaluated.fields fields →
+      Runtime.inject ⟨mode, effect, input, answer⟩ identity
+        ⟨⟨{ evaluated with fields := fields }, outside.plug (.evaluate (.inject continuation injected) bindings)⟩, arena, regions, registry⟩
+        body captured outside (callSupport table bindings outside { evaluated with fields := fields }) = some after →
+      ResumeEntry table
+        ⟨⟨store, outside.plug (.evaluate (.inject continuation injected) bindings)⟩, arena, regions, registry⟩ after
+  | successor
+      {continuation : Expression signature algebra program context (.continuation .shallow .multi effect input body)}
+      {response : Expression signature algebra program context input}
+      {returned : Computation signature algebra program (body :: context) answer}
+      {clauses : Clauses signature algebra program effect .deep context body answer}
+      {bindings : RuntimeEnvironment signature algebra program context}
+      {outside : Context signature algebra program answer result}
+      {store evaluated : ControlHeap signature algebra program} {arena : Arena signature algebra program}
+      {registry : Registry signature algebra program} {value : RuntimeValue signature algebra program input} :
+      ArgumentsEvaluation bindings arena.cells.reservations.custody store (.cons continuation (.cons response .nil))
+        (.ok (.cons (.continuation identity none) (.cons value .nil))) evaluated →
+      Runtime.successor identity
+        ⟨⟨evaluated, outside.plug (.evaluate (.resumeWith effect continuation response returned clauses) bindings)⟩, arena, regions, registry⟩
+        value returned clauses bindings outside (callSupport table bindings outside evaluated) = some after →
+      ResumeEntry table
+        ⟨⟨store, outside.plug (.evaluate (.resumeWith effect continuation response returned clauses) bindings)⟩, arena, regions, registry⟩ after
 
 end Source.Multi
 
@@ -56,6 +89,39 @@ inductive ResumeEntry (table : Definitions signature algebra program) :
         (.push (.returnTo next bindings values) outside) (callSupport table bindings values next outside store) = some after →
       ResumeEntry table
         ⟨⟨store, .code (.resume (mode := mode) (effect := effect) (use := Use.multi) next) bindings
+          (.cons value (.cons (.continuation identity none) values)) outside⟩, arena, regions, registry⟩ after
+  | injection {bodyUse : Use}
+      {next : Code signature algebra program context (answer :: operands) rest}
+      {body : Code signature algebra program capturedTypes [] input}
+      {captured : RuntimeEnvironment signature algebra program capturedTypes}
+      {bindings : RuntimeEnvironment signature algebra program context} {values : RuntimeEnvironment signature algebra program operands}
+      {outside : Stack signature algebra program rest result}
+      {store : ControlHeap signature algebra program} {arena : Arena signature algebra program}
+      {registry : Registry signature algebra program} :
+      ComputationHandoff captured bodyUse authority store.fields fields →
+      Runtime.inject ⟨mode, effect, input, answer⟩ identity
+        ⟨⟨{ store with fields := fields }, .code (.inject (mode := mode) (effect := effect) (use := Use.multi) (useBody := bodyUse) next)
+          bindings (.cons (.closure body captured authority) (.cons (.continuation identity none) values)) outside⟩, arena, regions, registry⟩
+        ⟨capturedTypes, body, captured⟩ (.push (.returnTo next bindings values) outside)
+        (callSupport table bindings values next outside { store with fields := fields }) = some after →
+      ResumeEntry table
+        ⟨⟨store, .code (.inject (mode := mode) (effect := effect) (use := Use.multi) (useBody := bodyUse) next)
+          bindings (.cons (.closure body captured authority) (.cons (.continuation identity none) values)) outside⟩, arena, regions, registry⟩ after
+  | successor
+      {next : Code signature algebra program context (answer :: operands) rest}
+      {returned : Code signature algebra program (body :: context) [] answer}
+      {clauses : Clauses signature algebra program effect .deep context body answer}
+      {bindings : RuntimeEnvironment signature algebra program context} {values : RuntimeEnvironment signature algebra program operands}
+      {outside : Stack signature algebra program rest result}
+      {store : ControlHeap signature algebra program} {arena : Arena signature algebra program}
+      {registry : Registry signature algebra program} {value : RuntimeValue signature algebra program input} :
+      Runtime.successor identity
+        ⟨⟨store, .code (.replaceHandler (use := Use.multi) effect returned clauses next) bindings
+          (.cons value (.cons (.continuation identity none) values)) outside⟩, arena, regions, registry⟩
+        value returned clauses bindings (.push (.returnTo next bindings values) outside)
+        (callSupport table bindings values next outside store) = some after →
+      ResumeEntry table
+        ⟨⟨store, .code (.replaceHandler (use := Use.multi) effect returned clauses next) bindings
           (.cons value (.cons (.continuation identity none) values)) outside⟩, arena, regions, registry⟩ after
 
 /-- Operand evaluation changes only its actual control state; the registry and
