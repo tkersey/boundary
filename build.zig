@@ -109,7 +109,8 @@ pub fn build(b: *std.Build) void {
     const source_fixtures = b.step("emit-v2-source-fixtures", "Emit higher-order source examples and their portable images");
     const oracle = b.addSystemCommand(&.{"node"});
     oracle.addFileArg(b.path("test/v2/source_oracle.mjs"));
-    for ([_][]const u8{ "lexical", "deep", "recursive", "choices-all", "choices-first", "generator", "state-local", "state-shared", "resource-scalar", "resource-pair", "answers", "scoped-reader", "writer-raise", "scheduler", "queens-dfs", "queens-bfs", "cell-order", "nested", "shallow", "injection", "indexed", "abort-custody", "unwind", "reentrant", "cloned", "clause-abort", "bounded-values", "scalar-contracts", "ownership", "shallow-resumptions", "shallow-injection", "handle-operand-order", "protect-operand-order", "successor-state", "clause-payload", "yielding-cleanup", "borrow-operands", "cleanup-disposal", "cleanup-disposal-running", "cleanup-disposal-failure", "cleanup-disposal-owned" }, 0..) |name, index| {
+    const source_names = [_][]const u8{ "lexical", "deep", "recursive", "choices-all", "choices-first", "generator", "state-local", "state-shared", "resource-scalar", "resource-pair", "answers", "scoped-reader", "writer-raise", "scheduler", "queens-dfs", "queens-bfs", "cell-order", "nested", "shallow", "injection", "indexed", "abort-custody", "unwind", "reentrant", "cloned", "clause-abort", "bounded-values", "scalar-contracts", "ownership", "shallow-resumptions", "shallow-injection", "handle-operand-order", "protect-operand-order", "successor-state", "clause-payload", "yielding-cleanup", "borrow-operands", "cleanup-disposal", "cleanup-disposal-running", "cleanup-disposal-failure", "cleanup-disposal-owned" };
+    for (source_names, 0..) |name, index| {
         for ([_]bool{ true, false }) |source| {
             const source_options = b.addOptions();
             source_options.addOption(usize, "example", index);
@@ -124,6 +125,29 @@ pub fn build(b: *std.Build) void {
             const emit = b.addExecutable(.{ .name = b.fmt("source-{s}-{s}", .{ name, if (source) "json" else "bpi2" }), .root_module = source_module });
             const file = b.addRunArtifact(emit).captureStdOut(.{});
             source_fixtures.dependOn(&b.addInstallFileWithDir(file, .prefix, b.fmt("source-{s}.{s}", .{ name, if (source) "json" else "bpi2" })).step);
+            if (source) oracle.addFileArg(file);
+        }
+    }
+    for ([_]bool{ true, false }) |source| {
+        const generated_options = b.addOptions();
+        generated_options.addOption(bool, "source", source);
+        const generated_module = b.createModule(.{
+            .root_source_file = b.path("test/v2/emit_generated.zig"),
+            .target = b.graph.host,
+            .optimize = optimize,
+            .imports = &.{.{ .name = "boundary", .module = boundary }},
+        });
+        generated_module.addOptions("source_options", generated_options);
+        const emit = b.addExecutable(.{
+            .name = if (source) "generated-source-json" else "generated-source-bpi2",
+            .root_module = generated_module,
+        });
+        for (0..16) |seed| {
+            const run = b.addRunArtifact(emit);
+            run.addArg(b.fmt("{d}", .{seed}));
+            const file = run.captureStdOut(.{});
+            const path = b.fmt("source-generated-{d}.{s}", .{ seed, if (source) "json" else "bpi2" });
+            source_fixtures.dependOn(&b.addInstallFileWithDir(file, .prefix, path).step);
             if (source) oracle.addFileArg(file);
         }
     }

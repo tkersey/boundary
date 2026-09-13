@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { parseExactJson } from "../../tools/v2/exact_json.mjs";
 import { pathToFileURL } from "node:url";
+import { programNames, generatedSeeds, cases } from "./semantic_cases.mjs";
 
 const tag = (value) => typeof value === "string" ? value : Object.keys(value)[0];
 const field = (value) => typeof value === "string" ? undefined : value[tag(value)];
@@ -671,7 +672,7 @@ export function execute(source, initial, responses = [], cancellations = []) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const sources = await Promise.all(process.argv.slice(2).map(async (path) => parseExactJson(await readFile(path))));
-  assert.equal(sources.length, 41);
+  assert.equal(sources.length, programNames.length);
   for (let index = 0; index < 20; index++) {
     const populated = index % 2 === 1, owned = index >= 12;
     const result = execute(sources[36], [index]);
@@ -775,7 +776,11 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   assert.equal(scheduled.kind, "Completed");
   assert.deepEqual(scheduled.value, [30, 0, 0, 0, 0, 0, 0, 0, 4, 1, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0]);
   assert.deepEqual(scheduled.trace, [{ kind: "Yielded" }]);
-  const scalar = (value) => [value, 0, 0, 0, 0, 0, 0, 0];
+  const scalar = (value) => {
+    const bytes = Buffer.alloc(8);
+    bytes.writeBigUInt64LE(BigInt(value));
+    return [...bytes];
+  };
   const board = (columns) => [columns.length, ...columns.flatMap(scalar)];
   for (const [index, depthFirst] of [[14, true], [15, false]]) {
     // Independent constraint search has no effects, source terms, or handler
@@ -891,5 +896,25 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     { trace: [{ kind: "Yielded" }], kind: "Failed", value: [], cleanupFailures: [], cancellation: "stop" });
   assert.deepEqual(execute(sources[40], []), { trace: [], kind: "Completed",
     value: [...scalar(3), 3, ...[3, 7, 99].flatMap(scalar)] });
-  console.log("independent source oracle: 41 compiled source fixtures and cancellation/cleanup scenarios passed");
+  const generatedOutcomes = new Set();
+  for (const seed of generatedSeeds) {
+    const name = `generated-${seed}`, test = cases.find(test => test.name === name);
+    const result = execute(sources[programNames.indexOf(name)], test.initial, test.responses);
+    assert.ok(result.kind === "Completed" || result.kind === "Failed", `${name}: unfinished generated run`);
+    generatedOutcomes.add(result.kind);
+    const expectedKinds = ["Requested", ...(seed & 1 ? ["Yielded"] : []),
+      ...(seed & 2 ? ["Yielded"] : []), "Requested"];
+    assert.deepEqual(result.trace.map(event => event.kind), expectedKinds, `${name}: generated boundary order`);
+    const requests = result.trace.filter(event => event.kind === "Requested");
+    assert.deepEqual(requests.map(request => request.identity), ["generated/input", "generated/cleanup"]);
+    assert.deepEqual(requests[0].payload, test.initial);
+    if (seed & 8) assert.equal(result.kind, "Failed", `${name}: cleanup failure was lost`);
+    if (seed === 6) assert.deepEqual(result.value, scalar(430), "generated captured/argument value positions");
+    if (seed === 12) {
+      assert.deepEqual(result.value, scalar(2012), "generated cleanup failure replaces the normal result");
+      assert.deepEqual(result.cleanupFailures, [scalar(2012)]);
+    }
+  }
+  assert.deepEqual(generatedOutcomes, new Set(["Completed", "Failed"]), "generated sample must distinguish returns and failures");
+  console.log(`independent source oracle: ${sources.length} compiled source fixtures, including ${generatedSeeds.length} generated programs; cancellation/cleanup scenarios passed`);
 }

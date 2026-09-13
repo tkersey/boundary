@@ -5,6 +5,8 @@ export const programNames = ['lexical','deep','recursive','choices-all','choices
   'scheduler','queens-dfs','queens-bfs','cell-order','nested','shallow','injection','indexed','abort-custody',
   'unwind','reentrant','cloned','clause-abort','bounded-values','scalar-contracts','ownership','shallow-resumptions','shallow-injection',
   'handle-operand-order','protect-operand-order','successor-state','clause-payload','yielding-cleanup','borrow-operands','cleanup-disposal','cleanup-disposal-running','cleanup-disposal-failure','cleanup-disposal-owned'];
+export const generatedSeeds = Array.from({length: 16}, (_, seed) => seed);
+programNames.push(...generatedSeeds.map(seed => `generated-${seed}`));
 const scalar=(value)=>{const bytes=Buffer.alloc(8);bytes.writeBigUInt64LE(BigInt(value));return [...bytes];};
 export const cases=[];
 function add(name,program,initial=[],responses=[],cancellations=[]) { cases.push({name,program,initial,responses,cancellations}); }
@@ -35,3 +37,5 @@ for(let index=42;index<53;index++) add(`operand-failure-${index-42}`,'borrow-ope
 for(const name of ['cleanup-disposal','cleanup-disposal-running','cleanup-disposal-failure','cleanup-disposal-owned']) add(name,name);
 add('cleanup-disposal-failure-cancel','cleanup-disposal-failure',[],[],[
   {at:0,reason:'stop',preservesRequest:false},{at:0,reason:'later',preservesRequest:false}]);
+for (const seed of generatedSeeds) add(`generated-${seed}`, `generated-${seed}`,
+  scalar(seed + 3), [scalar(seed + 17), []]);
