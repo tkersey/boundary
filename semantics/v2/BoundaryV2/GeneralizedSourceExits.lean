@@ -250,6 +250,11 @@ mutual
         CleanupStep table (.region before) (.region after) retained
     | finishRegion : before.finish (retained ++ external) = some after →
         CleanupStep table (.region before) (.running after) retained
+    | returnedRegion {outside : Context signature algebra program input result} :
+        retireReturnedRegions [identity] regions store cells value outside (retained ++ external) = some after →
+        CleanupStep table (.running (.reenter
+          ⟨⟨store, outside.plug (.region identity (.returned value))⟩, cells, regions⟩ diagnostics))
+          (.running (.reenter after diagnostics)) retained
 
 
   inductive ValueDisposalStep [DecidableEq (ControlShape signature)] [DecidableEq (TypeOf signature)]

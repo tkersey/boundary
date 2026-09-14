@@ -78,6 +78,8 @@ mutual
         CleanupFrameStep table (.region before) (.region after) retained
     | finishRegion : RegionDisposal.finish (retained ++ external) before = some after →
         CleanupFrameStep table (.region before) (.running after) retained
+    | returnedRegion : finishReturnedRegion (retained ++ external) before = some after →
+        CleanupFrameStep table (.running before) (.running after) retained
     | enterValues : work.runtime.phase = .finished completion →
         CleanupFrameStep table (.disposing work)
           (.values work.runtime.id completion work.outside (ValueDisposal.start work.runtime work.value)) retained

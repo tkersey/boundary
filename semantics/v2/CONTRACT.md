@@ -173,7 +173,11 @@ D's `region_disposal_preservation` and `authored_disposal_preservation` fields
 connect arbitrary finite region work and authored disposal to their existing
 target operations. The authored operation keeps its caller distinct and returns
 to its ordinary computation after yielding cleanup and actual authority consumption.
-These remain components of D: normal-return region/scope composition,
+Checked normal-region retirement now also participates in the finite exit
+simulation, preserving the actual returned value, current storage, and diagnostics.
+It uses the existing permission that retiring cells are unowned and surviving
+results/contexts contain no retiring storage aliases. This is separate from
+transferring a live scope to an escaping owned package. Scope/lifetime transfer,
 suspended-work abandonment, the join with registered execution, and reverse
 finite exit correspondence remain required before complete adequacy can be claimed.
 

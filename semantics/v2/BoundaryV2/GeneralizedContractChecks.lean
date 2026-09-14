@@ -110,6 +110,21 @@ theorem authored_disposal_contract (claim : Defunctionalization.adequacy signatu
       Defunctionalization.DisposalProgressRelated final targetFinal :=
   claim.authored_disposal_preservation table steps related
 
+theorem normal_region_contract (claim : Defunctionalization.adequacy signature algebra program)
+    (table : Source.Definitions signature algebra program) (identity : Id .region)
+    (value : Source.RuntimeValue signature algebra program input)
+    (store : Source.ControlHeap signature algebra program)
+    (cells : Cells signature algebra (Source.Computation signature algebra program)) regions
+    (outside : Source.Context signature algebra program input result) diagnostics
+    {target : Target.State signature algebra program result}
+    (related : Defunctionalization.ExecutionStateRelated
+      ⟨⟨store, outside.plug (.region identity (.returned value))⟩, cells, regions⟩ target)
+    (accepted : Source.retireReturnedRegions [identity] regions store cells value outside (retained ++ external) = some after) :
+    ∃ count targetAfter, ExitComposition.CleanupFrameSteps (Defunctionalization.definitions table)
+      (.running (.reenter target diagnostics)) count targetAfter retained ∧
+      Defunctionalization.CleanupProgressRelated (.running (.reenter after diagnostics)) targetAfter :=
+  claim.cleanup_preservation table (.cons (.returnedRegion accepted) .refl) (.running (.reenter related))
+
 theorem frame_exit_contract (claim : Exits.composition signature algebra program)
     (table : Target.Definitions signature algebra program)
     {before : ExitComposition.RegionDisposal signature algebra program result}

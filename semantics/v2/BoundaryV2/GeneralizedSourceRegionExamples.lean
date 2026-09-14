@@ -99,4 +99,47 @@ theorem source_retirement_keeps_unrelated_owners_and_outer_storage :
     finishedRuntime.cells = [outer] ∧ finishedRuntime.regions = [⟨2⟩] ∧ finishedRuntime.exit = exit :=
   ⟨rfl, rfl, rfl, rfl, rfl⟩
 
+def normalFields : UseScope.State := { initialFields with active := first.owningField :: initialFields.active }
+def normalStore : Source.ControlHeap signature algebra [] := ⟨normalFields, [], []⟩
+def normalTargetStore : Target.ControlHeap signature algebra [] := ⟨normalFields, [], []⟩
+def normalCells : Cells signature algebra (Source.Computation signature algebra []) :=
+  [outer, ⟨⟨0⟩, ⟨1⟩, .leaf .integer, plain⟩]
+def normalBefore : Source.State signature algebra [] (.resource ⟨1⟩) :=
+  ⟨⟨normalStore, .region ⟨1⟩ (.returned first)⟩, normalCells, [⟨1⟩, ⟨2⟩]⟩
+def normalAfter : Source.State signature algebra [] (.resource ⟨1⟩) :=
+  ⟨⟨normalStore, .returned first⟩, [outer], [⟨2⟩]⟩
+def normalTargetBefore : Target.State signature algebra [] (.resource ⟨1⟩) :=
+  ⟨⟨normalTargetStore, .returned (value first)
+    (.push (.returnTo .ret (.nil : Target.RuntimeEnvironment signature algebra [] []) .nil)
+      (.push (.region ⟨1⟩) .done))⟩, cells normalCells, [⟨1⟩, ⟨2⟩]⟩
+
+theorem normal_region_return_preserves_an_owned_outer_result :
+    ∃ count targetAfter targetObservation,
+      ExitComposition.CleanupFrameSteps (.nil : Target.Definitions signature algebra [])
+        (.running (.reenter normalTargetBefore normal)) count (.running (.reenter targetAfter normal)) ∧
+      Target.HeadObservation targetAfter.control.configuration targetObservation ∧
+      StateObservationRelated normalAfter targetAfter (.returned first) targetObservation := by
+  have outside : ContextRelated signature algebra []
+      (.push (.region ⟨1⟩) .done : Source.Context signature algebra [] (.resource ⟨1⟩) (.resource ⟨1⟩))
+      (.push (.region ⟨1⟩) .done) := .push (.region ⟨1⟩) .done
+  have related : ExecutionStateRelated normalBefore normalTargetBefore :=
+    ⟨⟨rfl, .nil, .nil⟩, rfl, rfl, outside.close_program
+      (.passthrough (.nil : Source.RuntimeEnvironment signature algebra [] []) (.returned first _))⟩
+  have step : Source.CleanupSteps (.nil : Source.Definitions signature algebra [])
+      (.running (.reenter normalBefore normal)) 1 (.running (.reenter normalAfter normal)) :=
+    .cons (Source.CleanupStep.returnedRegion (outside := .done) (external := []) rfl) .refl
+  exact cleanup_observation_preserved (.nil : Source.Definitions signature algebra [])
+    (.running (.reenter related)) step .returned
+
+theorem normal_retirement_rejects_surviving_aliases_and_owners :
+    Source.retireReturnedRegions [⟨1⟩] [⟨1⟩, ⟨2⟩] normalStore normalCells
+      (.cell ⟨0⟩ ⟨1⟩ : Source.RuntimeValue signature algebra [] (.cell (.leaf .integer))) .done [] = none ∧
+    Source.retireReturnedRegions [⟨1⟩] [⟨1⟩, ⟨2⟩] normalStore normalCells
+      (.cell ⟨0⟩ ⟨2⟩ : Source.RuntimeValue signature algebra [] (.cell (.leaf .integer))) .done [] = none ∧
+    Source.retireReturnedRegions [⟨1⟩] [⟨1⟩, ⟨2⟩] normalStore normalCells first .done [.name .cell ⟨0⟩] = none ∧
+    Source.retireReturnedRegions [⟨1⟩] original.regions original.store original.cells
+      (.datum .unit : Source.RuntimeValue signature algebra [] .unit) .done [] = none ∧
+    normalAfter.control.store.fields = normalFields ∧ normalAfter.cells = [outer] :=
+  ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩
+
 end BoundaryV2.Generalized.Examples.SourceRegion

@@ -166,6 +166,41 @@ theorem unwound_cleanup_preserved
     unwound_cleanup_steps_correspond (retained := retained) table identity original exit runtime context accepted
   exact ⟨count + 1, targetAfter, by omega, drain.trans (.cons targetStep .refl), related⟩
 
+/-- Reification may insert finite administrative callers. Expose the actual
+region delimiter, retire through the existing support/ownership gate, and
+return the original typed value with current storage and diagnostics. -/
+theorem returned_region_preserved (table : Source.Definitions signature algebra program)
+    (identity : Id .region) (value : Source.RuntimeValue signature algebra program input)
+    (diagnostics : ExitInfo algebra.Fault algebra.Reason)
+    (sourceStore : Source.ControlHeap signature algebra program)
+    (sourceCells : Cells signature algebra (Source.Computation signature algebra program)) (regions : List (Id .region))
+    (sourceOutside : Source.Context signature algebra program input result)
+    {target : Target.State signature algebra program result}
+    (related : ExecutionStateRelated
+      ⟨⟨sourceStore, sourceOutside.plug (.region identity (.returned value))⟩, sourceCells, regions⟩ target)
+    (accepted : Source.retireReturnedRegions [identity] regions sourceStore sourceCells value sourceOutside (retained ++ external) = some after) :
+    ∃ count targetAfter, 0 < count ∧
+      ExitComposition.CleanupFrameSteps (definitions table) (.running (.reenter target diagnostics)) count
+        (.running (.reenter targetAfter diagnostics)) retained ∧ ExecutionStateRelated after targetAfter := by
+  rcases target with ⟨⟨targetStore, configuration⟩, targetCells, targetRegions⟩
+  rcases related with ⟨stores, storage, live, relation⟩
+  dsimp only at stores storage live relation
+  subst targetCells targetRegions
+  obtain ⟨recovered, contexts, inner⟩ := open_program_context
+    (.push (.region identity) sourceOutside) (.returned value) relation .done
+  simp only [Source.Context.append_done] at contexts
+  obtain ⟨firstCount, first⟩ := inner.returned_state_drains (retained := retained)
+    (definitions table) value rfl targetStore (cells sourceCells) regions
+  obtain ⟨targetFrame, targetOutside, restCount, frame, outside, rest⟩ := contexts.expose_returned_frame
+    (retained := retained) (definitions table) (Defunctionalization.value value) targetStore (cells sourceCells) regions
+      (.region identity) sourceOutside rfl
+  cases frame
+  obtain ⟨targetAfter, retired, joined⟩ := returned_region_retirement_preserves_the_state_relation
+    [identity] regions stores sourceCells value outside diagnostics (retained ++ external) accepted
+  exact ⟨firstCount + restCount + 1, targetAfter, by omega,
+    (ExitComposition.CleanupFrameSteps.of_execution (first.trans rest) diagnostics).trans
+      (.cons (.returnedRegion retired) .refl), joined.as_execution⟩
+
 private abbrev CleanupSimulation (table : Source.Definitions signature algebra program)
     {result} (source after : Source.CleanupProgress signature algebra program result) retained
     (_ : Source.CleanupStep table source after retained) : Prop :=
@@ -355,6 +390,14 @@ private theorem cleanup_step_preserved_case (table : Source.Definitions signatur
     | region matching =>
       obtain ⟨targetAfter, admitted, joined⟩ := option_related_some (matching.finish _) accepted
       exact ⟨1, _, .cons (.finishRegion admitted) .refl, .running joined⟩
+  | returnedRegion accepted =>
+    cases related with
+    | running matching =>
+      cases matching with
+      | reenter states =>
+        obtain ⟨count, targetAfter, _, run, joined⟩ := returned_region_preserved
+          (retained := retained) table _ _ _ _ _ _ _ states accepted
+        exact ⟨count, _, run, .running (.reenter joined)⟩
 
 
 private theorem value_disposal_step_preserved_case (table : Source.Definitions signature algebra program)

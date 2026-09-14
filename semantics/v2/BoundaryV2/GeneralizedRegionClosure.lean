@@ -165,6 +165,16 @@ def Resolution.retireRegions (resolution : Resolution signature algebra program 
   if resolution.cleanupFinished && canRetireStorage retiring resolution.regions resolution.cells (after.referenceSupport ++ external)
     then some after else none
 
+/-- Normal lexical return keeps its actual value and outside context. Only
+storage whose ownership has already been discharged may retire here. -/
+def finishReturnedRegion (external : List Reference) :
+    Resolution signature algebra program result → Option (Resolution signature algebra program result)
+  | .reenter state diagnostics => match state.control.configuration with
+    | .returned value (.push (.region identity) outside) =>
+        (Resolution.reenter ⟨⟨state.control.store, .returned value outside⟩, state.cells, state.liveRegions⟩ diagnostics).retireRegions [identity] external
+    | _ => none
+  | _ => none
+
 def finishRegions (retiring : List (Id .region)) (scope : ScopeExit signature algebra program result)
     (external : List Reference) : Option (Resolution signature algebra program result) :=
   (finish scope).bind fun resolution => resolution.retireRegions retiring external

@@ -23,13 +23,14 @@ function claimMutations() {
   const sourceCancellation = readFileSync(join(project, 'BoundaryV2', 'GeneralizedSourceCancellation.lean'), 'utf8');
   const sourceRegion = readFileSync(join(project, 'BoundaryV2', 'GeneralizedSourceRegionCorrespondence.lean'), 'utf8');
   const sourceDisposal = readFileSync(join(project, 'BoundaryV2', 'GeneralizedSourceDisposalExecution.lean'), 'utf8');
+  const regionClosure = readFileSync(join(project, 'BoundaryV2', 'GeneralizedRegionClosure.lean'), 'utf8');
   const exitSimulation = readFileSync(join(project, 'BoundaryV2', 'GeneralizedExitSimulation.lean'), 'utf8');
   const consumers = readFileSync(join(project, 'BoundaryV2', 'GeneralizedContractChecks.lean'), 'utf8');
   try {
     mkdirSync(join(directory, 'BoundaryV2'));
     const artifacts = join(project, '.lake', 'build', 'lib', 'lean', 'BoundaryV2');
     for (const name of readdirSync(artifacts)) {
-      if (!/\.olean(?:\.|$)/.test(name) || /^(GeneralizedContracts|GeneralizedContractChecks|GeneralizedStateObservations|GeneralizedRegisteredExecution|GeneralizedExitTransitions|GeneralizedCleanupCompletion|GeneralizedSourceCancellation|GeneralizedSourceExits|GeneralizedSourceRegionCorrespondence|GeneralizedSourceDisposalExecution|GeneralizedExitSimulation)\./.test(name)) continue;
+      if (!/\.olean(?:\.|$)/.test(name) || /^(GeneralizedContracts|GeneralizedContractChecks|GeneralizedStateObservations|GeneralizedRegisteredExecution|GeneralizedRegionClosure|GeneralizedExitTransitions|GeneralizedCleanupCompletion|GeneralizedSourceCancellation|GeneralizedSourceExits|GeneralizedSourceRegionCorrespondence|GeneralizedSourceDisposalExecution|GeneralizedExitSimulation)\./.test(name)) continue;
       symlinkSync(join(artifacts, name), join(directory, 'BoundaryV2', name));
     }
     copyFileSync(join(project, 'lean-toolchain'), join(directory, 'lean-toolchain'));
@@ -50,6 +51,7 @@ function claimMutations() {
       assert.match(result.output, diagnostic, label);
       console.log(`trust mutation: ${label}: rejected by statement checking`);
     }
+    accepted(compile('GeneralizedRegionClosure', regionClosure, true), 'original region retirement');
     accepted(compile('GeneralizedExitTransitions', exits, true), 'original shared exit transitions');
     accepted(compile('GeneralizedCleanupCompletion', cleanup, true), 'original cleanup composition laws');
     accepted(compile('GeneralizedStateObservations', observations, true), 'original stateful observations');
@@ -149,6 +151,11 @@ function claimMutations() {
     rejected(compile('GeneralizedSourceDisposalExecution', sourceDisposal.replace(disposalCallerRoots,
       'ControlProgressStep table before after []')), 'authored source disposal omits its retained caller roots',
     /GeneralizedSourceDisposalExecution\.lean:\d+:\d+: error: Tactic `rewrite` failed:[\s\S]*outside[^\n]*\.referenceSupport[\s\S]*ExitComposition\.ControlProgressSteps/);
+    const returnedRegionRoots = 'storeReferences store ++ cellsReferences remaining ++ valueReferences returned ++ outside.referenceSupport ++ external';
+    assert.equal(regionClosure.split(returnedRegionRoots).length, 2, 'expected one normal-region returned-value mutation target');
+    rejected(compile('GeneralizedRegionClosure', regionClosure.replace(returnedRegionRoots,
+      'storeReferences store ++ cellsReferences remaining ++ outside.referenceSupport ++ external')),
+    'normal source region retirement omits the returned value support');
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

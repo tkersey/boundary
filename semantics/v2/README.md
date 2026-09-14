@@ -164,7 +164,7 @@ inhabitants. Their checked components and required connections are:
 
 | Export | Existing components | Remaining proof or connection |
 | --- | --- | --- |
-| `Defunctionalization.adequacy` | Core/registered preservation and reflection; finite source cleanup, value/control/region disposal and authored-disposal preservation | Complete normal-return region/scope composition, suspended-work abandonment, reverse exit correspondence, and the join with registered execution without omitting observations. |
+| `Defunctionalization.adequacy` | Core/registered preservation and reflection; finite source cleanup, value/control/region disposal, authored disposal, and checked normal-region retirement | Complete scope/lifetime transfer, suspended-work abandonment, reverse exit correspondence, and the join with registered execution without omitting observations. |
 | `Handlers.interpretation` | Fresh installation, nearest selection, forwarding, context closure, actual resume/injection/successor correspondence | Use the stateful correspondence under arbitrary enclosing effectful handlers, including registered multi entry. |
 | `UseScope.preservation` | Actual control/cell steps, typed consumption, physical capture multiplicity, scoped packages, registry insertion, fresh activation and dormant support | Connect actual captured/unwound frame fields to registry and lifetime handoff across capture, activation, completion, and disposal. |
 | `Exits.composition` | Shared handler-aware frame execution for disposal and nested cleanup, structured saved-result and handler-answer disposal, retained-root region handoff, current-resource completion, and finite embeddings | Connect suspended-work abandonment and registry/lifetime successors, then compose all exits with source/target observations. |
@@ -264,8 +264,26 @@ integer caller resumes with unit and returns 42; the target result is derived
 from that independent source run. New mutations reject omitted caller roots,
 omitted region outside roots, and premature removal of still-readable cells.
 
+Normal region retirement now participates in the same exit relation. The source
+uses its existing `retireReturnedRegions`; the target independently extracts the
+returned value and region delimiter before its existing checked retirement.
+`returned_region_preserved` proves the finite administrative drain and the normal
+step, including arbitrary outside contexts, current memory, and unchanged
+diagnostics. D's existing cleanup fields cover the new constructor. Regressions
+preserve an owned outer result and reject an escaping cell alias, a false region
+annotation on that alias, retained caller aliases, and residual local owners.
+
+This boundary reuses the existing normal-close permission: local cell ownership
+must already be discharged, and surviving control/results must not reference
+retiring storage. Production [cell admission](../../src/v2/data/contracts.zig)
+requires copy-safe contents; its ordinary region return does not initiate cleanup.
+The wider logical owned-cell laws remain on the unwind path. Adding automatic
+normal disposal would change that admitted behavior and is not inferred from the
+absence of a saved result in the unwind record. Transfer of a live region to an
+escaping owned package still requires the separate lifetime/registry connection.
+
 This is a preservation component, not complete cleanup adequacy. The source
-cleanup relation still needs normal-return region/scope composition, suspended-work
+cleanup relation still needs scope/lifetime transfer, suspended-work
 abandonment, and its connection to registered execution; reverse finite correspondence must
 cover those operations as they are integrated. It is not enough that the
 present relation and its currently implemented constructors compile.
