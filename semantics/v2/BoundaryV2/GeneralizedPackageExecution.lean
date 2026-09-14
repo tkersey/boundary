@@ -44,10 +44,10 @@ theorem compiled_package
   have packageStep : Target.ExecutionStep (definitions table)
       ⟨⟨targetEvaluated, .code (.package .ret) (environment bindings) (.cons (value inner) .nil) targetOutside⟩, cells sourceCells, regions⟩
       ⟨⟨targetCreated.store, .code .ret (environment bindings) (.cons targetCreated.value .nil) targetOutside⟩, cells sourceCells, regions⟩ := by
-    simpa only [targetCreated, reservations] using
-      Target.ExecutionStep.packageOperand (table := definitions table) (next := .ret)
+    simpa only [targetCreated, reservations, UseScope.ReservedNames.withSupport_nil] using
+      Target.ExecutionStep.packageOperand (retained := []) (table := definitions table) (next := .ret)
         (bindings := environment bindings) (values := .nil) (outside := targetOutside) (cells := cells sourceCells) owner targetHandoff
-  refine ⟨.packageOperand owner handoff evaluated, count + 2,
+  refine ⟨.packageOperand (retained := []) owner handoff evaluated, count + 2,
     ⟨⟨targetCreated.store, .returned targetCreated.value targetOutside⟩, cells sourceCells, regions⟩, by omega, ?_, ?_⟩
   · exact (operands.in_execution (definitions table) targetOutside (cells sourceCells) regions).trans
       (.cons packageStep (.single (.cell (.ordinary .returned))))

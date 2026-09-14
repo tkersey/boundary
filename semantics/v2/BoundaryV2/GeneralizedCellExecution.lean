@@ -19,9 +19,10 @@ variable {program : List (BodyType signature.Data signature.Effect)}
 
 /-- Cell transitions act on source expressions and their source values. Region
 liveness is explicit; establishing and closing region scopes is a separate rule. -/
-inductive CellStep (table : Definitions signature algebra program) : State signature algebra program result → State signature algebra program result → Prop where
+inductive CellStep (table : Definitions signature algebra program) : State signature algebra program result → State signature algebra program result → (retained : List Reference := []) → Prop where
   | ordinary (step : Step table before after) (neutral : before.needsOwnershipStep = false := by rfl) :
-      CellStep table ⟨⟨store, before⟩, cells, regions⟩ ⟨⟨store, after⟩, cells, regions⟩
+      CellStep table ⟨⟨store, before⟩, cells, regions⟩ ⟨⟨store, after⟩, cells, regions⟩ retained
+
   | allocate
       {regionExpr : Expression signature algebra program context .region}
       {valueExpr : Expression signature algebra program context type}
@@ -30,32 +31,34 @@ inductive CellStep (table : Definitions signature algebra program) : State signa
       {store : ControlHeap signature algebra program}
       {cells : Cells signature algebra (Computation signature algebra program)}
       {value : RuntimeValue signature algebra program type} :
-      ArgumentsEvaluation bindings cells.reservations.custody store (.cons regionExpr (.cons valueExpr .nil))
+      ArgumentsEvaluation bindings (cells.reservations.withSupport retained).custody store (.cons regionExpr (.cons valueExpr .nil))
         (.ok (.cons (.datum (.region region)) (.cons value .nil))) evaluated →
       region ∈ regions → ValueHandoff value evaluated.fields fields →
       CellStep table ⟨⟨store, outside.plug (.evaluate (.cellNew regionExpr valueExpr) bindings)⟩, cells, regions⟩
-        ⟨⟨{ evaluated with fields := fields }, outside.plug (.returned (.cell (Cells.allocate region value cells reserved).identity region))⟩,
-          (Cells.allocate region value cells reserved).cells, regions⟩
+        ⟨⟨{ evaluated with fields := fields }, outside.plug (.returned (.cell (Cells.allocate region value cells (referenceNames retained .cell ++ reserved)).identity region))⟩,
+          (Cells.allocate region value cells (referenceNames retained .cell ++ reserved)).cells, regions⟩ retained
+
   | read
       {reference : Expression signature algebra program context (.cell type)}
       {bindings : RuntimeEnvironment signature algebra program context}
       {outside : Context signature algebra program type result}
       {cells : Cells signature algebra (Computation signature algebra program)} :
-      ExpressionEvaluation bindings cells.reservations.custody store reference (.ok (.cell identity region)) evaluated → region ∈ regions →
+      ExpressionEvaluation bindings (cells.reservations.withSupport retained).custody store reference (.ok (.cell identity region)) evaluated → region ∈ regions →
       Cells.readCopy identity region type cells = some value →
       CellStep table ⟨⟨store, outside.plug (.evaluate (.cellRead reference) bindings)⟩, cells, regions⟩
-        ⟨⟨evaluated, outside.plug (.returned value)⟩, cells, regions⟩
+        ⟨⟨evaluated, outside.plug (.returned value)⟩, cells, regions⟩ retained
+
   | write
       {reference : Expression signature algebra program context (.cell type)}
       {replacement : Expression signature algebra program context type}
       {bindings : RuntimeEnvironment signature algebra program context}
       {outside : Context signature algebra program .unit result}
       {cells : Cells signature algebra (Computation signature algebra program)} :
-      ArgumentsEvaluation bindings cells.reservations.custody store (.cons reference (.cons replacement .nil))
+      ArgumentsEvaluation bindings (cells.reservations.withSupport retained).custody store (.cons reference (.cons replacement .nil))
         (.ok (.cons (.cell identity region) (.cons value .nil))) evaluated →
       region ∈ regions → Cells.writeCopy identity region value cells = some after →
       CellStep table ⟨⟨store, outside.plug (.evaluate (.cellWrite reference replacement) bindings)⟩, cells, regions⟩
-        ⟨⟨evaluated, outside.plug (.returned (.datum .unit))⟩, after, regions⟩
+        ⟨⟨evaluated, outside.plug (.returned (.datum .unit))⟩, after, regions⟩ retained
 
 end Source
 
@@ -70,9 +73,10 @@ structure State (signature : Signature) (algebra : LeafAlgebra signature.Data)
 variable {program : List (BodyType signature.Data signature.Effect)}
   [DecidableEq (TypeOf signature)]
 
-inductive CellStep (table : Definitions signature algebra program) : State signature algebra program result → State signature algebra program result → Prop where
+inductive CellStep (table : Definitions signature algebra program) : State signature algebra program result → State signature algebra program result → (retained : List Reference := []) → Prop where
   | ordinary (step : CallStep table before after) (neutral : before.needsOwnershipStep = false := by rfl) :
-      CellStep table ⟨⟨store, before⟩, cells, regions⟩ ⟨⟨store, after⟩, cells, regions⟩
+      CellStep table ⟨⟨store, before⟩, cells, regions⟩ ⟨⟨store, after⟩, cells, regions⟩ retained
+
   | allocate
       {next : Code signature algebra program context (.cell type :: operands) answer}
       {bindings : RuntimeEnvironment signature algebra program context}
@@ -84,8 +88,9 @@ inductive CellStep (table : Definitions signature algebra program) : State signa
       region ∈ regions → ValueHandoff value store.fields fields →
       CellStep table ⟨⟨store, .code (.cellNew next) bindings (.cons value (.cons (.datum (.region region)) values)) outside⟩, cells, regions⟩
         ⟨⟨{ store with fields := fields }, .code next bindings
-          (.cons (.cell (Cells.allocate region value cells reserved).identity region) values) outside⟩,
-          (Cells.allocate region value cells reserved).cells, regions⟩
+          (.cons (.cell (Cells.allocate region value cells (referenceNames retained .cell ++ reserved)).identity region) values) outside⟩,
+          (Cells.allocate region value cells (referenceNames retained .cell ++ reserved)).cells, regions⟩ retained
+
   | read
       {next : Code signature algebra program context (type :: operands) answer}
       {bindings : RuntimeEnvironment signature algebra program context}
@@ -93,7 +98,8 @@ inductive CellStep (table : Definitions signature algebra program) : State signa
       {outside : Stack signature algebra program answer result} :
       region ∈ regions → Cells.readCopy identity region type cells = some value →
       CellStep table ⟨⟨store, .code (.cellRead next) bindings (.cons (.cell identity region) values) outside⟩, cells, regions⟩
-        ⟨⟨store, .code next bindings (.cons value values) outside⟩, cells, regions⟩
+        ⟨⟨store, .code next bindings (.cons value values) outside⟩, cells, regions⟩ retained
+
   | write
       {next : Code signature algebra program context (.unit :: operands) answer}
       {bindings : RuntimeEnvironment signature algebra program context}
@@ -101,7 +107,7 @@ inductive CellStep (table : Definitions signature algebra program) : State signa
       {outside : Stack signature algebra program answer result} :
       region ∈ regions → Cells.writeCopy identity region value cells = some after →
       CellStep table ⟨⟨store, .code (.cellWrite next) bindings (.cons value (.cons (.cell identity region) values)) outside⟩, cells, regions⟩
-        ⟨⟨store, .code next bindings (.cons (.datum .unit) values) outside⟩, after, regions⟩
+        ⟨⟨store, .code next bindings (.cons (.datum .unit) values) outside⟩, after, regions⟩ retained
 
 inductive CellSteps (table : Definitions signature algebra program) :
     State signature algebra program result → Nat → State signature algebra program result → Prop where

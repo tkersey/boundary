@@ -379,9 +379,11 @@ theorem nested_target_execution {table : Target.Definitions signature algebra pr
     NestedSteps table
       ⟨⟨before.control.store, before.cells, before.liveRegions⟩, info, .executing (.running before.control.configuration .active) diagnostics, parents⟩ 0
       ⟨⟨after.control.store, after.cells, after.liveRegions⟩, info, .executing (.running after.control.configuration .active) diagnostics, parents⟩ := by
-  induction steps with
-  | refl => exact .refl
-  | cons step tail induction => exact .cons (nested_single_execution step info diagnostics parents) induction
+  induction count generalizing before after with
+  | zero => cases steps; exact .refl
+  | succ count induction =>
+    cases steps with
+    | cons step tail => exact .cons (nested_single_execution step info diagnostics parents) (induction tail)
 
 end ExitComposition
 end BoundaryV2.Generalized

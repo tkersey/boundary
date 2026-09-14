@@ -12,14 +12,14 @@ namespace Source
 /-- Finite closure of the permission-sensitive source steps. The index counts
 an existing derivation; it does not limit either evaluator. -/
 inductive ExecutionSteps (table : Definitions signature algebra program) :
-    State signature algebra program result → Nat → State signature algebra program result → Prop where
-  | refl : ExecutionSteps table state 0 state
-  | cons : ExecutionStep table before middle → ExecutionSteps table middle count after →
-      ExecutionSteps table before (count + 1) after
+    State signature algebra program result → Nat → State signature algebra program result → (retained : List Reference := []) → Prop where
+  | refl : ExecutionSteps (retained := retained) table state 0 state
+  | cons : ExecutionStep table before middle retained → ExecutionSteps (retained := retained) table middle count after →
+      ExecutionSteps (retained := retained) table before (count + 1) after
 
-theorem ExecutionSteps.trans {before middle after : State signature algebra program result}
-    (first : ExecutionSteps table before count middle)
-    (second : ExecutionSteps table middle rest after) : ExecutionSteps table before (count + rest) after := by
+theorem ExecutionSteps.trans {retained : List Reference} {before middle after : State signature algebra program result}
+    (first : ExecutionSteps (retained := retained) table before count middle)
+    (second : ExecutionSteps (retained := retained) table middle rest after) : ExecutionSteps (retained := retained) table before (count + rest) after := by
   induction first with
   | refl => simpa using second
   | cons step tail induction =>

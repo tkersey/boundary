@@ -1,7 +1,19 @@
 import BoundaryV2.GeneralizedCellLowering
 import BoundaryV2.GeneralizedControlCreation
+import BoundaryV2.GeneralizedSupport
 
 namespace BoundaryV2.Generalized
+
+
+/-- Retained roots join the allocator's existing reservations. They remain
+nonowning support; extending reservations never creates a physical grant. -/
+def UseScope.ReservedNames.withSupport (reserved : UseScope.ReservedNames) (retained : List Reference) : UseScope.ReservedNames :=
+  ⟨referenceNames retained .control ++ reserved.controls, referenceNames retained .custody ++ reserved.custody⟩
+
+@[simp] theorem UseScope.ReservedNames.withSupport_nil (reserved : UseScope.ReservedNames) :
+    reserved.withSupport [] = reserved := rfl
+
+@[simp] theorem referenceNames_nil (domain : Domain) : referenceNames [] domain = [] := rfl
 
 variable {signature : Signature} {algebra : LeafAlgebra signature.Data}
   {Body Before After : List (TypeOf signature) → TypeOf signature → Type}

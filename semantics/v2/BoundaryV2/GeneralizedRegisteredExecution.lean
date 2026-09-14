@@ -1,5 +1,5 @@
 import BoundaryV2.GeneralizedRegisteredResume
-import BoundaryV2.GeneralizedStateExecution
+import BoundaryV2.GeneralizedStateObservations
 
 namespace BoundaryV2.Generalized
 
@@ -23,7 +23,7 @@ inductive ResumeEntry (table : Definitions signature algebra program) :
       {outside : Context signature algebra program answer result}
       {store evaluated : ControlHeap signature algebra program} {arena : Arena signature algebra program}
       {registry : Registry signature algebra program} {value : RuntimeValue signature algebra program input} :
-      ArgumentsEvaluation bindings arena.cells.reservations.custody store (.cons continuation (.cons response .nil))
+      ArgumentsEvaluation bindings (arena.cells.reservations.withSupport (retainedSupport registry arena)).custody store (.cons continuation (.cons response .nil))
         (.ok (.cons (.continuation identity none) (.cons value .nil))) evaluated →
       Runtime.resume ⟨mode, effect, input, answer⟩ identity
         ⟨⟨evaluated, outside.plug (.evaluate (.resume continuation response) bindings)⟩, arena, regions, registry⟩ value outside
@@ -39,7 +39,7 @@ inductive ResumeEntry (table : Definitions signature algebra program) :
       {outside : Context signature algebra program answer result}
       {store evaluated : ControlHeap signature algebra program} {arena : Arena signature algebra program}
       {registry : Registry signature algebra program} :
-      ArgumentsEvaluation bindings arena.cells.reservations.custody store (.cons continuation (.cons injected .nil))
+      ArgumentsEvaluation bindings (arena.cells.reservations.withSupport (retainedSupport registry arena)).custody store (.cons continuation (.cons injected .nil))
         (.ok (.cons (.continuation identity none) (.cons (.closure body captured authority) .nil))) evaluated →
       ComputationHandoff captured bodyUse authority evaluated.fields fields →
       Runtime.inject ⟨mode, effect, input, answer⟩ identity
@@ -56,13 +56,66 @@ inductive ResumeEntry (table : Definitions signature algebra program) :
       {outside : Context signature algebra program answer result}
       {store evaluated : ControlHeap signature algebra program} {arena : Arena signature algebra program}
       {registry : Registry signature algebra program} {value : RuntimeValue signature algebra program input} :
-      ArgumentsEvaluation bindings arena.cells.reservations.custody store (.cons continuation (.cons response .nil))
+      ArgumentsEvaluation bindings (arena.cells.reservations.withSupport (retainedSupport registry arena)).custody store (.cons continuation (.cons response .nil))
         (.ok (.cons (.continuation identity none) (.cons value .nil))) evaluated →
       Runtime.successor identity
         ⟨⟨evaluated, outside.plug (.evaluate (.resumeWith effect continuation response returned clauses) bindings)⟩, arena, regions, registry⟩
         value returned clauses bindings outside (callSupport table bindings outside evaluated) = some after →
       ResumeEntry table
         ⟨⟨store, outside.plug (.evaluate (.resumeWith effect continuation response returned clauses) bindings)⟩, arena, regions, registry⟩ after
+
+/-- These are embeddings of the existing core, registry, and freeze operations.
+Clone admission uses a description of the actual heap; callback equality alone
+cannot supply that description's authored capture metadata. -/
+inductive Step (table : Definitions signature algebra program) :
+    Runtime signature algebra program result → Runtime signature algebra program result → Prop where
+  | core : Source.ExecutionStep table before.state state before.executionSupport → Step table before (before.withState state)
+  | resume : ResumeEntry table before after → Step table before after
+  | clone {use : UseScope.OneShotUse}
+      {expression : Expression signature algebra program context (.continuation mode use.type effect input answer)}
+      {bindings : RuntimeEnvironment signature algebra program context}
+      {outside : Context signature algebra program (.continuation mode .multi effect input answer) result}
+      {before : Runtime signature algebra program result}
+      {store evaluated : DescribedHeap signature algebra program}
+      {frozen : Frozen signature algebra program ⟨mode, effect, input, answer⟩} :
+      before.control.computation = outside.plug (.evaluate (.clone expression) bindings) →
+      sourceHeap store = before.control.store →
+      ExpressionEvaluation bindings (before.arena.cells.reservations.withSupport before.executionSupport).custody store expression
+        (.ok (.continuation view.identity (some (view.authority, view.owner)))) evaluated →
+      freezeInto ⟨mode, effect, input, answer⟩ view evaluated before.arena partition before.registry = some (frozen, registered) →
+      Step table before
+        ⟨⟨sourceHeap frozen.store, outside.plug (.returned frozen.value)⟩, frozen.arena,
+          before.regions.filter (fun region => !partition.regions.contains region), registered⟩
+
+inductive Steps (table : Definitions signature algebra program) :
+    Runtime signature algebra program result → Nat → Runtime signature algebra program result → Prop where
+  | refl : Steps table state 0 state
+  | cons : Step table before middle → Steps table middle count after → Steps table before (count + 1) after
+
+def Observes (table : Definitions signature algebra program) (before after : Runtime signature algebra program result)
+    (observation : Source.Observation signature algebra program result) : Prop :=
+  ∃ count, Steps table before count after ∧ Source.HeadObservation after.control.computation observation
+
+
+/-- Lift a finite sequence of the existing state rules. Retained support is
+stable under writeback, so each successor is usable by the next operation. -/
+theorem Steps.from_core (runtime : Runtime signature algebra program result)
+    {before after : Source.State signature algebra program result}
+    (steps : Source.ExecutionSteps (retained := runtime.executionSupport) table before count after) :
+    Steps table (runtime.withState before) count (runtime.withState after) := by
+  induction count generalizing before after with
+  | zero => cases steps; exact .refl
+  | succ count induction =>
+    cases steps with
+    | cons step tail => exact .cons (.core step) (induction tail)
+
+theorem Steps.trans {before middle after : Runtime signature algebra program result}
+    (first : Steps table before count middle) (second : Steps table middle rest after) :
+    Steps table before (count + rest) after := by
+  induction first with
+  | refl => simpa using second
+  | cons step tail induction =>
+    simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using Steps.cons step (induction second)
 
 end Source.Multi
 
@@ -124,91 +177,69 @@ inductive ResumeEntry (table : Definitions signature algebra program) :
         ⟨⟨store, .code (.replaceHandler (use := Use.multi) effect returned clauses next) bindings
           (.cons value (.cons (.continuation identity none) values)) outside⟩, arena, regions, registry⟩ after
 
-/-- Operand evaluation changes only its actual control state; the registry and
-branch arena travel through every step before the registered entry occurs. -/
-inductive ResumeRun (table : Definitions signature algebra program) :
-    Runtime signature algebra program result → Nat → Runtime signature algebra program result → Prop where
-  | entry : ResumeEntry table before after → ResumeRun table before 1 after
-  | operand
-      {bindings : RuntimeEnvironment signature algebra program context}
-      {before after : Operands signature algebra program context answer}
-      {outside : Stack signature algebra program answer result} {arena : Arena signature algebra program} :
-      OwnedOperandStep bindings arena.cells.reservations.custody store before changed after →
-      ResumeRun table ⟨⟨changed, .code after.code bindings after.values outside⟩, arena, regions, registry⟩ count last →
-      ResumeRun table ⟨⟨store, .code before.code bindings before.values outside⟩, arena, regions, registry⟩ (count + 1) last
 
-omit [DecidableEq (TypeOf signature)] in
-theorem ResumeRun.after_operands
+inductive Step (table : Definitions signature algebra program) :
+    Runtime signature algebra program result → Runtime signature algebra program result → Prop where
+  | core : Target.ExecutionStep table before.state state before.executionSupport → Step table before (before.withState state)
+  | resume : ResumeEntry table before after → Step table before after
+  | clone {use : UseScope.OneShotUse}
+      {next : Code signature algebra program context (.continuation mode .multi effect input answer :: operands) resultType}
+      {bindings : RuntimeEnvironment signature algebra program context}
+      {values : RuntimeEnvironment signature algebra program operands}
+      {outside : Stack signature algebra program resultType result}
+      {before : Runtime signature algebra program result}
+      {frozen : Frozen signature algebra program ⟨mode, effect, input, answer⟩} :
+      before.control.configuration = .code (.clone (mode := mode) (effect := effect) (use := use.type) next) bindings
+        (.cons (.continuation view.identity (some (view.authority, view.owner))) values) outside →
+      freezeInto ⟨mode, effect, input, answer⟩ view before.control.store before.arena partition before.registry = some (frozen, registered) →
+      Step table before
+        ⟨⟨frozen.store, .code next bindings (.cons frozen.value values) outside⟩, frozen.arena,
+          before.regions.filter (fun region => !partition.regions.contains region), registered⟩
+
+inductive Steps (table : Definitions signature algebra program) :
+    Runtime signature algebra program result → Nat → Runtime signature algebra program result → Prop where
+  | refl : Steps table state 0 state
+  | cons : Step table before middle → Steps table middle count after → Steps table before (count + 1) after
+
+def Observes (table : Definitions signature algebra program) (before after : Runtime signature algebra program result)
+    (observation : Target.Observation signature algebra program result) : Prop :=
+  ∃ count, Steps table before count after ∧ Target.HeadObservation after.control.configuration observation
+
+
+/-- Operand prefixes run through the actual core execution rule and write each
+successor into the same registry runtime before registered entry. -/
+theorem Steps.prepend_operands
     {bindings : RuntimeEnvironment signature algebra program context}
     {before after : Operands signature algebra program context answer}
     {outside : Stack signature algebra program answer result} {arena : Arena signature algebra program}
-    (operands : OwnedOperandSteps bindings arena.cells.reservations.custody store before count changed after)
-    (entry : ResumeEntry table ⟨⟨changed, .code after.code bindings after.values outside⟩, arena, regions, registry⟩ last) :
-    ResumeRun table ⟨⟨store, .code before.code bindings before.values outside⟩, arena, regions, registry⟩ (count + 1) last := by
+    (operands : OwnedOperandSteps bindings (arena.cells.reservations.withSupport (retainedSupport registry arena)).custody
+      store before count changed after)
+    (entry : Step table ⟨⟨changed, .code after.code bindings after.values outside⟩, arena, regions, registry⟩ last) :
+    Steps table ⟨⟨store, .code before.code bindings before.values outside⟩, arena, regions, registry⟩ (count + 1) last := by
   induction operands with
-  | refl => exact .entry entry
-  | cons first rest induction => exact .operand first (induction entry)
+  | refl => exact .cons entry .refl
+  | cons first rest induction => exact .cons (.core (.control (.operand first))) (induction entry)
+
+
+/-- Lift a finite sequence of the existing state rules. Retained support is
+stable under writeback, so each successor is usable by the next operation. -/
+theorem Steps.from_core (runtime : Runtime signature algebra program result)
+    {before after : Target.State signature algebra program result}
+    (steps : Target.ExecutionSteps (retained := runtime.executionSupport) table before count after) :
+    Steps table (runtime.withState before) count (runtime.withState after) := by
+  induction count generalizing before after with
+  | zero => cases steps; exact .refl
+  | succ count induction =>
+    cases steps with
+    | cons step tail => exact .cons (.core step) (induction tail)
+
+theorem Steps.trans {before middle after : Runtime signature algebra program result}
+    (first : Steps table before count middle) (second : Steps table middle rest after) :
+    Steps table before (count + rest) after := by
+  induction first with
+  | refl => simpa using second
+  | cons step tail induction =>
+    simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using Steps.cons step (induction second)
 
 end Target.Multi
-
-namespace Defunctionalization
-
-omit [DecidableEq (ControlShape signature)] [DecidableEq (TypeOf signature)] in
-theorem multi_call_support_corresponds
-    (table : Source.Definitions signature algebra program) (bindings : Source.RuntimeEnvironment signature algebra program context)
-    (outside : ContextRelated signature algebra program sourceOutside targetOutside)
-    (stores : ControlHeapRelated sourceStore targetStore) :
-    Target.Multi.callSupport (definitions table) (environment bindings) .nil .ret targetOutside targetStore =
-      Source.Multi.callSupport table bindings sourceOutside sourceStore := by
-  simp only [Target.Multi.callSupport, Source.Multi.callSupport, definitions, definition_reference_support,
-    environment_reference_support, Target.environmentReferences, Target.Code.references, List.append_nil,
-    context_reference_support outside, store_reference_support stores]
-
-omit [DecidableEq (TypeOf signature)] in
-/-- Both operands finish before lookup and activation. The returned source and
-target entries retain the same registry and current arena, with related futures. -/
-theorem compiled_multi_resumption
-    (table : Source.Definitions signature algebra program)
-    (continuation : Source.Expression signature algebra program context (.continuation mode .multi effect input answer))
-    (response : Source.Expression signature algebra program context input)
-    (bindings : Source.RuntimeEnvironment signature algebra program context) (identity : Id .control)
-    (inputValue : Source.RuntimeValue signature algebra program input)
-    (sourceArena : Source.Multi.Arena signature algebra program) (regions : List (Id .region))
-    (registry : Source.Multi.Registry signature algebra program)
-    {sourceStore evaluated : Source.ControlHeap signature algebra program} {targetStore : Target.ControlHeap signature algebra program}
-    (operands : Source.ArgumentsEvaluation bindings sourceArena.cells.reservations.custody sourceStore
-      (.cons continuation (.cons response .nil)) (.ok (.cons (.continuation identity none) (.cons inputValue .nil))) evaluated)
-    (stores : ControlHeapRelated sourceStore targetStore)
-    {sourceOutside : Source.Context signature algebra program answer result} {targetOutside : Target.Stack signature algebra program answer result}
-    (outside : ContextRelated signature algebra program sourceOutside targetOutside)
-    (accepted : Source.Multi.Runtime.resume ⟨mode, effect, input, answer⟩ identity
-      ⟨⟨evaluated, sourceOutside.plug (.evaluate (.resume continuation response) bindings)⟩, sourceArena, regions, registry⟩ inputValue sourceOutside
-      (Source.Multi.callSupport table bindings sourceOutside evaluated) = some sourceAfter) :
-    Source.Multi.ResumeEntry table
-      ⟨⟨sourceStore, sourceOutside.plug (.evaluate (.resume continuation response) bindings)⟩, sourceArena, regions, registry⟩ sourceAfter ∧
-    ∃ targetAfter count, 0 < count ∧ MultiRuntimeRelated sourceAfter targetAfter ∧
-      Target.Multi.ResumeRun (definitions table)
-        ⟨⟨targetStore, .code (computation (.resume continuation response)) (environment bindings) .nil targetOutside⟩,
-          templateArena sourceArena, regions, templateRegistry registry⟩ count targetAfter := by
-  obtain ⟨count, targetEvaluated, steps, related⟩ := owned_two_operands_drains
-    (UseScope.PackedControlRelated controlPayloadRelated) bindings sourceArena.cells.reservations.custody continuation response
-    (.continuation identity none) inputValue operands (.resume (use := Use.multi) .ret) stores
-  let targetReady : Target.Multi.Runtime signature algebra program result :=
-    ⟨⟨targetEvaluated, .code (.resume (mode := mode) (effect := effect) (use := Use.multi) .ret) (environment bindings)
-      (.cons (value inputValue) (.cons (.continuation identity none) .nil)) targetOutside⟩,
-      templateArena sourceArena, regions, templateRegistry registry⟩
-  have joined : MultiDataRelated
-      (⟨⟨evaluated, sourceOutside.plug (.evaluate (.resume continuation response) bindings)⟩, sourceArena, regions, registry⟩ :
-        Source.Multi.Runtime signature algebra program result) targetReady := ⟨related, rfl, rfl, rfl⟩
-  obtain ⟨targetAfter, resumed, matching⟩ := corresponding_acceptance
-    (registered_resume_corresponds joined ⟨mode, effect, input, answer⟩ identity inputValue
-      (.passthrough bindings outside) (Source.Multi.callSupport table bindings sourceOutside evaluated)) accepted
-  rw [← multi_call_support_corresponds table bindings outside related] at resumed
-  have reservations : (templateArena sourceArena).cells.reservations = sourceArena.cells.reservations :=
-    Cells.reservations_mapBodies _ sourceArena.cells
-  rw [← reservations] at steps
-  exact ⟨.enter operands accepted, targetAfter, count + 1, by omega, matching,
-    Target.Multi.ResumeRun.after_operands steps (.enter resumed)⟩
-
-end Defunctionalization
 end BoundaryV2.Generalized

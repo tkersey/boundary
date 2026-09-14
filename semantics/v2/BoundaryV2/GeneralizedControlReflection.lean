@@ -818,7 +818,10 @@ theorem package_execution_reflected
       sourceValue owner storage.reservations.custody stores sourceHandoff handoff
     obtain ⟨remaining, counted, following⟩ := Target.ordinary_cancel_stateful_observed Target.CallStep.returned rfl tail head
     rw [reservations] at following
-    refine ⟨_, _, remaining, by omega, .packageOperand owner sourceHandoff operands,
+    have sourceStep := Source.ExecutionStep.packageOperand (table := table) (retained := [])
+      (outside := sourceOutside) (regions := regions) owner sourceHandoff operands
+    simp only [UseScope.ReservedNames.withSupport_nil] at sourceStep
+    refine ⟨_, _, remaining, by omega, sourceStep,
       ⟨matched.2.2, rfl, rfl, ?_⟩, following⟩
     have valuesAt : (createPackage (value sourceValue) owner targetStore moved handoff storage.reservations.custody).value =
         value (createPackage sourceValue owner evaluated moved sourceHandoff storage.reservations.custody).value := matched.2.1

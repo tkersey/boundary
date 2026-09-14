@@ -71,9 +71,11 @@ theorem stateful_cleanup_execution {before after : Target.State signature algebr
     RuntimeSteps table
       ⟨identity, .running before.control.configuration .active, before.control.store, before.cells, before.liveRegions, exit⟩ 0
       ⟨identity, .running after.control.configuration .active, after.control.store, after.cells, after.liveRegions, exit⟩ := by
-  induction steps with
-  | refl => exact .refl
-  | cons step tail induction => exact .cons (.execute step) induction
+  induction count generalizing before after with
+  | zero => cases steps; exact .refl
+  | succ count induction =>
+    cases steps with
+    | cons step tail => exact .cons (.execute step) (induction tail)
 
 theorem RuntimeSteps.initiation_conservation (steps : RuntimeSteps table before initiations after) :
     initiations + after.phase.right = before.phase.right := by

@@ -120,7 +120,7 @@ theorem compiled_owned_operand_application
     refine ⟨functionCount + argumentCount + 1, by omega, ?_, ?_⟩
     · rw [← replaced]
       apply (operands.in_execution (definitions table) targetOutside (cells sourceCells) regions).trans
-      have entered := Target.ExecutionSteps.single (Target.ExecutionStep.control (table := definitions table)
+      have entered := Target.ExecutionSteps.single (retained := []) (Target.ExecutionStep.control (table := definitions table)
         (cells := cells sourceCells) (regions := regions)
         (Target.OwnedStep.application (body := computation body) (arguments := environment actual) (next := .ret)
           (bindings := environment bindings) (values := .nil) (outside := targetOutside) targetHandoff))

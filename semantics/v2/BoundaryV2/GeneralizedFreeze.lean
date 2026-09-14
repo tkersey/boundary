@@ -133,32 +133,5 @@ theorem freeze_partitions_cell_storage
   rw [captured, remaining]
   exact (List.filter_append_perm _ _).symm
 
-/-- The template binding travels with the returned reference. Mutable control
-and cell state remain owned once, inside `frozen`; `state` is its projection. -/
-structure CloneResult (signature : Signature) (algebra : LeafAlgebra signature.Data)
-    (program : List (BodyType signature.Data signature.Effect)) (shape : ControlShape signature) (result : TypeOf signature) where
-  frozen : Frozen signature algebra program shape
-  configuration : Configuration signature algebra program result
-  regions : List (Id .region)
-
-def CloneResult.state (result : CloneResult signature algebra program shape answer) : State signature algebra program answer :=
-  ⟨⟨result.frozen.store, result.configuration⟩, result.frozen.arena.cells, result.regions⟩
-
-inductive CloneEntry (table : Definitions signature algebra program) : State signature algebra program result →
-    (Sigma fun shape => CloneResult signature algebra program shape result) → Prop where
-  | freeze {use : UseScope.OneShotUse}
-      {view : UseScope.ControlView} {partition : Partition}
-      {next : Code signature algebra program context (.continuation mode .multi effect input answer :: operands) returned}
-      {bindings : RuntimeEnvironment signature algebra program context}
-      {values : RuntimeEnvironment signature algebra program operands}
-      {outside : Stack signature algebra program returned result}
-      {arena : Arena signature algebra program} {store : ControlHeap signature algebra program}
-      {frozen : Frozen signature algebra program ⟨mode, effect, input, answer⟩} :
-      freezeOwned ⟨mode, effect, input, answer⟩ view store arena partition = some frozen →
-      CloneEntry table ⟨⟨store, .code (.clone (use := use.type) next) bindings
-        (.cons (.continuation view.identity (some (view.authority, view.owner))) values) outside⟩, arena.cells, regions⟩
-        ⟨⟨mode, effect, input, answer⟩, ⟨frozen, .code next bindings (.cons frozen.value values) outside,
-          regions.filter (fun region => !partition.regions.contains region)⟩⟩
-
 end Target.Multi
 end BoundaryV2.Generalized

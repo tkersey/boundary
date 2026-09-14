@@ -1,5 +1,6 @@
 import BoundaryV2.GeneralizedRegisteredFreeze
 import BoundaryV2.GeneralizedDormantRegistry
+import BoundaryV2.GeneralizedStateObservations
 
 namespace BoundaryV2.Generalized
 
@@ -19,6 +20,27 @@ structure Runtime (signature : Signature) (algebra : LeafAlgebra signature.Data)
 
 def Runtime.state (runtime : Runtime signature algebra program result) : State signature algebra program result :=
   ⟨runtime.control, runtime.arena.cells, runtime.regions⟩
+
+/-- Registry and suspended roots supplement the current state. Current cells
+are owned once by the arena and are reserved by the ordinary state rules. -/
+def retainedSupport (registry : Registry signature algebra program) (arena : Arena signature algebra program) : List Reference :=
+  registryReferences registry ++ arena.dormant.flatMap Record.references ++
+    arena.active.flatMap (fun packed => packed.snd.references)
+
+def Runtime.executionSupport (runtime : Runtime signature algebra program result) : List Reference :=
+  retainedSupport runtime.registry runtime.arena
+
+/-- Write back the actual ordinary successor, keeping the registry and other
+retained roots. No earlier cell snapshot is restored. -/
+def Runtime.withState (runtime : Runtime signature algebra program result)
+    (state : Source.State signature algebra program result) : Runtime signature algebra program result :=
+  ⟨state.control, { runtime.arena with cells := state.cells }, state.liveRegions, runtime.registry⟩
+
+theorem Runtime.writeback_has_exact_state (runtime : Runtime signature algebra program result)
+    (state : Source.State signature algebra program result) : (runtime.withState state).state = state := rfl
+
+theorem Runtime.writeback_keeps_retained_support (runtime : Runtime signature algebra program result)
+    (state : Source.State signature algebra program result) : (runtime.withState state).executionSupport = runtime.executionSupport := rfl
 
 structure Activated (signature : Signature) (algebra : LeafAlgebra signature.Data)
     (program : List (BodyType signature.Data signature.Effect)) (shape : ControlShape signature) where
@@ -83,6 +105,27 @@ structure Runtime (signature : Signature) (algebra : LeafAlgebra signature.Data)
 def Runtime.state (runtime : Runtime signature algebra program result) : State signature algebra program result :=
   ⟨runtime.control, runtime.arena.cells, runtime.regions⟩
 
+/-- Registry and suspended roots supplement the current state. Current cells
+are owned once by the arena and are reserved by the ordinary state rules. -/
+def retainedSupport (registry : Registry signature algebra program) (arena : Arena signature algebra program) : List Reference :=
+  registryReferences registry ++ arena.dormant.flatMap Record.references ++
+    arena.active.flatMap payloadReferences
+
+def Runtime.executionSupport (runtime : Runtime signature algebra program result) : List Reference :=
+  retainedSupport runtime.registry runtime.arena
+
+/-- Write back the actual ordinary successor, keeping the registry and other
+retained roots. No earlier cell snapshot is restored. -/
+def Runtime.withState (runtime : Runtime signature algebra program result)
+    (state : Target.State signature algebra program result) : Runtime signature algebra program result :=
+  ⟨state.control, { runtime.arena with cells := state.cells }, state.liveRegions, runtime.registry⟩
+
+theorem Runtime.writeback_has_exact_state (runtime : Runtime signature algebra program result)
+    (state : Target.State signature algebra program result) : (runtime.withState state).state = state := rfl
+
+theorem Runtime.writeback_keeps_retained_support (runtime : Runtime signature algebra program result)
+    (state : Target.State signature algebra program result) : (runtime.withState state).executionSupport = runtime.executionSupport := rfl
+
 structure Activated (signature : Signature) (algebra : LeafAlgebra signature.Data)
     (program : List (BodyType signature.Data signature.Effect)) (shape : ControlShape signature) where
   activation : Activation signature algebra program shape
@@ -139,9 +182,52 @@ structure MultiDataRelated (source : Source.Multi.Runtime signature algebra prog
   regions : target.regions = source.regions
   registry : target.registry = templateRegistry source.registry
 
+theorem retained_support_corresponds (registry : Source.Multi.Registry signature algebra program)
+    (arena : Source.Multi.Arena signature algebra program) :
+    Target.Multi.retainedSupport (templateRegistry registry) (templateArena arena) = Source.Multi.retainedSupport registry arena := by
+  simp only [Target.Multi.retainedSupport, Source.Multi.retainedSupport, registry_reference_support,
+    templateArena, List.flatMap_map, template_record_references,
+    Target.Multi.payloadReferences, templateFuture, capture_references, Source.Multi.Future.references]
+
+theorem execution_support_corresponds (related : MultiDataRelated source target) :
+    target.executionSupport = source.executionSupport := by
+  simp only [Target.Multi.Runtime.executionSupport, Source.Multi.Runtime.executionSupport,
+    related.registry, related.arena, retained_support_corresponds]
+
 structure MultiRuntimeRelated (source : Source.Multi.Runtime signature algebra program result)
     (target : Target.Multi.Runtime signature algebra program result) : Prop extends MultiDataRelated source target where
-  entry : EntryRelated source.control.computation target.control.configuration
+  computation : ProgramRelated source.control.computation .done target.control.configuration
+
+theorem MultiRuntimeRelated.as_state (related : MultiRuntimeRelated source target) :
+    ExecutionStateRelated source.state target.state :=
+  ⟨related.store, congrArg Target.Multi.Arena.cells related.arena, related.regions.symm, related.computation⟩
+
+theorem registered_initialization
+    (body : Source.Computation signature algebra program context result)
+    (bindings : Source.RuntimeEnvironment signature algebra program context)
+    {sourceStore : Source.ControlHeap signature algebra program} {targetStore : Target.ControlHeap signature algebra program}
+    (stores : ControlHeapRelated sourceStore targetStore)
+    (arena : Source.Multi.Arena signature algebra program) (regions : List (Id .region))
+    (registry : Source.Multi.Registry signature algebra program) :
+    MultiRuntimeRelated
+      ⟨⟨sourceStore, .evaluate body bindings⟩, arena, regions, registry⟩
+      ⟨⟨targetStore, .code (computation body) (environment bindings) .nil .done⟩,
+        templateArena arena, regions, templateRegistry registry⟩ :=
+  ⟨⟨stores, rfl, rfl, rfl⟩, .evaluate body bindings .done⟩
+
+theorem registered_response_entry
+    {sourceFuture : Source.Context signature algebra program input result}
+    {targetFuture : Target.Stack signature algebra program input result}
+    (outside : ContextRelated signature algebra program sourceFuture targetFuture)
+    (response : Source.RuntimeValue signature algebra program input)
+    {sourceStore : Source.ControlHeap signature algebra program} {targetStore : Target.ControlHeap signature algebra program}
+    (stores : ControlHeapRelated sourceStore targetStore)
+    (arena : Source.Multi.Arena signature algebra program) (regions : List (Id .region))
+    (registry : Source.Multi.Registry signature algebra program) :
+    MultiRuntimeRelated
+      ⟨⟨sourceStore, sourceFuture.plug (.returned response)⟩, arena, regions, registry⟩
+      ⟨⟨targetStore, .returned (value response) targetFuture⟩, templateArena arena, regions, templateRegistry registry⟩ :=
+  ⟨⟨stores, rfl, rfl, rfl⟩, (EntryRelated.returned response outside).as_program⟩
 
 def registeredActivation (source : Source.Multi.Activated signature algebra program shape) : Target.Multi.Activated signature algebra program shape :=
   ⟨templateActivation source.activation, source.regions, templateRegistry source.registry⟩
@@ -182,7 +268,7 @@ theorem after_activation_corresponds (related : MultiDataRelated source target)
     (entry : EntryRelated sourceEntry targetEntry) :
     MultiRuntimeRelated (source.afterActivation active sourceEntry)
       (target.afterActivation (registeredActivation active) targetEntry) :=
-  ⟨⟨related.store, rfl, rfl, rfl⟩, entry⟩
+  ⟨⟨related.store, rfl, rfl, rfl⟩, entry.as_program⟩
 
 theorem registered_resume_corresponds [DecidableEq (ControlShape signature)]
     {source : Source.Multi.Runtime signature algebra program result} {target : Target.Multi.Runtime signature algebra program result}

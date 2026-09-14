@@ -79,4 +79,36 @@ theorem open_contract (claim : OpenControl.observation_relocation signature alge
       (.returned (Defunctionalization.value response) pending.future) :=
   claim.response operation pending sourceFuture related response
 
+/-- Registered observations use the actual retained runtime and its admitted
+transitions, including clone and multi-use entry. -/
+theorem registered_source_observation_definition (table : Source.Definitions signature algebra program)
+    (before after : Source.Multi.Runtime signature algebra program result) observation :
+    Source.Multi.Observes table before after observation =
+      (∃ count, Source.Multi.Steps table before count after ∧
+        Source.HeadObservation after.control.computation observation) := rfl
+
+theorem registered_target_observation_definition (table : Target.Definitions signature algebra program)
+    (before after : Target.Multi.Runtime signature algebra program result) observation :
+    Target.Multi.Observes table before after observation =
+      (∃ count, Target.Multi.Steps table before count after ∧
+        Target.HeadObservation after.control.configuration observation) := rfl
+
+theorem registered_defunctionalization_contract
+    (claim : Defunctionalization.adequacy signature algebra program)
+    (table : Source.Definitions signature algebra program)
+    {source : Source.Multi.Runtime signature algebra program result}
+    {target : Target.Multi.Runtime signature algebra program result}
+    (related : Defunctionalization.MultiRuntimeRelated source target) :
+    (∀ final observation, Source.Multi.Observes table source final observation →
+      ∃ targetFinal targetObservation,
+        Target.Multi.Observes (Defunctionalization.definitions table) target targetFinal targetObservation ∧
+        Defunctionalization.MultiDataRelated final targetFinal ∧
+        Defunctionalization.StateObservationRelated final.state targetFinal.state observation targetObservation) ∧
+    (∀ final observation, Target.Multi.Observes (Defunctionalization.definitions table) target final observation →
+      ∃ sourceFinal sourceObservation,
+        Source.Multi.Observes table source sourceFinal sourceObservation ∧
+        Defunctionalization.MultiDataRelated sourceFinal final ∧
+        Defunctionalization.StateObservationRelated sourceFinal.state final.state sourceObservation observation) :=
+  ⟨fun _ => claim.registered_preservation table related, fun _ => claim.registered_reflection table related⟩
+
 end BoundaryV2.Generalized.ContractChecks

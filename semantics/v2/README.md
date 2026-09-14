@@ -22,7 +22,7 @@ inhabitants. Their checked components and required connections are:
 
 | Export | Existing components | Remaining proof or connection |
 | --- | --- | --- |
-| `Defunctionalization.adequacy` | Finite preservation and reflection for the current execution relation, all four observations, related initialization/response entry, operation inverses, and ordinary adequacy | Integrate registered-template/disposal entry and exit/lifetime drivers with the same compositional interpretation. Missing driver transitions are not verified behavior. |
+| `Defunctionalization.adequacy` | Finite preservation/reflection for default core execution; registered initialization/response entry; clone and multi-entry correspondence on one retained runtime | Extend `stateful_execution_step_simulates` and finite reflection to retained support and registered receivers. Generalize clone correspondence beyond canonical target heaps using capture provenance/clone views. Embed disposal and exit/lifetime transitions. |
 | `Handlers.interpretation` | Fresh installation, nearest selection, forwarding, context closure, actual resume/injection/successor correspondence | Use the stateful correspondence under arbitrary enclosing effectful handlers, including registered multi entry. |
 | `UseScope.preservation` | Actual control/cell steps, typed consumption, physical capture multiplicity, scoped packages, registry insertion, fresh activation and dormant support | Connect registry and lifetime handoff across capture, activation, completion, and disposal. |
 | `Exits.composition` | Stateful initiation, cancellation, ordered operands/failures, owned-result disposal, nested completion, region-to-cleanup-frame embedding | Connect region disposal during nested abandonment and compose exits with the source/target observation relation. |
@@ -179,9 +179,10 @@ rebinding an existing identity. `GeneralizedRegisteredFreeze` returns the
 consumed successor together with its registered template. Registered resume,
 injection, and successor functions instantiate the stored template against the
 current arena; source/target correspondence preserves the resulting future,
-cells, regions, registry, and unrelated owning fields. `GeneralizedMultiEntry`
-connects all three authored multi-resumption forms to finite positive target
-entries. Injection completes operand evaluation and consumes the supplied
+cells, regions, registry, and unrelated owning fields. `GeneralizedRegisteredExecution`
+embeds ordinary execution, clone registration, and all three multi-resumption
+forms into one runtime. `GeneralizedMultiControlEntry` proves finite positive
+target entries on that relation. Injection completes operand evaluation and consumes the supplied
 closure's authority before entering its actual body; successor clauses retain
 their effectful computations and separate body/answer types. Checked examples
 cover owned captures, a yielded injected body, and a changed-answer successor.
@@ -196,6 +197,25 @@ cells. The nested source/target example checks a child snapshot, current parent
 and shared cells, and a back-reference to an existing child binding.
 Allocation/retirement across the complete registry lifetime remains unfinished;
 these local laws do not close the whole-core milestone.
+
+The registered runtime supplies registry, dormant, and active support to the
+existing core rules. Ordinary closure/control creation, cell allocation, fresh
+installation, and multi-entry operands therefore reserve retained identities.
+Current cells remain in the arena once; `withState` writes back each actual
+successor, and `Steps.from_core` lifts arbitrary finite core runs with unchanged
+retained support. Source/target support correspondence preserves the distinction
+between these nonowning roots and physical grants. `MultiRuntimeRelated` uses
+the existing structural program relation and projects to `ExecutionStateRelated`.
+
+This retires the specialized `ResumeRun`, both `CloneEntry` relations, both
+`CloneResult` wrappers, and `GeneralizedMultiEntry`. Their operand, handoff,
+template, caller, and region laws now use registered steps; the source/target
+freeze algorithms remain independent. The connected clone/resume regression
+executes six source steps and sixteen target steps to the same return, keeping
+the registry and current shared cell. Another regression allocates cell 8 while
+cell 7 exists only in a retained template, and keeps current cell 2. No source
+oracle or production mapping changed. D's explicit `registered_preservation`
+and `registered_reflection` fields remain obligations, not assumed results.
 
 `GeneralizedScopeClosure` checks actual surviving fields, code, returned values,
 and saved control before detaching a lifetime subtree. Source and target checks
@@ -350,9 +370,10 @@ definitions, native-evaluation dependencies, unsafe definitions, and partial
 definitions. It also covers private declarations in Lean's module system and a
 spoofed recursive-companion name. A forged declaration inserted with kernel
 checking disabled deliberately passes the axiom-only control and must fail
-fresh replay. Six additional statement mutations reject `True` substitutions
+fresh replay. Seven additional statement mutations reject `True` substitutions
 for each required contract and an ordinary-only replacement for the source
-stateful observation definition. The mutation step follows the proof build and
+stateful observation definition, plus a core-only replacement for registered
+observations. The mutation step follows the proof build and
 uses an isolated compiled-module overlay. Completing the contract proofs and
 reviewing all remaining semantic connections are still open; logical trust and
 statement checking do not establish the entire milestone.

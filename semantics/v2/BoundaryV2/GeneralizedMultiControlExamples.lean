@@ -72,7 +72,7 @@ theorem authored_owned_injection_has_a_registered_entry :
 
 theorem owned_injection_compiles_to_a_positive_target_entry :
     ∃ targetAfter count, 0 < count ∧ Defunctionalization.MultiRuntimeRelated sourceInjectionAfter targetAfter ∧
-      Target.Multi.ResumeRun (.nil : Target.Definitions signature algebra [])
+      Target.Multi.Steps (.nil : Target.Definitions signature algebra [])
         ⟨⟨⟨injectionFields, [], []⟩, .code (Defunctionalization.computation injectionProgram)
           (Defunctionalization.environment injectionBindings) .nil .done⟩,
           Defunctionalization.templateArena sourceInjection.arena, [⟨0⟩], Defunctionalization.templateRegistry sourceRegistry⟩ count targetAfter :=
@@ -110,7 +110,7 @@ theorem authored_successor_has_a_registered_entry :
 
 theorem effectful_changed_answer_successor_compiles_to_a_positive_target_entry :
     ∃ targetAfter count, 0 < count ∧ Defunctionalization.MultiRuntimeRelated sourceSuccessorAfter targetAfter ∧
-      Target.Multi.ResumeRun (.nil : Target.Definitions signature algebra [])
+      Target.Multi.Steps (.nil : Target.Definitions signature algebra [])
         ⟨⟨Defunctionalization.templateHeap sourceFrozenControl.store, .code (Defunctionalization.computation successorProgram)
           (Defunctionalization.environment registeredBindings) .nil .done⟩,
           Defunctionalization.templateArena sourceSuccessor.arena, [⟨0⟩], Defunctionalization.templateRegistry sourceRegistry⟩ count targetAfter :=

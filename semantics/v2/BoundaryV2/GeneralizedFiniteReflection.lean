@@ -301,7 +301,7 @@ private theorem ordinary_receiver_observing_reflected
       ExecutionStateRelated sourceAfter targetAfter ∧ Target.ExecutionSteps (definitions table) targetAfter remaining final := by
   cases run with
   | refl => cases head
-  | @cons first middle rest last step tail =>
+  | @cons first middle _ rest last step tail =>
     obtain ⟨next, computed⟩ := Option.isSome_iff_exists.mp available
     obtain ⟨stored, cellsAt, regionsAt, ordinary⟩ := step.ordinary_of_next computed neutral
     obtain ⟨sourceAfter, sourceStep, matched⟩ := ordinary_receiver_execution_reflected table body bindings values storage regions operands stores outside ordinary neutral
@@ -686,7 +686,7 @@ private theorem stateful_reflection_bounded (table : Source.Definitions signatur
           | some original =>
             cases run with
             | refl => cases head
-            | @cons first middle count last step tail =>
+            | @cons first middle _ count last step tail =>
               rcases middle with ⟨⟨heap, configuration⟩, targetCells, targetRegions⟩
               obtain ⟨stored, sameCells, sameRegions, ordinary⟩ := step.returned_is_ordinary _ _ _ _ _
               dsimp only at stored sameCells sameRegions ordinary

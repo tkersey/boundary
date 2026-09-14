@@ -204,9 +204,11 @@ theorem DisposalRun.enter_after_operands [DecidableEq (ControlShape signature)] 
     {before after : State signature algebra program result} {start : DisposalStart signature algebra program result}
     (steps : ExecutionSteps table before count after) (entered : DisposeEntry table after start) :
     DisposalRun table (.evaluating before) (count + 1) (.disposing start.begin) := by
-  induction steps with
-  | refl => exact .cons (.enter entered) .refl
-  | cons step rest induction => exact .cons (.evaluate step) (induction entered)
+  induction count generalizing before after with
+  | zero => cases steps; exact .cons (.enter entered) .refl
+  | succ count induction =>
+    cases steps with
+    | cons step rest => exact .cons (.evaluate step) (induction rest entered)
 
 theorem DisposalRun.finish_after_unwind [DecidableEq (ControlShape signature)] [DecidableEq (TypeOf signature)]
     {table : Definitions signature algebra program}
@@ -264,9 +266,11 @@ theorem DisposalRun.operand_failure [DecidableEq (ControlShape signature)] [Deci
       (.resolved (.reenter ⟨⟨store, .failed fault future⟩, cells, regions⟩ ⟨.failure fault, [], none⟩)) := by
   have lift {length : Nat} {first last : State signature algebra program result} (executed : ExecutionSteps table first length last) :
       DisposalRun table (.evaluating first) length (.evaluating last) := by
-    induction executed with
-    | refl => exact .refl
-    | cons step tail induction => exact .cons (.evaluate step) induction
+    induction length generalizing first last with
+    | zero => cases executed; exact .refl
+    | succ length induction =>
+      cases executed with
+      | cons step tail => exact .cons (.evaluate step) (induction tail)
   exact (lift steps).trans (.cons .operandFault .refl)
 
 theorem resolved_disposal_has_no_second_transition [DecidableEq (ControlShape signature)] [DecidableEq (TypeOf signature)]

@@ -1,5 +1,5 @@
 import BoundaryV2.GeneralizedFiniteReflection
-import BoundaryV2.GeneralizedMultiEntry
+import BoundaryV2.GeneralizedMultiControlEntry
 import BoundaryV2.GeneralizedDisposalExecution
 import BoundaryV2.GeneralizedCleanupCompletion
 import BoundaryV2.GeneralizedInteraction
@@ -87,6 +87,51 @@ structure adequacy : Prop where
         StateObservationRelated sourceFinal final sourceObservation observation := by
           intro table result source target final related observation observed
           exact stateful_observation_reflected table related observed
+
+  registered_preservation : ∀ (table : Source.Definitions signature algebra program) {result}
+    {source final : Source.Multi.Runtime signature algebra program result}
+    {target : Target.Multi.Runtime signature algebra program result},
+    MultiRuntimeRelated source target →
+    ∀ observation, Source.Multi.Observes table source final observation →
+      ∃ targetFinal targetObservation,
+        Target.Multi.Observes (definitions table) target targetFinal targetObservation ∧
+        MultiDataRelated final targetFinal ∧
+        StateObservationRelated final.state targetFinal.state observation targetObservation
+  registered_reflection : ∀ (table : Source.Definitions signature algebra program) {result}
+    {source : Source.Multi.Runtime signature algebra program result}
+    {target final : Target.Multi.Runtime signature algebra program result},
+    MultiRuntimeRelated source target →
+    ∀ observation, Target.Multi.Observes (definitions table) target final observation →
+      ∃ sourceFinal sourceObservation,
+        Source.Multi.Observes table source sourceFinal sourceObservation ∧
+        MultiDataRelated sourceFinal final ∧
+        StateObservationRelated sourceFinal.state final.state sourceObservation observation
+  registered_initialization : ∀ {context result}
+    (body : Source.Computation signature algebra program context result)
+    (bindings : Source.RuntimeEnvironment signature algebra program context)
+    {sourceStore : Source.ControlHeap signature algebra program} {targetStore : Target.ControlHeap signature algebra program},
+    ControlHeapRelated sourceStore targetStore →
+    ∀ (arena : Source.Multi.Arena signature algebra program) regions registry,
+      MultiRuntimeRelated
+        ⟨⟨sourceStore, .evaluate body bindings⟩, arena, regions, registry⟩
+        ⟨⟨targetStore, .code (computation body) (environment bindings) .nil .done⟩,
+          templateArena arena, regions, templateRegistry registry⟩ := by
+            intro context result body bindings sourceStore targetStore stores arena regions registry
+            exact Defunctionalization.registered_initialization body bindings stores arena regions registry
+  registered_responses : ∀ {input result}
+    {sourceFuture : Source.Context signature algebra program input result}
+    {targetFuture : Target.Stack signature algebra program input result},
+    ContextRelated signature algebra program sourceFuture targetFuture →
+    ∀ (response : Source.RuntimeValue signature algebra program input)
+    {sourceStore : Source.ControlHeap signature algebra program} {targetStore : Target.ControlHeap signature algebra program},
+    ControlHeapRelated sourceStore targetStore →
+    ∀ (arena : Source.Multi.Arena signature algebra program) regions registry,
+      MultiRuntimeRelated
+        ⟨⟨sourceStore, sourceFuture.plug (.returned response)⟩, arena, regions, registry⟩
+        ⟨⟨targetStore, .returned (value response) targetFuture⟩, templateArena arena, regions, templateRegistry registry⟩ := by
+          intro input result sourceFuture targetFuture outside response sourceStore targetStore stores arena regions registry
+          exact registered_response_entry outside response stores arena regions registry
+
   initialization : ∀ {context result}
     (body : Source.Computation signature algebra program context result)
     (bindings : Source.RuntimeEnvironment signature algebra program context)

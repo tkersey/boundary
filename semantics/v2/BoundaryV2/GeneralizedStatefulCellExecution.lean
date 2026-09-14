@@ -127,13 +127,13 @@ theorem compiled_cell_allocation
   rw [← reservations] at operands
   have replaced : { targetEvaluated with fields := fields } = { targetStore with fields := fields } :=
     congrArg (fun store => { store with fields := fields }) operands.store_is_field_update
-  refine ⟨count + 2, by omega, .allocate evaluated live handoff, ?_, ?_⟩
+  refine ⟨count + 2, by omega, .allocate (retained := []) evaluated live handoff, ?_, ?_⟩
   · rw [← replaced]
     apply (operands.in_execution (definitions table) targetOutside (cells sourceCells) regions).trans
-    have entered := Target.ExecutionSteps.cons (.cell (Target.CellStep.allocate (table := definitions table) (reserved := reserved)
+    have entered := Target.ExecutionSteps.cons (.cell (Target.CellStep.allocate (retained := []) (table := definitions table) (reserved := reserved)
       (next := .ret) (bindings := environment bindings) (values := .nil) (outside := targetOutside) (cells := cells sourceCells) live targetHandoff))
       (.single (.cell (.ordinary .returned)))
-    simpa only [Defunctionalization.value, Value.map, cells, allocation.1, allocation.2] using entered
+    simpa only [Defunctionalization.value, Value.map, cells, referenceNames_nil, List.nil_append, allocation.1, allocation.2] using entered
   · rw [← replaced]
     exact ⟨⟨⟨rfl, related.controls, related.disposing⟩, .returned (.cell _ region) outside⟩, rfl, rfl⟩
 

@@ -328,22 +328,22 @@ theorem cell_state_step_simulates (table : Source.Definitions signature algebra 
     ∃ count targetAfter, Target.ExecutionSteps (definitions table) target count targetAfter ∧
       ExecutionStateRelated after targetAfter := by
   cases step with
-  | @ordinary type first last sourceStore storage regions ordinary neutral =>
+  | @ordinary type first last sourceStore storage regions _ ordinary neutral =>
     rw [related.target_state]
     exact ordinary_program_state_step_simulates table related.computation ordinary neutral .done related.store storage regions
-  | @allocate context type result region evaluated regions fields reserved regionExpr valueExpr bindings sourceOutside sourceStore storage value operands live handoff =>
+  | @allocate context type result _ region evaluated regions fields reserved regionExpr valueExpr bindings sourceOutside sourceStore storage value operands live handoff =>
     obtain ⟨targetOutside, outside, configuration⟩ := related.evaluation_view (.cellNew regionExpr valueExpr) bindings sourceOutside
     rw [configuration]
     obtain ⟨count, _, _, steps, matched⟩ := compiled_cell_allocation table regionExpr valueExpr bindings region value
       storage reserved regions live operands related.store fields handoff outside
     exact ⟨count, _, steps, matched.as_execution⟩
-  | @read context type result sourceStore identity region evaluated regions value reference bindings sourceOutside storage operands live read =>
+  | @read context type result _ sourceStore identity region evaluated regions value reference bindings sourceOutside storage operands live read =>
     obtain ⟨targetOutside, outside, configuration⟩ := related.evaluation_view (.cellRead reference) bindings sourceOutside
     rw [configuration]
     obtain ⟨count, _, _, steps, matched⟩ := compiled_cell_read table reference bindings identity region value
       storage regions live operands read related.store outside
     exact ⟨count, _, steps, matched.as_execution⟩
-  | @write context type result sourceStore identity region value evaluated regions afterCells reference replacement bindings sourceOutside storage operands live written =>
+  | @write context type result _ sourceStore identity region value evaluated regions afterCells reference replacement bindings sourceOutside storage operands live written =>
     obtain ⟨targetOutside, outside, configuration⟩ := related.evaluation_view (.cellWrite reference replacement) bindings sourceOutside
     rw [configuration]
     obtain ⟨count, _, _, steps, matched⟩ := compiled_cell_write table reference replacement bindings identity region value
@@ -428,7 +428,7 @@ theorem stateful_execution_step_simulates (table : Source.Definitions signature 
   cases step with
   | cell step => exact cell_state_step_simulates table step related
   | control step => exact control_state_step_simulates table _ _ step related
-  | @installHandler bodyType context answer effect mode result outsideSupport sourceStore storedSupport attachment regions returned clauses body bindings sourceOutside sourceCells extra supported stored created =>
+  | @installHandler bodyType context answer effect mode result outsideSupport sourceStore storedSupport attachment _ regions returned clauses body bindings sourceOutside sourceCells extra supported stored created =>
     obtain ⟨targetOutside, outside, configuration⟩ := related.evaluation_view (.handle effect mode returned clauses body) bindings sourceOutside
     rw [configuration]
     have sameOutside := supported.unique (context_installation_support outside)
@@ -437,7 +437,7 @@ theorem stateful_execution_step_simulates (table : Source.Definitions signature 
     rw [created]
     obtain ⟨_, steps, matched⟩ := compiled_fresh_handler table effect mode returned clauses body bindings outside related.store sourceCells regions extra
     exact ⟨1, _, steps, matched.as_execution⟩
-  | @enterProtection context answer result outsideSupport sourceStore storedSupport identity regions cleanup body bindings sourceOutside sourceCells extra supported stored created =>
+  | @enterProtection context answer result outsideSupport sourceStore storedSupport identity _ regions cleanup body bindings sourceOutside sourceCells extra supported stored created =>
     obtain ⟨targetOutside, outside, configuration⟩ := related.evaluation_view (.protect cleanup body) bindings sourceOutside
     rw [configuration]
     have sameOutside := supported.unique (context_installation_support outside)
@@ -446,7 +446,7 @@ theorem stateful_execution_step_simulates (table : Source.Definitions signature 
     rw [created]
     obtain ⟨_, steps, matched⟩ := compiled_protection_entry table cleanup body bindings outside related.store sourceCells regions extra
     exact ⟨1, _, steps, matched.as_execution⟩
-  | @enterRegion context answer result outsideSupport sourceStore storedSupport identity regions body bindings sourceOutside sourceCells extra supported stored created =>
+  | @enterRegion context answer result outsideSupport sourceStore storedSupport identity regions _ body bindings sourceOutside sourceCells extra supported stored created =>
     obtain ⟨targetOutside, outside, configuration⟩ := related.evaluation_view (.withRegion body) bindings sourceOutside
     rw [configuration]
     have sameOutside := supported.unique (context_installation_support outside)
@@ -455,62 +455,62 @@ theorem stateful_execution_step_simulates (table : Source.Definitions signature 
     rw [created]
     obtain ⟨_, steps, matched⟩ := compiled_region_entry table body bindings outside related.store sourceCells regions extra
     exact ⟨1, _, steps, matched.as_execution⟩
-  | @packageOperand context content result regions expression value bindings sourceOutside sourceStore evaluated moved sourceCells owner handoff operands =>
+  | @packageOperand context content result _ regions expression value bindings sourceOutside sourceStore evaluated moved sourceCells owner handoff operands =>
     obtain ⟨targetOutside, outside, configuration⟩ := related.evaluation_view (.package expression) bindings sourceOutside
     rw [configuration]
     obtain ⟨_, count, targetAfter, _, steps, matched⟩ :=
       compiled_package table expression bindings value owner sourceCells regions operands moved handoff related.store outside
     exact ⟨count, targetAfter, steps, matched.as_execution⟩
-  | @unpackageOperand context content result token owner fields regions expression value bindings sourceOutside sourceStore evaluated sourceCells operands handoff =>
+  | @unpackageOperand context content result _ token owner fields regions expression value bindings sourceOutside sourceStore evaluated sourceCells operands handoff =>
     obtain ⟨targetOutside, outside, configuration⟩ := related.evaluation_view (.unpackage expression) bindings sourceOutside
     rw [configuration]
     obtain ⟨_, count, targetAfter, _, steps, matched⟩ :=
       compiled_unpackage table expression bindings value token owner sourceCells regions operands handoff related.store outside
     exact ⟨count, targetAfter, steps, matched.as_execution⟩
-  | @returnOperand context answer result sourceStore value afterStore regions expression bindings sourceOutside sourceCells operands =>
+  | @returnOperand context answer result _ sourceStore value afterStore regions expression bindings sourceOutside sourceCells operands =>
     obtain ⟨targetOutside, outside, configuration⟩ := related.evaluation_view (.returnValue expression) bindings sourceOutside
     rw [configuration]
     obtain ⟨_, count, targetAfter, _, steps, matched⟩ :=
       compiled_owned_operand_return table expression bindings value sourceCells regions operands related.store outside
     exact ⟨count, _, steps, matched.as_execution⟩
-  | @operandFault context answer result sourceStore fault afterStore regions body bindings sourceOutside sourceCells operands =>
+  | @operandFault context answer result _ sourceStore fault afterStore regions body bindings sourceOutside sourceCells operands =>
     obtain ⟨targetOutside, outside, configuration⟩ := related.evaluation_view body bindings sourceOutside
     rw [configuration]
     obtain ⟨_, count, targetAfter, _, steps, matched⟩ :=
       compiled_owned_operand_failure table body bindings fault sourceCells regions operands related.store outside
     exact ⟨count, _, steps, matched.as_execution⟩
-  | @applicationOperands context use parameters answer capturedTypes result sourceStore authority evaluated fields regions function arguments body captured actual bindings sourceOutside sourceCells operands handoff =>
+  | @applicationOperands context use parameters answer capturedTypes result _ sourceStore authority evaluated fields regions function arguments body captured actual bindings sourceOutside sourceCells operands handoff =>
     obtain ⟨targetOutside, outside, configuration⟩ := related.evaluation_view (.apply function arguments) bindings sourceOutside
     rw [configuration]
     obtain ⟨_, count, _, steps, matched⟩ :=
       compiled_owned_operand_application table function arguments bindings body captured actual authority sourceCells regions
         operands handoff related.store outside
     exact ⟨count, _, steps, matched.as_execution⟩
-  | @namedOperands body context result sourceStore actual afterStore regions reference arguments bindings sourceOutside sourceCells operands =>
+  | @namedOperands body context result _ sourceStore actual afterStore regions reference arguments bindings sourceOutside sourceCells operands =>
     obtain ⟨targetOutside, outside, configuration⟩ := related.evaluation_view (.call reference arguments) bindings sourceOutside
     rw [configuration]
     obtain ⟨_, count, targetAfter, _, steps, matched⟩ :=
       compiled_owned_named_call table reference arguments bindings actual sourceCells regions operands related.store outside
     exact ⟨count, _, steps, matched.as_execution⟩
-  | @primitiveOperands context result sourceStore afterStore regions parameters answer operation value inputs bindings sourceOutside sourceCells operands =>
+  | @primitiveOperands context result _ sourceStore afterStore regions parameters answer operation value inputs bindings sourceOutside sourceCells operands =>
     obtain ⟨targetOutside, outside, configuration⟩ := related.evaluation_view (.primitive operation inputs) bindings sourceOutside
     rw [configuration]
     obtain ⟨_, count, targetAfter, _, steps, matched⟩ :=
       compiled_owned_primitive table operation inputs bindings value sourceCells regions operands related.store outside
     exact ⟨count, _, steps, matched.as_execution⟩
-  | @branchLeftOperands context leftType rightType answer result sourceStore value afterStore payload regions test left right bindings sourceOutside sourceCells operands selected =>
+  | @branchLeftOperands context leftType rightType answer result _ sourceStore value afterStore payload regions test left right bindings sourceOutside sourceCells operands selected =>
     obtain ⟨targetOutside, outside, configuration⟩ := related.evaluation_view (.matchSum test left right) bindings sourceOutside
     rw [configuration]
     obtain ⟨_, count, targetAfter, _, steps, matched⟩ :=
       compiled_owned_match_left table test left right bindings value payload sourceCells regions operands selected related.store outside
     exact ⟨count, _, steps, matched.as_execution⟩
-  | @branchRightOperands context leftType rightType answer result sourceStore value afterStore payload regions test left right bindings sourceOutside sourceCells operands selected =>
+  | @branchRightOperands context leftType rightType answer result _ sourceStore value afterStore payload regions test left right bindings sourceOutside sourceCells operands selected =>
     obtain ⟨targetOutside, outside, configuration⟩ := related.evaluation_view (.matchSum test left right) bindings sourceOutside
     rw [configuration]
     obtain ⟨_, count, targetAfter, _, steps, matched⟩ :=
       compiled_owned_match_right table test left right bindings value payload sourceCells regions operands selected related.store outside
     exact ⟨count, _, steps, matched.as_execution⟩
-  | @performOperands effect context result sourceStore attachment afterStore regions operation payloadValue bodyValues capability payload bodies bindings sourceOutside sourceCells operands =>
+  | @performOperands effect context result _ sourceStore attachment afterStore regions operation payloadValue bodyValues capability payload bodies bindings sourceOutside sourceCells operands =>
     obtain ⟨targetOutside, outside, configuration⟩ := related.evaluation_view (.perform operation capability payload bodies) bindings sourceOutside
     rw [configuration]
     obtain ⟨_, count, targetAfter, _, steps, matched⟩ :=
@@ -527,12 +527,14 @@ theorem finite_stateful_execution_preserved (table : Source.Definitions signatur
     (related : ExecutionStateRelated source target) :
     ∃ count targetAfter, Target.ExecutionSteps (definitions table) target count targetAfter ∧
       ExecutionStateRelated after targetAfter := by
-  induction steps generalizing target with
-  | refl => exact ⟨0, target, .refl, related⟩
-  | cons step tail induction =>
-    obtain ⟨firstCount, middle, first, middleRelated⟩ := stateful_execution_step_simulates table step related
-    obtain ⟨restCount, final, rest, finalRelated⟩ := induction middleRelated
-    exact ⟨firstCount + restCount, final, first.trans rest, finalRelated⟩
+  induction sourceCount generalizing source after target with
+  | zero => cases steps; exact ⟨0, target, .refl, related⟩
+  | succ sourceCount induction =>
+    cases steps with
+    | cons step tail =>
+      obtain ⟨firstCount, middle, first, middleRelated⟩ := stateful_execution_step_simulates table step related
+      obtain ⟨restCount, final, rest, finalRelated⟩ := induction tail middleRelated
+      exact ⟨firstCount + restCount, final, first.trans rest, finalRelated⟩
 
 /-- The preservation field of D for the current stateful relation. Its remaining
 registry/exit coverage obligations stay explicit in the exported contract. -/

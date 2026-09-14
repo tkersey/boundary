@@ -122,18 +122,30 @@ current resources, and all four observation forms. Handled requests use the
 source selector across their saved and surrounding contexts; the old syntactic
 handler rule is a derived case. The source and target selectors remain independent.
 
-This is not complete whole-core D: registered-template and disposal entry still
-use separate drivers, and exit/lifetime composition is not fully embedded. The
-proof explicitly identifies those current relation boundaries; their inability
-to step is not evidence that the required behavior has been verified. These
-embeddings and their observation laws remain mandatory before claiming the five
-contract milestone complete.
+`GeneralizedRegisteredExecution` embeds core steps, clone registration, and all
+three multi-use entries into one retained runtime. Each core successor writes
+its current cells and live regions back into that runtime. Registry, dormant,
+and active support participate in its ordinary allocation and operand rules.
+The source and target support collectors agree. The former `ResumeRun` and
+`CloneEntry`/`CloneResult` drivers have been removed; their correspondence and
+distinguishing regressions now use this relation. Clone correspondence includes
+registration and a positive drain back to the actual caller.
+
+D explicitly requires preservation and reflection of these registered finite
+observations, with related registry/arena state and all four observation forms.
+Registered initialization and response entry are proved. The two registered
+finite correspondence fields remain unproved: the existing simulation and
+reflection must be extended to retained support and registered receivers,
+including clone against related noncanonical target frames. Disposal and
+exit/lifetime composition also remain unfinished. Neither the default state
+relation nor compiling the registered driver discharges those obligations.
 
 `GeneralizedContractChecks` consumes the declared field types and checks the
 stateful observation definitions. Its hypothetical contract arguments are
 statement checks, not evidence that the contracts are inhabited. The existing
-trust mutation suite rejects replacing each contract with `True` and replacing
-the source stateful observation definition with the ordinary relation. This
+trust mutation suite rejects replacing each contract with `True`, replacing
+the source stateful observation definition with the ordinary relation, and
+replacing registered observations with core-only observations. This
 does not replace review of the complete types or completion of their proofs.
 
 The conformance command must take an explicit unmodified World checkout/artifact,

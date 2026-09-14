@@ -1,4 +1,4 @@
-import BoundaryV2.GeneralizedStateExecution
+import BoundaryV2.GeneralizedRegisteredExecution
 import BoundaryV2.GeneralizedFreeze
 import BoundaryV2.GeneralizedTemplateExamples
 
@@ -51,22 +51,27 @@ def freezeBindings : Target.RuntimeEnvironment signature algebra []
     [.continuation .shallow .linear .choose .unit (.leaf .integer)] := Defunctionalization.environment cloneSourceBindings
 
 theorem target_clone_instruction_returns_its_template_binding :
-    CloneEntry (.nil : Target.Definitions signature algebra [])
+    Target.Multi.Step (.nil : Target.Definitions signature algebra [])
       (⟨⟨freezeStore, .code (.clone (use := Use.linear) .ret) freezeBindings
         (.cons (.continuation freezeView.identity (some (freezeView.authority, freezeView.owner))) .nil) .done⟩,
-        freezeArena.cells, [⟨3⟩, ⟨0⟩]⟩ : Target.State signature algebra [] FrozenReference)
-      ⟨templateShape, ⟨frozenControl, .code .ret freezeBindings (.cons frozenControl.value .nil) .done, [⟨0⟩]⟩⟩ :=
-  .freeze (use := .linear) owned_continuation_freezes_actual_future_and_local_cells.1
-
+        freezeArena, [⟨3⟩, ⟨0⟩], []⟩ : Target.Multi.Runtime signature algebra [] FrozenReference)
+      ⟨⟨frozenControl.store, .code .ret freezeBindings (.cons frozenControl.value .nil) .done⟩,
+        frozenControl.arena, [⟨0⟩], [⟨freezeView.identity, ⟨templateShape, branchingTemplate⟩⟩]⟩ := by
+  refine Target.Multi.Step.clone (use := .linear) (partition := freezePartition)
+    (frozen := frozenControl) (view := freezeView) ?_ ?_
+  · rfl
+  unfold Target.Multi.freezeInto
+  rw [owned_continuation_freezes_actual_future_and_local_cells.1]
+  rfl
 
 theorem authored_clone_reaches_the_freeze_operation :
-    Target.ExecutionSteps (.nil : Target.Definitions signature algebra [])
+    Target.Multi.Steps (.nil : Target.Definitions signature algebra [])
       (⟨⟨freezeStore, .code (Defunctionalization.computation (.clone (.reference .here)))
-        (Defunctionalization.environment cloneSourceBindings) .nil .done⟩, freezeArena.cells, [⟨3⟩, ⟨0⟩]⟩ :
-        Target.State signature algebra [] FrozenReference) 1
+        (Defunctionalization.environment cloneSourceBindings) .nil .done⟩, freezeArena, [⟨3⟩, ⟨0⟩], []⟩ :
+        Target.Multi.Runtime signature algebra [] FrozenReference) 1
       ⟨⟨freezeStore, .code (.clone (use := Use.linear) .ret) (Defunctionalization.environment cloneSourceBindings)
         (.cons (.continuation freezeView.identity (some (freezeView.authority, freezeView.owner))) .nil) .done⟩,
-        freezeArena.cells, [⟨3⟩, ⟨0⟩]⟩ := .single (.cell (.ordinary (.operand .load)))
+        freezeArena, [⟨3⟩, ⟨0⟩], []⟩ := .cons (.core (.cell (.ordinary (.operand .load)))) .refl
 
 theorem reentrant_activation_of_the_frozen_control_uses_distinct_names :
     let first := instantiate frozenControl.template frozenControl.arena []

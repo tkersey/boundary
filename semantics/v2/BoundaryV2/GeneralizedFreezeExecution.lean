@@ -1,5 +1,5 @@
 import BoundaryV2.GeneralizedSourceFreeze
-import BoundaryV2.GeneralizedStateExecution
+import BoundaryV2.GeneralizedRegisteredExecution
 
 namespace BoundaryV2.Generalized
 
@@ -7,101 +7,62 @@ variable {signature : Signature} {algebra : LeafAlgebra signature.Data}
   {program : List (BodyType signature.Data signature.Effect)}
   [DecidableEq (ControlShape signature)] [DecidableEq (TypeOf signature)]
 
-namespace Source.Multi
-
-structure CloneResult (signature : Signature) (algebra : LeafAlgebra signature.Data)
-    (program : List (BodyType signature.Data signature.Effect)) (shape : ControlShape signature) (result : TypeOf signature) where
-  frozen : Frozen signature algebra program shape
-  program : Program signature algebra program result
-  regions : List (Id .region)
-
-def CloneResult.state (result : CloneResult signature algebra program shape answer) : State signature algebra program answer :=
-  ⟨⟨sourceHeap result.frozen.store, result.program⟩, result.frozen.arena.cells, result.regions⟩
-
-/-- The operand evaluator is parametric in saved futures. Retaining authored
-provenance does not change operand values, physical fields, or the source
-program; the resulting ordinary source heap holds the actual callbacks. -/
-inductive CloneEntry (table : Definitions signature algebra program) : State signature algebra program result →
-    (Sigma fun shape => CloneResult signature algebra program shape result) → Prop where
-  | freeze {use : UseScope.OneShotUse}
-      {expression : Expression signature algebra program context (.continuation mode use.type effect input answer)}
-      {bindings : RuntimeEnvironment signature algebra program context}
-      {outside : Context signature algebra program (.continuation mode .multi effect input answer) result}
-      {view : UseScope.ControlView} {partition : Target.Multi.Partition}
-      {store evaluated : DescribedHeap signature algebra program} {arena : Arena signature algebra program}
-      {frozen : Frozen signature algebra program ⟨mode, effect, input, answer⟩} :
-      ExpressionEvaluation bindings arena.cells.reservations.custody store expression
-        (.ok (.continuation view.identity (some (view.authority, view.owner)))) evaluated →
-      freezeOwned ⟨mode, effect, input, answer⟩ view evaluated arena partition = some frozen →
-      CloneEntry table ⟨⟨sourceHeap store, outside.plug (.evaluate (.clone expression) bindings)⟩, arena.cells, regions⟩
-        ⟨⟨mode, effect, input, answer⟩, ⟨frozen, outside.plug (.returned frozen.value),
-          regions.filter (fun region => !partition.regions.contains region)⟩⟩
-
-end Source.Multi
-
 namespace Defunctionalization
 
-/-- An arbitrary successful source clone operand has a finite positive target
-drain into the emitted clone instruction, which returns the same template binding. -/
-theorem compiled_clone_entry
+/-- Clone evaluates its authored operand, consumes the actual grant, registers
+the template, and returns to the related caller in the common runtime. -/
+theorem compiled_registered_clone
     (table : Source.Definitions signature algebra program) (use : UseScope.OneShotUse)
     (expression : Source.Expression signature algebra program context (.continuation mode use.type effect input answer))
     (bindings : Source.RuntimeEnvironment signature algebra program context) (view : UseScope.ControlView)
     (store evaluated : Source.Multi.DescribedHeap signature algebra program) (arena : Source.Multi.Arena signature algebra program)
     (partition : Target.Multi.Partition) (regions : List (Id .region))
-    (operands : Source.ExpressionEvaluation bindings arena.cells.reservations.custody store expression
+    (registry registered : Source.Multi.Registry signature algebra program)
+    (operands : Source.ExpressionEvaluation bindings
+      (arena.cells.reservations.withSupport (Source.Multi.retainedSupport registry arena)).custody store expression
       (.ok (.continuation view.identity (some (view.authority, view.owner)))) evaluated)
     (sourceFrozen : Source.Multi.Frozen signature algebra program ⟨mode, effect, input, answer⟩)
-    (accepted : Source.Multi.freezeOwned ⟨mode, effect, input, answer⟩ view evaluated arena partition = some sourceFrozen)
-    (sourceOutside : Source.Context signature algebra program (.continuation mode .multi effect input answer) result)
-    (targetOutside : Target.Stack signature algebra program (.continuation mode .multi effect input answer) result) :
-    Source.Multi.CloneEntry table
-      ⟨⟨Source.Multi.sourceHeap store, sourceOutside.plug (.evaluate (.clone expression) bindings)⟩, arena.cells, regions⟩
-      ⟨⟨mode, effect, input, answer⟩, ⟨sourceFrozen, sourceOutside.plug (.returned sourceFrozen.value),
-        regions.filter (fun region => !partition.regions.contains region)⟩⟩ ∧
-    ∃ count, 0 < count ∧
-      Target.ExecutionSteps (definitions table)
-        ⟨⟨templateHeap store, .code (computation (.clone expression)) (environment bindings) .nil targetOutside⟩,
-          cells arena.cells, regions⟩ count
-        ⟨⟨templateHeap evaluated, .code (.clone (use := use.type) .ret) (environment bindings)
-          (.cons (.continuation view.identity (some (view.authority, view.owner))) .nil) targetOutside⟩, cells arena.cells, regions⟩ ∧
-      Target.Multi.CloneEntry (definitions table)
-        ⟨⟨templateHeap evaluated, .code (.clone (use := use.type) .ret) (environment bindings)
-          (.cons (.continuation view.identity (some (view.authority, view.owner))) .nil) targetOutside⟩, cells arena.cells, regions⟩
-        ⟨⟨mode, effect, input, answer⟩, ⟨frozen sourceFrozen,
-          .code .ret (environment bindings) (.cons (frozen sourceFrozen).value .nil) targetOutside,
-          regions.filter (fun region => !partition.regions.contains region)⟩⟩ := by
+    (accepted : Source.Multi.freezeInto ⟨mode, effect, input, answer⟩ view evaluated arena partition registry = some (sourceFrozen, registered))
+    {sourceOutside : Source.Context signature algebra program (.continuation mode .multi effect input answer) result}
+    {targetOutside : Target.Stack signature algebra program (.continuation mode .multi effect input answer) result}
+    (outside : ContextRelated signature algebra program sourceOutside targetOutside) :
+    let sourceBefore : Source.Multi.Runtime signature algebra program result :=
+      ⟨⟨Source.Multi.sourceHeap store, sourceOutside.plug (.evaluate (.clone expression) bindings)⟩, arena, regions, registry⟩
+    let sourceAfter : Source.Multi.Runtime signature algebra program result :=
+      ⟨⟨Source.Multi.sourceHeap sourceFrozen.store, sourceOutside.plug (.returned sourceFrozen.value)⟩, sourceFrozen.arena,
+        regions.filter (fun region => !partition.regions.contains region), registered⟩
+    let targetBefore : Target.Multi.Runtime signature algebra program result :=
+      ⟨⟨templateHeap store, .code (computation (.clone expression)) (environment bindings) .nil targetOutside⟩,
+        templateArena arena, regions, templateRegistry registry⟩
+    let targetAfter : Target.Multi.Runtime signature algebra program result :=
+      ⟨⟨(frozen sourceFrozen).store, .returned (frozen sourceFrozen).value targetOutside⟩, (frozen sourceFrozen).arena,
+        regions.filter (fun region => !partition.regions.contains region), templateRegistry registered⟩
+    Source.Multi.Step table sourceBefore sourceAfter ∧ MultiRuntimeRelated sourceAfter targetAfter ∧
+      ∃ count, 0 < count ∧ Target.Multi.Steps (definitions table) targetBefore count targetAfter := by
+  dsimp only
+  refine ⟨.clone (use := use) rfl rfl operands accepted,
+    ⟨⟨template_heap_correspondence sourceFrozen.store, rfl, rfl, rfl⟩, (EntryRelated.returned sourceFrozen.value outside).as_program⟩, ?_⟩
   let convert := UseScope.mapPacked (fun shape => templateFuture (signature := signature) (algebra := algebra) (program := program) (shape := shape))
   obtain ⟨count, targetEvaluated, positive, steps, related⟩ := owned_expression_drains
-    (fun first second => convert first = second) bindings arena.cells.reservations.custody expression
+    (fun first second => convert first = second) bindings
+    (arena.cells.reservations.withSupport (Source.Multi.retainedSupport registry arena)).custody expression
     (.continuation view.identity (some (view.authority, view.owner))) operands (.clone (use := use.type) .ret) .nil
     (UseScope.ControlStore.map_related convert store)
   have same := UseScope.ControlStore.related_map_eq convert related
   change templateHeap evaluated = targetEvaluated at same
   subst targetEvaluated
-  have reservations : (cells arena.cells).reservations = arena.cells.reservations := Cells.reservations_mapBodies _ arena.cells
-  rw [← reservations] at steps
-  refine ⟨.freeze operands accepted, count, positive, steps.in_execution (definitions table) targetOutside (cells arena.cells) regions, ?_⟩
-  apply Target.Multi.CloneEntry.freeze (use := use) (arena := templateArena arena)
-  rw [freeze_owned_corresponds, accepted]
-  rfl
-
-theorem frozen_reference_returns_to_the_related_caller
-    (table : Target.Definitions signature algebra program)
-    (source : Source.Multi.Frozen signature algebra program shape)
-    (bindings : Source.RuntimeEnvironment signature algebra program context)
-    {sourceOutside : Source.Context signature algebra program
-      (.continuation shape.mode .multi shape.effect shape.input shape.answer) result}
-    {targetOutside : Target.Stack signature algebra program
-      (.continuation shape.mode .multi shape.effect shape.input shape.answer) result}
-    (outside : ContextRelated signature algebra program sourceOutside targetOutside) (regions : List (Id .region)) :
-    Target.ExecutionSteps table
-      ⟨⟨(frozen source).store, .code .ret (environment bindings) (.cons (frozen source).value .nil) targetOutside⟩,
-        (frozen source).arena.cells, regions⟩ 1
-      ⟨⟨(frozen source).store, .returned (frozen source).value targetOutside⟩, (frozen source).arena.cells, regions⟩ ∧
-    ProgramRelated (sourceOutside.plug (.returned source.value)) .done
-      (.returned (frozen source).value targetOutside) :=
-  ⟨.single (.cell (.ordinary .returned)), outside.close_program (.returned source.value targetOutside)⟩
+  have reservations : (templateArena arena).cells.reservations = arena.cells.reservations := Cells.reservations_mapBodies _ arena.cells
+  rw [← reservations, ← retained_support_corresponds registry arena] at steps
+  have targetAccepted : Target.Multi.freezeInto ⟨mode, effect, input, answer⟩ view (templateHeap evaluated)
+      (templateArena arena) partition (templateRegistry registry) = some (frozen sourceFrozen, templateRegistry registered) := by
+    rw [registered_freeze_corresponds, accepted]
+    rfl
+  have entered := Target.Multi.Steps.prepend_operands (table := definitions table) (regions := regions)
+    (outside := targetOutside) steps (.clone (use := use) rfl targetAccepted)
+  refine ⟨count + 2, by omega, ?_⟩
+  simpa only [Nat.add_assoc, Nat.zero_add, Nat.reduceAdd, Target.Multi.Runtime.withState,
+    convert, templateHeap, computation] using
+    entered.trans (Target.Multi.Steps.cons (.core (.cell (.ordinary .returned))) .refl)
 
 end Defunctionalization
 end BoundaryV2.Generalized

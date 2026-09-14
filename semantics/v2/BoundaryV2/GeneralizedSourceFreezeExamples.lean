@@ -75,22 +75,30 @@ theorem general_translation_law_delivers_the_same_target_freeze :
   rfl
 
 theorem authored_clone_returns_the_source_template_binding :
-    Source.Multi.CloneEntry (.nil : Source.Definitions signature algebra [])
+    Source.Multi.Step (.nil : Source.Definitions signature algebra [])
       (⟨⟨Source.Multi.sourceHeap sourceFreezeStore,
-        .evaluate (.clone (.reference .here)) cloneSourceBindings⟩, sourceFreezeArena.cells, [⟨3⟩, ⟨0⟩]⟩ :
-        Source.State signature algebra [] FrozenReference)
-      ⟨templateShape, ⟨sourceFrozenControl, .returned sourceFrozenControl.value, [⟨0⟩]⟩⟩ :=
-  (Defunctionalization.compiled_clone_entry .nil .linear (.reference .here) cloneSourceBindings freezeView
-    sourceFreezeStore sourceFreezeStore sourceFreezeArena freezePartition [⟨3⟩, ⟨0⟩]
-    .reference sourceFrozenControl authored_source_freezes_its_registered_callback_and_current_cells .done .done).1
+        .evaluate (.clone (.reference .here)) cloneSourceBindings⟩, sourceFreezeArena, [⟨3⟩, ⟨0⟩], []⟩ :
+        Source.Multi.Runtime signature algebra [] FrozenReference)
+      ⟨⟨Source.Multi.sourceHeap sourceFrozenControl.store, .returned sourceFrozenControl.value⟩,
+        sourceFrozenControl.arena, [⟨0⟩], [⟨freezeView.identity, ⟨templateShape, sourceBranchingTemplate⟩⟩]⟩ := by
+  refine Source.Multi.Step.clone (use := .linear) (partition := freezePartition) (outside := .done)
+    (expression := .reference .here) (bindings := cloneSourceBindings)
+    (store := sourceFreezeStore) (evaluated := sourceFreezeStore) (frozen := sourceFrozenControl) (view := freezeView) ?_ ?_ .reference ?_
+  · rfl
+  · rfl
+  unfold Source.Multi.freezeInto
+  rw [authored_source_freezes_its_registered_callback_and_current_cells]
+  rfl
 
 theorem frozen_reference_reenters_the_caller_with_matching_source_meaning :
-    Target.ExecutionSteps (.nil : Target.Definitions signature algebra [])
+    Target.Multi.Steps (.nil : Target.Definitions signature algebra [])
       (⟨⟨frozenControl.store, .code .ret freezeBindings (.cons frozenControl.value .nil) .done⟩,
-        frozenControl.arena.cells, [⟨0⟩]⟩ : Target.State signature algebra [] FrozenReference) 1
-      ⟨⟨frozenControl.store, .returned frozenControl.value .done⟩, frozenControl.arena.cells, [⟨0⟩]⟩ ∧
+        frozenControl.arena, [⟨0⟩], [⟨freezeView.identity, ⟨templateShape, branchingTemplate⟩⟩]⟩ :
+        Target.Multi.Runtime signature algebra [] FrozenReference) 1
+      ⟨⟨frozenControl.store, .returned frozenControl.value .done⟩, frozenControl.arena, [⟨0⟩],
+        [⟨freezeView.identity, ⟨templateShape, branchingTemplate⟩⟩]⟩ ∧
     Defunctionalization.ProgramRelated (.returned sourceFrozenControl.value) .done (.returned frozenControl.value .done) :=
-  Defunctionalization.frozen_reference_returns_to_the_related_caller .nil sourceFrozenControl cloneSourceBindings .done [⟨0⟩]
+  ⟨.cons (.core (.cell (.ordinary .returned))) .refl, .returned sourceFrozenControl.value .done⟩
 
 def sourceCleanupTemplate : Source.Multi.Image signature algebra [] templateShape :=
   { sourceTemplateImage with

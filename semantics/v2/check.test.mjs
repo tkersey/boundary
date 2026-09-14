@@ -16,12 +16,13 @@ function claimMutations() {
   const directory = mkdtempSync(join(tmpdir(), 'boundary-claim-mutation-'));
   const contracts = readFileSync(join(project, 'BoundaryV2', 'GeneralizedContracts.lean'), 'utf8');
   const observations = readFileSync(join(project, 'BoundaryV2', 'GeneralizedStateObservations.lean'), 'utf8');
+  const registered = readFileSync(join(project, 'BoundaryV2', 'GeneralizedRegisteredExecution.lean'), 'utf8');
   const consumers = readFileSync(join(project, 'BoundaryV2', 'GeneralizedContractChecks.lean'), 'utf8');
   try {
     mkdirSync(join(directory, 'BoundaryV2'));
     const artifacts = join(project, '.lake', 'build', 'lib', 'lean', 'BoundaryV2');
     for (const name of readdirSync(artifacts)) {
-      if (!/\.olean(?:\.|$)/.test(name) || /^(GeneralizedContracts|GeneralizedContractChecks|GeneralizedStateObservations)\./.test(name)) continue;
+      if (!/\.olean(?:\.|$)/.test(name) || /^(GeneralizedContracts|GeneralizedContractChecks|GeneralizedStateObservations|GeneralizedRegisteredExecution)\./.test(name)) continue;
       symlinkSync(join(artifacts, name), join(directory, 'BoundaryV2', name));
     }
     copyFileSync(join(project, 'lean-toolchain'), join(directory, 'lean-toolchain'));
@@ -43,6 +44,7 @@ function claimMutations() {
       console.log(`trust mutation: ${label}: rejected by statement checking`);
     }
     accepted(compile('GeneralizedStateObservations', observations, true), 'original stateful observations');
+    accepted(compile('GeneralizedRegisteredExecution', registered, true), 'original registered execution');
     accepted(compile('GeneralizedContracts', contracts, true), 'original contract declarations');
     accepted(compile('GeneralizedContractChecks', consumers), 'original contract consumers');
     for (const [namespace, name] of [
@@ -70,6 +72,13 @@ function claimMutations() {
     } else {
       rejected(mutated, 'stateful observation replaced with ordinary-only observation');
     }
+    accepted(compile('GeneralizedStateObservations', observations, true), 'restored stateful observations');
+    const registeredObservation = '∃ count, Steps table before count after ∧ Source.HeadObservation after.control.computation observation';
+    assert(registered.includes(registeredObservation), 'missing registered observation mutation target');
+    accepted(compile('GeneralizedRegisteredExecution', registered.replace(registeredObservation,
+      'Source.StateObserves table before.state after.state observation'), true), 'registered observation restricted to core-only probe');
+    accepted(compile('GeneralizedContracts', contracts, true), 'contracts over restricted registered observations');
+    rejected(compile('GeneralizedContractChecks', consumers), 'registered observation replaced with core-only observation');
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

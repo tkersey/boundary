@@ -1,4 +1,4 @@
-import BoundaryV2.GeneralizedMultiEntry
+import BoundaryV2.GeneralizedMultiControlEntry
 import BoundaryV2.GeneralizedSourceFreezeExamples
 
 namespace BoundaryV2.Generalized.Examples
@@ -58,7 +58,7 @@ theorem registered_resume_uses_current_cells_and_makes_local_regions_live :
 theorem authored_multi_resume_has_a_positive_compiled_entry :
     Source.Multi.ResumeEntry (.nil : Source.Definitions signature algebra []) sourceRegistered sourceRegisteredAfter ∧
     ∃ targetAfter count, 0 < count ∧ Defunctionalization.MultiRuntimeRelated sourceRegisteredAfter targetAfter ∧
-      Target.Multi.ResumeRun (.nil : Target.Definitions signature algebra [])
+      Target.Multi.Steps (.nil : Target.Definitions signature algebra [])
         ⟨⟨Defunctionalization.templateHeap sourceFrozenControl.store,
           .code (Defunctionalization.computation registeredProgram) (Defunctionalization.environment registeredBindings) .nil .done⟩,
           Defunctionalization.templateArena sourceRegistered.arena, [⟨0⟩], Defunctionalization.templateRegistry sourceRegistry⟩ count targetAfter :=
@@ -88,5 +88,169 @@ theorem unknown_reference_and_wrong_shape_reject_without_changing_the_binding :
   intro same
   have answers := congrArg ControlShape.answer same
   cases answers
+
+/-- One authored computation crosses clone, immutable registration, a normal
+caller, reusable activation, and the branch's actual cell read. -/
+def cloneResumeBody : Source.Computation signature algebra []
+    (FrozenReference :: [.continuation .shallow .linear .choose .unit (.leaf .integer)]) (.leaf .integer) :=
+  .resume (.reference .here) (.datum .unit)
+
+def cloneResumeProgram : Source.Computation signature algebra []
+    [.continuation .shallow .linear .choose .unit (.leaf .integer)] (.leaf .integer) :=
+  .bind (.clone (.reference .here)) cloneResumeBody
+
+def cloneResumeStart : Source.Multi.Runtime signature algebra [] (.leaf .integer) :=
+  ⟨⟨Source.Multi.sourceHeap sourceFreezeStore, .evaluate cloneResumeProgram cloneSourceBindings⟩,
+    sourceFreezeArena, [⟨3⟩, ⟨0⟩], []⟩
+
+def cloneResumeEnd : Source.Multi.Runtime signature algebra [] (.leaf .integer) :=
+  { sourceRegisteredAfter with control := ⟨sourceRegisteredAfter.control.store, .returned (.datum (.leaf 0))⟩ }
+
+def sourceCloneResumeReady : Source.Multi.Runtime signature algebra [] (.leaf .integer) :=
+  ⟨⟨Source.Multi.sourceHeap sourceFrozenControl.store,
+    .evaluate cloneResumeBody (.cons sourceFrozenControl.value cloneSourceBindings)⟩,
+    sourceFrozenControl.arena, [⟨0⟩], sourceRegistry⟩
+
+def cloneResumeExternal : List Reference := Source.Multi.callSupport .nil
+  (.cons sourceFrozenControl.value cloneSourceBindings)
+  (.done : Source.Context signature algebra [] (.leaf .integer) (.leaf .integer)) sourceCloneResumeReady.control.store
+
+theorem clone_resume_activation_uses_the_registered_arena :
+    sourceCloneResumeReady.activate templateShape freezeView.identity cloneResumeExternal =
+      some ⟨registeredActivation, [⟨7⟩, ⟨0⟩], activatedRegistry⟩ := by
+  unfold Source.Multi.Runtime.activate
+  change (TemplateRegistry.lookup templateShape freezeView.identity sourceRegistry).bind _ = _
+  rw [registered_template_lookup]
+  rfl
+
+theorem source_clone_and_resume_compose_to_a_finite_observation :
+    Source.Multi.Steps (.nil : Source.Definitions signature algebra []) cloneResumeStart 6 cloneResumeEnd := by
+  refine .cons (.core (.cell (.ordinary .bind))) ?_
+  refine .cons (Source.Multi.Step.clone (use := .linear) (partition := freezePartition)
+    (expression := .reference .here) (bindings := cloneSourceBindings)
+    (outside := .push (.bindAuthored cloneResumeBody cloneSourceBindings) .done)
+    (store := sourceFreezeStore) (evaluated := sourceFreezeStore) (frozen := sourceFrozenControl)
+    (view := freezeView) rfl rfl .reference freezing_registers_the_actual_template) ?_
+  refine .cons (.core (.cell (.ordinary .bindValue))) ?_
+  have resumed : Source.Multi.ResumeEntry (.nil : Source.Definitions signature algebra [])
+      ⟨⟨Source.Multi.sourceHeap sourceFrozenControl.store,
+        .evaluate cloneResumeBody (.cons sourceFrozenControl.value cloneSourceBindings)⟩,
+        sourceFrozenControl.arena, [⟨0⟩], sourceRegistry⟩ sourceRegisteredAfter := by
+    refine .enter (outside := .done) (.cons .reference (.cons .datum .nil)) ?_
+    unfold Source.Multi.Runtime.resume Source.Multi.Runtime.activate
+    change ((TemplateRegistry.lookup templateShape freezeView.identity sourceRegistry).bind _).map _ = _
+    rw [registered_template_lookup]
+    rfl
+  refine .cons (.resume resumed) (.cons (.core (.cell (.ordinary .bindValue))) ?_)
+  refine .cons (.core (.cell (Source.CellStep.read (outside := .done) (identity := ⟨15⟩) (region := ⟨7⟩)
+    (value := (.datum (.leaf 0) : Source.RuntimeValue signature algebra [] (.leaf .integer)))
+    .reference (by decide) ?_))) .refl
+  change Cells.readCopy (signature := signature) (algebra := algebra) (Body := Source.Computation signature algebra []) ⟨15⟩ ⟨7⟩ (.leaf .integer)
+    [⟨⟨15⟩, ⟨7⟩, .leaf .integer, .datum (.leaf 0)⟩, ⟨⟨2⟩, ⟨0⟩, .leaf .integer, .datum (.leaf 99)⟩] = _
+  simp [Cells.readCopy, Cells.read, Cells.lookup, Value.copyable, Datum.copyable]
+
+def targetCloneResumeStart : Target.Multi.Runtime signature algebra [] (.leaf .integer) :=
+  ⟨⟨freezeStore, .code (Defunctionalization.computation cloneResumeProgram) freezeBindings .nil .done⟩,
+    freezeArena, [⟨3⟩, ⟨0⟩], []⟩
+
+def targetCloneResumeEnd : Target.Multi.Runtime signature algebra [] (.leaf .integer) :=
+  ⟨⟨frozenControl.store, .returned (.datum (.leaf 0)) .done⟩, Defunctionalization.templateArena sourceRegisteredAfter.arena,
+    [⟨7⟩, ⟨0⟩], Defunctionalization.templateRegistry activatedRegistry⟩
+
+
+def targetCloneResumeReady : Target.Multi.Runtime signature algebra [] (.leaf .integer) :=
+  ⟨⟨frozenControl.store, .code (.resume (use := Use.multi) .ret)
+      (Defunctionalization.environment (.cons sourceFrozenControl.value cloneSourceBindings))
+      (.cons (.datum .unit) (.cons frozenControl.value .nil)) .done⟩,
+    frozenControl.arena, [⟨0⟩], Defunctionalization.templateRegistry sourceRegistry⟩
+
+def targetCloneResumeActivated : Target.Multi.Runtime signature algebra [] (.leaf .integer) :=
+  ⟨⟨frozenControl.store, Target.reenter (Defunctionalization.templateFuture registeredActivation.saved) (.datum .unit)
+      (.push (.returnTo .ret (Defunctionalization.environment (.cons sourceFrozenControl.value cloneSourceBindings)) .nil) .done)⟩,
+    Defunctionalization.templateArena sourceRegisteredAfter.arena, [⟨7⟩, ⟨0⟩],
+    Defunctionalization.templateRegistry activatedRegistry⟩
+
+theorem target_clone_and_resume_compose_to_the_same_finite_observation :
+    Target.Multi.Steps (.nil : Target.Definitions signature algebra []) targetCloneResumeStart 16 targetCloneResumeEnd := by
+  refine .cons (.core (.cell (.ordinary .block))) ?_
+  refine .cons (.core (.cell (.ordinary (.operand .load)))) ?_
+  refine .cons (Target.Multi.Step.clone (use := .linear) (partition := freezePartition)
+    (frozen := frozenControl) (view := freezeView)
+    (registered := Defunctionalization.templateRegistry sourceRegistry) rfl ?_) ?_
+  · change Target.Multi.freezeInto templateShape freezeView freezeStore freezeArena freezePartition [] =
+      some (frozenControl, Defunctionalization.templateRegistry sourceRegistry)
+    unfold Target.Multi.freezeInto
+    rw [owned_continuation_freezes_actual_future_and_local_cells.1]
+    rfl
+  refine .cons (.core (.cell (.ordinary .returned))) ?_
+  refine .cons (.core (.cell (.ordinary .caller))) ?_
+  refine .cons (.core (.cell (.ordinary .enter))) ?_
+  refine .cons (.core (.cell (.ordinary (.operand .load)))) ?_
+  refine .cons (.core (.cell (.ordinary (.operand .push)))) ?_
+  change Target.Multi.Steps .nil targetCloneResumeReady 8 targetCloneResumeEnd
+  refine .cons (.resume (.enter (after := targetCloneResumeActivated) ?_)) ?_
+  · have joined : Defunctionalization.MultiDataRelated sourceCloneResumeReady targetCloneResumeReady :=
+      ⟨Defunctionalization.template_heap_correspondence sourceFrozenControl.store, rfl, rfl, rfl⟩
+    have supported := Defunctionalization.multi_call_support_corresponds
+      (sourceOutside := (.done : Source.Context signature algebra [] (.leaf .integer) (.leaf .integer)))
+      (targetOutside := (.done : Target.Stack signature algebra [] (.leaf .integer) (.leaf .integer)))
+      (.nil : Source.Definitions signature algebra []) (.cons sourceFrozenControl.value cloneSourceBindings)
+      Defunctionalization.ContextRelated.done (Defunctionalization.template_heap_correspondence sourceFrozenControl.store)
+    change Target.Multi.callSupport .nil (Defunctionalization.environment (.cons sourceFrozenControl.value cloneSourceBindings))
+      .nil .ret .done frozenControl.store = cloneResumeExternal at supported
+    unfold Target.Multi.Runtime.resume
+    change (targetCloneResumeReady.activate templateShape freezeView.identity
+      (Target.Multi.callSupport .nil (Defunctionalization.environment (.cons sourceFrozenControl.value cloneSourceBindings))
+        .nil .ret .done frozenControl.store)).map _ = _
+    rw [supported]
+    change (targetCloneResumeReady.activate templateShape freezeView.identity cloneResumeExternal).map _ = _
+    rw [Defunctionalization.registered_activation_corresponds joined, clone_resume_activation_uses_the_registered_arena]
+    rfl
+  refine .cons (.core (.cell (.ordinary .caller))) ?_
+  refine .cons (.core (.cell (.ordinary .enter))) ?_
+  refine .cons (.core (.cell (.ordinary (.operand .load)))) ?_
+  refine .cons (.core (.cell (.read (identity := ⟨15⟩) (region := ⟨7⟩)
+    (value := (.datum (.leaf 0) : Target.RuntimeValue signature algebra [] (.leaf .integer))) (by decide) ?_))) ?_
+  · change Cells.readCopy (signature := signature) (algebra := algebra)
+      (Body := fun context result => Target.Code signature algebra [] context [] result) ⟨15⟩ ⟨7⟩ (.leaf .integer)
+      [⟨⟨15⟩, ⟨7⟩, .leaf .integer, .datum (.leaf 0)⟩, ⟨⟨2⟩, ⟨0⟩, .leaf .integer, .datum (.leaf 99)⟩] = _
+    simp [Cells.readCopy, Cells.read, Cells.lookup, Value.copyable, Datum.copyable]
+  refine .cons (.core (.cell (.ordinary .returned))) ?_
+  refine .cons (.core (.cell (.ordinary .caller))) ?_
+  exact .cons (.core (.cell (.ordinary .returned))) .refl
+
+theorem cloned_registered_observations_keep_current_resources :
+    Source.Multi.Observes .nil cloneResumeStart cloneResumeEnd (.returned (.datum (.leaf 0))) ∧
+    Target.Multi.Observes .nil targetCloneResumeStart targetCloneResumeEnd (.returned (.datum (.leaf 0))) ∧
+    cloneResumeEnd.arena.cells = sourceRegisteredAfter.arena.cells ∧
+    cloneResumeEnd.registry = activatedRegistry ∧
+    Cells.readCopy (signature := signature) (algebra := algebra) ⟨2⟩ ⟨0⟩ (.leaf .integer) cloneResumeEnd.arena.cells =
+      some (.datum (.leaf 99)) := by
+  refine ⟨⟨6, source_clone_and_resume_compose_to_a_finite_observation, .returned⟩,
+    ⟨16, target_clone_and_resume_compose_to_the_same_finite_observation, .returned⟩, rfl, rfl, ?_⟩
+  change Cells.readCopy (signature := signature) (algebra := algebra) (Body := Source.Computation signature algebra []) ⟨2⟩ ⟨0⟩ (.leaf .integer)
+    [⟨⟨15⟩, ⟨7⟩, .leaf .integer, .datum (.leaf 0)⟩, ⟨⟨2⟩, ⟨0⟩, .leaf .integer, .datum (.leaf 99)⟩] = _
+  simp [Cells.readCopy, Cells.read, Cells.lookup, Value.copyable, Datum.copyable]
+
+def registeredCellAllocation : Target.Multi.Runtime signature algebra [] (.cell (.leaf .integer)) :=
+  ⟨⟨frozenControl.store, .code (.cellNew .ret) .nil
+      (.cons (.datum (.leaf 42)) (.cons (.datum (.region ⟨0⟩)) .nil)) .done⟩,
+    frozenControl.arena, [⟨0⟩], Defunctionalization.templateRegistry sourceRegistry⟩
+
+def registeredCellAllocated : Target.Multi.Runtime signature algebra [] (.cell (.leaf .integer)) :=
+  ⟨⟨frozenControl.store, .returned (.cell ⟨8⟩ ⟨0⟩) .done⟩,
+    { frozenControl.arena with cells := ⟨⟨8⟩, ⟨0⟩, .leaf .integer, .datum (.leaf 42)⟩ :: currentOuterCell },
+    [⟨0⟩], Defunctionalization.templateRegistry sourceRegistry⟩
+
+/-- Cell 7 is retained only in the immutable template. Ordinary allocation
+reserves that support and writes cell 8 into the current arena, keeping cell 2. -/
+theorem ordinary_allocation_reserves_registry_cells_and_updates_current_storage :
+    Target.Multi.Steps (.nil : Target.Definitions signature algebra []) registeredCellAllocation 2 registeredCellAllocated ∧
+    registeredCellAllocated.arena.cells.identities = [⟨8⟩, ⟨2⟩] ∧
+    registeredCellAllocated.registry = registeredCellAllocation.registry := by
+  refine ⟨?_, rfl, rfl⟩
+  refine .cons (.core (.cell (Target.CellStep.allocate (reserved := [])
+    (region := ⟨0⟩) (by decide) (.unowned rfl)))) ?_
+  exact .cons (.core (.cell (.ordinary .returned))) .refl
 
 end BoundaryV2.Generalized.Examples
