@@ -106,9 +106,12 @@ This is logical relocation, not a codec, hash-injectivity, or anti-replay theore
 `GeneralizedStateObservations` takes finite closures of the existing independent,
 permission-sensitive source and target execution relations. Every observation
 retains the current heap, cells, live regions, and typed future. Initialization
-and response entry are proved structurally. The finite preservation/reflection
-fields are unproved; neither ordinary adequacy nor mutually missing stateful
-transitions establish them for the complete core. In particular, reusable
+and response entry are proved structurally. `GeneralizedStateSimulation` now
+proves preservation for every constructor of the current stateful relation and
+lifts it over arbitrary finite derivations to all four observations. That proof
+supplies D's preservation field; initialization and response fields also have
+checked defaults. Reflection is still unproved. Neither ordinary adequacy nor
+mutually missing stateful transitions establish the complete core claim. Reusable
 registry entry, nested abandonment, and disposal must participate in the same
 compositional interpretation before D is complete.
 

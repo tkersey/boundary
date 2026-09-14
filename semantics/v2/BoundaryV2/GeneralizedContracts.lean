@@ -1,4 +1,4 @@
-import BoundaryV2.GeneralizedStateObservations
+import BoundaryV2.GeneralizedStateSimulation
 import BoundaryV2.GeneralizedMultiEntry
 import BoundaryV2.GeneralizedDisposalExecution
 import BoundaryV2.GeneralizedCleanupCompletion
@@ -34,7 +34,9 @@ structure adequacy : Prop where
     ∀ observation, Source.StateObserves table source final observation →
       ∃ targetFinal targetObservation,
         Target.StateObserves (definitions table) target targetFinal targetObservation ∧
-        StateObservationRelated final targetFinal observation targetObservation
+        StateObservationRelated final targetFinal observation targetObservation := by
+          intro table result source final target related observation observed
+          exact stateful_observation_preserved table related observed
   reflection : ∀ (table : Source.Definitions signature algebra program) {result}
     {source : Source.State signature algebra program result}
     {target final : Target.State signature algebra program result},
@@ -53,7 +55,9 @@ structure adequacy : Prop where
       ExecutionStateRelated
         ⟨⟨sourceStore, .evaluate body bindings⟩, sourceCells, regions⟩
         ⟨⟨targetStore, .code (computation body) (environment bindings) .nil .done⟩,
-          cells sourceCells, regions⟩
+          cells sourceCells, regions⟩ := by
+            intro context result body bindings sourceStore targetStore stores sourceCells regions
+            exact stateful_initialization body bindings stores sourceCells regions
   responses : ∀ {input result}
     {sourceFuture : Source.Context signature algebra program input result}
     {targetFuture : Target.Stack signature algebra program input result},
@@ -65,7 +69,9 @@ structure adequacy : Prop where
     ∀ (sourceCells : Cells signature algebra (Source.Computation signature algebra program)) regions,
       ExecutionStateRelated
         ⟨⟨sourceStore, sourceFuture.plug (.returned response)⟩, sourceCells, regions⟩
-        ⟨⟨targetStore, .returned (value response) targetFuture⟩, cells sourceCells, regions⟩
+        ⟨⟨targetStore, .returned (value response) targetFuture⟩, cells sourceCells, regions⟩ := by
+          intro input result sourceFuture targetFuture future response sourceStore targetStore stores sourceCells regions
+          exact stateful_response_entry future response stores sourceCells regions
 
 end Defunctionalization
 

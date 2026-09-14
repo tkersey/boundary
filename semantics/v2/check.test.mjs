@@ -60,16 +60,16 @@ function claimMutations() {
     }
     const stateful = '∃ count, ExecutionSteps table before count after ∧ HeadObservation after.control.computation observation';
     assert(observations.includes(stateful), 'missing stateful observation mutation target');
-    // The source prepend lemma depends on the stateful meaning being removed;
-    // omit it from the forged module so the probe reaches the statement gate.
-    const prepend = observations.indexOf('theorem StateObserves.prepend');
-    const sourceEnd = observations.indexOf('\nend Source', prepend);
-    assert(prepend >= 0 && sourceEnd > prepend, 'missing source prepend dependent');
-    const ordinaryOnly = (observations.slice(0, prepend) + observations.slice(sourceEnd))
-      .replace(stateful, 'Observes table before.control.computation observation');
-    accepted(compile('GeneralizedStateObservations', ordinaryOnly, true), 'ordinary-only observation probe must itself compile');
-    accepted(compile('GeneralizedContracts', contracts, true), 'contracts over weakened observation relation');
-    rejected(compile('GeneralizedContractChecks', consumers), 'stateful observation replaced with ordinary-only observation');
+    // Change only the meaning-bearing definition. Connected semantic proofs may
+    // now reject the mutation before the separate statement consumer runs.
+    const ordinaryOnly = observations.replace(stateful, 'Observes table before.control.computation observation');
+    const mutated = compile('GeneralizedStateObservations', ordinaryOnly, true);
+    if (mutated.status === 0) {
+      accepted(compile('GeneralizedContracts', contracts, true), 'contracts over weakened observation relation');
+      rejected(compile('GeneralizedContractChecks', consumers), 'stateful observation replaced with ordinary-only observation');
+    } else {
+      rejected(mutated, 'stateful observation replaced with ordinary-only observation');
+    }
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

@@ -130,3 +130,141 @@ theorem compiled_owned_operand_application
         .evaluate body (actual.append captured) (.passthrough bindings outside)⟩, rfl, rfl⟩
 
 end BoundaryV2.Generalized.Defunctionalization
+
+namespace BoundaryV2.Generalized.Source
+
+variable {signature : Signature} {algebra : LeafAlgebra signature.Data}
+  {program : List (BodyType signature.Data signature.Effect)} {Future : Type}
+
+/-- The bound is a structural proof measure on operand syntax, not evaluation
+fuel. The two independent operand interpretations agree on closure-free syntax. -/
+private theorem neutral_operands_bounded
+    (bindings : RuntimeEnvironment signature algebra program context)
+    (reserved : List (Id .custody)) (store : UseScope.ControlStore Future) (bound : Nat) :
+    (∀ {type} (expression : Expression signature algebra program context type), sizeOf expression < bound →
+      expression.containsClosure = false →
+      ExpressionEvaluation bindings reserved store expression (expression.evaluate bindings) store) ∧
+    (∀ {types} (inputs : Arguments signature algebra program context types), sizeOf inputs < bound →
+      inputs.containsClosure = false →
+      ArgumentsEvaluation bindings reserved store inputs (inputs.evaluate bindings) store) := by
+  cases bound with
+  | zero => constructor <;> intro types expression sized <;> omega
+  | succ bound =>
+    obtain ⟨expressions, argumentsIH⟩ := neutral_operands_bounded bindings reserved store bound
+    constructor
+    · intro type expression sized plain
+      cases expression with
+      | datum datum => exact .datum
+      | reference reference => exact .reference
+      | lambda => simp [Expression.containsClosure] at plain
+      | pair first second =>
+        have parts : first.containsClosure = false ∧ second.containsClosure = false := by
+          simpa only [Expression.containsClosure, Bool.or_eq_false_iff] using plain
+        have firstRun := expressions first (by simp_all; omega) parts.1
+        have secondRun := expressions second (by simp_all; omega) parts.2
+        cases firstAt : first.evaluate bindings with
+        | error fault =>
+          rw [firstAt] at firstRun
+          simpa only [Expression.evaluate, firstAt] using ExpressionEvaluation.pairFirstFault (second := second) firstRun
+        | ok firstValue =>
+          rw [firstAt] at firstRun
+          cases secondAt : second.evaluate bindings with
+          | error fault =>
+            rw [secondAt] at secondRun
+            simpa only [Expression.evaluate, firstAt, secondAt] using ExpressionEvaluation.pairSecondFault firstRun secondRun
+          | ok secondValue =>
+            rw [secondAt] at secondRun
+            simpa only [Expression.evaluate, firstAt, secondAt] using ExpressionEvaluation.pair firstRun secondRun
+      | first expression =>
+        have run := expressions expression (by simp_all; omega) plain
+        cases atValue : expression.evaluate bindings with
+        | error fault =>
+          rw [atValue] at run
+          simpa only [Expression.evaluate, atValue, Except.map] using ExpressionEvaluation.firstFault run
+        | ok value =>
+          rw [atValue] at run
+          simpa only [Expression.evaluate, atValue, Except.map] using ExpressionEvaluation.first run
+      | second expression =>
+        have run := expressions expression (by simp_all; omega) plain
+        cases atValue : expression.evaluate bindings with
+        | error fault =>
+          rw [atValue] at run
+          simpa only [Expression.evaluate, atValue, Except.map] using ExpressionEvaluation.secondFault run
+        | ok value =>
+          rw [atValue] at run
+          simpa only [Expression.evaluate, atValue, Except.map] using ExpressionEvaluation.second run
+      | left expression =>
+        have run := expressions expression (by simp_all; omega) plain
+        cases atValue : expression.evaluate bindings with
+        | error fault =>
+          rw [atValue] at run
+          simpa only [Expression.evaluate, atValue, Except.map] using ExpressionEvaluation.leftFault run
+        | ok value =>
+          rw [atValue] at run
+          simpa only [Expression.evaluate, atValue, Except.map] using ExpressionEvaluation.left run
+      | right expression =>
+        have run := expressions expression (by simp_all; omega) plain
+        cases atValue : expression.evaluate bindings with
+        | error fault =>
+          rw [atValue] at run
+          simpa only [Expression.evaluate, atValue, Except.map] using ExpressionEvaluation.rightFault run
+        | ok value =>
+          rw [atValue] at run
+          simpa only [Expression.evaluate, atValue, Except.map] using ExpressionEvaluation.right run
+      | primitive operation inputs =>
+        have run := argumentsIH inputs (by simp_all; omega) plain
+        cases atInputs : inputs.evaluate bindings with
+        | error fault =>
+          rw [atInputs] at run
+          simpa only [Expression.evaluate, atInputs] using ExpressionEvaluation.primitiveInputFault (operation := operation) run
+        | ok values =>
+          rw [atInputs] at run
+          cases atPrimitive : algebra.evaluate operation values.leaves with
+          | error fault =>
+            simpa only [Expression.evaluate, atInputs, atPrimitive, Except.map] using ExpressionEvaluation.primitiveFault run atPrimitive
+          | ok value =>
+            simpa only [Expression.evaluate, atInputs, atPrimitive, Except.map] using ExpressionEvaluation.primitive run atPrimitive
+
+    · intro types arguments sized plain
+      cases arguments with
+      | nil => exact .nil
+      | cons first rest =>
+        have parts : first.containsClosure = false ∧ rest.containsClosure = false := by
+          simpa only [Arguments.containsClosure, Bool.or_eq_false_iff] using plain
+        have firstRun := expressions first (by simp_all; omega) parts.1
+        have restRun := argumentsIH rest (by simp_all; omega) parts.2
+        cases firstAt : first.evaluate bindings with
+        | error fault =>
+          rw [firstAt] at firstRun
+          simpa only [Arguments.evaluate, firstAt] using ArgumentsEvaluation.firstFault (rest := rest) firstRun
+        | ok firstValue =>
+          rw [firstAt] at firstRun
+          cases restAt : rest.evaluate bindings with
+          | error fault =>
+            rw [restAt] at restRun
+            simpa only [Arguments.evaluate, firstAt, restAt] using ArgumentsEvaluation.restFault firstRun restRun
+          | ok restValues =>
+            rw [restAt] at restRun
+            simpa only [Arguments.evaluate, firstAt, restAt] using ArgumentsEvaluation.cons firstRun restRun
+
+termination_by bound
+
+/-- The ordinary gate excludes closure construction, not owned values already
+present in the environment. No physical ownership is added by reading a view. -/
+theorem Expression.owned_evaluation_of_no_closure
+    (expression : Expression signature algebra program context type)
+    (bindings : RuntimeEnvironment signature algebra program context)
+    (reserved : List (Id .custody)) (store : UseScope.ControlStore Future)
+    (plain : expression.containsClosure = false) :
+    ExpressionEvaluation bindings reserved store expression (expression.evaluate bindings) store :=
+  (neutral_operands_bounded bindings reserved store (sizeOf expression + 1)).1 expression (by omega) plain
+
+theorem Arguments.owned_evaluation_of_no_closure
+    (arguments : Arguments signature algebra program context types)
+    (bindings : RuntimeEnvironment signature algebra program context)
+    (reserved : List (Id .custody)) (store : UseScope.ControlStore Future)
+    (plain : arguments.containsClosure = false) :
+    ArgumentsEvaluation bindings reserved store arguments (arguments.evaluate bindings) store :=
+  (neutral_operands_bounded bindings reserved store (sizeOf arguments + 1)).2 arguments (by omega) plain
+
+end BoundaryV2.Generalized.Source

@@ -1,6 +1,7 @@
 import BoundaryV2.GeneralizedStatefulOperandExecution
 import BoundaryV2.GeneralizedOwnedOperandExamples
 import BoundaryV2.GeneralizedPrefixExamples
+import BoundaryV2.GeneralizedStateSimulation
 
 namespace BoundaryV2.Generalized.Examples
 
@@ -12,6 +13,48 @@ def compoundCallBefore : Target.State signature algebra [] (.leaf .boolean) :=
 def compoundCallSourceAfter : Source.State signature algebra [] (.leaf .boolean) :=
   ⟨⟨{ createdSourceComputation.store with fields := createdApplicationFields },
     Source.enterClosure applicationBody (.cons (.datum (.leaf false)) .nil) applicationCaptures⟩, creationCells, [⟨1⟩]⟩
+
+def compoundCallSourceBefore : Source.State signature algebra [] (.leaf .boolean) :=
+  ⟨⟨creationSourceStore, .evaluate compoundOwnedCall lambdaBindings⟩, creationCells, [⟨1⟩]⟩
+
+def compoundSourceFuture : Source.Program signature algebra [] (.leaf .boolean) :=
+  .evaluate (.returnValue (.reference .here)) (.cons (.datum (.leaf false)) applicationCaptures)
+
+def compoundCallSourceYielded : Source.State signature algebra [] (.leaf .boolean) :=
+  { compoundCallSourceAfter with control := { compoundCallSourceAfter.control with
+      computation := .yielded compoundSourceFuture } }
+
+/-- Source admission and the source yield establish this expected observation.
+No target execution supplies the expected result or the spent authority. -/
+theorem owned_call_has_a_stateful_source_observation :
+    Source.StateObserves (.nil : Source.Definitions signature algebra [])
+      compoundCallSourceBefore compoundCallSourceYielded (.yielded compoundSourceFuture) := by
+  have entered : Source.ExecutionStep (.nil : Source.Definitions signature algebra [])
+      compoundCallSourceBefore compoundCallSourceAfter :=
+    Source.ExecutionStep.applicationOperands (outside := .done)
+      compound_call_operands_evaluate_in_order created_application_handoff
+  exact ⟨2, .cons entered (.cons (.cell (.ordinary .yield)) .refl), .yielded⟩
+
+/-- Instantiate the general finite theorem across allocation/handoff and yield.
+It must preserve both the typed future and the physical state at observation. -/
+theorem general_stateful_preservation_keeps_spent_authority_and_future :
+    ∃ targetFinal targetFuture,
+      Target.StateObserves (.nil : Target.Definitions signature algebra []) compoundCallBefore targetFinal (.yielded targetFuture) ∧
+      targetFinal.control.store.fields.spent = [⟨301⟩, ⟨17⟩] ∧
+      targetFinal.physicalInventory = [⟨100⟩, ⟨6⟩, ⟨300⟩] ∧
+      Defunctionalization.ProgramRelated compoundSourceFuture .done targetFuture := by
+  have initial : Defunctionalization.ExecutionStateRelated compoundCallSourceBefore compoundCallBefore :=
+    Defunctionalization.stateful_initialization compoundOwnedCall lambdaBindings ⟨rfl, .nil, .nil⟩ creationCells [⟨1⟩]
+  obtain ⟨targetFinal, observation, observed, matching⟩ :=
+    Defunctionalization.stateful_observation_preserved .nil initial owned_call_has_a_stateful_source_observation
+  have fields := matching.store.fields
+  have storage := matching.cells
+  cases matching.observation with
+  | yielded future =>
+    refine ⟨targetFinal, _, observed, ?_, ?_, future⟩
+    · rw [← fields]; rfl
+    · simp only [Target.State.physicalInventory, ← fields, storage, Defunctionalization.cells, Cells.mapBodies_fields]
+      rfl
 
 /-- Allocation and entry use the original authored compound expression. The
 new closure grant is already spent when execution reaches its yielding body. -/

@@ -22,22 +22,37 @@ inhabitants. Their checked components and required connections are:
 
 | Export | Existing components | Remaining proof or connection |
 | --- | --- | --- |
-| `Defunctionalization.adequacy` | `stateful_initialization`, `stateful_response_entry`, ordinary adequacy, and the existing positive operand/entry drains | Prove stateful finite preservation/reflection; compose registry entry and exit/disposal with that observation relation. Ordinary adequacy remains a separate component. |
+| `Defunctionalization.adequacy` | `stateful_observation_preserved`, `stateful_initialization`, `stateful_response_entry`, both stateful head-observation directions, and ordinary adequacy | Prove target-derived stateful reflection; compose registry entry and exit/disposal with the observation relation. Ordinary adequacy remains a separate component. |
 | `Handlers.interpretation` | Fresh installation, nearest selection, forwarding, context closure, actual resume/injection/successor correspondence | Use the stateful correspondence under arbitrary enclosing effectful handlers, including registered multi entry. |
 | `UseScope.preservation` | Actual control/cell steps, typed consumption, physical capture multiplicity, scoped packages, registry insertion, fresh activation and dormant support | Connect registry and lifetime handoff across capture, activation, completion, and disposal. |
 | `Exits.composition` | Stateful initiation, cancellation, ordered operands/failures, owned-result disposal, nested completion, region-to-cleanup-frame embedding | Connect region disposal during nested abandonment and compose exits with the source/target observation relation. |
 | `OpenControl.observation_relocation` | Typed polling/rejection/admission, occurrence separation, authority, control and dormant-support relocation | Apply the same admission and relocation laws to the integrated registry/cleanup futures. |
 
-These are explicit outstanding obligations, not claims discharged by compiling
-the contract declarations. `GeneralizedContractChecks` checks the principal
+These are explicit outstanding obligations. D's preservation, initialization,
+and response fields now have checked defaults; no complete contract inhabitant
+is exported. `GeneralizedContractChecks` checks the principal
 field types and the stateful observation definitions; it constructs no contract
 proof. The source/target finite observation definitions use their actual
 permission-sensitive `ExecutionSteps`, retaining current resources at every
 return, fault, yield, and request.
 
+`GeneralizedStateSimulation` composes all current source execution constructors:
+ordinary/context steps, cell operations, owned control and effectful clause
+entry, fresh handlers/protections/regions, packages, and ordered operands. It
+recovers the actual target caller from `ProgramRelated`, including administrative
+return frames and the authored bind description. The neutral operand bridge
+proves that the ordinary gate uses the same store-preserving operand work as the
+owning evaluator. No simulation premise is assumed. Finite source derivations
+then preserve observations and related current resources. Both head-observation
+directions are checked, including finite source forwarding through running
+cleanup. A source-derived owned-closure call followed by yield instantiates the
+general theorem and checks the spent grant, all three remaining physical owners,
+and its typed future. This closes the current stateful preservation field; it
+does not supply missing registry/exit transitions or target-derived reflection.
+
 | Contract | Main proof surfaces | Checked content and limits |
 | --- | --- | --- |
-| D: defunctionalization | `GeneralizedValues`, `GeneralizedReification`, `GeneralizedOwnedOperandLowering`, `GeneralizedProgramSimulation`, `GeneralizedProgramObservations` | Closure/environment and context laws, recursive call unfolding, positive finite operand drains, and preservation/reflection of finite **ordinary** observations. Open requests retain related typed futures under every accepted response. Full stateful observation composition remains open. |
+| D: defunctionalization | `GeneralizedValues`, `GeneralizedReification`, `GeneralizedOwnedOperandLowering`, `GeneralizedProgramObservations`, `GeneralizedStateSimulation` | Closure/context laws, recursive call unfolding, finite ordinary adequacy, and general finite preservation for the current permission-sensitive stateful relation. Open requests retain related typed futures and current resources. Stateful reflection and registry/exit coverage remain open. |
 | H: handlers | `GeneralizedSelection`, `GeneralizedForwarding`, `GeneralizedHandlerEntry`, `GeneralizedControlExecution`, `GeneralizedSuccessor`, `GeneralizedInjectionExecution`, `GeneralizedFreshHandlerExecution` | Nominal selection and forwarding, deep/shallow capture, effectful clause entry, distinct body/answer types, successor handling, non-tail resumption, and use-site injection have local correspondence laws. Installation computes fresh support-aware identities. Remaining scoped and multi-use composition is unfinished. |
 | U: use and scope | `GeneralizedFields`, `GeneralizedOwnership`, `GeneralizedControlStore`, `GeneralizedScopes`, `GeneralizedScopeCapture`, `GeneralizedResources`, `GeneralizedTemplates`, `GeneralizedStateExecution` | Actual owning occurrences preserve multiplicity across control stores, closures, cells, and retained containers. Local transfer, one-shot consumption, packaging, release, scope/borrow, resource-authority, and computed template-instantiation laws are checked. Stateful region entry is connected to cell allocation. Full lifetime closure and remaining activation/composition laws are open. |
 | X: exits | `GeneralizedOperandPrefix`, `GeneralizedExit`, `GeneralizedStatefulCleanup`, `GeneralizedExitCompletion`, `GeneralizedUnwinding`, `GeneralizedRegionRetirement` | Ordered handoff, retained cleanup cursors, single initiation, first cancellation reason, failure precedence, cleanup completion, and finite outer-unwinding order are checked. Cell-held control can transfer into saved-context disposal; plain cells remain readable for later cleanup. Final region/resource lifetime closure remains open. |
