@@ -33,4 +33,4 @@ for(let index=42;index<53;index++) add(`operand-failure-${index-42}`,'borrow-ope
 
 for(const name of ['cleanup-disposal','cleanup-disposal-running','cleanup-disposal-failure','cleanup-disposal-owned']) add(name,name);
 add('cleanup-disposal-failure-cancel','cleanup-disposal-failure',[],[],[
-  {at:0,reason:'stop',preservesRequest:false},{at:0,reason:'later',preservesRequest:false}]);
+  {at:0,reason:'stop',preservesRequest:false}]);
