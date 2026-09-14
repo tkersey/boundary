@@ -5,7 +5,91 @@ namespace BoundaryV2.Generalized
 
 variable {signature : Signature} {algebra : LeafAlgebra signature.Data}
   {program : List (BodyType signature.Data signature.Effect)}
-  [DecidableEq (ControlShape signature)]
+
+namespace Source
+
+variable {BeforeFuture AfterFuture : Type}
+
+theorem ClosureEvaluation.mapFuture (convert : BeforeFuture → AfterFuture)
+    {bindings : RuntimeEnvironment signature algebra program context}
+    {before after : UseScope.ControlStore BeforeFuture}
+    (evaluated : ClosureEvaluation bindings reserved expression before value after) :
+    ClosureEvaluation bindings reserved expression (before.mapFuture convert) value (after.mapFuture convert) := by
+  cases evaluated with
+  | shared use permitted selection body copyable => exact .shared use permitted selection body copyable
+  | owned use selection body owner first rest store partition =>
+    have fresh := congrArg UseScope.ControlView.authority
+      (UseScope.related_fresh_views (fun a b => convert a = b) (UseScope.ControlStore.map_related convert before) owner ⟨[], reserved⟩)
+    change UseScope.freshName (reserved ++ before.custodySupport) =
+      UseScope.freshName (reserved ++ (before.mapFuture convert).custodySupport) at fresh
+    have mapped := ClosureEvaluation.owned (reserved := reserved) use selection body owner first rest (before.mapFuture convert) partition
+    simp only [createOwnedComputation] at mapped ⊢
+    rw [← fresh] at mapped
+    exact mapped
+
+private theorem evaluation_map_future_bounded (convert : BeforeFuture → AfterFuture)
+    (bindings : RuntimeEnvironment signature algebra program context) (reserved : List (Id .custody)) (bound : Nat) :
+    (∀ {type} (expression : Expression signature algebra program context type), sizeOf expression < bound →
+      ∀ (before after : UseScope.ControlStore BeforeFuture) outcome,
+      ExpressionEvaluation bindings reserved before expression outcome after →
+      ExpressionEvaluation bindings reserved (before.mapFuture convert) expression outcome (after.mapFuture convert)) ∧
+    (∀ {types} (arguments : Arguments signature algebra program context types), sizeOf arguments < bound →
+      ∀ (before after : UseScope.ControlStore BeforeFuture) outcome,
+      ArgumentsEvaluation bindings reserved before arguments outcome after →
+      ArgumentsEvaluation bindings reserved (before.mapFuture convert) arguments outcome (after.mapFuture convert)) := by
+  cases bound with
+  | zero => constructor <;> intro type expression sized <;> omega
+  | succ bound =>
+    obtain ⟨expressions, arguments⟩ := evaluation_map_future_bounded convert bindings reserved bound
+    constructor
+    · intro type expression sized before after outcome evaluated
+      cases evaluated with
+      | datum => exact .datum
+      | reference => exact .reference
+      | closure step => exact .closure (ClosureEvaluation.mapFuture convert step)
+      | pair first second => exact .pair (expressions _ (by simp_all; omega) _ _ _ first) (expressions _ (by simp_all; omega) _ _ _ second)
+      | pairFirstFault step => exact .pairFirstFault (expressions _ (by simp_all; omega) _ _ _ step)
+      | pairSecondFault first second => exact .pairSecondFault (expressions _ (by simp_all; omega) _ _ _ first) (expressions _ (by simp_all; omega) _ _ _ second)
+      | first step => exact .first (expressions _ (by simp_all; omega) _ _ _ step)
+      | firstFault step => exact .firstFault (expressions _ (by simp_all; omega) _ _ _ step)
+      | second step => exact .second (expressions _ (by simp_all; omega) _ _ _ step)
+      | secondFault step => exact .secondFault (expressions _ (by simp_all; omega) _ _ _ step)
+      | left step => exact .left (expressions _ (by simp_all; omega) _ _ _ step)
+      | leftFault step => exact .leftFault (expressions _ (by simp_all; omega) _ _ _ step)
+      | right step => exact .right (expressions _ (by simp_all; omega) _ _ _ step)
+      | rightFault step => exact .rightFault (expressions _ (by simp_all; omega) _ _ _ step)
+      | primitive step result => exact .primitive (arguments _ (by simp_all; omega) _ _ _ step) result
+      | primitiveFault step result => exact .primitiveFault (arguments _ (by simp_all; omega) _ _ _ step) result
+      | primitiveInputFault step => exact .primitiveInputFault (arguments _ (by simp_all; omega) _ _ _ step)
+    · intro types inputs sized before after outcome evaluated
+      cases evaluated with
+      | nil => exact .nil
+      | cons first rest => exact .cons (expressions _ (by simp_all; omega) _ _ _ first) (arguments _ (by simp_all; omega) _ _ _ rest)
+      | firstFault step => exact .firstFault (expressions _ (by simp_all; omega) _ _ _ step)
+      | restFault first rest => exact .restFault (expressions _ (by simp_all; omega) _ _ _ first) (arguments _ (by simp_all; omega) _ _ _ rest)
+termination_by bound
+
+theorem ExpressionEvaluation.mapFuture (convert : BeforeFuture → AfterFuture)
+    {bindings : RuntimeEnvironment signature algebra program context}
+    {before after : UseScope.ControlStore BeforeFuture}
+    {expression : Expression signature algebra program context type}
+    (evaluated : ExpressionEvaluation bindings reserved before expression outcome after) :
+    ExpressionEvaluation bindings reserved (before.mapFuture convert) expression outcome (after.mapFuture convert) :=
+  (evaluation_map_future_bounded convert bindings reserved (sizeOf expression + 1)).1
+    expression (Nat.lt_succ_self _) before after outcome evaluated
+
+theorem ArgumentsEvaluation.mapFuture (convert : BeforeFuture → AfterFuture)
+    {bindings : RuntimeEnvironment signature algebra program context}
+    {before after : UseScope.ControlStore BeforeFuture}
+    {arguments : Arguments signature algebra program context types}
+    (evaluated : ArgumentsEvaluation bindings reserved before arguments outcome after) :
+    ArgumentsEvaluation bindings reserved (before.mapFuture convert) arguments outcome (after.mapFuture convert) :=
+  (evaluation_map_future_bounded convert bindings reserved (sizeOf arguments + 1)).2
+    arguments (Nat.lt_succ_self _) before after outcome evaluated
+
+end Source
+
+variable [DecidableEq (ControlShape signature)]
 
 namespace Source.Multi
 
@@ -17,6 +101,12 @@ abbrev DescribedHeap (signature : Signature) (algebra : LeafAlgebra signature.Da
 futures. Descriptions retain the bodies and captures that produced those callbacks. -/
 def sourceHeap (store : DescribedHeap signature algebra program) : ControlHeap signature algebra program :=
   store.mapFuture (UseScope.mapPacked (fun _ => Future.payload))
+
+def describePayload (saved : ControlPayload signature algebra program shape) : Future signature algebra program shape :=
+  ⟨saved.attachment, saved.future.captureMetadata⟩
+
+def describeHeap (store : ControlHeap signature algebra program) : DescribedHeap signature algebra program :=
+  store.mapFuture (UseScope.mapPacked (fun _ => describePayload))
 
 structure Frozen (signature : Signature) (algebra : LeafAlgebra signature.Data)
     (program : List (BodyType signature.Data signature.Effect)) (shape : ControlShape signature) where
@@ -74,6 +164,47 @@ theorem freeze_consumes_actual_source_ownership
 end Source.Multi
 
 namespace Defunctionalization
+
+omit [DecidableEq (ControlShape signature)] in
+/-- Only a related actual future is reified: its frame metadata and executable
+callback agree by the structural context relation, including empty input types. -/
+theorem described_payload_projects (related : controlPayloadRelated shape source target) :
+    (Source.Multi.describePayload source).payload = source := by
+  obtain ⟨description, original, _⟩ := related_context_has_capture related.future
+  have future : source.future.captureMetadata.future = source.future := by
+    rw [← original, Source.Capture.metadata_of_future]
+  cases source
+  exact congrArg (Source.Resumption.mk _) future
+
+omit [DecidableEq (ControlShape signature)] in
+theorem described_heap_projects
+    {source : Source.ControlHeap signature algebra program} {target : Target.ControlHeap signature algebra program}
+    (related : ControlHeapRelated source target) :
+    Source.Multi.sourceHeap (Source.Multi.describeHeap source) = source := by
+  let describe := UseScope.mapPacked (fun shape => Source.Multi.describePayload (signature := signature) (algebra := algebra) (program := program) (shape := shape))
+  let project := UseScope.mapPacked (fun shape => Source.Multi.Future.payload (signature := signature) (algebra := algebra) (program := program) (shape := shape))
+  have packed : ∀ first second, UseScope.PackedControlRelated controlPayloadRelated first second →
+      project (describe first) = first := by
+    intro first second matching
+    cases matching with
+    | same matching => exact congrArg (Sigma.mk _) (described_payload_projects matching)
+  have records : ∀ {first : List (UseScope.ControlInfo (Sigma (Source.ControlPayload signature algebra program)))}
+      {second : List (UseScope.ControlInfo (Sigma (Target.ControlPayload signature algebra program)))},
+      UseScope.ControlInfosRelated (UseScope.PackedControlRelated controlPayloadRelated) first second →
+      (first.map (UseScope.ControlInfo.mapFuture describe)).map (UseScope.ControlInfo.mapFuture project) = first := by
+    intro first second matching
+    induction matching with
+    | nil => rfl
+    | @cons first second left right paired rest induction =>
+      have same : project (describe first.future) = first.future := packed _ _ paired.future
+      have entry : (first.mapFuture describe).mapFuture project = first := by
+        cases first
+        simp only [UseScope.ControlInfo.mapFuture] at same ⊢
+        rw [same]
+      simp only [List.map_cons, entry, induction]
+  cases source
+  simp only [Source.Multi.sourceHeap, Source.Multi.describeHeap, UseScope.ControlStore.mapFuture]
+  rw [records related.controls, records related.disposing]
 
 def templateHeap (source : Source.Multi.DescribedHeap signature algebra program) : Target.ControlHeap signature algebra program :=
   source.mapFuture (UseScope.mapPacked (fun _ => templateFuture))

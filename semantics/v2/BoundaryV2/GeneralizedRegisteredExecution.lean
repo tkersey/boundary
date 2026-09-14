@@ -117,7 +117,27 @@ theorem Steps.trans {before middle after : Runtime signature algebra program res
   | cons step tail induction =>
     simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using Steps.cons step (induction second)
 
+theorem Observes.prepend {before middle after : Runtime signature algebra program result}
+    (steps : Steps table before count middle) (observed : Observes table middle after observation) :
+    Observes table before after observation := by
+  obtain ⟨rest, tail, head⟩ := observed
+  exact ⟨count + rest, steps.trans tail, head⟩
+
 end Source.Multi
+
+theorem Source.Step.in_registered_context
+    {table : Source.Definitions signature algebra program}
+    {before after : Source.Program signature algebra program input}
+    (step : Source.Step table before after) (neutral : before.needsOwnershipStep = false)
+    (outside : Source.Context signature algebra program input result)
+    (store : Source.ControlHeap signature algebra program)
+    (arena : Source.Multi.Arena signature algebra program) (regions : List (Id .region))
+    (registry : Source.Multi.Registry signature algebra program) :
+    Source.Multi.Step table ⟨⟨store, outside.plug before⟩, arena, regions, registry⟩
+      ⟨⟨store, outside.plug after⟩, arena, regions, registry⟩ :=
+  Source.Multi.Step.core (before := ⟨⟨store, outside.plug before⟩, arena, regions, registry⟩)
+    (state := ⟨⟨store, outside.plug after⟩, arena.cells, regions⟩)
+    (step.in_state_context (retained := Source.Multi.retainedSupport registry arena) neutral outside store arena.cells regions)
 
 namespace Target.Multi
 

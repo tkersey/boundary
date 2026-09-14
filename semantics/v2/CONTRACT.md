@@ -133,8 +133,8 @@ registration and a positive drain back to the actual caller.
 
 D explicitly requires preservation and reflection of these registered finite
 observations, with related registry/arena state and all four observation forms.
-Registered initialization, response entry, and finite observation preservation
-are proved. `GeneralizedRegisteredSimulation` derives every registered source
+Registered initialization, response entry, and both finite observation
+directions are proved. `GeneralizedRegisteredSimulation` derives every registered source
 step from the existing core, resume/injection/successor, and clone laws, then
 composes arbitrary finite derivations. Core preservation now accepts retained
 support. Clone correspondence accepts actual related target heaps with
@@ -142,17 +142,24 @@ noncanonical administrative frames and keeps unrelated controls intact.
 The source context's existing authored fields provide a checked left inverse
 for capture descriptions; bare callback equality supplies no provenance.
 
-Registered reflection remains unproved: the target-derived finite argument
-must be extended to retained support and registered receivers. Disposal and
-exit/lifetime composition also remain unfinished. Neither preservation alone
-nor compiling the registered driver discharges those obligations.
+`GeneralizedRegisteredReflection` supplies the converse from arbitrary finite
+target derivations. Core and registered drivers use one operand-reflection
+argument, instantiated by proved local target-step laws. Shared receiver
+inverses and the registered clone/multi-entry inverses recover actual source
+steps, then compose through enclosing contexts and all four observations.
+Source heap descriptions project back to the actual heap under the structural
+relation; operand evaluation preserves that projection and its ownership.
+
+Disposal and exit/lifetime composition remain unfinished. The registered
+driver still lacks those transitions, so this correspondence does not yet
+establish the complete D/H/U/X/O milestone.
 
 `GeneralizedContractChecks` consumes the declared field types and checks the
 stateful observation definitions. Its hypothetical contract arguments are
 statement checks, not evidence that the contracts are inhabited. The existing
 trust mutation suite rejects replacing each contract with `True`, replacing
 the source stateful observation definition with the ordinary relation, and
-replacing registered observations with core-only observations. This
+replacing either source or target registered observations with core-only observations. This
 does not replace review of the complete types or completion of their proofs.
 
 The conformance command must take an explicit unmodified World checkout/artifact,

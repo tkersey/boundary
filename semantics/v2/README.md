@@ -22,7 +22,7 @@ inhabitants. Their checked components and required connections are:
 
 | Export | Existing components | Remaining proof or connection |
 | --- | --- | --- |
-| `Defunctionalization.adequacy` | Retained-aware finite core preservation; registered initialization/response entry and finite observation preservation, including clone against noncanonical target heaps; default core reflection | Extend finite reflection to retained support and registered receivers. Embed disposal and exit/lifetime transitions. |
+| `Defunctionalization.adequacy` | Retained-aware finite core and registered preservation/reflection, registered initialization/response entry, and clone correspondence against noncanonical target heaps | Embed disposal and exit/lifetime transitions without omitting their observations. |
 | `Handlers.interpretation` | Fresh installation, nearest selection, forwarding, context closure, actual resume/injection/successor correspondence | Use the stateful correspondence under arbitrary enclosing effectful handlers, including registered multi entry. |
 | `UseScope.preservation` | Actual control/cell steps, typed consumption, physical capture multiplicity, scoped packages, registry insertion, fresh activation and dormant support | Connect registry and lifetime handoff across capture, activation, completion, and disposal. |
 | `Exits.composition` | Stateful initiation, cancellation, ordered operands/failures, owned-result disposal, nested completion, region-to-cleanup-frame embedding | Connect region disposal during nested abandonment and compose exits with the source/target observation relation. |
@@ -228,8 +228,21 @@ of `Capture.future`; this connects the captured source description to the
 target clone view without recovering permissions from bare callback equality.
 The uninhabited-input counterexample and `NEG-000008` remain intact. A regression
 derives the complete clone/resume observation from general preservation when
-the target heap has an extra silent frame. Registered reflection and the
-disposal/exit/lifetime connections remain open.
+the target heap has an extra silent frame.
+
+`GeneralizedRegisteredReflection.registered_observation_reflected` supplies
+D's `registered_reflection` field. It derives the independent source execution
+from an arbitrary finite target run, including clone, all three multi entries,
+effectful handlers, and saved contexts. `OperandTraceLaws` states only two local
+target-step inversion facts, proved for both drivers; it contains no source
+execution or translation premise. One operand induction now serves both
+drivers and ordinary/described source heap views. Shared receiver inverses
+replace their former observing-run-specific implementations; the common core
+computation theorem retains those results. The source description projection
+and operand mapping preserve actual fields, grants, and callback provenance.
+A target-only clone/resume trace regression recovers the source observation
+and retained ownership state through the general theorem. Disposal and
+exit/lifetime integration remain required before declaring the milestone complete.
 
 `GeneralizedScopeClosure` checks actual surviving fields, code, returned values,
 and saved control before detaching a lifetime subtree. Source and target checks
@@ -384,10 +397,10 @@ definitions, native-evaluation dependencies, unsafe definitions, and partial
 definitions. It also covers private declarations in Lean's module system and a
 spoofed recursive-companion name. A forged declaration inserted with kernel
 checking disabled deliberately passes the axiom-only control and must fail
-fresh replay. Seven additional statement mutations reject `True` substitutions
+fresh replay. Eight additional statement mutations reject `True` substitutions
 for each required contract and an ordinary-only replacement for the source
-stateful observation definition, plus a core-only replacement for registered
-observations. The mutation step follows the proof build and
+stateful observation definition, plus core-only replacements for source and
+target registered observations. The mutation step follows the proof build and
 uses an isolated compiled-module overlay. Completing the contract proofs and
 reviewing all remaining semantic connections are still open; logical trust and
 statement checking do not establish the entire milestone.

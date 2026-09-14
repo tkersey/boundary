@@ -101,17 +101,8 @@ theorem related_registered_clone_execution
   let targetAfter : Target.Multi.Runtime signature algebra program result :=
     ⟨⟨targetFrozen.store, .returned targetFrozen.value targetOutside⟩, targetFrozen.arena,
       regions.filter (fun region => !partition.regions.contains region), targetRegistry⟩
-  have sameValue : targetFrozen.value = value sourceFrozen.value := by
-    simp only [Target.Multi.Frozen.value, Source.Multi.Frozen.value, value, Value.map]
-    exact congrArg (fun identity => Value.continuation identity none) frozenRelated.identity
-  have matching : MultiRuntimeRelated
-      (⟨⟨Source.Multi.sourceHeap sourceFrozen.store, sourceOutside.plug (.returned sourceFrozen.value)⟩,
-        sourceFrozen.arena, regions.filter (fun region => !partition.regions.contains region), registered⟩ :
-        Source.Multi.Runtime signature algebra program result) targetAfter := by
-    refine ⟨⟨(described_heap_related_iff _ _).mp frozenRelated.store, frozenRelated.arena, rfl, registryRelated⟩, ?_⟩
-    change ProgramRelated (sourceOutside.plug (.returned sourceFrozen.value)) .done (.returned targetFrozen.value targetOutside)
-    rw [sameValue]
-    exact (EntryRelated.returned sourceFrozen.value outside).as_program
+  have matching := frozen_runtime_related frozenRelated
+    (regions.filter (fun region => !partition.regions.contains region)) registered registryRelated outside
   have reservations : (templateArena arena).cells.reservations = arena.cells.reservations := Cells.reservations_mapBodies _ arena.cells
   rw [← reservations, ← retained_support_corresponds registry arena] at steps
   have entered := Target.Multi.Steps.prepend_operands (table := definitions table) (regions := regions)

@@ -242,6 +242,26 @@ theorem registered_response_entry
       ⟨⟨targetStore, .returned (value response) targetFuture⟩, templateArena arena, regions, templateRegistry registry⟩ :=
   ⟨⟨stores, rfl, rfl, rfl⟩, (EntryRelated.returned response outside).as_program⟩
 
+theorem frozen_runtime_related
+    {source : Source.Multi.Frozen signature algebra program shape}
+    {target : Target.Multi.Frozen signature algebra program shape}
+    (matching : FrozenRelated source target)
+    (regions : List (Id .region)) (registry : Source.Multi.Registry signature algebra program)
+    {registered : Target.Multi.Registry signature algebra program}
+    (registries : registered = templateRegistry registry)
+    {sourceOutside : Source.Context signature algebra program (.continuation shape.mode .multi shape.effect shape.input shape.answer) result}
+    {targetOutside : Target.Stack signature algebra program (.continuation shape.mode .multi shape.effect shape.input shape.answer) result}
+    (outside : ContextRelated signature algebra program sourceOutside targetOutside) :
+    MultiRuntimeRelated
+      ⟨⟨Source.Multi.sourceHeap source.store, sourceOutside.plug (.returned source.value)⟩, source.arena, regions, registry⟩
+      ⟨⟨target.store, .returned target.value targetOutside⟩, target.arena, regions, registered⟩ := by
+  refine ⟨⟨(described_heap_related_iff _ _).mp matching.store, matching.arena, rfl, registries⟩, ?_⟩
+  have sameValue : target.value = value source.value := by
+    simp only [Target.Multi.Frozen.value, Source.Multi.Frozen.value, value, Value.map]
+    exact congrArg (fun identity => Value.continuation identity none) matching.identity
+  rw [sameValue]
+  exact (EntryRelated.returned source.value outside).as_program
+
 def registeredActivation (source : Source.Multi.Activated signature algebra program shape) : Target.Multi.Activated signature algebra program shape :=
   ⟨templateActivation source.activation, source.regions, templateRegistry source.registry⟩
 

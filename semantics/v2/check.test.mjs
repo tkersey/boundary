@@ -79,6 +79,12 @@ function claimMutations() {
       'Source.StateObserves table before.state after.state observation'), true), 'registered observation restricted to core-only probe');
     accepted(compile('GeneralizedContracts', contracts, true), 'contracts over restricted registered observations');
     rejected(compile('GeneralizedContractChecks', consumers), 'registered observation replaced with core-only observation');
+    const registeredTargetObservation = '∃ count, Steps table before count after ∧ Target.HeadObservation after.control.configuration observation';
+    assert(registered.includes(registeredTargetObservation), 'missing registered target observation mutation target');
+    accepted(compile('GeneralizedRegisteredExecution', registered.replace(registeredTargetObservation,
+      'Target.StateObserves table before.state after.state observation'), true), 'registered target observation restricted to core-only probe');
+    accepted(compile('GeneralizedContracts', contracts, true), 'contracts over restricted registered target observations');
+    rejected(compile('GeneralizedContractChecks', consumers), 'registered target observation replaced with core-only observation');
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

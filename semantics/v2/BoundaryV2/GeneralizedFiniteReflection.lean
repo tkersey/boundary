@@ -5,7 +5,7 @@ namespace BoundaryV2.Generalized
 namespace Source
 
 variable {signature : Signature} {algebra : LeafAlgebra signature.Data}
-  {program : List (BodyType signature.Data signature.Effect)} {Future : Type}
+  {program : List (BodyType signature.Data signature.Effect)} {retained : List Reference} {Future : Type}
 
 /-- Inverting a completed singleton prefix recovers its actual expression
 transition and resulting store, including allocations before that completion. -/
@@ -23,14 +23,14 @@ end Source
 namespace Target
 
 variable {signature : Signature} {algebra : LeafAlgebra signature.Data}
-  {program : List (BodyType signature.Data signature.Effect)}
+  {program : List (BodyType signature.Data signature.Effect)} {retained : List Reference}
   [DecidableEq (ControlShape signature)] [DecidableEq (TypeOf signature)]
 
 /-- A successful ordinary next instruction and its ownership gate identify the
 ordinary branch of actual execution; the current resources are unchanged. -/
 theorem ExecutionStep.ordinary_of_next
     {table : Definitions signature algebra program} {before after : State signature algebra program result}
-    (step : ExecutionStep table before after)
+    (step : ExecutionStep (retained := retained) table before after)
     (computed : nextWithAttachment table attachment before.control.configuration = some next)
     (neutral : before.control.configuration.needsOwnershipStep = false) :
     after.control.store = before.control.store ∧ after.cells = before.cells ∧ after.liveRegions = before.liveRegions ∧
@@ -77,7 +77,7 @@ def Configuration.missingControlGrant : Configuration signature algebra program 
 
 theorem ExecutionStep.uses_current_driver
     {table : Definitions signature algebra program} {before after : State signature algebra program result}
-    (step : ExecutionStep table before after) :
+    (step : ExecutionStep (retained := retained) table before after) :
     before.control.configuration.separateDriver = false ∧ before.control.configuration.missingControlGrant = false := by
   cases step with
   | cell actual =>
@@ -105,7 +105,7 @@ theorem ExecutionStep.returned_is_ordinary
     (store : ControlHeap signature algebra program)
     (storage : Cells signature algebra (fun context result => Code signature algebra program context [] result))
     (regions : List (Id .region))
-    (step : ExecutionStep table ⟨⟨store, .returned value outside⟩, storage, regions⟩ after) :
+    (step : ExecutionStep (retained := retained) table ⟨⟨store, .returned value outside⟩, storage, regions⟩ after) :
     after.control.store = store ∧ after.cells = storage ∧ after.liveRegions = regions ∧
       CallStep table (.returned value outside) after.control.configuration := by
   cases step with
@@ -120,7 +120,7 @@ theorem ExecutionStep.failed_is_ordinary
     (store : ControlHeap signature algebra program)
     (storage : Cells signature algebra (fun context result => Code signature algebra program context [] result))
     (regions : List (Id .region))
-    (step : ExecutionStep table ⟨⟨store, .failed fault outside⟩, storage, regions⟩ after) :
+    (step : ExecutionStep (retained := retained) table ⟨⟨store, .failed fault outside⟩, storage, regions⟩ after) :
     after.control.store = store ∧ after.cells = storage ∧ after.liveRegions = regions ∧
       CallStep table (.failed fault outside) after.control.configuration := by
   cases step with
@@ -134,7 +134,7 @@ theorem ExecutionStep.no_yielded_step
     (store : ControlHeap signature algebra program)
     (storage : Cells signature algebra (fun context result => Code signature algebra program context [] result))
     (regions : List (Id .region)) :
-    ¬ ExecutionStep table ⟨⟨store, .yielded next⟩, storage, regions⟩ after := by
+    ¬ ExecutionStep (retained := retained) table ⟨⟨store, .yielded next⟩, storage, regions⟩ after := by
   intro step
   cases step with
   | cell actual => cases actual with
@@ -147,7 +147,7 @@ end Target
 namespace Defunctionalization
 
 variable {signature : Signature} {algebra : LeafAlgebra signature.Data}
-  {program : List (BodyType signature.Data signature.Effect)}
+  {program : List (BodyType signature.Data signature.Effect)} {retained : List Reference}
   [DecidableEq (ControlShape signature)] [DecidableEq (TypeOf signature)]
 
 /-- Reflect the ordinary receiving instruction after an ownership-sensitive
@@ -159,7 +159,7 @@ theorem ordinary_receiver_execution_reflected
     (values : Source.RuntimeEnvironment signature algebra program body.operandPrefix.types)
     (storage : Cells signature algebra (Source.Computation signature algebra program)) (regions : List (Id .region))
     {sourceStore evaluated : Source.ControlHeap signature algebra program} {targetStore : Target.ControlHeap signature algebra program}
-    (operands : Source.ArgumentsEvaluation bindings storage.reservations.custody sourceStore body.operandPrefix.arguments (.ok values) evaluated)
+    (operands : Source.ArgumentsEvaluation bindings (storage.reservations.withSupport retained).custody sourceStore body.operandPrefix.arguments (.ok values) evaluated)
     (stores : ControlHeapRelated evaluated targetStore)
     {sourceOutside : Source.Context signature algebra program input result} {targetOutside : Target.Stack signature algebra program input result}
     (outside : ContextRelated signature algebra program sourceOutside targetOutside)
@@ -168,7 +168,7 @@ theorem ordinary_receiver_execution_reflected
       (.code (operandTail body) (environment bindings) ((environment values).pushReverse .nil) targetOutside) targetAfter)
     (neutral : (Target.Configuration.code (operandTail body) (environment bindings) ((environment values).pushReverse .nil) targetOutside).needsOwnershipStep = false) :
     ∃ sourceAfter,
-      Source.ExecutionStep table ⟨⟨sourceStore, sourceOutside.plug (.evaluate body bindings)⟩, storage, regions⟩ sourceAfter ∧
+      Source.ExecutionStep (retained := retained) table ⟨⟨sourceStore, sourceOutside.plug (.evaluate body bindings)⟩, storage, regions⟩ sourceAfter ∧
       ExecutionStateRelated sourceAfter ⟨⟨targetStore, targetAfter⟩, cells storage, regions⟩ := by
   obtain ⟨attachment, computed⟩ := step.computes_next
   cases body with
@@ -277,81 +277,116 @@ theorem ordinary_receiver_execution_reflected
     simp only [operandTail, computation, Target.nextWithAttachment, Target.codeNext, Target.operandNextCode] at computed
     cases computed
 
-private theorem ordinary_receiver_observing_reflected
+omit [DecidableEq (ControlShape signature)] [DecidableEq (TypeOf signature)] in
+theorem application_operand_configuration
+    (function : Source.Expression signature algebra program context (.computation use parameters input))
+    (arguments : Source.Arguments signature algebra program context parameters)
+    (bindings : Source.RuntimeEnvironment signature algebra program context)
+    (functionValue : Source.RuntimeValue signature algebra program (.computation use parameters input))
+    (values : Source.RuntimeEnvironment signature algebra program parameters)
+    (outside : Target.Stack signature algebra program input result) :
+    Target.Configuration.code (operandTail (.apply function arguments)) (environment bindings)
+      ((environment (.cons functionValue values)).pushReverse .nil) outside =
+      .code (.callClosure .ret) (environment bindings) ((environment values).pushReverse (.cons (value functionValue) .nil)) outside := by
+  simp only [operandTail, environment, Environment.map, Environment.pushReverse, value]
+  apply configuration_reindex
+  simp [List.reverse_cons]
+
+omit [DecidableEq (ControlShape signature)] [DecidableEq (TypeOf signature)] in
+theorem operation_operand_configuration
+    (operation : signature.operation effect)
+    (capability : Source.Expression signature algebra program context (.capability effect))
+    (payload : Source.Expression signature algebra program context (signature.payload operation))
+    (bodies : Source.Arguments signature algebra program context ((signature.bodies operation).map BodyType.type))
+    (bindings : Source.RuntimeEnvironment signature algebra program context)
+    (capabilityValue : Source.RuntimeValue signature algebra program (.capability effect))
+    (payloadValue : Source.RuntimeValue signature algebra program (signature.payload operation))
+    (bodyValues : Source.RuntimeEnvironment signature algebra program ((signature.bodies operation).map BodyType.type))
+    (outside : Target.Stack signature algebra program (signature.result operation) result) :
+    Target.Configuration.code (operandTail (.perform operation capability payload bodies)) (environment bindings)
+      ((environment (.cons capabilityValue (.cons payloadValue bodyValues))).pushReverse .nil) outside =
+      .code (.dispatch operation .ret) (environment bindings)
+        ((environment bodyValues).pushReverse (.cons (value payloadValue) (.cons (value capabilityValue) .nil))) outside := by
+  simp only [operandTail, environment, Environment.map, Environment.pushReverse, value, eq_mpr_eq_cast, cast_cast]
+  apply configuration_reindex
+  simp [List.reverse_cons, List.append_assoc]
+
+private theorem ordinary_receiver_step_reflected
     (table : Source.Definitions signature algebra program)
     (body : Source.Computation signature algebra program context input)
     (bindings : Source.RuntimeEnvironment signature algebra program context)
     (values : Source.RuntimeEnvironment signature algebra program body.operandPrefix.types)
     (storage : Cells signature algebra (Source.Computation signature algebra program)) (regions : List (Id .region))
     {sourceStore evaluated : Source.ControlHeap signature algebra program} {targetStore : Target.ControlHeap signature algebra program}
-    (operands : Source.ArgumentsEvaluation bindings storage.reservations.custody sourceStore body.operandPrefix.arguments (.ok values) evaluated)
+    (operands : Source.ArgumentsEvaluation bindings (storage.reservations.withSupport retained).custody sourceStore body.operandPrefix.arguments (.ok values) evaluated)
     (stores : ControlHeapRelated evaluated targetStore)
     {sourceOutside : Source.Context signature algebra program input result} {targetOutside : Target.Stack signature algebra program input result}
     (outside : ContextRelated signature algebra program sourceOutside targetOutside)
-    {final : Target.State signature algebra program result}
-    (run : Target.ExecutionSteps (definitions table)
+    {trace : Target.State signature algebra program result → Nat → Prop}
+    {middle : Target.State signature algebra program result} {rest : Nat}
+    (step : Target.ExecutionStep (retained := retained) (definitions table)
       ⟨⟨targetStore, .code (operandTail body) (environment bindings) ((environment values).pushReverse .nil) targetOutside⟩,
-        cells storage, regions⟩ count final)
-    (head : Target.HeadObservation final.control.configuration observation)
+        cells storage, regions⟩ middle)
+    (tail : trace middle rest)
     (available : (Target.nextWithAttachment (definitions table) ⟨0⟩
       (.code (operandTail body) (environment bindings) ((environment values).pushReverse .nil) targetOutside)).isSome = true)
     (neutral : (Target.Configuration.code (operandTail body) (environment bindings) ((environment values).pushReverse .nil) targetOutside).needsOwnershipStep = false) :
-    ∃ sourceAfter targetAfter remaining, remaining < count ∧
-      Source.ExecutionStep table ⟨⟨sourceStore, sourceOutside.plug (.evaluate body bindings)⟩, storage, regions⟩ sourceAfter ∧
-      ExecutionStateRelated sourceAfter targetAfter ∧ Target.ExecutionSteps (definitions table) targetAfter remaining final := by
-  cases run with
-  | refl => cases head
-  | @cons first middle _ rest last step tail =>
-    obtain ⟨next, computed⟩ := Option.isSome_iff_exists.mp available
-    obtain ⟨stored, cellsAt, regionsAt, ordinary⟩ := step.ordinary_of_next computed neutral
-    obtain ⟨sourceAfter, sourceStep, matched⟩ := ordinary_receiver_execution_reflected table body bindings values storage regions operands stores outside ordinary neutral
-    refine ⟨sourceAfter, _, _, by omega, sourceStep, ?_, tail⟩
-    cases middle with
-    | mk control targetCells targetRegions =>
-      cases control
-      simp only at stored cellsAt regionsAt
-      subst_vars
-      exact matched
+    ∃ sourceAfter targetAfter remaining, remaining < rest + 1 ∧
+      Source.ExecutionStep (retained := retained) table ⟨⟨sourceStore, sourceOutside.plug (.evaluate body bindings)⟩, storage, regions⟩ sourceAfter ∧
+      ExecutionStateRelated sourceAfter targetAfter ∧ trace targetAfter remaining := by
+  obtain ⟨next, computed⟩ := Option.isSome_iff_exists.mp available
+  obtain ⟨stored, cellsAt, regionsAt, ordinary⟩ := step.ordinary_of_next computed neutral
+  obtain ⟨sourceAfter, sourceStep, matched⟩ := ordinary_receiver_execution_reflected table body bindings values storage regions operands stores outside ordinary neutral
+  refine ⟨sourceAfter, _, _, by omega, sourceStep, ?_, tail⟩
+  cases middle with
+  | mk control targetCells targetRegions =>
+    cases control
+    simp only at stored cellsAt regionsAt
+    subst_vars
+    exact matched
+
 
 /-- Assemble the receiving-instruction inverses of the current execution
 relation. Separate-driver exclusions below remain explicit coverage debt for D;
 this lemma is not the completed whole-core adequacy claim. -/
-theorem evaluated_receiver_run_reflected
+theorem evaluated_core_receiver_reflected
     (table : Source.Definitions signature algebra program)
     (body : Source.Computation signature algebra program context input)
     (bindings : Source.RuntimeEnvironment signature algebra program context)
     (values : Source.RuntimeEnvironment signature algebra program body.operandPrefix.types)
     (storage : Cells signature algebra (Source.Computation signature algebra program)) (regions : List (Id .region))
     {sourceStore evaluated : Source.ControlHeap signature algebra program} {targetStore : Target.ControlHeap signature algebra program}
-    (operands : Source.ArgumentsEvaluation bindings storage.reservations.custody sourceStore body.operandPrefix.arguments (.ok values) evaluated)
+    (operands : Source.ArgumentsEvaluation bindings (storage.reservations.withSupport retained).custody sourceStore body.operandPrefix.arguments (.ok values) evaluated)
     (stores : ControlHeapRelated evaluated targetStore)
     {sourceOutside : Source.Context signature algebra program input result} {targetOutside : Target.Stack signature algebra program input result}
     (outside : ContextRelated signature algebra program sourceOutside targetOutside)
-    {final : Target.State signature algebra program result}
-    (run : Target.ExecutionSteps (definitions table)
+    {trace : Target.State signature algebra program result → Nat → Prop}
+    (laws : Target.OperandTraceLaws (definitions table) retained trace)
+    {middle : Target.State signature algebra program result} {rest : Nat}
+    (step : Target.ExecutionStep (retained := retained) (definitions table)
       ⟨⟨targetStore, .code (operandTail body) (environment bindings) ((environment values).pushReverse .nil) targetOutside⟩,
-        cells storage, regions⟩ count final)
-    (head : Target.HeadObservation final.control.configuration observation) :
-    ∃ sourceAfter targetAfter remaining, remaining < count ∧
-      Source.ExecutionStep table ⟨⟨sourceStore, sourceOutside.plug (.evaluate body bindings)⟩, storage, regions⟩ sourceAfter ∧
-      ExecutionStateRelated sourceAfter targetAfter ∧ Target.ExecutionSteps (definitions table) targetAfter remaining final := by
+        cells storage, regions⟩ middle)
+    (tail : trace middle rest) :
+    ∃ sourceAfter targetAfter remaining, remaining < rest + 1 ∧
+      Source.ExecutionStep (retained := retained) table ⟨⟨sourceStore, sourceOutside.plug (.evaluate body bindings)⟩, storage, regions⟩ sourceAfter ∧
+      ExecutionStateRelated sourceAfter targetAfter ∧ trace targetAfter remaining := by
   cases body with
   | returnValue expression | primitive operation inputs =>
     cases values with
     | cons value rest =>
       cases rest
-      exact ordinary_receiver_observing_reflected table _ bindings _ storage regions operands stores outside run head rfl rfl
+      exact ordinary_receiver_step_reflected table _ bindings _ storage regions operands stores outside step tail rfl rfl
   | bind first rest | fail fault | yieldThen body =>
     cases values
-    exact ordinary_receiver_observing_reflected table _ bindings _ storage regions operands stores outside run head rfl rfl
+    exact ordinary_receiver_step_reflected table _ bindings _ storage regions operands stores outside step tail rfl rfl
   | call reference arguments =>
-    apply ordinary_receiver_observing_reflected table _ bindings _ storage regions operands stores outside run head ?_ rfl
+    apply ordinary_receiver_step_reflected table _ bindings _ storage regions operands stores outside step tail ?_ rfl
     simp only [operandTail, Target.nextWithAttachment, Target.codeNext, Target.operandNextCode, Environment.popReverse_pushReverse, Option.isSome_some]
   | matchSum test left right =>
     cases values with
     | cons value rest =>
       cases rest
-      apply ordinary_receiver_observing_reflected table _ bindings _ storage regions operands stores outside run head ?_ rfl
+      apply ordinary_receiver_step_reflected table _ bindings _ storage regions operands stores outside step tail ?_ rfl
       change (match (Defunctionalization.value value).asSum with
         | .inl payload => some (Target.Configuration.code (computation left) (.cons payload (environment bindings)) .nil targetOutside)
         | .inr payload => some (Target.Configuration.code (computation right) (.cons payload (environment bindings)) .nil targetOutside)).isSome = true
@@ -362,7 +397,7 @@ theorem evaluated_receiver_run_reflected
       | cons payloadValue bodyValues => cases capabilityValue with
         | datum datum => cases datum with
           | capability identity =>
-            apply ordinary_receiver_observing_reflected table _ bindings _ storage regions operands stores outside run head ?_ ?_
+            apply ordinary_receiver_step_reflected table _ bindings _ storage regions operands stores outside step tail ?_ ?_
             all_goals
               have atDispatch : Target.Configuration.code (operandTail (.perform operation capability payload bodies)) (environment bindings)
                   ((environment (.cons (.datum (.capability identity)) (.cons payloadValue bodyValues))).pushReverse .nil) targetOutside =
@@ -386,25 +421,25 @@ theorem evaluated_receiver_run_reflected
           simp only [operandTail, environment, Environment.map, Value.map, Environment.pushReverse]
           apply configuration_reindex
           simp [List.reverse_cons]
-        rw [atCall] at run
-        exact application_execution_reflected table function arguments body captured actual authority bindings storage regions operands stores outside run head
+        rw [atCall] at step
+        exact application_receiver_reflected (trace := trace) table function arguments body captured actual authority bindings storage regions operands stores outside step tail
   | handle effect mode returned clauses body =>
     cases values
     cases operands
-    exact installation_execution_reflected table effect mode returned clauses body bindings storage regions stores outside run head
+    exact installation_receiver_reflected (trace := trace) table effect mode returned clauses body bindings storage regions stores outside step tail
   | protect cleanup body =>
     cases values
     cases operands
-    exact protection_execution_reflected table cleanup body bindings storage regions stores outside run head
+    exact protection_receiver_reflected (trace := trace) table cleanup body bindings storage regions stores outside step tail
   | withRegion body =>
     cases values
     cases operands
-    exact region_execution_reflected table body bindings storage regions stores outside run head
+    exact region_receiver_reflected (trace := trace) table body bindings storage regions stores outside step tail
   | package expression =>
     cases values with
     | cons value rest =>
       cases rest
-      exact package_execution_reflected table expression bindings value storage regions operands.singleton stores outside run head
+      exact package_receiver_reflected (trace := trace) table expression bindings value storage regions operands.singleton stores outside laws step tail
   | unpackage expression =>
     cases values with
     | cons value rest =>
@@ -412,7 +447,7 @@ theorem evaluated_receiver_run_reflected
       cases value with
       | datum datum => cases datum
       | package token owner value =>
-        exact unpackage_execution_reflected table expression bindings value token owner storage regions operands.singleton stores outside run head
+        exact unpackage_receiver_reflected (trace := trace) table expression bindings value token owner storage regions operands.singleton stores outside laws step tail
   | cellRead expression =>
     cases values with
     | cons value rest =>
@@ -420,7 +455,7 @@ theorem evaluated_receiver_run_reflected
       cases value with
       | datum datum => cases datum
       | cell identity region =>
-        exact cell_read_execution_reflected table expression bindings storage regions operands.singleton stores outside run head
+        exact cell_read_receiver_reflected (trace := trace) table expression bindings storage regions operands.singleton stores outside laws step tail
   | cellWrite reference replacement =>
     cases values with
     | cons referenceValue rest => cases rest with
@@ -429,7 +464,7 @@ theorem evaluated_receiver_run_reflected
         cases referenceValue with
         | datum datum => cases datum
         | cell identity region =>
-          exact cell_write_execution_reflected table reference replacement bindings value storage regions operands stores outside run head
+          exact cell_write_receiver_reflected (trace := trace) table reference replacement bindings value storage regions operands stores outside laws step tail
   | cellNew regionExpression initializer =>
     cases values with
     | cons regionValue rest => cases rest with
@@ -438,7 +473,7 @@ theorem evaluated_receiver_run_reflected
         cases regionValue with
         | datum datum => cases datum with
           | region identity =>
-            exact cell_allocation_execution_reflected table regionExpression initializer bindings value storage regions operands stores outside run head
+            exact cell_allocation_receiver_reflected (trace := trace) table regionExpression initializer bindings value storage regions operands stores outside laws step tail
   | resume continuation response =>
     cases values with
     | cons control rest => cases rest with
@@ -449,12 +484,10 @@ theorem evaluated_receiver_run_reflected
         | continuation identity authority =>
           cases authority with
           | none =>
-            cases run with
-            | refl => cases head
-            | cons step tail => cases step.uses_current_driver.2
+            cases step.uses_current_driver.2
           | some grant => cases grant with
             | mk token owner =>
-              exact resume_execution_reflected table continuation response bindings value ⟨identity, token, owner⟩ storage regions operands stores outside run head
+              exact resume_receiver_reflected (trace := trace) table continuation response bindings value ⟨identity, token, owner⟩ storage regions operands stores outside step tail
   | resumeWith effect continuation response returned clauses =>
     cases values with
     | cons control rest => cases rest with
@@ -465,12 +498,10 @@ theorem evaluated_receiver_run_reflected
         | continuation identity authority =>
           cases authority with
           | none =>
-            cases run with
-            | refl => cases head
-            | cons step tail => cases step.uses_current_driver.2
+            cases step.uses_current_driver.2
           | some grant => cases grant with
             | mk token owner =>
-              exact successor_execution_reflected table continuation response returned clauses bindings value ⟨identity, token, owner⟩ storage regions operands stores outside run head
+              exact successor_receiver_reflected (trace := trace) table continuation response returned clauses bindings value ⟨identity, token, owner⟩ storage regions operands stores outside step tail
   | inject continuation injected =>
     cases values with
     | cons control rest => cases rest with
@@ -481,20 +512,44 @@ theorem evaluated_receiver_run_reflected
         | continuation identity authority =>
           cases authority with
           | none =>
-            cases run with
-            | refl => cases head
-            | cons step tail => cases step.uses_current_driver.2
+            cases step.uses_current_driver.2
           | some grant => cases grant with
             | mk token owner =>
               cases bodyValue with
               | datum datum => cases datum
               | closure body captured authority =>
-                exact injection_execution_reflected table continuation injected body captured authority bindings ⟨identity, token, owner⟩
-                  storage regions operands stores outside run head
+                exact injection_receiver_reflected (trace := trace) table continuation injected body captured authority bindings ⟨identity, token, owner⟩
+                  storage regions operands stores outside step tail
   | dispose | clone =>
-    cases run with
-    | refl => cases head
-    | cons step tail => cases step.uses_current_driver.1
+    cases step.uses_current_driver.1
+
+
+theorem evaluated_receiver_run_reflected
+    (table : Source.Definitions signature algebra program)
+    (body : Source.Computation signature algebra program context input)
+    (bindings : Source.RuntimeEnvironment signature algebra program context)
+    (values : Source.RuntimeEnvironment signature algebra program body.operandPrefix.types)
+    (storage : Cells signature algebra (Source.Computation signature algebra program)) (regions : List (Id .region))
+    {sourceStore evaluated : Source.ControlHeap signature algebra program} {targetStore : Target.ControlHeap signature algebra program}
+    (operands : Source.ArgumentsEvaluation bindings (storage.reservations.withSupport retained).custody sourceStore body.operandPrefix.arguments (.ok values) evaluated)
+    (stores : ControlHeapRelated evaluated targetStore)
+    {sourceOutside : Source.Context signature algebra program input result} {targetOutside : Target.Stack signature algebra program input result}
+    (outside : ContextRelated signature algebra program sourceOutside targetOutside)
+    {final : Target.State signature algebra program result}
+    (run : Target.ExecutionSteps (retained := retained) (definitions table)
+      ⟨⟨targetStore, .code (operandTail body) (environment bindings) ((environment values).pushReverse .nil) targetOutside⟩,
+        cells storage, regions⟩ count final)
+    (head : Target.HeadObservation final.control.configuration observation) :
+    ∃ sourceAfter targetAfter remaining, remaining < count ∧
+      Source.ExecutionStep (retained := retained) table ⟨⟨sourceStore, sourceOutside.plug (.evaluate body bindings)⟩, storage, regions⟩ sourceAfter ∧
+      ExecutionStateRelated sourceAfter targetAfter ∧ Target.ExecutionSteps (retained := retained) (definitions table) targetAfter remaining final := by
+  cases run with
+  | refl => cases head
+  | cons step tail =>
+    obtain ⟨sourceAfter, targetAfter, remaining, smaller, sourceStep, matching, following⟩ :=
+      evaluated_core_receiver_reflected table body bindings values storage regions operands stores outside
+        (Target.core_operand_trace_laws (definitions table) final observation) step ⟨tail, head⟩
+    exact ⟨sourceAfter, targetAfter, remaining, smaller, sourceStep, matching, following.1⟩
 
 /-- A finite target run from compiled syntax yields one actual source
 transition and a strictly shorter related residual run. The operand and
@@ -509,12 +564,12 @@ theorem computation_stateful_step_reflected
     {sourceOutside : Source.Context signature algebra program input result} {targetOutside : Target.Stack signature algebra program input result}
     (outside : ContextRelated signature algebra program sourceOutside targetOutside)
     {final : Target.State signature algebra program result}
-    (run : Target.ExecutionSteps (definitions table)
+    (run : Target.ExecutionSteps (retained := retained) (definitions table)
       ⟨⟨targetStore, .code (computation body) (environment bindings) .nil targetOutside⟩, cells storage, regions⟩ count final)
     (head : Target.HeadObservation final.control.configuration observation) :
     ∃ sourceAfter targetAfter remaining, remaining < count ∧
-      Source.ExecutionStep table ⟨⟨sourceStore, sourceOutside.plug (.evaluate body bindings)⟩, storage, regions⟩ sourceAfter ∧
-      ExecutionStateRelated sourceAfter targetAfter ∧ Target.ExecutionSteps (definitions table) targetAfter remaining final := by
+      Source.ExecutionStep (retained := retained) table ⟨⟨sourceStore, sourceOutside.plug (.evaluate body bindings)⟩, storage, regions⟩ sourceAfter ∧
+      ExecutionStateRelated sourceAfter targetAfter ∧ Target.ExecutionSteps (retained := retained) (definitions table) targetAfter remaining final := by
   obtain ⟨outcome, sourceEvaluated, targetEvaluated, remaining, operands, evaluatedRelated, bounded, faultLess, tail⟩ :=
     computation_operands_observing_run_reflected table body bindings storage regions stores targetOutside run head
   cases outcome with
@@ -541,10 +596,10 @@ theorem requested_state_step_reflected
     (storage : Cells signature algebra (Source.Computation signature algebra program)) (regions : List (Id .region))
     {sourceStore : Source.ControlHeap signature algebra program} {targetStore : Target.ControlHeap signature algebra program}
     (stores : ControlHeapRelated sourceStore targetStore)
-    (step : Target.ExecutionStep (definitions table)
+    (step : Target.ExecutionStep (retained := retained) (definitions table)
       ⟨⟨targetStore, .requested operation attachment (value payload) (environment bodies) targetFuture⟩, cells storage, regions⟩ targetAfter) :
     ∃ sourceAfter,
-      Source.ExecutionStep table ⟨⟨sourceStore, around.plug (.request operation attachment payload bodies saved)⟩, storage, regions⟩ sourceAfter ∧
+      Source.ExecutionStep (retained := retained) table ⟨⟨sourceStore, around.plug (.request operation attachment payload bodies saved)⟩, storage, regions⟩ sourceAfter ∧
       ExecutionStateRelated sourceAfter targetAfter := by
   generalize atRequest : Target.Configuration.requested operation attachment (value payload) (environment bodies) targetFuture = initial at step
   cases step with
@@ -568,13 +623,13 @@ theorem requested_state_step_reflected
       have sourcePartition : sourceStore.fields.active = before ++ captured ++ after := by
         rw [stores.fields]
         exact partition
-      have reservations : (cells storage).reservations = storage.reservations := Cells.reservations_mapBodies _ storage
+      have reservations : ((cells storage).reservations.withSupport retained) = (storage.reservations.withSupport retained) := Cells.reservations_with_support_mapBodies _ storage retained
       rw [reservations] at accepted
       cases selectedRelated with
       | selected effect mode identity sourceReturned sourceClauses sourceBindings insideRelated outsideRelated =>
         obtain ⟨sourceClause, sourceAccepted, matched⟩ := corresponding_target_acceptance
           (owned_clause_dispatch_corresponds operation attachment sourceReturned sourceClauses sourceBindings insideRelated
-            payload bodies outsideRelated owner before captured after stores sourcePartition partition storage.reservations) accepted
+            payload bodies outsideRelated owner before captured after stores sourcePartition partition (storage.reservations.withSupport retained)) accepted
         exact ⟨_, .control (.handledRequest (saved := saved) (around := around) (partition := sourcePartition) sourceFound sourceAccepted),
           ⟨matched.store, rfl, rfl, matched.entry.as_program⟩⟩
   | installHandler | enterProtection | enterRegion | packageOperand | unpackageOperand => cases atRequest
@@ -590,10 +645,10 @@ private theorem stateful_reflection_bounded (table : Source.Definitions signatur
       ∀ {sourceStore : Source.ControlHeap signature algebra program} {targetStore : Target.ControlHeap signature algebra program},
       ControlHeapRelated sourceStore targetStore →
       ∀ (storage : Cells signature algebra (Source.Computation signature algebra program)) regions,
-      Target.ExecutionSteps (definitions table) ⟨⟨targetStore, target⟩, cells storage, regions⟩ count final →
+      Target.ExecutionSteps (retained := retained) (definitions table) ⟨⟨targetStore, target⟩, cells storage, regions⟩ count final →
       Target.HeadObservation final.control.configuration observation →
       ∃ sourceFinal sourceObservation,
-        Source.StateObserves table ⟨⟨sourceStore, sourceOutside.plug source⟩, storage, regions⟩ sourceFinal sourceObservation ∧
+        Source.StateObserves (retained := retained) table ⟨⟨sourceStore, sourceOutside.plug source⟩, storage, regions⟩ sourceFinal sourceObservation ∧
         StateObservationRelated sourceFinal final sourceObservation observation := by
   induction bound with
   | zero => intros; omega
@@ -602,8 +657,8 @@ private theorem stateful_reflection_bounded (table : Source.Definitions signatur
     have reflectTail {remaining} (sourceAfter : Source.State signature algebra program result)
         (targetAfter : Target.State signature algebra program result)
         (decreased : remaining < bound) (matched : ExecutionStateRelated sourceAfter targetAfter)
-        (tail : Target.ExecutionSteps (definitions table) targetAfter remaining final) :
-        ∃ sourceFinal sourceObservation, Source.StateObserves table sourceAfter sourceFinal sourceObservation ∧
+        (tail : Target.ExecutionSteps (retained := retained) (definitions table) targetAfter remaining final) :
+        ∃ sourceFinal sourceObservation, Source.StateObserves (retained := retained) table sourceAfter sourceFinal sourceObservation ∧
           StateObservationRelated sourceFinal final sourceObservation observation := by
       rcases sourceAfter with ⟨⟨sourceHeap, sourceProgram⟩, sourceCells, sourceRegions⟩
       rcases targetAfter with ⟨⟨targetHeap, targetProgram⟩, targetCells, targetRegions⟩
@@ -737,8 +792,8 @@ theorem stateful_observation_reflected
     (table : Source.Definitions signature algebra program)
     {source : Source.State signature algebra program result} {target : Target.State signature algebra program result}
     (related : ExecutionStateRelated source target)
-    (observed : Target.StateObserves (definitions table) target targetFinal observation) :
-    ∃ sourceFinal sourceObservation, Source.StateObserves table source sourceFinal sourceObservation ∧
+    (observed : Target.StateObserves (retained := retained) (definitions table) target targetFinal observation) :
+    ∃ sourceFinal sourceObservation, Source.StateObserves (retained := retained) table source sourceFinal sourceObservation ∧
       StateObservationRelated sourceFinal targetFinal sourceObservation observation := by
   rcases source with ⟨⟨sourceStore, sourceProgram⟩, sourceCells, sourceRegions⟩
   rcases target with ⟨⟨targetStore, targetProgram⟩, targetCells, targetRegions⟩

@@ -1,5 +1,6 @@
 import BoundaryV2.GeneralizedMultiControlEntry
 import BoundaryV2.GeneralizedRegisteredSimulation
+import BoundaryV2.GeneralizedRegisteredReflection
 import BoundaryV2.GeneralizedSourceFreezeExamples
 
 namespace BoundaryV2.Generalized.Examples
@@ -283,5 +284,21 @@ theorem general_preservation_executes_clone_from_the_noncanonical_target_heap :
   refine ⟨targetFinal, ?_, data.registry, data.arena⟩
   cases observation.observation
   exact observed
+
+/-- The target trace alone supplies the execution premise. Reflection must
+recover the source clone/resume observation and its retained resources. -/
+theorem target_trace_reflects_registered_clone_and_resumption :
+    ∃ sourceFinal sourceObservation,
+      Source.Multi.Observes (.nil : Source.Definitions signature algebra []) cloneResumeStart sourceFinal sourceObservation ∧
+      Defunctionalization.ObservationRelated sourceObservation (.returned (.datum (.leaf 0))) ∧
+      Defunctionalization.templateRegistry sourceFinal.registry = targetCloneResumeEnd.registry ∧
+      sourceFinal.control.store.fields = targetCloneResumeEnd.control.store.fields := by
+  have related := Defunctionalization.registered_initialization cloneResumeProgram cloneSourceBindings
+    (Defunctionalization.template_heap_correspondence sourceFreezeStore) sourceFreezeArena [⟨3⟩, ⟨0⟩] []
+  obtain ⟨sourceFinal, sourceObservation, observed, data, matching⟩ :=
+    Defunctionalization.registered_observation_reflected (.nil : Source.Definitions signature algebra []) related
+      (⟨16, target_clone_and_resume_compose_to_the_same_finite_observation, .returned⟩ :
+        Target.Multi.Observes .nil targetCloneResumeStart targetCloneResumeEnd (.returned (.datum (.leaf 0))))
+  exact ⟨sourceFinal, sourceObservation, observed, matching.observation, data.registry.symm, data.store.fields⟩
 
 end BoundaryV2.Generalized.Examples
