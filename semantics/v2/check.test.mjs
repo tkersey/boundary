@@ -45,9 +45,9 @@ function claimMutations() {
     function accepted(result, label) {
       assert.equal(result.status, 0, `${label}\n${result.output}`);
     }
-    function rejected(result, label) {
+    function rejected(result, label, diagnostic = /error(?:\([^)]*\))?:.*(?:Invalid field|Function expected|Type mismatch|type mismatch|Application type mismatch|unsolved goals|Tactic `rfl` failed)/s) {
       assert.notEqual(result.status, 0, `${label}: weakened claim was accepted`);
-      assert.match(result.output, /error(?:\([^)]*\))?:.*(?:Invalid field|Function expected|Type mismatch|type mismatch|Application type mismatch|unsolved goals|Tactic `rfl` failed)/s, label);
+      assert.match(result.output, diagnostic, label);
       console.log(`trust mutation: ${label}: rejected by statement checking`);
     }
     accepted(compile('GeneralizedExitTransitions', exits, true), 'original shared exit transitions');
@@ -147,7 +147,8 @@ function claimMutations() {
     const disposalCallerRoots = 'ControlProgressStep table before after outside.referenceSupport';
     assert.equal(sourceDisposal.split(disposalCallerRoots).length, 2, 'expected one authored-disposal caller-root mutation target');
     rejected(compile('GeneralizedSourceDisposalExecution', sourceDisposal.replace(disposalCallerRoots,
-      'ControlProgressStep table before after []')), 'authored source disposal omits its retained caller roots');
+      'ControlProgressStep table before after []')), 'authored source disposal omits its retained caller roots',
+    /GeneralizedSourceDisposalExecution\.lean:\d+:\d+: error: Tactic `rewrite` failed:[\s\S]*outside[^\n]*\.referenceSupport[\s\S]*ExitComposition\.ControlProgressSteps/);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
