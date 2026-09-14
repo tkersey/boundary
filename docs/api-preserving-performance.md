@@ -118,7 +118,7 @@ node --test docs/performance/cold-guard.test.mjs
 
 Relative paths resolve against the invocation directory. Each input must be a
 clean repository root with the corresponding `tkersey/boundary` or
-`tkersey/world` GitHub origin. Git and Zig 0.16.0 must be on PATH. The output must
+`tkersey/world` GitHub origin. Use the repository's Node 26.8.1+ toolchain, with Git and Zig 0.16.0 on PATH. The output must
 not exist, its parent must exist, and output/caches must stay outside all four
 source trees. Paths with spaces and filesystem aliases are supported.
 
@@ -143,7 +143,7 @@ phase observations are not uninstrumented overall compiler-speed claims.
 | Experiment or correction | Disposition and bounded evidence |
 |---|---|
 | Equal parameter-vector pool | Rejected: fixed-workspace backing unchanged; native retention 135,322 → 135,302 B while allocation calls increased 8 → 9. [Observations](performance/metadata-pool-experiment.json), [archived patch](performance/metadata-pool-prototype.patch.txt), `NEG-000008`. |
-| Identity-slot jump coalescing | Rejected: generator 808 → 796 B and borrowed-dependency 9,576 → 9,501 B, other 39 images unchanged; uninstrumented compile 124,021 → 135,407 ns. [Timing](performance/compiler-coalesce-loop.json), [archived patch](performance/compiler-coalesce-prototype.patch.txt), `NEG-000009`. No smaller BPI2 achievement retained. |
+| Identity-slot jump coalescing | Rejected: generator 808 → 796 B and borrowed-dependency 9,576 → 9,501 B, other 39 images unchanged; uninstrumented compile/encode/destruction 124,021 → 135,407 ns. [Timing](performance/compiler-coalesce-loop.json), [archived patch](performance/compiler-coalesce-prototype.patch.txt), `NEG-000009`. No smaller BPI2 achievement retained. |
 | Earlier admission nesting | Corrected before final timing: the first lifetime change raised the eight-installation decoder peak to 30,476 B versus B0's 24,692 B. Flattening admission reduced it to 16,590 B. Historical observations remain in World's decoder-memory files. |
 | Cleanup source oracle | Independently corrected: W0 already produced `[3,7,99]`; the old oracle lost the pending generator finalizer and produced `[3,99]`. [Old oracle](performance/cleanup-original-oracle.json), [W0 result](performance/cleanup-reference-world.json). This is correctness evidence, not a performance gain. |
 | Fixture packaging | Cleanup helper moved inside the shipped emitter; all 41 image/source pairs preserved. Strict archive inventory and extracted examples 14/40 pass. The terminal cancellation script retains its one reachable cancel; independent repeated-cancellation tests remain. |
