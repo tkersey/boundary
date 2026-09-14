@@ -20,13 +20,14 @@ function claimMutations() {
   const exits = readFileSync(join(project, 'BoundaryV2', 'GeneralizedExitTransitions.lean'), 'utf8');
   const cleanup = readFileSync(join(project, 'BoundaryV2', 'GeneralizedCleanupCompletion.lean'), 'utf8');
   const sourceExits = readFileSync(join(project, 'BoundaryV2', 'GeneralizedSourceExits.lean'), 'utf8');
+  const sourceCancellation = readFileSync(join(project, 'BoundaryV2', 'GeneralizedSourceCancellation.lean'), 'utf8');
   const exitSimulation = readFileSync(join(project, 'BoundaryV2', 'GeneralizedExitSimulation.lean'), 'utf8');
   const consumers = readFileSync(join(project, 'BoundaryV2', 'GeneralizedContractChecks.lean'), 'utf8');
   try {
     mkdirSync(join(directory, 'BoundaryV2'));
     const artifacts = join(project, '.lake', 'build', 'lib', 'lean', 'BoundaryV2');
     for (const name of readdirSync(artifacts)) {
-      if (!/\.olean(?:\.|$)/.test(name) || /^(GeneralizedContracts|GeneralizedContractChecks|GeneralizedStateObservations|GeneralizedRegisteredExecution|GeneralizedExitTransitions|GeneralizedCleanupCompletion|GeneralizedSourceExits|GeneralizedExitSimulation)\./.test(name)) continue;
+      if (!/\.olean(?:\.|$)/.test(name) || /^(GeneralizedContracts|GeneralizedContractChecks|GeneralizedStateObservations|GeneralizedRegisteredExecution|GeneralizedExitTransitions|GeneralizedCleanupCompletion|GeneralizedSourceCancellation|GeneralizedSourceExits|GeneralizedExitSimulation)\./.test(name)) continue;
       symlinkSync(join(artifacts, name), join(directory, 'BoundaryV2', name));
     }
     copyFileSync(join(project, 'lean-toolchain'), join(directory, 'lean-toolchain'));
@@ -51,6 +52,7 @@ function claimMutations() {
     accepted(compile('GeneralizedCleanupCompletion', cleanup, true), 'original cleanup composition laws');
     accepted(compile('GeneralizedStateObservations', observations, true), 'original stateful observations');
     accepted(compile('GeneralizedRegisteredExecution', registered, true), 'original registered execution');
+    accepted(compile('GeneralizedSourceCancellation', sourceCancellation, true), 'original source cancellation');
     accepted(compile('GeneralizedSourceExits', sourceExits, true), 'original independent source exits');
     accepted(compile('GeneralizedExitSimulation', exitSimulation, true), 'original source exit simulation');
     accepted(compile('GeneralizedContracts', contracts, true), 'original contract declarations');
@@ -117,6 +119,14 @@ function claimMutations() {
     accepted(compile('GeneralizedSourceExits', sourceExits.replace(spentAuthority,
       'runtime.store.fields.spent'), true), 'source spent-authority omission probe must itself compile');
     rejected(compile('GeneralizedExitSimulation', exitSimulation), 'source resource disposal forgets spent authority');
+    const runningCancellation = 'some (.cleaning identity original (exit.cancel reason) first)';
+    assert.equal(sourceCancellation.split(runningCancellation).length, 2, 'expected one source running-cancellation mutation target');
+    rejected(compile('GeneralizedSourceCancellation', sourceCancellation.replace(runningCancellation,
+      'some (.cleaning identity original { exit with cancellation := some reason } first)')),
+    'source cancellation overwrites the first accepted reason');
+    rejected(compile('GeneralizedSourceCancellation', sourceCancellation.replace(runningCancellation,
+      'some (.cleaning identity original (exit.cancel reason) (.returned (.datum .unit)))')),
+    'source cancellation discards the running cleanup continuation');
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

@@ -164,7 +164,11 @@ target to source. Source value and control disposal now join that relation:
 actual fields and grants govern structural disposal, and source cleanup executes
 inside disposed continuations. D's `value_disposal_preservation` and
 `control_disposal_preservation` fields cover arbitrary finite derivations of
-these operations. These remain components of D: source region/suspended-work
+these operations. Running, parked, and captured cancellation now preserves the actual
+source future and first reason; D also exposes its source/target admission
+correspondence. Yield parking, continuation, capture, and reattachment compose
+through the same finite exit simulation. These remain components of D: source
+region/suspended-work abandonment
 operations, authored dispose entry, registered execution, and reverse finite
 exit correspondence still need integration before complete adequacy can be claimed.
 

@@ -138,9 +138,8 @@ theorem unwind_cleanup_preserved
     (retained := retained) (definitions table) target runtime.completion
       (.protection identity cleanup bindings) sourceOutside rfl
   cases frame
-  obtain ⟨sourceAfter, targetAfter, sourceStep, targetStep, related⟩ :=
+  obtain ⟨targetAfter, _, targetStep, related⟩ :=
     unwind_cleanup_entry_steps_correspond (retained := retained) table identity cleanup bindings runtime context
-  cases sourceStep
   exact ⟨count + 1, targetAfter, by omega, drain.trans (.cons targetStep .refl), related⟩
 
 theorem unwound_cleanup_preserved
@@ -162,13 +161,9 @@ theorem unwound_cleanup_preserved
     (retained := retained) (definitions table) target runtime.completion
       (.cleanupReturn identity original exit) sourceOutside rfl
   cases frame
-  obtain ⟨sourceAfter, targetAfter, sourceStep, targetStep, related⟩ :=
+  obtain ⟨targetAfter, _, targetStep, related⟩ :=
     unwound_cleanup_steps_correspond (retained := retained) table identity original exit runtime context accepted
-  cases sourceStep with
-  | unwound completed =>
-    have same := Option.some.inj (accepted.symm.trans completed)
-    cases same
-    exact ⟨count + 1, targetAfter, by omega, drain.trans (.cons targetStep .refl), related⟩
+  exact ⟨count + 1, targetAfter, by omega, drain.trans (.cons targetStep .refl), related⟩
 
 private abbrev CleanupSimulation (table : Source.Definitions signature algebra program)
     {result} (source after : Source.CleanupProgress signature algebra program result) retained
@@ -264,6 +259,58 @@ private theorem cleanup_step_preserved_case (table : Source.Definitions signatur
     | values outside values =>
       obtain ⟨runtime, targetFinished, matching⟩ := finished_value_disposal_corresponds values finished
       exact ⟨1, _, .cons (.finishValues targetFinished) .refl, finished_values_reentry_corresponds _ _ matching outside⟩
+  | cancel accepted =>
+    cases related with
+    | running matching =>
+      obtain ⟨targetAfter, cancelled, joined⟩ := matching.cancel_preserved accepted
+      exact ⟨1, _, .cons (.cancel cancelled) .refl, .running joined⟩
+  | parkYield =>
+    cases related with
+    | running matching =>
+      cases matching with
+      | reenter states =>
+        rename_i targetState
+        rcases targetState with ⟨⟨store, configuration⟩, cells, regions⟩
+        obtain ⟨future, same, computation⟩ := states.computation.yielded_view _ rfl
+        change configuration = .yielded future at same
+        subst configuration
+        exact ⟨1, _, .cons .parkYield .refl, .parked (.reenter states)⟩
+  | continueYield =>
+    cases related with
+    | parked matching =>
+      cases matching with
+      | reenter states =>
+        rename_i targetState
+        rcases targetState with ⟨⟨store, configuration⟩, cells, regions⟩
+        obtain ⟨future, same, computation⟩ := states.computation.yielded_view _ rfl
+        change configuration = .yielded future at same
+        subst configuration
+        exact ⟨1, _, .cons .continueYield .refl,
+          .running (.reenter ⟨states.store, states.cells, states.regions, computation⟩)⟩
+  | cancelParked accepted =>
+    cases related with
+    | parked matching =>
+      obtain ⟨targetAfter, cancelled, joined⟩ := matching.cancel_preserved accepted
+      exact ⟨1, _, .cons (.cancelParked cancelled) .refl, .parked joined⟩
+  | captureYield =>
+    cases related with
+    | running matching =>
+      cases matching with
+      | reenter states =>
+        rename_i targetState
+        rcases targetState with ⟨⟨store, configuration⟩, cells, regions⟩
+        obtain ⟨future, same, computation⟩ := states.computation.yielded_view _ rfl
+        change configuration = .yielded future at same
+        subst configuration
+        exact ⟨1, _, .cons .captureYield .refl, .captured (.reenter states)⟩
+  | reattach =>
+    cases related with
+    | captured matching => exact ⟨1, _, .cons .reattach .refl, .running matching⟩
+  | cancelCaptured accepted =>
+    cases related with
+    | captured matching =>
+      obtain ⟨targetAfter, cancelled, joined⟩ := matching.cancel_preserved accepted
+      exact ⟨1, _, .cons (.cancelCaptured cancelled) .refl, .captured joined⟩
 
 
 private theorem value_disposal_step_preserved_case (table : Source.Definitions signature algebra program)

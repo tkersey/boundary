@@ -77,6 +77,19 @@ theorem disposal_answer_contract (claim : Exits.composition signature algebra pr
         ⟨identity, .finished .returned, store, cells, regions, diagnostics⟩ value)) :=
   claim.control_answer identity store cells regions diagnostics value
 
+theorem running_cancellation_contract (claim : Defunctionalization.adequacy signature algebra program)
+    (reason : algebra.Reason)
+    {source : Source.ExitResolution signature algebra program result}
+    {target : ExitComposition.Resolution signature algebra program result}
+    (related : Defunctionalization.ExitResolutionRelated source target) :
+    Option.Rel Defunctionalization.ExitResolutionRelated (source.cancelRunning reason) (target.cancelRunning reason) :=
+  claim.running_cancellation reason related
+
+theorem source_first_cancellation_contract (claim : Exits.composition signature algebra program)
+    (first later : algebra.Reason) (before after : Source.ExitResolution signature algebra program result)
+    (accepted : before.cancelRunning first = some after) : after.cancelRunning later = some after :=
+  claim.source_first_cancellation first later before after accepted
+
 theorem frame_exit_contract (claim : Exits.composition signature algebra program)
     (table : Target.Definitions signature algebra program)
     {before : ExitComposition.RegionDisposal signature algebra program result}

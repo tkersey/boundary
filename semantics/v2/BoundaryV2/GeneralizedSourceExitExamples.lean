@@ -128,4 +128,45 @@ theorem source_disposal_reaches_the_matching_target_failure :
   exact cleanup_observation_preserved (.nil : Source.Definitions signature algebra []) (.running (.reenter matching))
     source_saved_result_disposes_its_real_grant_before_exit.1 .failed
 
+def cancelledFuture : Source.Program signature algebra [] (.leaf .text) :=
+  CleanupContext.sourceOutside.plug (.cleaning ⟨7⟩ none (originalExit.cancel "first")
+    (.evaluate (.fail Fault.overflow) sourceBindings))
+def cancelledYield : Source.State signature algebra [] (.leaf .text) :=
+  ⟨⟨sourceStore, .yielded cancelledFuture⟩, [], []⟩
+def continuedCleanup : Source.State signature algebra [] (.leaf .text) :=
+  ⟨⟨sourceStore, cancelledFuture⟩, [], []⟩
+
+/-- Capture, repeated cancellation, reattachment, parking, and continuation
+retain the original running body and failure. The first reason wins across
+both suspended locations, while unrelated owned grants remain untouched. -/
+theorem source_captured_cleanup_keeps_its_future_and_first_reason :
+    Source.CleanupSteps (.nil : Source.Definitions signature algebra [])
+      (.running (.reenter sourceFinal normal)) 7 (.running (.reenter continuedCleanup normal)) ∧
+    (originalExit.cancel "first").primary = .failure Fault.overflow ∧
+    (originalExit.cancel "first").cancellation = some "first" ∧
+    continuedCleanup.control.store.fields = fields := by
+  refine ⟨?_, rfl, rfl, rfl⟩
+  refine .cons (middle := .captured ⟨44⟩ (.reenter sourceFinal normal)) .captureYield ?_
+  refine .cons (middle := .captured ⟨44⟩ (.reenter cancelledYield normal))
+    (.cancelCaptured (reason := "first") rfl) ?_
+  refine .cons (middle := .captured ⟨44⟩ (.reenter cancelledYield normal))
+    (.cancelCaptured (reason := "second") rfl) ?_
+  refine .cons (middle := .running (.reenter cancelledYield normal)) .reattach ?_
+  refine .cons (middle := .parked (.reenter cancelledYield normal)) .parkYield ?_
+  refine .cons (middle := .parked (.reenter cancelledYield normal))
+    (.cancelParked (reason := "third") rfl) ?_
+  exact .cons .continueYield .refl
+
+theorem captured_source_cleanup_composes_with_target_execution :
+    ∃ count targetAfter,
+      ExitComposition.CleanupFrameSteps (.nil : Target.Definitions signature algebra [])
+        (.running (.reenter targetBefore originalExit)) count targetAfter ∧
+      CleanupProgressRelated (.running (.reenter continuedCleanup normal)) targetAfter := by
+  obtain ⟨firstCount, middle, first, related⟩ := finite_cleanup_preserved (.nil : Source.Definitions signature algebra [])
+    source_failure_cleanup_yields_under_its_actual_handler
+    (.running (.reenter initial_states_retain_independent_source_and_target_contexts))
+  obtain ⟨secondCount, final, second, joined⟩ := finite_cleanup_preserved (.nil : Source.Definitions signature algebra [])
+    source_captured_cleanup_keeps_its_future_and_first_reason.1 related
+  exact ⟨firstCount + secondCount, final, first.trans second, joined⟩
+
 end BoundaryV2.Generalized.Examples.SourceExit

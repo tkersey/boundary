@@ -21,6 +21,31 @@ inductive ExitResolutionRelated : Source.ExitResolution signature algebra progra
   | unwind : ExitRuntimeRelated source target → ContextRelated signature algebra program sourceOutside targetOutside →
       ExitResolutionRelated (.unwind source sourceOutside) (.unwind target targetOutside)
 
+theorem ExitResolutionRelated.cancel_running (related : ExitResolutionRelated source target) (reason : algebra.Reason) :
+    Option.Rel ExitResolutionRelated (source.cancelRunning reason) (target.cancelRunning reason) := by
+  cases related with
+  | reenter states =>
+    rcases states with ⟨stores, storage, regions, computation⟩
+    have matched := computation.cancel_inside reason rfl
+    unfold Source.ExitResolution.cancelRunning ExitComposition.Resolution.cancelRunning
+    exact cancellation_options_map matched _ _ (fun _ _ matching => .reenter ⟨stores, storage, regions, matching⟩)
+  | unwind runtime outside =>
+    have matched := running_cancellation_corresponds reason outside
+    unfold Source.ExitResolution.cancelRunning ExitComposition.Resolution.cancelRunning
+    exact cancellation_options_map matched _ _ (fun _ _ matching => .unwind runtime matching)
+
+theorem ExitResolutionRelated.cancel_preserved (related : ExitResolutionRelated source target)
+    (accepted : source.cancelRunning reason = some after) :
+    ∃ targetAfter, target.cancelRunning reason = some targetAfter ∧ ExitResolutionRelated after targetAfter := by
+  have matched := related.cancel_running reason
+  rw [accepted] at matched
+  cases found : target.cancelRunning reason with
+  | none => rw [found] at matched; cases matched
+  | some targetAfter =>
+    rw [found] at matched
+    cases matched with
+    | some matching => exact ⟨_, rfl, matching⟩
+
 inductive CleanupDisposalRelated : Source.CleanupDisposal signature algebra program result →
     ExitComposition.CleanupDisposal signature algebra program result → Prop where
   | same (original : Source.RuntimeValue signature algebra program input) :
@@ -39,6 +64,8 @@ mutual
   inductive CleanupProgressRelated : Source.CleanupProgress signature algebra program result →
       ExitComposition.CleanupFrameProgress signature algebra program result → Prop where
     | running : ExitResolutionRelated source target → CleanupProgressRelated (.running source) (.running target)
+    | parked : ExitResolutionRelated source target → CleanupProgressRelated (.parked source) (.parked target)
+    | captured : ExitResolutionRelated source target → CleanupProgressRelated (.captured identity source) (.captured identity target)
     | disposing : CleanupDisposalRelated source target → CleanupProgressRelated (.disposing source) (.disposing target)
     | values : ContextRelated signature algebra program sourceOutside targetOutside → ValueDisposalRelated source target →
         CleanupProgressRelated (.values identity completion sourceOutside source) (.values identity completion targetOutside target)
@@ -216,7 +243,9 @@ theorem unwind_cleanup_entry_steps_correspond
     {sourceOutside : Source.Context signature algebra program input result}
     {targetOutside : Target.Stack signature algebra program input result}
     (outside : ContextRelated signature algebra program sourceOutside targetOutside) :
-    ∃ sourceAfter targetAfter,
+    let sourceAfter := Source.CleanupProgress.running
+      (Source.beginExitCleanup identity cleanup bindings source.store source.cells source.regions source.exit sourceOutside)
+    ∃ targetAfter,
       Source.CleanupStep table (.running (.unwind source (.push (.protection identity cleanup bindings) sourceOutside))) sourceAfter retained ∧
       ExitComposition.CleanupFrameStep (definitions table)
         (.running (.unwind target (.push (.protection identity (computation cleanup) (environment bindings)) targetOutside))) targetAfter retained ∧
@@ -226,7 +255,7 @@ theorem unwind_cleanup_entry_steps_correspond
   rcases runtime with ⟨sameId, completed, stores, storage, live, sameExit⟩
   dsimp only at sameId completed stores storage live sameExit
   subst targetId phase targetCells targetRegions targetExit
-  exact ⟨_, _, .beginUnwind, .begin rfl,
+  exact ⟨_, .beginUnwind, .begin rfl,
     .running (cleanup_entry_corresponds identity cleanup bindings stores sourceCells regions exit outside)⟩
 
 
@@ -295,7 +324,8 @@ theorem unwound_cleanup_steps_correspond
       (match source.exit.primary with
         | .failure fault => exit.nestedFailure fault source.exit.failures source.exit.cancellation
         | _ => exit.nestedAbandon source.exit) = some outcome) :
-    ∃ sourceAfter targetAfter,
+    let sourceAfter := (Source.reenterCleanupResult identity .abandoned source.store source.cells source.regions sourceOutside outcome).progress
+    ∃ targetAfter,
       Source.CleanupStep table (.running (.unwind source (.push (.cleanupReturn identity original exit) sourceOutside))) sourceAfter retained ∧
       ExitComposition.CleanupFrameStep (definitions table)
         (.running (.unwind target (.push (.cleanupReturn identity (original.map value) exit) targetOutside))) targetAfter retained ∧
@@ -306,7 +336,7 @@ theorem unwound_cleanup_steps_correspond
   dsimp only at sameId completed stores storage live sameExit
   subst targetId phase targetCells targetRegions targetExit
   have finalized := cleanup_finalization_corresponds original _ accepted
-  refine ⟨_, _, .unwound accepted, .finish (after := ExitComposition.reenterCleanupResult identity .abandoned
+  refine ⟨_, .unwound accepted, .finish (after := ExitComposition.reenterCleanupResult identity .abandoned
     targetStore (cells sourceCells) regions targetOutside (outcome.mapBodies (fun _ _ body => computation body))) ?_,
     (cleanup_reentry_corresponds identity .abandoned stores sourceCells regions outside outcome).progress⟩
   change (ExitComposition.finalizeCleanup (original.map value) _).map _ = some _

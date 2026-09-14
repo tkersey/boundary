@@ -120,6 +120,13 @@ structure adequacy : Prop where
         CleanupProgressRelated final targetFinal := by
           intro table result count retained source final target steps related
           exact finite_cleanup_preserved table steps related
+  running_cancellation : ∀ {result} (reason : algebra.Reason)
+    {source : Source.ExitResolution signature algebra program result}
+    {target : ExitComposition.Resolution signature algebra program result},
+    ExitResolutionRelated source target →
+      Option.Rel ExitResolutionRelated (source.cancelRunning reason) (target.cancelRunning reason) := by
+        intro result reason source target related
+        exact related.cancel_running reason
   cleanup_observations : ∀ (table : Source.Definitions signature algebra program) {result count retained diagnostics observation}
     {source : Source.CleanupProgress signature algebra program result}
     {target : ExitComposition.CleanupFrameProgress signature algebra program result}
@@ -356,6 +363,10 @@ structure composition : Prop where
     (future : Target.Stack signature algebra program input result),
     (future.cancelRunning first).isSome = (future.cancelRunning later).isSome ∧
       ∀ after, future.cancelRunning first = some after → after.cancelRunning later = some after
+  source_first_cancellation : ∀ {result} (first later : algebra.Reason)
+    (before after : Source.ExitResolution signature algebra program result),
+    before.cancelRunning first = some after → after.cancelRunning later = some after :=
+      Source.ExitResolution.repeated_cancellation_keeps_running_work
   failure_precedence : ∀ (first second : algebra.Fault) (exit : ExitInfo algebra.Fault algebra.Reason),
     (exit.cleanupFailure first).cleanupFailure second =
       { (exit.cleanupFailure first) with failures := (exit.cleanupFailure first).failures ++ [second] }

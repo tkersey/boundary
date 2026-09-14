@@ -1,5 +1,6 @@
 import BoundaryV2.GeneralizedCleanupCompletion
 import BoundaryV2.GeneralizedStateObservations
+import BoundaryV2.GeneralizedSourceCancellation
 
 namespace BoundaryV2.Generalized.Source
 
@@ -22,6 +23,27 @@ inductive ExitResolution (signature : Signature) (algebra : LeafAlgebra signatur
   | reenter : State signature algebra program result → ExitInfo algebra.Fault algebra.Reason → ExitResolution signature algebra program result
   | unwind {input : TypeOf signature} : ExitRuntime signature algebra program →
       Context signature algebra program input result → ExitResolution signature algebra program result
+
+def ExitResolution.cancelRunning (reason : algebra.Reason) :
+    ExitResolution signature algebra program result → Option (ExitResolution signature algebra program result)
+  | .reenter state diagnostics => (state.control.computation.cancelRunning reason).map fun computation =>
+      .reenter { state with control := { state.control with computation := computation } } diagnostics
+  | .unwind runtime outside => (outside.cancelRunning reason).map (.unwind runtime)
+
+theorem ExitResolution.repeated_cancellation_keeps_running_work
+    (first later : algebra.Reason) (before after : ExitResolution signature algebra program result)
+    (accepted : before.cancelRunning first = some after) : after.cancelRunning later = some after := by
+  cases before with
+  | reenter state diagnostics =>
+    obtain ⟨updated, found, same⟩ := Option.map_eq_some_iff.mp accepted
+    cases same
+    simp only [ExitResolution.cancelRunning,
+      (Program.running_cancellation_stable first later state.control.computation).2 updated found, Option.map_some]
+  | unwind runtime outside =>
+    obtain ⟨updated, found, same⟩ := Option.map_eq_some_iff.mp accepted
+    cases same
+    simp only [ExitResolution.cancelRunning,
+      (Context.running_cancellation_stable first later outside).2 updated found, Option.map_some]
 
 structure CleanupDisposal (signature : Signature) (algebra : LeafAlgebra signature.Data)
     (program : List (BodyType signature.Data signature.Effect)) (result : TypeOf signature) where
@@ -70,6 +92,8 @@ mutual
   inductive CleanupProgress (signature : Signature) (algebra : LeafAlgebra signature.Data)
       (program : List (BodyType signature.Data signature.Effect)) : TypeOf signature → Type where
     | running : ExitResolution signature algebra program result → CleanupProgress signature algebra program result
+    | parked : ExitResolution signature algebra program result → CleanupProgress signature algebra program result
+    | captured : Id .control → ExitResolution signature algebra program result → CleanupProgress signature algebra program result
     | disposing : CleanupDisposal signature algebra program result → CleanupProgress signature algebra program result
     | values {input : TypeOf signature} : Id .obligation → ExitComposition.Completion algebra.Fault →
         Context signature algebra program input result → ValueDisposal signature algebra program → CleanupProgress signature algebra program result
@@ -140,6 +164,23 @@ mutual
     | finishValues : work.finished = some runtime →
         CleanupStep table (.values identity completion outside work)
           (reenterCleanupResult identity completion runtime.store runtime.cells runtime.regions outside (.exiting runtime.exit)).progress retained
+
+    | cancel : before.cancelRunning reason = some after →
+        CleanupStep table (.running before) (.running after) retained
+    | parkYield {future : Program signature algebra program result} :
+        CleanupStep table (.running (.reenter ⟨⟨store, .yielded future⟩, cells, regions⟩ diagnostics))
+          (.parked (.reenter ⟨⟨store, .yielded future⟩, cells, regions⟩ diagnostics)) retained
+    | continueYield {future : Program signature algebra program result} :
+        CleanupStep table (.parked (.reenter ⟨⟨store, .yielded future⟩, cells, regions⟩ diagnostics))
+          (.running (.reenter ⟨⟨store, future⟩, cells, regions⟩ diagnostics)) retained
+    | cancelParked : before.cancelRunning reason = some after →
+        CleanupStep table (.parked before) (.parked after) retained
+    | captureYield {future : Program signature algebra program result} :
+        CleanupStep table (.running (.reenter ⟨⟨store, .yielded future⟩, cells, regions⟩ diagnostics))
+          (.captured identity (.reenter ⟨⟨store, .yielded future⟩, cells, regions⟩ diagnostics)) retained
+    | reattach : CleanupStep table (.captured identity resolution) (.running resolution) retained
+    | cancelCaptured : before.cancelRunning reason = some after →
+        CleanupStep table (.captured identity before) (.captured identity after) retained
 
 
   inductive ValueDisposalStep [DecidableEq (ControlShape signature)] [DecidableEq (TypeOf signature)]

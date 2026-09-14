@@ -14,6 +14,148 @@ The translation is total over the typed source syntax. Pure leaf data and
 primitive value-or-fault outcomes remain an explicit abstract interface;
 internal control, resource, region, and ownership references are structural.
 
+## Recovery checkpoint — 2026-09-14 (historical)
+
+Recovery source: Codex thread `01a0887a-4487-7a31-b70e-7f0f37c8a1a0`,
+persisted at
+`/Users/tk/.codex/sessions/2026/09/09/rollout-2026-09-09T16-21-49-01a0887a-4487-7a31-b70e-7f0f37c8a1a0.jsonl`.
+Recovery read bounded transcript chunks and directly relevant
+records; it did not resume the old agent or alter its session files.
+Implementation stopped at the user's recovery-only instruction at this checkpoint.
+The active goal subsequently resumed; the current proof inventory below supersedes
+this snapshot's failed-build status. The milestone remains unfinished.
+
+### Objective and subsequent corrections
+
+The accepted specification is the September 12 **Boundary — Generalized Effects
+Proof Core**, read from
+`/Users/tk/.codex/attachments/75e434fd-47f1-4fd6-b547-f1eb03f6e08b/pasted-text-1.txt`.
+The old goal adopted it at `2026-09-12T13:31:17Z`. Complete D/H/U/X/O with
+independent higher-order source and first-order target, total translation,
+explicit local permissions, finite compositional proofs, positive trust checking,
+and independent production conformance. Full-profile certification was withdrawn.
+No merge, auto-merge, tag, release, World/Agent change, or public-format change is
+authorized.
+
+Subsequent user instructions, recovered directly from the transcript:
+
+- September 12, `16:25:49Z`: approve unchanged World
+  `87698f92ca7be4d5442e97ba27a2468aa3ff6a7c`; the previous pin rejected a required
+  cleanup-disposal regression. `19:01:19Z`: publish available commits as a draft.
+- September 14, `02:35:24Z` (byte offset `366530899`): continue on the existing
+  branch/PR; no restart or reset to reference head `83d0911`. Define the five
+  precise Lean claim types, connect existing results, and prioritize their
+  missing semantic connections over more disconnected local results. Preserve
+  capture provenance and the uninhabited-input counterexample, `NEG-000008`.
+  Do not reopen the donors, narrow observations, assume the desired simulation,
+  or replace independent source semantics with target execution.
+- September 14, `03:10:01Z` (byte offset `370124219`): ablate superseded drivers
+  and duplicate representations as part of integration. Preserve guarantees,
+  meaning-bearing definitions, unfinished obligations, and distinguishing tests;
+  imports/reference counts alone do not justify retention or deletion. No quotas,
+  new framework, or separate cleanup project.
+
+### Verified state and completed work
+
+At recovery, `/Users/tk/workspace/tk/boundary` is clean on `main`,
+`55e8feedcae0b9ee1492da11f9fbd4a1ac7ff328`. The implementation worktree is
+`/Users/tk/workspace/tk/boundary-generalized-effects-proof-core`, branch
+`codex/generalized-effects-proof-core`, HEAD
+`387aa9d746e2bc94e3c85cca1d0c71da8ea957fe`. It was clean before the new-thread
+attempt described below. [PR #149](https://github.com/tkersey/boundary/pull/149)
+is open and draft at that exact head. Donor PRs #147/#148 are closed without
+merging; their heads remain `b6e74aec` and `ce680c78`. Do not repeat supersession.
+
+Recent commits already establish registered preservation/reflection
+(`1d4578b`, `c259782`), shared handler-aware disposal frames (`8bcbf13`), finite
+source cleanup preservation (`469fabe`), and source owned-value/control disposal
+preservation (`387aa9d`). The specialized registered resume/clone drivers and
+the separate nested-disposal/unwind wrapper were already retired. The inventory
+below and [CONTRACT.md](CONTRACT.md) describe the precise checked components;
+none of the five complete contract inhabitants is exported.
+
+Historical validation on `387aa9d`: 185 Lean jobs; aggregate 444/444 steps and
+99/99 tests; positive axiom audit, fresh kernel replay, 22 mutations; conformance
+143 cases and 487 fresh native/WASM comparisons. Evidence remains in
+`/tmp/boundary-source-owned-{aggregate,conformance}.log` and
+`/tmp/boundary-source-owned-check-head.txt`. Live readback confirms
+[CI run 34868126980](https://github.com/tkersey/boundary/actions/runs/34868126980)
+succeeded for that commit. These are historical results, **not a pass for the
+current dirty checkout**. The existing conformance checkout
+`/tmp/boundary-world-generated-rAEXqm` was verified clean at the approved World
+pin. Lean remains 4.33.1; historical integration tools were Zig 0.16.0 and Node
+26.8.2. Refresh executable versions before new acceptance runs.
+
+### Decision evidence and unfinished work
+
+Ledger 1.2.1 read-only owner projections and doctors passed, with zero pending
+transactions: eight Negative Ledger records and 43 Review Fold witnesses.
+Negative Ledger revision is
+`sha256:4baab308c3cbd514904f2d1f10e81e91876005f487cb30ae9dbbb13bdf5bcdf3`;
+Review Fold revision is
+`sha256:9bc08be1121072a7815643ca29375b8ac11a6b94920bdf13b27d7661fdb4b191`.
+No Ledger records were changed. The 43 witnesses belong to an earlier goal;
+their presence does not reinstate withdrawn proof obligations or prove current
+liability. Recheck applicability through the owner before acting.
+
+`NEG-000008` excludes deriving capture references/copy permissions from bare
+callback equality over possibly uninhabited inputs; its discriminator remains
+in `GeneralizedProvenanceExamples.lean`. Other recorded rejected routes include
+unordered custody transport, fixed scope-entry owner lists, eager partial
+operand transfer, and treating Drop permission as ownership classification.
+Retain their relevant regressions. Whole-profile replicas/certificates and
+same-dispatcher atom substitution remain excluded by the accepted specification.
+
+Still required: source region/suspended-work rules and authored dispose entry;
+reverse finite exit correspondence; joining exits with registered execution;
+actual frame/registry/lifetime handoff through capture, activation, completion,
+retained work and disposal; O on those integrated futures; complete D/H/U/X/O
+inhabitants and their reviewed premises; exact-head final acceptance and review.
+These are integration obligations, not a mandate for a production heap theorem.
+
+### Last actions and exact resumption point
+
+The old thread's last recovered tool action at `2026-09-14T16:24:19Z` polled the
+PR-update process and queried CI. Its result confirmed the push and exact
+draft/body readback; CI was then running. At `18:27:21Z` execution failed with
+`context_window_exceeded`; remote compaction failed at `18:27:44Z`. Later retries
+also failed. No uncommitted old-thread implementation remained at recovery.
+
+Before the recovery-only clarification, a goal continuation in the **new** thread
+started this preserved, uncommitted work:
+
+- New `BoundaryV2/GeneralizedSourceCancellation.lean` (136 lines): source
+  cancellation and attempted context/program correspondence.
+- Modified `BoundaryV2/GeneralizedSourceExits.lean`: parked/captured cleanup and
+  cancellation transitions.
+- Modified `BoundaryV2/GeneralizedExitCorrespondence.lean`: associated relations
+  and cancellation lemmas. `GeneralizedExitSimulation.lean` has **not** yet been
+  extended for the new constructors.
+
+The new module's first build failed; `/tmp/boundary-recovery-cancellation.log`
+records the first error at line 15 (the `returned` pattern/binder), followed by
+unresolved stack-induction and dependent `Option.Rel` goals. The dependent files
+have not passed compilation. The build process terminated; no build is awaiting
+polling. This checkpoint is the only additional documentation change; nothing
+was committed or pushed during recovery.
+
+**Resumption action recorded at recovery (subsequently completed):** re-read the three-file
+diff, repair the first declaration error and cancellation correspondence proofs,
+then run from the implementation worktree:
+
+```sh
+elan run leanprover/lean4:v4.33.1 lake -d semantics/v2 --wfail build +BoundaryV2.GeneralizedSourceCancellation
+```
+
+After that succeeds, extend the existing mutual exit simulation for the new
+transitions and add a distinguishing captured-cleanup/first-reason regression;
+check the affected contract consumers before broader acceptance. Choosing this
+suspended-cleanup seam was the new thread's implementation judgment, not an
+unrecorded instruction or completed result from the old thread. The named
+`boundary-generalized-effects-proof-core-reorientation-spec.md` copy was not
+located in the checked project/Downloads paths; use the verified attachment
+above, rather than inventing another specification.
+
 ## Checked laws and their current scope
 
 The five requested names are now Lean contract structures in
@@ -22,7 +164,7 @@ inhabitants. Their checked components and required connections are:
 
 | Export | Existing components | Remaining proof or connection |
 | --- | --- | --- |
-| `Defunctionalization.adequacy` | Core/registered preservation and reflection, and finite source cleanup/value/control-disposal preservation with all four cleanup observations | Complete reverse exit correspondence and source region/suspended-work rules, then join exits and registered execution without omitting observations. |
+| `Defunctionalization.adequacy` | Core/registered preservation and reflection, and finite source cleanup/value/control-disposal preservation with all four cleanup observations | Complete reverse exit correspondence and source region/suspended-abandonment rules, then join exits and registered execution without omitting observations. |
 | `Handlers.interpretation` | Fresh installation, nearest selection, forwarding, context closure, actual resume/injection/successor correspondence | Use the stateful correspondence under arbitrary enclosing effectful handlers, including registered multi entry. |
 | `UseScope.preservation` | Actual control/cell steps, typed consumption, physical capture multiplicity, scoped packages, registry insertion, fresh activation and dormant support | Connect actual captured/unwound frame fields to registry and lifetime handoff across capture, activation, completion, and disposal. |
 | `Exits.composition` | Shared handler-aware frame execution for disposal and nested cleanup, structured saved-result and handler-answer disposal, retained-root region handoff, current-resource completion, and finite embeddings | Connect suspended-work abandonment and registry/lifetime successors, then compose all exits with source/target observations. |
@@ -80,8 +222,26 @@ captures in declared order, and execute a disposed continuation's source cleanup
 They preserve unrelated ownership and exact spent-grant history. The existing
 trust harness rejects a source resource rule that forgets the spent authority.
 
+`GeneralizedSourceCancellation` independently locates the source's outermost
+running cleanup, including inside a requested or yielded future. Cancellation
+preserves its actual body, saved result, and first accepted reason. Its context
+and program laws relate both accepted cancellation and absence of a running
+cleanup to the target operation, including target administrative callers.
+D's `running_cancellation` and X's `source_first_cancellation` fields consume
+these results.
+
+The existing finite exit simulation now includes running/parked/captured
+cancellation, yield parking/continuation, capture, and reattachment. Two unwind
+helpers name their actual cleanup successor instead of depending on exclusivity
+of the source transition. A source-derived trace composes handler-aware cleanup
+entry with capture, repeated cancellation, reattachment, parking, and continuation;
+it preserves the original failure, first reason, running future, and unrelated
+owned grants. Trust mutations reject overwriting that reason and discarding
+the running body. Registry custody and abandonment of suspended work are still
+separate unfinished connections, not implied by the location correspondence.
+
 This is a preservation component, not complete cleanup adequacy. The source
-cleanup relation still needs region and suspended-work operations, the authored
+cleanup relation still needs region and suspended-work abandonment operations, the authored
 dispose entry connection, and its connection to registered execution; reverse finite correspondence must
 cover those operations as they are integrated. It is not enough that the
 present relation and its currently implemented constructors compile.
