@@ -22,7 +22,7 @@ inhabitants. Their checked components and required connections are:
 
 | Export | Existing components | Remaining proof or connection |
 | --- | --- | --- |
-| `Defunctionalization.adequacy` | Finite preservation/reflection for default core execution; registered initialization/response entry; clone and multi-entry correspondence on one retained runtime | Extend `stateful_execution_step_simulates` and finite reflection to retained support and registered receivers. Generalize clone correspondence beyond canonical target heaps using capture provenance/clone views. Embed disposal and exit/lifetime transitions. |
+| `Defunctionalization.adequacy` | Retained-aware finite core preservation; registered initialization/response entry and finite observation preservation, including clone against noncanonical target heaps; default core reflection | Extend finite reflection to retained support and registered receivers. Embed disposal and exit/lifetime transitions. |
 | `Handlers.interpretation` | Fresh installation, nearest selection, forwarding, context closure, actual resume/injection/successor correspondence | Use the stateful correspondence under arbitrary enclosing effectful handlers, including registered multi entry. |
 | `UseScope.preservation` | Actual control/cell steps, typed consumption, physical capture multiplicity, scoped packages, registry insertion, fresh activation and dormant support | Connect registry and lifetime handoff across capture, activation, completion, and disposal. |
 | `Exits.composition` | Stateful initiation, cancellation, ordered operands/failures, owned-result disposal, nested completion, region-to-cleanup-frame embedding | Connect region disposal during nested abandonment and compose exits with the source/target observation relation. |
@@ -214,8 +214,22 @@ freeze algorithms remain independent. The connected clone/resume regression
 executes six source steps and sixteen target steps to the same return, keeping
 the registry and current shared cell. Another regression allocates cell 8 while
 cell 7 exists only in a retained template, and keeps current cell 2. No source
-oracle or production mapping changed. D's explicit `registered_preservation`
-and `registered_reflection` fields remain obligations, not assumed results.
+oracle or production mapping changed.
+
+`GeneralizedRegisteredSimulation.registered_observation_preserved` now supplies
+D's `registered_preservation` field. It composes every current registered source
+transition over arbitrary finite derivations, retaining related registry/arena
+state and all four observation forms. The existing core preservation argument
+now accepts arbitrary retained support; core and registered entries share its
+structural caller relation. Clone uses the actual related target heap, including
+noncanonical administrative frames. `Context.captureMetadata` projects the
+authored fields already stored in source frames and is a proved left inverse
+of `Capture.future`; this connects the captured source description to the
+target clone view without recovering permissions from bare callback equality.
+The uninhabited-input counterexample and `NEG-000008` remain intact. A regression
+derives the complete clone/resume observation from general preservation when
+the target heap has an extra silent frame. Registered reflection and the
+disposal/exit/lifetime connections remain open.
 
 `GeneralizedScopeClosure` checks actual surviving fields, code, returned values,
 and saved control before detaching a lifetime subtree. Source and target checks

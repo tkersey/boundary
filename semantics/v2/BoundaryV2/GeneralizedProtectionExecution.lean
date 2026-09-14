@@ -8,6 +8,8 @@ variable {signature : Signature} {algebra : LeafAlgebra signature.Data}
   {program : List (BodyType signature.Data signature.Effect)}
   [DecidableEq (ControlShape signature)] [DecidableEq (TypeOf signature)]
 
+variable {retained : List Reference}
+
 /-- Protection stores the authored cleanup without running it. The fresh
 obligation remains attached to the body through the represented context. -/
 theorem compiled_protection_entry
@@ -23,11 +25,11 @@ theorem compiled_protection_entry
     (sourceCells : Cells signature algebra (Source.Computation signature algebra program))
     (regions : List (Id .region)) (extra : List Reference) :
     let identity := Target.freshObligation (definitions table) (computation (.protect cleanup body))
-      (environment bindings) .nil targetOutside targetStore (cells sourceCells) extra
-    Source.ExecutionStep table
+      (environment bindings) .nil targetOutside targetStore (cells sourceCells) (retained ++ extra)
+    Source.ExecutionStep (retained := retained) table
       ⟨⟨sourceStore, sourceOutside.plug (.evaluate (.protect cleanup body) bindings)⟩, sourceCells, regions⟩
       ⟨⟨sourceStore, sourceOutside.plug (.protection identity cleanup bindings (.evaluate body bindings))⟩, sourceCells, regions⟩ ∧
-    Target.ExecutionSteps (definitions table)
+    Target.ExecutionSteps (retained := retained) (definitions table)
       ⟨⟨targetStore, .code (computation (.protect cleanup body)) (environment bindings) .nil targetOutside⟩, cells sourceCells, regions⟩ 1
       ⟨⟨targetStore, .code (computation body) (environment bindings) .nil
         (.push (.protection identity (computation cleanup) (environment bindings))
@@ -38,11 +40,11 @@ theorem compiled_protection_entry
         (.push (.protection identity (computation cleanup) (environment bindings))
           (.push (.returnTo .ret (environment bindings) .nil) targetOutside))⟩, cells sourceCells, regions⟩ := by
   dsimp only
-  have same := fresh_obligation_corresponds table (.protect cleanup body) bindings targetOutside targetStore sourceCells extra
+  have same := fresh_obligation_corresponds table (.protect cleanup body) bindings targetOutside targetStore sourceCells (retained ++ extra)
   refine ⟨.enterProtection extra (context_installation_support outside) (store_installation_support stores) same.symm,
     .single (.enterProtection extra rfl), ?_⟩
   let identity := Target.freshObligation (definitions table) (computation (.protect cleanup body))
-    (environment bindings) .nil targetOutside targetStore (cells sourceCells) extra
+    (environment bindings) .nil targetOutside targetStore (cells sourceCells) (retained ++ extra)
   refine ⟨⟨stores, ?_⟩, rfl, rfl⟩
   simpa only [identity, Source.Context.plug, Source.Frame.plug] using EntryRelated.evaluate body bindings
     (.push (.protection identity cleanup bindings) (.passthrough bindings outside))

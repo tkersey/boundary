@@ -285,25 +285,25 @@ theorem CellSteps.in_execution {before after : State signature algebra program r
   | refl => exact .refl
   | cons step tail induction => exact .cons (.cell step) induction
 
-theorem OwnedSteps.in_execution
+theorem OwnedSteps.in_execution {retained : List Reference}
     {before after : ControlState signature algebra program result}
     (cells : Cells signature algebra (fun context result => Code signature algebra program context [] result))
     (regions : List (Id .region))
-    (steps : OwnedSteps table cells.reservations before count after) :
-    ExecutionSteps table ⟨before, cells, regions⟩ count ⟨after, cells, regions⟩ := by
+    (steps : OwnedSteps table (cells.reservations.withSupport retained) before count after) :
+    ExecutionSteps (retained := retained) table ⟨before, cells, regions⟩ count ⟨after, cells, regions⟩ := by
   induction steps with
   | refl => exact .refl
   | cons step tail induction => exact .cons (.control step) induction
 
-theorem OwnedOperandSteps.in_execution
+theorem OwnedOperandSteps.in_execution {retained : List Reference}
     {bindings : RuntimeEnvironment signature algebra program context}
     {before after : Operands signature algebra program context answer}
     {beforeStore afterStore : ControlHeap signature algebra program}
     (table : Definitions signature algebra program) (outside : Stack signature algebra program answer result)
     (cells : Cells signature algebra (fun context result => Code signature algebra program context [] result))
     (regions : List (Id .region))
-    (steps : OwnedOperandSteps bindings cells.reservations.custody beforeStore before count afterStore after) :
-    ExecutionSteps table ⟨⟨beforeStore, .code before.code bindings before.values outside⟩, cells, regions⟩ count
+    (steps : OwnedOperandSteps bindings (cells.reservations.withSupport retained).custody beforeStore before count afterStore after) :
+    ExecutionSteps (retained := retained) table ⟨⟨beforeStore, .code before.code bindings before.values outside⟩, cells, regions⟩ count
       ⟨⟨afterStore, .code after.code bindings after.values outside⟩, cells, regions⟩ := by
   induction steps with
   | refl => exact .refl
@@ -328,7 +328,7 @@ variable {signature : Signature} {algebra : LeafAlgebra signature.Data}
   {program : List (BodyType signature.Data signature.Effect)}
   [DecidableEq (ControlShape signature)] [DecidableEq (TypeOf signature)]
 
-theorem handled_operation_with_cells_corresponds
+theorem handled_operation_with_cells_corresponds {retained : List Reference}
     (table : Source.Definitions signature algebra program)
     (operation : signature.operation effect) [DecidableEq (signature.operation effect)]
     (attachment : Id .attachment)
@@ -351,24 +351,24 @@ theorem handled_operation_with_cells_corresponds
     (targetPartition : targetStore.fields.active = before ++ captured ++ after)
     (nearest : Source.select attachment sourceInside = none)
     (accepted : Source.dispatchOwnedClause operation attachment returned clauses bindings sourceInside payload bodies sourceOutside
-      owner before captured after sourceStore sourcePartition sourceCells.reservations = some sourceAfter) :
+      owner before captured after sourceStore sourcePartition (sourceCells.reservations.withSupport retained) = some sourceAfter) :
     ∃ targetAfter : Target.OwnedClause signature algebra program result,
       CellStateRelated ⟨sourceAfter.state, sourceCells, regions⟩ ⟨targetAfter.state, cells sourceCells, regions⟩ ∧
-      Source.ExecutionStep table
+      Source.ExecutionStep (retained := retained) table
         ⟨⟨sourceStore, sourceOutside.plug (.handler effect mode attachment returned clauses bindings
           (.request operation attachment payload bodies sourceInside))⟩, sourceCells, regions⟩
         ⟨sourceAfter.state, sourceCells, regions⟩ ∧
-      Target.ExecutionSteps (definitions table)
+      Target.ExecutionSteps (retained := retained) (definitions table)
         ⟨⟨targetStore, .requested operation attachment (value payload) (environment bodies)
           (targetInside.append (.push (.handler effect mode attachment (computation returned)
             (Defunctionalization.clauses clauses) (environment bindings)) targetOutside))⟩, cells sourceCells, regions⟩ 1
         ⟨targetAfter.state, cells sourceCells, regions⟩ := by
-  obtain ⟨targetAfter, matched, sourceStep, targetSteps⟩ := handled_operation_corresponds table sourceCells.reservations
+  obtain ⟨targetAfter, matched, sourceStep, targetSteps⟩ := handled_operation_corresponds table (sourceCells.reservations.withSupport retained)
     operation attachment returned clauses bindings inside payload bodies outside owner before captured after stores
     sourcePartition targetPartition nearest accepted
-  have reservations : (cells sourceCells).reservations = sourceCells.reservations := Cells.reservations_mapBodies _ sourceCells
+  have reservations : ((cells sourceCells).reservations.withSupport retained) = (sourceCells.reservations.withSupport retained) := Cells.reservations_with_support_mapBodies _ sourceCells retained
   rw [← reservations] at targetSteps
-  exact ⟨targetAfter, ⟨matched, rfl, rfl⟩, .control sourceStep, targetSteps.in_execution (cells sourceCells) regions⟩
+  exact ⟨targetAfter, ⟨matched, rfl, rfl⟩, .control sourceStep, targetSteps.in_execution (retained := retained) (cells sourceCells) regions⟩
 
 end Defunctionalization
 end BoundaryV2.Generalized

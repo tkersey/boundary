@@ -31,7 +31,7 @@ theorem cleanup_execution_retains_its_cell_write :
   have written : Cells.writeCopy (signature := signature) (algebra := algebra) ⟨3⟩ ⟨1⟩ (.datum (.leaf (type := Data.integer) 9))
       liveIntegerSourceCells = some writtenIntegerCells := by
     simp [Cells.writeCopy, Cells.exchange, liveIntegerSourceCells, writtenIntegerCells, Value.copyable, Datum.copyable]
-  obtain ⟨count, _, _, steps, _⟩ := Defunctionalization.compiled_cell_write
+  obtain ⟨count, _, _, steps, _⟩ := Defunctionalization.compiled_cell_write (retained := [])
     (signature := signature) (algebra := algebra) .nil (.reference (.there .here)) (.datum (.leaf (type := Data.integer) 9))
     writingCleanupBindings ⟨3⟩ ⟨1⟩ (.datum (.leaf 9)) liveIntegerSourceCells writtenIntegerCells [⟨1⟩] List.mem_cons_self
     (sourceStore := ⟨⟨[], [], []⟩, [], []⟩) (sourceEvaluated := ⟨⟨[], [], []⟩, [], []⟩) (targetStore := ⟨⟨[], [], []⟩, [], []⟩)
@@ -114,7 +114,7 @@ theorem cleanup_can_consume_owned_continuation_authority :
     (signature := signature) (algebra := algebra) .nil {} .linear (.reference (.there .here)) (.datum (.leaf true))
     resumingCleanupBindings cleanupControlView (.datum (.leaf true)) (sourceEvaluated := cleanupControlSourceStore)
     (.cons .reference (.cons .datum .nil)) related .done accepted
-  refine ⟨targetAfter, ExitComposition.stateful_cleanup_execution (steps.in_execution [] []), ?_, ?_⟩
+  refine ⟨targetAfter, ExitComposition.stateful_cleanup_execution (steps.in_execution (retained := []) [] []), ?_, ?_⟩
   · rw [← matched.store.fields]; rfl
   · rw [← matched.store.fields]; rfl
 

@@ -28,7 +28,7 @@ def ownedCellTargetAfter : Target.State signature algebra [] (.cell (.resource �
 
 theorem compiled_owned_initializer_moves_into_its_cell :
     ∃ count, 0 < count ∧ Target.ExecutionSteps .nil ownedCellTargetBefore count ownedCellTargetAfter := by
-  obtain ⟨count, positive, _, executed, _⟩ := Defunctionalization.compiled_cell_allocation
+  obtain ⟨count, positive, _, executed, _⟩ := Defunctionalization.compiled_cell_allocation (retained := [])
     (signature := signature) (algebra := algebra) .nil (.datum (.region ⟨0⟩)) (.reference .here)
     ownedCellSourceBindings ⟨0⟩ ownedCellSourceValue [] [] [⟨0⟩] List.mem_cons_self
     (sourceStore := ownedCellSourceStore) (sourceEvaluated := ownedCellSourceStore) (targetStore := ownedCellTargetStore)
@@ -56,7 +56,7 @@ theorem compiled_cell_read_preserves_the_typed_value :
   have read : Cells.readCopy (signature := signature) (algebra := algebra) ⟨3⟩ ⟨1⟩ (.leaf .integer)
       liveIntegerSourceCells = some (.datum (.leaf 7)) := by
     simp [Cells.readCopy, Cells.read, Cells.lookup, liveIntegerSourceCells, Value.copyable, Datum.copyable]
-  obtain ⟨count, positive, _, executed, _⟩ := Defunctionalization.compiled_cell_read
+  obtain ⟨count, positive, _, executed, _⟩ := Defunctionalization.compiled_cell_read (retained := [])
     (signature := signature) (algebra := algebra) .nil (.reference .here) integerCellSourceBindings
     ⟨3⟩ ⟨1⟩ (.datum (.leaf 7)) liveIntegerSourceCells [⟨1⟩] List.mem_cons_self
     (sourceStore := ⟨⟨[], [], []⟩, [], []⟩) (sourceEvaluated := ⟨⟨[], [], []⟩, [], []⟩)

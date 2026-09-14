@@ -61,4 +61,23 @@ theorem Defunctionalization.registered_freeze_corresponds (shape : ControlShape 
     rw [TemplateRegistry.insert_map]
     cases TemplateRegistry.insert created.identity created.template registry <;> rfl
 
+theorem Defunctionalization.registered_freeze_related (shape : ControlShape signature) (view : UseScope.ControlView)
+    {source : Source.Multi.DescribedHeap signature algebra program} {target : Target.ControlHeap signature algebra program}
+    (stores : DescribedHeapRelated source target) (arena : Source.Multi.Arena signature algebra program)
+    (partition : Target.Multi.Partition) (registry : Source.Multi.Registry signature algebra program) :
+    Option.Rel (fun first second => FrozenRelated first.1 second.1 ∧ second.2 = templateRegistry first.2)
+      (Source.Multi.freezeInto shape view source arena partition registry)
+      (Target.Multi.freezeInto shape view target (templateArena arena) partition (templateRegistry registry)) := by
+  have matched := freeze_owned_related shape view stores arena partition
+  unfold Source.Multi.freezeInto Target.Multi.freezeInto
+  generalize sourceAt : Source.Multi.freezeOwned shape view source arena partition = sourceFrozen at matched ⊢
+  generalize targetAt : Target.Multi.freezeOwned shape view target (templateArena arena) partition = targetFrozen at matched ⊢
+  cases matched with
+  | none => exact .none
+  | @some sourceFrozen targetFrozen matching =>
+    simp only [Option.bind_some, matching.identity, matching.template, templateRegistry, TemplateRegistry.insert_map]
+    cases TemplateRegistry.insert sourceFrozen.identity sourceFrozen.template registry with
+    | none => exact .none
+    | some registered => exact .some ⟨matching, rfl⟩
+
 end BoundaryV2.Generalized

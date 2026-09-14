@@ -202,6 +202,19 @@ theorem MultiRuntimeRelated.as_state (related : MultiRuntimeRelated source targe
     ExecutionStateRelated source.state target.state :=
   ⟨related.store, congrArg Target.Multi.Arena.cells related.arena, related.regions.symm, related.computation⟩
 
+theorem MultiDataRelated.writeback
+    {source : Source.Multi.Runtime signature algebra program result}
+    {target : Target.Multi.Runtime signature algebra program result}
+    (related : MultiDataRelated source target)
+    {sourceState : Source.State signature algebra program result}
+    {targetState : Target.State signature algebra program result}
+    (states : ExecutionStateRelated sourceState targetState) :
+    MultiRuntimeRelated (source.withState sourceState) (target.withState targetState) := by
+  refine ⟨⟨states.store, ?_, states.regions.symm, related.registry⟩, states.computation⟩
+  change { target.arena with cells := targetState.cells } = templateArena { source.arena with cells := sourceState.cells }
+  rw [related.arena, states.cells]
+  rfl
+
 theorem registered_initialization
     (body : Source.Computation signature algebra program context result)
     (bindings : Source.RuntimeEnvironment signature algebra program context)

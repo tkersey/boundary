@@ -76,6 +76,11 @@ theorem Cells.owning_tokens_reserved (cells : Cells signature algebra Body)
     (member : token ∈ UseScope.tokens cells.fields) : token ∈ cells.reservations.custody :=
   UseScope.tokens_are_supported _ _ member
 
+theorem Cells.reservations_with_support_mapBodies (body : ∀ context type, Before context type → After context type)
+    (cells : Cells signature algebra Before) (retained : List Reference) :
+    (cells.mapBodies body).reservations.withSupport retained = cells.reservations.withSupport retained :=
+  congrArg (fun reserved => reserved.withSupport retained) (Cells.reservations_mapBodies body cells)
+
 theorem fresh_control_grant_avoids_cells (owner : Owner) (store : UseScope.ControlStore Future)
     (cells : Cells signature algebra Body) :
     (UseScope.freshControlView owner store cells.reservations).authority ∉ UseScope.tokens cells.fields := by

@@ -26,7 +26,7 @@ theorem authored_closure_can_be_packaged_with_its_actual_owners :
         (Defunctionalization.environment lambdaBindings) .nil .done⟩, Defunctionalization.cells creationCells, [⟨1⟩]⟩ count targetAfter ∧
       Defunctionalization.CellStateRelated
         ⟨⟨createdOwnedPackage.store, .returned createdOwnedPackage.value⟩, creationCells, [⟨1⟩]⟩ targetAfter := by
-  have compiled := Defunctionalization.compiled_package (signature := signature) (algebra := algebra)
+  have compiled := Defunctionalization.compiled_package (retained := []) (signature := signature) (algebra := algebra)
     .nil compoundOwnedFunction lambdaBindings createdSourceComputation.value (.lexical ⟨0⟩ 2) creationCells [⟨1⟩]
     (targetStore := creationTargetStore) compound_function_evaluates_with_its_grant packageMovedFields packageValueHandoff
     ⟨rfl, .nil, .nil⟩ .done
@@ -56,7 +56,7 @@ theorem unpacking_consumes_the_package_without_consuming_its_contents :
         (Defunctionalization.environment packagedBindings) .nil .done⟩, Defunctionalization.cells creationCells, [⟨1⟩]⟩ count targetAfter) ∧
     UseScope.inventory unpackedPackageFields = [⟨100⟩, ⟨301⟩, ⟨6⟩] ∧
     unpackedPackageFields.spent = [⟨302⟩, ⟨17⟩] := by
-  obtain ⟨sourceStep, count, targetAfter, positive, targetSteps, _⟩ := Defunctionalization.compiled_unpackage
+  obtain ⟨sourceStep, count, targetAfter, positive, targetSteps, _⟩ := Defunctionalization.compiled_unpackage (retained := [])
     (signature := signature) (algebra := algebra) .nil (.reference .here) packagedBindings createdSourceComputation.value
     createdOwnedPackage.authority (.lexical ⟨0⟩ 2) creationCells [⟨1⟩] (targetStore := createdPackageTargetStore)
     .reference ownedPackageHandoff ⟨rfl, .nil, .nil⟩ .done

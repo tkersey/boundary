@@ -1,4 +1,5 @@
 import BoundaryV2.GeneralizedMultiControlEntry
+import BoundaryV2.GeneralizedRegisteredSimulation
 import BoundaryV2.GeneralizedSourceFreezeExamples
 
 namespace BoundaryV2.Generalized.Examples
@@ -252,5 +253,35 @@ theorem ordinary_allocation_reserves_registry_cells_and_updates_current_storage 
   refine .cons (.core (.cell (Target.CellStep.allocate (reserved := [])
     (region := ⟨0⟩) (by decide) (.unowned rfl)))) ?_
   exact .cons (.core (.cell (.ordinary .returned))) .refl
+
+/-- A real target heap can have a silent return frame before its saved body.
+It remains related to the source callback and its retained authored metadata. -/
+def noncanonicalFreezeStore : Target.ControlHeap signature algebra [] :=
+  { freezeStore with controls :=
+    [⟨⟨10⟩, ⟨100⟩, .linear, ⟨templateShape,
+      ⟨⟨9⟩, .push (.returnTo .ret .nil .nil) templateFuture.future⟩⟩⟩] }
+
+theorem noncanonical_freeze_heap_retains_the_same_source_meaning :
+    Defunctionalization.ControlHeapRelated (Source.Multi.sourceHeap sourceFreezeStore) noncanonicalFreezeStore ∧
+    (noncanonicalFreezeStore.controls.map (fun record => record.future.snd.future.length)) = [2] ∧
+    (freezeStore.controls.map (fun record => record.future.snd.future.length)) = [1] :=
+  ⟨⟨rfl, .cons ⟨rfl, rfl, rfl, .same ⟨rfl, .passthrough .nil
+    (Defunctionalization.capture_correspondence sourceTemplateFuture.capture)⟩⟩ .nil, .nil⟩, rfl, rfl⟩
+
+theorem general_preservation_executes_clone_from_the_noncanonical_target_heap :
+    ∃ targetFinal,
+      Target.Multi.Observes (.nil : Target.Definitions signature algebra [])
+        { targetCloneResumeStart with control := { targetCloneResumeStart.control with store := noncanonicalFreezeStore } }
+        targetFinal (.returned (.datum (.leaf 0))) ∧
+      targetFinal.registry = Defunctionalization.templateRegistry activatedRegistry ∧
+      targetFinal.arena = Defunctionalization.templateArena cloneResumeEnd.arena := by
+  have related := Defunctionalization.registered_initialization cloneResumeProgram cloneSourceBindings
+    noncanonical_freeze_heap_retains_the_same_source_meaning.1 sourceFreezeArena [⟨3⟩, ⟨0⟩] []
+  obtain ⟨targetFinal, targetObservation, observed, data, observation⟩ :=
+    Defunctionalization.registered_observation_preserved (.nil : Source.Definitions signature algebra [])
+      related cloned_registered_observations_keep_current_resources.1
+  refine ⟨targetFinal, ?_, data.registry, data.arena⟩
+  cases observation.observation
+  exact observed
 
 end BoundaryV2.Generalized.Examples

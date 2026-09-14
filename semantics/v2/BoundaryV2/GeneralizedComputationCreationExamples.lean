@@ -71,7 +71,7 @@ theorem created_closure_has_corresponding_application :
           (Defunctionalization.environment (.cons (.datum (.leaf false)) applicationCaptures)) .nil
           (.push (.returnTo .ret (Defunctionalization.environment createdApplicationBindings) .nil) .done)⟩,
         Defunctionalization.cells creationCells, [⟨1⟩]⟩ := by
-  obtain ⟨_, count, positive, steps, _⟩ := Defunctionalization.compiled_owned_operand_application
+  obtain ⟨_, count, positive, steps, _⟩ := Defunctionalization.compiled_owned_operand_application (retained := [])
     (signature := signature) (algebra := algebra) .nil (.reference .here) applicationArguments createdApplicationBindings
     applicationBody applicationCaptures (.cons (.datum (.leaf false)) .nil)
     (some (createdSourceComputation.authority, applicationOwner)) creationCells [⟨1⟩]

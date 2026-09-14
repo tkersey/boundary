@@ -1,5 +1,5 @@
 import BoundaryV2.GeneralizedFiniteReflection
-import BoundaryV2.GeneralizedMultiControlEntry
+import BoundaryV2.GeneralizedRegisteredSimulation
 import BoundaryV2.GeneralizedDisposalExecution
 import BoundaryV2.GeneralizedCleanupCompletion
 import BoundaryV2.GeneralizedInteraction
@@ -96,7 +96,9 @@ structure adequacy : Prop where
       ∃ targetFinal targetObservation,
         Target.Multi.Observes (definitions table) target targetFinal targetObservation ∧
         MultiDataRelated final targetFinal ∧
-        StateObservationRelated final.state targetFinal.state observation targetObservation
+        StateObservationRelated final.state targetFinal.state observation targetObservation := by
+          intro table result source final target related observation observed
+          exact registered_observation_preserved table related observed
   registered_reflection : ∀ (table : Source.Definitions signature algebra program) {result}
     {source : Source.Multi.Runtime signature algebra program result}
     {target final : Target.Multi.Runtime signature algebra program result},

@@ -41,7 +41,7 @@ theorem owned_application_has_corresponding_stateful_execution :
         .code (Defunctionalization.computation applicationBody)
           (Defunctionalization.environment (.cons (.datum (.leaf false)) applicationCaptures)) .nil
           (.push (.returnTo .ret (Defunctionalization.environment applicationBindings) .nil) .done)⟩, [], []⟩ := by
-  obtain ⟨_, count, positive, steps, _⟩ := Defunctionalization.compiled_owned_operand_application
+  obtain ⟨_, count, positive, steps, _⟩ := Defunctionalization.compiled_owned_operand_application (retained := [])
     (signature := signature) (algebra := algebra) .nil (.reference .here) applicationArguments applicationBindings
     applicationBody applicationCaptures (.cons (.datum (.leaf false)) .nil) (some (⟨8⟩, applicationOwner)) [] []
     (sourceStore := applicationSourceStore) (sourceEvaluated := applicationSourceStore) (targetStore := applicationTargetStore)

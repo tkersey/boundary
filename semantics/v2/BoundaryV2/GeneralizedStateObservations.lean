@@ -17,6 +17,8 @@ inductive ExecutionSteps (table : Definitions signature algebra program) :
   | cons : ExecutionStep table before middle retained → ExecutionSteps (retained := retained) table middle count after →
       ExecutionSteps (retained := retained) table before (count + 1) after
 
+variable {retained : List Reference}
+
 theorem ExecutionSteps.trans {retained : List Reference} {before middle after : State signature algebra program result}
     (first : ExecutionSteps (retained := retained) table before count middle)
     (second : ExecutionSteps (retained := retained) table middle rest after) : ExecutionSteps (retained := retained) table before (count + rest) after := by
@@ -29,12 +31,12 @@ theorem ExecutionSteps.trans {retained : List Reference} {before middle after : 
 suspended future is resumed with current resources, not its initial heap. -/
 def StateObserves (table : Definitions signature algebra program)
     (before after : State signature algebra program result)
-    (observation : Observation signature algebra program result) : Prop :=
-  ∃ count, ExecutionSteps table before count after ∧ HeadObservation after.control.computation observation
+    (observation : Observation signature algebra program result) (retained : List Reference := []) : Prop :=
+  ∃ count, ExecutionSteps (retained := retained) table before count after ∧ HeadObservation after.control.computation observation
 
 theorem StateObserves.prepend {before middle after : State signature algebra program result}
-    (steps : ExecutionSteps table before count middle)
-    (observed : StateObserves table middle after observation) : StateObserves table before after observation := by
+    (steps : ExecutionSteps (retained := retained) table before count middle)
+    (observed : StateObserves (retained := retained) table middle after observation) : StateObserves (retained := retained) table before after observation := by
   obtain ⟨rest, tail, head⟩ := observed
   exact ⟨count + rest, steps.trans tail, head⟩
 
@@ -47,7 +49,7 @@ theorem Step.in_state_context
     (outside : Context signature algebra program input result)
     (store : ControlHeap signature algebra program)
     (storage : Cells signature algebra (Computation signature algebra program)) (regions : List (Id .region)) :
-    ExecutionStep table ⟨⟨store, outside.plug before⟩, storage, regions⟩
+    ExecutionStep (retained := retained) table ⟨⟨store, outside.plug before⟩, storage, regions⟩
       ⟨⟨store, outside.plug after⟩, storage, regions⟩ :=
   .cell (.ordinary (step.in_context outside) ((outside.computation_entry_flag before).trans neutral))
 
@@ -57,7 +59,7 @@ theorem Context.forward_yield_state (table : Definitions signature algebra progr
     (outside : Context signature algebra program input result) (body : Program signature algebra program input)
     (store : ControlHeap signature algebra program)
     (storage : Cells signature algebra (Computation signature algebra program)) (regions : List (Id .region)) :
-    ExecutionSteps table ⟨⟨store, outside.plug (.yielded body)⟩, storage, regions⟩ outside.length
+    ExecutionSteps (retained := retained) table ⟨⟨store, outside.plug (.yielded body)⟩, storage, regions⟩ outside.length
       ⟨⟨store, .yielded (outside.plug body)⟩, storage, regions⟩ := by
   cases outside with
   | done => exact .refl
@@ -78,12 +80,12 @@ theorem Forwards.expose_request_state
     (saved : Context signature algebra program (signature.result operation) input)
     (store : ControlHeap signature algebra program)
     (storage : Cells signature algebra (Computation signature algebra program)) (regions : List (Id .region)) :
-    ExecutionSteps table ⟨⟨store, outside.plug (.request operation attachment payload bodies saved)⟩, storage, regions⟩ outside.length
+    ExecutionSteps (retained := retained) table ⟨⟨store, outside.plug (.request operation attachment payload bodies saved)⟩, storage, regions⟩ outside.length
       ⟨⟨store, .request operation attachment payload bodies (saved.append outside)⟩, storage, regions⟩ := by
   classical
   induction forward with
   | done => simpa only [Context.plug, Context.length, Context.append_done] using
-      (ExecutionSteps.refl (table := table)
+      (ExecutionSteps.refl (table := table) (retained := retained)
         (state := ⟨⟨store, Program.request operation attachment payload bodies saved⟩, storage, regions⟩))
   | bind next description tail induction =>
     simpa only [Context.append_associative, Context.append, Context.plug, Frame.plug, Context.length] using
@@ -109,14 +111,16 @@ end Source
 
 namespace Target
 
+variable {retained : List Reference}
+
 def StateObserves (table : Definitions signature algebra program)
     (before after : State signature algebra program result)
-    (observation : Observation signature algebra program result) : Prop :=
-  ∃ count, ExecutionSteps table before count after ∧ HeadObservation after.control.configuration observation
+    (observation : Observation signature algebra program result) (retained : List Reference := []) : Prop :=
+  ∃ count, ExecutionSteps (retained := retained) table before count after ∧ HeadObservation after.control.configuration observation
 
 theorem StateObserves.prepend {before middle after : State signature algebra program result}
-    (steps : ExecutionSteps table before count middle)
-    (observed : StateObserves table middle after observation) : StateObserves table before after observation := by
+    (steps : ExecutionSteps (retained := retained) table before count middle)
+    (observed : StateObserves (retained := retained) table middle after observation) : StateObserves (retained := retained) table before after observation := by
   obtain ⟨rest, tail, head⟩ := observed
   exact ⟨count + rest, steps.trans tail, head⟩
 
@@ -194,6 +198,8 @@ theorem CellStateRelated.as_execution
 
 end Structural
 
+variable {retained : List Reference}
+
 /-- The administrative return frames in the structural relation execute through
 the permission-sensitive machine. Their finite drain leaves resources intact. -/
 theorem ProgramRelated.returned_state_drains
@@ -203,7 +209,7 @@ theorem ProgramRelated.returned_state_drains
     (store : Target.ControlHeap signature algebra program)
     (storage : Cells signature algebra (fun context result => Target.Code signature algebra program context [] result))
     (regions : List (Id .region)) :
-    ∃ count, Target.ExecutionSteps table ⟨⟨store, target⟩, storage, regions⟩ count
+    ∃ count, Target.ExecutionSteps (retained := retained) table ⟨⟨store, target⟩, storage, regions⟩ count
       ⟨⟨store, .returned (value returned) outside⟩, storage, regions⟩ := by
   induction related with
   | returned value future => cases same; exact ⟨0, .refl⟩
@@ -220,7 +226,7 @@ theorem ProgramRelated.failed_state_drains
     (store : Target.ControlHeap signature algebra program)
     (storage : Cells signature algebra (fun context result => Target.Code signature algebra program context [] result))
     (regions : List (Id .region)) :
-    ∃ count, Target.ExecutionSteps table ⟨⟨store, target⟩, storage, regions⟩ count
+    ∃ count, Target.ExecutionSteps (retained := retained) table ⟨⟨store, target⟩, storage, regions⟩ count
       ⟨⟨store, .failed fault outside⟩, storage, regions⟩ := by
   induction related with
   | failed failure future => cases same; exact ⟨0, .refl⟩
@@ -238,7 +244,7 @@ theorem stateful_head_observation_preserved (table : Source.Definitions signatur
     (related : ExecutionStateRelated source target)
     (head : Source.HeadObservation source.control.computation observation) :
     ∃ targetFinal targetObservation,
-      Target.StateObserves (definitions table) target targetFinal targetObservation ∧
+      Target.StateObserves (retained := retained) (definitions table) target targetFinal targetObservation ∧
       StateObservationRelated source targetFinal observation targetObservation := by
   rcases source with ⟨⟨sourceStore, sourceProgram⟩, sourceCells, sourceRegions⟩
   change Source.HeadObservation sourceProgram observation at head
@@ -276,7 +282,7 @@ private theorem reflect_stateful_head_in_context (table : Source.Definitions sig
     (stores : ControlHeapRelated sourceStore targetStore)
     (storage : Cells signature algebra (Source.Computation signature algebra program)) (regions : List (Id .region)) :
     ∃ sourceFinal sourceObservation,
-      Source.StateObserves table ⟨⟨sourceStore, sourceOutside.plug source⟩, storage, regions⟩ sourceFinal sourceObservation ∧
+      Source.StateObserves (retained := retained) table ⟨⟨sourceStore, sourceOutside.plug source⟩, storage, regions⟩ sourceFinal sourceObservation ∧
       StateObservationRelated sourceFinal ⟨⟨targetStore, target⟩, cells storage, regions⟩ sourceObservation observation := by
   induction related with
   | evaluate => cases head
@@ -325,7 +331,7 @@ theorem stateful_head_observation_reflected (table : Source.Definitions signatur
     (related : ExecutionStateRelated source target)
     (head : Target.HeadObservation target.control.configuration observation) :
     ∃ sourceFinal sourceObservation,
-      Source.StateObserves table source sourceFinal sourceObservation ∧
+      Source.StateObserves (retained := retained) table source sourceFinal sourceObservation ∧
       StateObservationRelated sourceFinal target sourceObservation observation := by
   rcases source with ⟨⟨sourceStore, sourceProgram⟩, sourceStorage, sourceRegions⟩
   rcases target with ⟨⟨targetStore, targetConfiguration⟩, targetStorage, targetRegions⟩

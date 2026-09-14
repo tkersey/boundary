@@ -133,12 +133,19 @@ registration and a positive drain back to the actual caller.
 
 D explicitly requires preservation and reflection of these registered finite
 observations, with related registry/arena state and all four observation forms.
-Registered initialization and response entry are proved. The two registered
-finite correspondence fields remain unproved: the existing simulation and
-reflection must be extended to retained support and registered receivers,
-including clone against related noncanonical target frames. Disposal and
-exit/lifetime composition also remain unfinished. Neither the default state
-relation nor compiling the registered driver discharges those obligations.
+Registered initialization, response entry, and finite observation preservation
+are proved. `GeneralizedRegisteredSimulation` derives every registered source
+step from the existing core, resume/injection/successor, and clone laws, then
+composes arbitrary finite derivations. Core preservation now accepts retained
+support. Clone correspondence accepts actual related target heaps with
+noncanonical administrative frames and keeps unrelated controls intact.
+The source context's existing authored fields provide a checked left inverse
+for capture descriptions; bare callback equality supplies no provenance.
+
+Registered reflection remains unproved: the target-derived finite argument
+must be extended to retained support and registered receivers. Disposal and
+exit/lifetime composition also remain unfinished. Neither preservation alone
+nor compiling the registered driver discharges those obligations.
 
 `GeneralizedContractChecks` consumes the declared field types and checks the
 stateful observation definitions. Its hypothetical contract arguments are

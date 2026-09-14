@@ -32,7 +32,7 @@ theorem named_call_accepts_an_authored_capturing_closure :
       (.cons namedClosure .nil) (.ok (.cons namedClosureValue .nil)) ⟨⟨[], [], []⟩, [], []⟩ :=
     .cons (.closure (Source.ClosureEvaluation.shared (bindings := namedBindings) (parameters := [.unit])
       .reusable (Or.inl rfl) (.cons .here .nil) namedClosureBody rfl)) .nil
-  obtain ⟨_, count, store, positive, steps, related⟩ := Defunctionalization.compiled_owned_named_call
+  obtain ⟨_, count, store, positive, steps, related⟩ := Defunctionalization.compiled_owned_named_call (retained := [])
     namedTable .here (.cons namedClosure .nil) namedBindings (.cons namedClosureValue .nil) [] []
     (targetStore := ⟨⟨[], [], []⟩, [], []⟩) evaluated ⟨rfl, .nil, .nil⟩ .done
   exact ⟨count, _, positive, steps, related⟩
@@ -53,7 +53,7 @@ theorem owned_sum_branch_keeps_the_selected_closure :
       Defunctionalization.CellStateRelated
         ⟨⟨createdSourceComputation.store, .evaluate ownedSumLeft (.cons createdSourceComputation.value lambdaBindings)⟩,
           creationCells, [⟨1⟩]⟩ targetAfter := by
-  obtain ⟨_, count, store, positive, steps, related⟩ := Defunctionalization.compiled_owned_match_left
+  obtain ⟨_, count, store, positive, steps, related⟩ := Defunctionalization.compiled_owned_match_left (retained := [])
     (signature := signature) (algebra := algebra) .nil ownedSumTest ownedSumLeft ownedSumRight lambdaBindings
     (.left createdSourceComputation.value) createdSourceComputation.value creationCells [⟨1⟩]
     (targetStore := creationTargetStore) (.left (.closure authored_lambda_forms_owned_callable_value)) rfl ⟨rfl, .nil, .nil⟩ .done
@@ -75,7 +75,7 @@ theorem primitive_operands_can_contain_a_copyable_closure :
   have evaluated : Source.ExpressionEvaluation lambdaBindings creationCells.reservations.custody creationSourceStore
       (.primitive Primitive.negate (.cons primitiveClosureInput .nil)) (.ok (.datum (.leaf false))) creationSourceStore :=
     .primitive (.cons (.first (.pair .datum (.closure lambda))) .nil) rfl
-  obtain ⟨_, count, store, positive, steps, related⟩ := Defunctionalization.compiled_owned_primitive
+  obtain ⟨_, count, store, positive, steps, related⟩ := Defunctionalization.compiled_owned_primitive (retained := [])
     (signature := signature) (algebra := algebra) .nil Primitive.negate (.cons primitiveClosureInput .nil) lambdaBindings
     false creationCells [⟨1⟩] (targetStore := creationTargetStore) evaluated ⟨rfl, .nil, .nil⟩ .done
   exact ⟨count, _, positive, steps, related⟩
@@ -110,7 +110,7 @@ theorem operation_request_keeps_an_effectful_body_and_typed_future :
       creationSourceStore scopedRequestClosureValue creationSourceStore :=
     Source.ClosureEvaluation.shared (bindings := scopedRequestBindings) (parameters := [.unit]) .reusable (Or.inl rfl)
       (.cons (.there .here) (.cons (.there (.there .here)) .nil)) scopedRequestBody rfl
-  obtain ⟨_, count, store, positive, steps, related⟩ := Defunctionalization.compiled_owned_operation
+  obtain ⟨_, count, store, positive, steps, related⟩ := Defunctionalization.compiled_owned_operation (retained := [])
     (signature := signature) (algebra := algebra) .nil Operation.within (.reference .here) (.datum (.leaf 7))
     (.cons scopedRequestClosure .nil) scopedRequestBindings ⟨20⟩ (.datum (.leaf 7)) (.cons scopedRequestClosureValue .nil)
     creationCells [⟨1⟩] (sourceStore := creationSourceStore) (sourceAfter := creationSourceStore) (targetStore := creationTargetStore)

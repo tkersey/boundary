@@ -36,7 +36,7 @@ theorem protected_body_yields_with_cleanup_still_attached :
       ⟨⟨protectionTargetStore, .yielded (.code (.push (.leaf true) .ret)
         (Defunctionalization.environment protectionBindings) .nil protectionFuture)⟩, [], []⟩ ∧
     ExitComposition.pendingProtections protectionFuture = [⟨20⟩] := by
-  obtain ⟨_, entered, _⟩ := Defunctionalization.compiled_protection_entry
+  obtain ⟨_, entered, _⟩ := Defunctionalization.compiled_protection_entry (retained := [])
     (signature := signature) (algebra := algebra) .nil requestingCleanup protectedBody protectionBindings .done
     (sourceStore := protectionSourceStore) (targetStore := protectionTargetStore) ⟨rfl, .nil, .nil⟩ [] [] []
   exact ⟨entered.trans (.single (.cell (.ordinary .yield))), rfl⟩

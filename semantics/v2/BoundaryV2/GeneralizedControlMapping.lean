@@ -13,6 +13,34 @@ def ControlStore.mapFuture (convert : Before → After) (store : ControlStore Be
 def Acquisition.mapFuture (convert : Before → After) (acquired : Acquisition Before) : Acquisition After :=
   ⟨acquired.store.mapFuture convert, convert acquired.future⟩
 
+/-- A representation projection changes only the future relation, preserving
+every control entry, authority, and physical field on both sides. -/
+theorem ControlStore.related_map_left_iff {Target : Type}
+    (convert : Before → After) (related : After → Target → Prop)
+    (source : ControlStore Before) (target : ControlStore Target) :
+    ControlStore.Related related (source.mapFuture convert) target ↔
+      ControlStore.Related (fun first second => related (convert first) second) source target := by
+  have records : ∀ (first : List (ControlInfo Before)) (second : List (ControlInfo Target)),
+      ControlInfosRelated related (first.map (ControlInfo.mapFuture convert)) second ↔
+        ControlInfosRelated (fun a b => related (convert a) b) first second := by
+    intro first
+    induction first with
+    | nil => intro second; constructor <;> intro matched <;> cases matched <;> exact .nil
+    | cons first rest induction =>
+      intro second
+      constructor
+      · intro matched
+        cases matched with
+        | cons head tail => exact .cons ⟨head.identity, head.authority, head.use, head.future⟩ ((induction _).mp tail)
+      · intro matched
+        cases matched with
+        | cons head tail => exact .cons ⟨head.identity, head.authority, head.use, head.future⟩ ((induction _).mpr tail)
+  constructor
+  · intro matched
+    exact ⟨matched.fields, (records _ _).mp matched.controls, (records _ _).mp matched.disposing⟩
+  · intro matched
+    exact ⟨matched.fields, (records _ _).mpr matched.controls, (records _ _).mpr matched.disposing⟩
+
 theorem ControlStore.map_related (convert : Before → After) (source : ControlStore Before) :
     ControlStore.Related (fun first second => convert first = second) source (source.mapFuture convert) := by
   have records : ∀ items : List (ControlInfo Before),

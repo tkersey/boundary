@@ -82,7 +82,7 @@ theorem owned_body_and_resumption_are_consumed_with_cells_retained :
           (.inject (.reference .here) (.reference (.there .here))))
           (Defunctionalization.environment injectionBindings) .nil injectionTargetOutside⟩, [], [⟨0⟩]⟩
         count ⟨targetAfter, [], [⟨0⟩]⟩ := by
-  obtain ⟨targetAfter, count, positive, related, _, steps⟩ := Defunctionalization.compiled_computation_injection
+  obtain ⟨targetAfter, count, positive, related, _, steps⟩ := Defunctionalization.compiled_computation_injection (retained := [])
     (signature := signature) (algebra := algebra) .nil .linear (.reference .here) (.reference (.there .here)) injectionBindings
     injectedBody injectionCaptures (some (⟨8⟩, injectionOwner)) injectionView [] [⟨0⟩]
     (sourceEvaluated := injectionSourceStore) (.cons .reference (.cons .reference .nil))

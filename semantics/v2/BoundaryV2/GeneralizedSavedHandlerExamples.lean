@@ -71,7 +71,7 @@ theorem finite_reflection_recovers_saved_handler_execution :
         ⟨⟨targetAfterCapturedChoice, .requested Operation.text ⟨4⟩ (.datum (.leaf false)) .nil afterChoiceRequestFuture⟩, [], []⟩
         sourceObservation (.requested Operation.text ⟨4⟩ (.datum (.leaf false)) .nil afterChoiceRequestFuture) ∧
       sourceFinal.control.store.fields = sourceAfterCapturedChoice.fields := by
-  have targetRun := target_handler_capture_resume_and_postprocessing.in_execution [] []
+  have targetRun := target_handler_capture_resume_and_postprocessing.in_execution (retained := []) [] []
   have targetHead : Target.HeadObservation
       (Target.Configuration.requested (signature := signature) (algebra := algebra) Operation.text ⟨4⟩
         (.datum (.leaf false)) .nil afterChoiceRequestFuture)

@@ -52,7 +52,7 @@ theorem handler_capture_with_cells_has_corresponding_execution :
           (.push (.handler .choose .shallow ⟨8⟩ (Defunctionalization.computation distinctNormalReturn)
             (Defunctionalization.clauses effectfulOwnedClauses) (Defunctionalization.environment textBindings)) .done)⟩,
           reservedTargetCells, [⟨0⟩]⟩ 1 ⟨targetAfter.state, reservedTargetCells, [⟨0⟩]⟩ := by
-  obtain ⟨targetAfter, related, _, executed⟩ := Defunctionalization.handled_operation_with_cells_corresponds
+  obtain ⟨targetAfter, related, _, executed⟩ := Defunctionalization.handled_operation_with_cells_corresponds (retained := [])
     (signature := signature) (algebra := algebra) .nil Operation.choice ⟨8⟩ distinctNormalReturn effectfulOwnedClauses
     textBindings .done (.datum .unit) .nil .done (.lexical ⟨1⟩ 0) [] [] []
     (sourceStore := emptySourceControls) (targetStore := emptyTargetControls) ⟨rfl, .nil, .nil⟩

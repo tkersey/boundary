@@ -85,7 +85,7 @@ theorem authored_injection_consumes_both_grants_after_operand_allocation :
       targetAfter.store.fields.spent = [⟨1⟩, ⟨301⟩] ∧
       UseScope.inventory targetAfter.store.fields = [⟨6⟩] := by
   obtain ⟨targetAfter, count, positive, related, sourceStep, targetSteps⟩ :=
-    Defunctionalization.compiled_computation_injection (signature := signature) (algebra := algebra)
+    Defunctionalization.compiled_computation_injection (retained := []) (signature := signature) (algebra := algebra)
       .nil .linear (.reference .here) authoredInjectedLambda authoredInjectionBindings injectedBody injectionCaptures
       (some (allocatedInjection.authority, injectionOwner)) injectionView creationCells [⟨0⟩, ⟨1⟩]
       authored_injection_allocates_its_operand authored_injection_stores_correspond allocated_injection_handoff

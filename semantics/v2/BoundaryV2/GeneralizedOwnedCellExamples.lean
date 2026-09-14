@@ -29,7 +29,7 @@ theorem closure_initializer_moves_grant_and_capture_into_its_cell :
     .cons .datum (.cons compound_function_evaluates_with_its_grant .nil)
   have handoff : ValueHandoff createdSourceComputation.value createdSourceComputation.store.fields closureCellFields :=
     .move (before := [.owned ⟨100⟩ (.lexical ⟨0⟩ 1)]) (after := [])
-  obtain ⟨count, positive, _, steps, _⟩ := Defunctionalization.compiled_cell_allocation
+  obtain ⟨count, positive, _, steps, _⟩ := Defunctionalization.compiled_cell_allocation (retained := [])
     (signature := signature) (algebra := algebra) .nil (.datum (.region ⟨1⟩)) compoundOwnedFunction lambdaBindings
     ⟨1⟩ createdSourceComputation.value creationCells [] [⟨1⟩] List.mem_cons_self
     (targetStore := creationTargetStore) evaluated ⟨rfl, .nil, .nil⟩ closureCellFields handoff .done
@@ -51,7 +51,7 @@ theorem compiled_write_changes_the_value_seen_through_the_cell_reference :
   have written : Cells.writeCopy (signature := signature) (algebra := algebra) ⟨3⟩ ⟨1⟩ (.datum (.leaf (type := Data.integer) 9))
       liveIntegerSourceCells = some writtenIntegerCells := by
     simp [Cells.writeCopy, Cells.exchange, liveIntegerSourceCells, writtenIntegerCells, Value.copyable, Datum.copyable]
-  obtain ⟨count, positive, _, steps, _⟩ := Defunctionalization.compiled_cell_write
+  obtain ⟨count, positive, _, steps, _⟩ := Defunctionalization.compiled_cell_write (retained := [])
     (signature := signature) (algebra := algebra) .nil (.reference .here) (.datum (.leaf (type := Data.integer) 9))
     integerCellSourceBindings ⟨3⟩ ⟨1⟩ (.datum (.leaf 9)) liveIntegerSourceCells writtenIntegerCells
     [⟨1⟩] List.mem_cons_self (sourceStore := ⟨⟨[], [], []⟩, [], []⟩)

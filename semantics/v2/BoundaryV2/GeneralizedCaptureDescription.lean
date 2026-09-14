@@ -39,6 +39,30 @@ def Capture.future : Capture signature algebra program input result → Context 
   | .protection identity cleanup bindings rest => .push (.protection identity cleanup bindings) rest.future
   | .cleanupReturn identity original exit rest => .push (.cleanupReturn identity original exit) rest.future
 
+/-- Project the authored data already present in each source frame. This does
+not assert that an arbitrary callback agrees with its metadata; it is used as
+a left inverse on futures constructed from an actual Capture. -/
+def Context.captureMetadata (future : Context signature algebra program input result) :
+    Capture signature algebra program input result :=
+  match future with
+  | .done => .done
+  | .push (.bind _ description) rest => .bind description.body description.environment rest.captureMetadata
+  | .push (.handler effect mode identity returned clauses bindings) rest =>
+      .handler effect mode identity returned clauses bindings rest.captureMetadata
+  | .push (.region identity) rest => .region identity rest.captureMetadata
+  | .push (.protection identity cleanup bindings) rest => .protection identity cleanup bindings rest.captureMetadata
+  | .push (.cleanupReturn identity original exit) rest => .cleanupReturn identity original exit rest.captureMetadata
+termination_by future.length
+decreasing_by all_goals simp_all only [Context.length]; omega
+
+theorem Capture.metadata_of_future (capture : Capture signature algebra program input result) :
+    capture.future.captureMetadata = capture := by
+  induction capture <;> simp_all only [Capture.future, Context.captureMetadata, Frame.bindAuthored]
+
+theorem Capture.future_injective {first second : Capture signature algebra program input result}
+    (same : first.future = second.future) : first = second := by
+  simpa only [Capture.metadata_of_future] using congrArg Context.captureMetadata same
+
 def Capture.references : Capture signature algebra program input result → List Reference
   | .done => []
   | .bind body bindings rest => (body.references ++ environmentReferences bindings) ++ rest.references
@@ -77,9 +101,8 @@ even when callback extensionality alone cannot distinguish their bodies. -/
 theorem Capture.equal_futures_preserve_provenance
     {first second : Capture signature algebra program input result} (same : first.future = second.future) :
     first.references = second.references ∧ first.copyable = second.copyable := by
-  constructor
-  · exact first.supported.references_eq.trans ((congrArg Context.referenceSupport same).trans second.supported.references_eq.symm)
-  · exact first.future_copyable.symm.trans ((congrArg Context.copyable same).trans second.future_copyable)
+  cases Capture.future_injective same
+  exact ⟨rfl, rfl⟩
 
 end Source
 
@@ -127,6 +150,14 @@ theorem related_context_has_capture
         exact ⟨.protection identity cleanup bindings description, congrArg _ original, congrArg _ compiled⟩
     | cleanupReturn identity saved exit =>
         exact ⟨.cleanupReturn identity saved exit description, congrArg _ original, congrArg _ compiled⟩
+
+theorem capture_of_related_context (source : Source.Capture signature algebra program input result)
+    (related : ContextRelated signature algebra program source.future target) :
+    capture source = target.cloneView := by
+  obtain ⟨description, original, compiled⟩ := related_context_has_capture related
+  have same := Source.Capture.future_injective original
+  rw [same] at compiled
+  exact compiled
 
 theorem capture_copyability (source : Source.Capture signature algebra program input result) :
     (capture source).copyable = source.copyable := by

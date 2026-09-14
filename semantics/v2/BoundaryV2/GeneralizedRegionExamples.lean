@@ -57,7 +57,7 @@ theorem authored_region_makes_its_body_cell_allocation_live :
         (Defunctionalization.environment regionEntryBindings) .nil .done⟩,
         Defunctionalization.cells regionEntryCells, regionEntryLive⟩ count regionEntryTargetAfter) ∧
     Defunctionalization.CellStateRelated regionEntrySourceAfter regionEntryTargetAfter := by
-  obtain ⟨sourceEnter, targetEnter, _⟩ := Defunctionalization.compiled_region_entry
+  obtain ⟨sourceEnter, targetEnter, _⟩ := Defunctionalization.compiled_region_entry (retained := [])
     (signature := signature) (algebra := algebra) .nil regionEntryBody regionEntryBindings .done
     (sourceStore := regionEntrySourceStore) (targetStore := regionEntryTargetStore) ⟨rfl, .nil, .nil⟩
     regionEntryCells regionEntryLive []
@@ -66,7 +66,7 @@ theorem authored_region_makes_its_body_cell_allocation_live :
       (.cons (.reference .here) (.cons (.reference (.there .here)) .nil))
       (.ok (.cons (.datum (.region enteredRegion)) (.cons (.datum (.leaf (type := Data.integer) 11)) .nil))) regionEntrySourceStore :=
     .cons .reference (.cons .reference .nil)
-  obtain ⟨count, positive, sourceAllocate, targetAllocate, related⟩ := Defunctionalization.compiled_cell_allocation
+  obtain ⟨count, positive, sourceAllocate, targetAllocate, related⟩ := Defunctionalization.compiled_cell_allocation (retained := [])
     (signature := signature) (algebra := algebra) .nil (.reference .here) (.reference (.there .here))
     (.cons (.datum (.region enteredRegion)) regionEntryBindings) enteredRegion (.datum (.leaf (type := Data.integer) 11))
     regionEntryCells [] (enteredRegion :: regionEntryLive) List.mem_cons_self

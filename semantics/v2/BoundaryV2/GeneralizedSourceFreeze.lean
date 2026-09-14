@@ -78,8 +78,97 @@ namespace Defunctionalization
 def templateHeap (source : Source.Multi.DescribedHeap signature algebra program) : Target.ControlHeap signature algebra program :=
   source.mapFuture (UseScope.mapPacked (fun _ => templateFuture))
 
+def describedPayloadRelated (shape : ControlShape signature)
+    (source : Source.Multi.Future signature algebra program shape)
+    (target : Target.ControlPayload signature algebra program shape) : Prop :=
+  controlPayloadRelated shape source.payload target
+
+abbrev DescribedHeapRelated (source : Source.Multi.DescribedHeap signature algebra program)
+    (target : Target.ControlHeap signature algebra program) :=
+  UseScope.ControlStore.Related (UseScope.PackedControlRelated describedPayloadRelated) source target
+
+omit [DecidableEq (ControlShape signature)] in
+/-- Enriching the relation with authored descriptions does not replace the
+actual source heap or require the target to have canonical frames. -/
+theorem described_heap_related_iff (source : Source.Multi.DescribedHeap signature algebra program)
+    (target : Target.ControlHeap signature algebra program) :
+    DescribedHeapRelated source target ↔ ControlHeapRelated (Source.Multi.sourceHeap source) target := by
+  have packed (first : Sigma (Source.Multi.Future signature algebra program))
+      (second : Sigma (Target.ControlPayload signature algebra program)) :
+      UseScope.PackedControlRelated controlPayloadRelated
+        (UseScope.mapPacked (fun _ => Source.Multi.Future.payload) first) second ↔
+      UseScope.PackedControlRelated describedPayloadRelated first second := by
+    cases first with
+    | mk shape saved =>
+      constructor <;> intro related <;> cases related with
+      | same matching => exact .same matching
+  simpa only [Source.Multi.sourceHeap, ControlHeapRelated, DescribedHeapRelated, packed] using
+    (UseScope.ControlStore.related_map_left_iff
+      (UseScope.mapPacked (fun _ => Source.Multi.Future.payload))
+      (UseScope.PackedControlRelated controlPayloadRelated) source target).symm
+
+omit [DecidableEq (ControlShape signature)] in
+theorem described_payload_clone_view (source : Source.Multi.Future signature algebra program shape)
+    {target : Target.ControlPayload signature algebra program shape}
+    (related : describedPayloadRelated shape source target) :
+    { target with future := target.future.cloneView } = templateFuture source := by
+  unfold templateFuture
+  congr 1
+  · exact related.attachment.symm
+  · exact (capture_of_related_context source.capture related.future).symm
+
+omit [DecidableEq (ControlShape signature)] in
+theorem related_partition_image (partition : Target.Multi.Partition)
+    (source : Source.Multi.Future signature algebra program shape)
+    {target : Target.ControlPayload signature algebra program shape}
+    (related : describedPayloadRelated shape source target)
+    (arena : Source.Multi.Arena signature algebra program) :
+    partition.image target (templateArena arena) = templateImage (Source.Multi.partitionImage partition source arena) := by
+  rw [← partition_image_corresponds partition source arena]
+  unfold Target.Multi.Partition.image
+  congr 1
+  rw [described_payload_clone_view source related]
+  simp only [templateFuture, compiled_capture_is_already_a_clone_view]
+
 def frozen (source : Source.Multi.Frozen signature algebra program shape) : Target.Multi.Frozen signature algebra program shape :=
   ⟨source.identity, template source.template, templateHeap source.store, templateArena source.arena⟩
+
+structure FrozenRelated (source : Source.Multi.Frozen signature algebra program shape)
+    (target : Target.Multi.Frozen signature algebra program shape) : Prop where
+  identity : target.identity = source.identity
+  template : target.template = Defunctionalization.template source.template
+  store : DescribedHeapRelated source.store target.store
+  arena : target.arena = templateArena source.arena
+
+/-- Freeze relates arbitrary matching target frames. Only the captured image
+uses its clone view; unrelated live controls keep their actual representations. -/
+theorem freeze_owned_related (shape : ControlShape signature) (view : UseScope.ControlView)
+    {source : Source.Multi.DescribedHeap signature algebra program} {target : Target.ControlHeap signature algebra program}
+    (stores : DescribedHeapRelated source target) (arena : Source.Multi.Arena signature algebra program)
+    (partition : Target.Multi.Partition) :
+    Option.Rel FrozenRelated (Source.Multi.freezeOwned shape view source arena partition)
+      (Target.Multi.freezeOwned shape view target (templateArena arena) partition) := by
+  unfold Source.Multi.freezeOwned Target.Multi.freezeOwned
+  rw [← stores.fields]
+  cases selectionResult : UseScope.takeCapture view.identity source.fields.retained with
+  | none => exact .none
+  | some saved =>
+    rcases saved with ⟨captured, retained⟩
+    dsimp only [Option.bind]
+    split
+    · have acquired := UseScope.acquire_at_corresponds describedPayloadRelated stores shape view
+      generalize sourceAt : UseScope.acquireAt shape view source = sourceTaken at acquired ⊢
+      generalize targetAt : UseScope.acquireAt shape view target = targetTaken at acquired ⊢
+      cases acquired with
+      | none => exact .none
+      | @some sourceAcquired targetAcquired matching =>
+        simp only [related_partition_image partition sourceAcquired.future matching.future arena,
+          template_admission_corresponds]
+        cases Source.Multi.admit (Source.Multi.partitionImage partition sourceAcquired.future arena) with
+        | none => exact .none
+        | some admitted =>
+          exact .some ⟨rfl, rfl, matching.store, remaining_arena_corresponds partition arena⟩
+    · exact .none
 
 omit [DecidableEq (ControlShape signature)] in
 theorem template_heap_correspondence (source : Source.Multi.DescribedHeap signature algebra program) :

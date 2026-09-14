@@ -65,7 +65,7 @@ theorem fresh_handler_has_corresponding_stateful_installation :
         handlerSupportCells, [⟨0⟩]⟩ := by
   have outside : Defunctionalization.ContextRelated signature algebra [] freshSourceOutside freshTargetOutside :=
     .push (.bind afterFreshHandler .nil) (.passthrough unusedCallerBindings .done)
-  exact (Defunctionalization.compiled_fresh_handler (signature := signature) (algebra := algebra)
+  exact (Defunctionalization.compiled_fresh_handler (retained := []) (signature := signature) (algebra := algebra)
     .nil .text .deep freshHandlerReturn freshHandlerClauses freshHandlerBody freshHandlerBindings outside
     (sourceStore := freshSourceStore) (targetStore := freshTargetStore) ⟨rfl, .nil, .nil⟩ handlerSupportCells [⟨0⟩] []).1
 

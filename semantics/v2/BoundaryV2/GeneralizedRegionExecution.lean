@@ -36,6 +36,8 @@ namespace Defunctionalization
 
 variable [DecidableEq (ControlShape signature)] [DecidableEq (TypeOf signature)]
 
+variable {retained : List Reference}
+
 /-- Region entry creates liveness and gives the body its typed region value.
 Existing control/cell owners remain in place, and the region frame retains the
 close boundary under the caller's continuation. -/
@@ -51,12 +53,12 @@ theorem compiled_region_entry
     (sourceCells : Cells signature algebra (Source.Computation signature algebra program))
     (regions : List (Id .region)) (extra : List Reference) :
     let identity := Target.freshRegion (definitions table) (computation (.withRegion body))
-      (environment bindings) .nil targetOutside targetStore (cells sourceCells) regions extra
-    Source.ExecutionStep table
+      (environment bindings) .nil targetOutside targetStore (cells sourceCells) regions (retained ++ extra)
+    Source.ExecutionStep (retained := retained) table
       ⟨⟨sourceStore, sourceOutside.plug (.evaluate (.withRegion body) bindings)⟩, sourceCells, regions⟩
       ⟨⟨sourceStore, sourceOutside.plug (.region identity (.evaluate body (.cons (.datum (.region identity)) bindings)))⟩,
         sourceCells, identity :: regions⟩ ∧
-    Target.ExecutionSteps (definitions table)
+    Target.ExecutionSteps (retained := retained) (definitions table)
       ⟨⟨targetStore, .code (computation (.withRegion body)) (environment bindings) .nil targetOutside⟩, cells sourceCells, regions⟩ 1
       ⟨⟨targetStore, .code (computation body) (.cons (.datum (.region identity)) (environment bindings)) .nil
         (.push (.region identity) (.push (.returnTo .ret (environment bindings) .nil) targetOutside))⟩,
@@ -68,11 +70,11 @@ theorem compiled_region_entry
         (.push (.region identity) (.push (.returnTo .ret (environment bindings) .nil) targetOutside))⟩,
         cells sourceCells, identity :: regions⟩ := by
   dsimp only
-  have same := fresh_region_corresponds table (.withRegion body) bindings targetOutside targetStore sourceCells regions extra
+  have same := fresh_region_corresponds table (.withRegion body) bindings targetOutside targetStore sourceCells regions (retained ++ extra)
   refine ⟨.enterRegion extra (context_installation_support outside) (store_installation_support stores) same.symm,
     .single (.enterRegion extra rfl), ?_⟩
   let identity := Target.freshRegion (definitions table) (computation (.withRegion body))
-    (environment bindings) .nil targetOutside targetStore (cells sourceCells) regions extra
+    (environment bindings) .nil targetOutside targetStore (cells sourceCells) regions (retained ++ extra)
   refine ⟨⟨stores, ?_⟩, rfl, rfl⟩
   simpa only [identity, Source.Context.plug, Source.Frame.plug, environment, Environment.map, Value.map] using
     EntryRelated.evaluate body (.cons (.datum (.region identity)) bindings)

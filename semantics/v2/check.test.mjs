@@ -60,7 +60,7 @@ function claimMutations() {
         `${namespace}.${name} to True probe must itself compile`);
       rejected(compile('GeneralizedContractChecks', consumers), `${namespace}.${name} replaced with True`);
     }
-    const stateful = '∃ count, ExecutionSteps table before count after ∧ HeadObservation after.control.computation observation';
+    const stateful = '∃ count, ExecutionSteps (retained := retained) table before count after ∧ HeadObservation after.control.computation observation';
     assert(observations.includes(stateful), 'missing stateful observation mutation target');
     // Change only the meaning-bearing definition. Connected semantic proofs may
     // now reject the mutation before the separate statement consumer runs.

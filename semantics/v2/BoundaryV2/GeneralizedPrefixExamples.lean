@@ -43,7 +43,7 @@ theorem failing_initializer_preserves_earlier_owner_before_exit :
   subst targetStore
   cases faulted
   refine ⟨⟨count + 1, ?_⟩, rfl, rfl, rfl, rfl⟩
-  exact (operands.in_execution (.nil : Target.Definitions signature algebra []) .done [] [⟨0⟩]).trans
+  exact (operands.in_execution (retained := []) (.nil : Target.Definitions signature algebra []) .done [] [⟨0⟩]).trans
     (.single (.cell (.ordinary .fault)))
 
 theorem initializer_fault_cannot_be_reported_as_return_yield_or_request
