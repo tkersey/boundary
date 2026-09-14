@@ -1,0 +1,225 @@
+import BoundaryV2.GeneralizedContracts
+
+/-! Statement checks, not inhabitants of the five contracts. These consumers
+keep the stateful observation definitions and the principal contract field types
+visible to the trust mutation suite. A `True` declaration or an ordinary-only
+observation relation cannot satisfy them. -/
+namespace BoundaryV2.Generalized.ContractChecks
+
+variable {signature : Signature} {algebra : LeafAlgebra signature.Data}
+  {program : List (BodyType signature.Data signature.Effect)}
+  [DecidableEq (ControlShape signature)] [DecidableEq (TypeOf signature)]
+
+/-- Check the meaning-bearing definition, including the final resource state. -/
+theorem source_observation_definition (table : Source.Definitions signature algebra program)
+    (before after : Source.State signature algebra program result) observation :
+    Source.StateObserves table before after observation =
+      (∃ count, Source.ExecutionSteps table before count after ∧
+        Source.HeadObservation after.control.computation observation) := rfl
+
+theorem target_observation_definition (table : Target.Definitions signature algebra program)
+    (before after : Target.State signature algebra program result) observation :
+    Target.StateObserves table before after observation =
+      (∃ count, Target.ExecutionSteps table before count after ∧
+        Target.HeadObservation after.control.configuration observation) := rfl
+
+/-- A hypothetical proof of D must provide both stateful directions. No such
+proof is constructed here, and ordinary adequacy has a different type. -/
+theorem defunctionalization_contract
+    (claim : Defunctionalization.adequacy signature algebra program)
+    (table : Source.Definitions signature algebra program)
+    {source : Source.State signature algebra program result}
+    {target : Target.State signature algebra program result}
+    (related : Defunctionalization.ExecutionStateRelated source target) :
+    (∀ final observation, Source.StateObserves table source final observation →
+      ∃ targetFinal targetObservation,
+        Target.StateObserves (Defunctionalization.definitions table) target targetFinal targetObservation ∧
+        Defunctionalization.StateObservationRelated final targetFinal observation targetObservation) ∧
+    (∀ final observation, Target.StateObserves (Defunctionalization.definitions table) target final observation →
+      ∃ sourceFinal sourceObservation,
+        Source.StateObserves table source sourceFinal sourceObservation ∧
+        Defunctionalization.StateObservationRelated sourceFinal final sourceObservation observation) :=
+  ⟨fun _ => claim.preservation table related, fun _ => claim.reflection table related⟩
+
+omit [DecidableEq (TypeOf signature)] in
+theorem handler_contract (claim : Handlers.interpretation signature algebra program)
+    {sourceOutside : Source.Context signature algebra program input result}
+    {targetOutside : Target.Stack signature algebra program input result}
+    (outside : Defunctionalization.ContextRelated signature algebra program sourceOutside targetOutside)
+    {source : Source.Program signature algebra program input}
+    {target : Target.Configuration signature algebra program result}
+    (related : Defunctionalization.ProgramRelated source targetOutside target) :
+    Defunctionalization.ProgramRelated (sourceOutside.plug source) .done target :=
+  claim.context outside related
+
+theorem use_contract (claim : UseScope.preservation signature algebra program)
+    shape view (store : Target.ControlHeap signature algebra program) acquired
+    (valid : UseScope.ControlStore.Valid store)
+    (accepted : UseScope.acquireAt shape view store = some acquired) :
+    UseScope.ControlStore.Valid acquired.store ∧ view.authority ∉ UseScope.inventory acquired.store.fields ∧
+      UseScope.acquireAt shape view acquired.store = none := claim.typed_consumption shape view store acquired valid accepted
+
+theorem exit_contract (claim : Exits.composition signature algebra program)
+    (table : Target.Definitions signature algebra program)
+    (work : ExitComposition.CleanupDisposal signature algebra program result)
+    (after : ExitComposition.Resolution signature algebra program result) :
+    ¬ ExitComposition.CleanupFrameStep table (.disposing work) (.running after) :=
+  claim.value_disposal table work after
+
+theorem disposal_answer_contract (claim : Exits.composition signature algebra program)
+    (identity : Id .obligation) (store : Target.ControlHeap signature algebra program)
+    (cells : Cells signature algebra (fun context result => Target.Code signature algebra program context [] result))
+    (regions : List (Id .region)) (diagnostics : ExitInfo algebra.Fault algebra.Reason)
+    (value : Target.RuntimeValue signature algebra program answer) :
+    ExitComposition.ControlProgress.finishFrames (.frames identity (.running (.reenter
+      ⟨⟨store, .returned value .done⟩, cells, regions⟩ diagnostics))) =
+      some (.returnedValue (ExitComposition.ValueDisposal.start
+        ⟨identity, .finished .returned, store, cells, regions, diagnostics⟩ value)) :=
+  claim.control_answer identity store cells regions diagnostics value
+
+theorem running_cancellation_contract (claim : Defunctionalization.adequacy signature algebra program)
+    (reason : algebra.Reason)
+    {source : Source.ExitResolution signature algebra program result}
+    {target : ExitComposition.Resolution signature algebra program result}
+    (related : Defunctionalization.ExitResolutionRelated source target) :
+    Option.Rel Defunctionalization.ExitResolutionRelated (source.cancelRunning reason) (target.cancelRunning reason) :=
+  claim.running_cancellation reason related
+
+theorem source_first_cancellation_contract (claim : Exits.composition signature algebra program)
+    (first later : algebra.Reason) (before after : Source.ExitResolution signature algebra program result)
+    (accepted : before.cancelRunning first = some after) : after.cancelRunning later = some after :=
+  claim.source_first_cancellation first later before after accepted
+
+theorem source_region_disposal_contract (claim : Defunctionalization.adequacy signature algebra program)
+    (table : Source.Definitions signature algebra program)
+    {source final : Source.RegionDisposal signature algebra program result}
+    {target : ExitComposition.RegionDisposal signature algebra program result}
+    (steps : Source.RegionDisposalSteps table source count final retained)
+    (related : Defunctionalization.RegionDisposalRelated source target) :
+    ∃ targetCount targetFinal, ExitComposition.RegionDisposalSteps (Defunctionalization.definitions table) target targetCount targetFinal retained ∧
+      Defunctionalization.RegionDisposalRelated final targetFinal :=
+  claim.region_disposal_preservation table steps related
+
+theorem authored_disposal_contract (claim : Defunctionalization.adequacy signature algebra program)
+    (table : Source.Definitions signature algebra program)
+    {source final : Source.DisposalProgress signature algebra program result}
+    {target : Target.DisposalProgress signature algebra program result}
+    (steps : Source.DisposalRun table source count final)
+    (related : Defunctionalization.DisposalProgressRelated source target) :
+    ∃ targetCount targetFinal, Target.DisposalRun (Defunctionalization.definitions table) target targetCount targetFinal ∧
+      Defunctionalization.DisposalProgressRelated final targetFinal :=
+  claim.authored_disposal_preservation table steps related
+
+theorem normal_region_contract (claim : Defunctionalization.adequacy signature algebra program)
+    (table : Source.Definitions signature algebra program) (identity : Id .region)
+    (value : Source.RuntimeValue signature algebra program input)
+    (store : Source.ControlHeap signature algebra program)
+    (cells : Cells signature algebra (Source.Computation signature algebra program)) regions
+    (outside : Source.Context signature algebra program input result) diagnostics
+    {target : Target.State signature algebra program result}
+    (related : Defunctionalization.ExecutionStateRelated
+      ⟨⟨store, outside.plug (.region identity (.returned value))⟩, cells, regions⟩ target)
+    (accepted : Source.retireReturnedRegions [identity] regions store cells value outside (retained ++ external) = some after) :
+    ∃ count targetAfter, ExitComposition.CleanupFrameSteps (Defunctionalization.definitions table)
+      (.running (.reenter target diagnostics)) count targetAfter retained ∧
+      Defunctionalization.CleanupProgressRelated (.running (.reenter after diagnostics)) targetAfter :=
+  claim.cleanup_preservation table (.cons (.returnedRegion accepted) .refl) (.running (.reenter related))
+
+theorem frame_exit_contract (claim : Exits.composition signature algebra program)
+    (table : Target.Definitions signature algebra program)
+    {before : ExitComposition.RegionDisposal signature algebra program result}
+    {after : ExitComposition.Resolution signature algebra program result}
+    (step : ExitComposition.CleanupFrameStep table (.region before) (.running after) retained) :
+    ∃ external, before.finish (retained ++ external) = some after :=
+  claim.retained_region_roots table step
+
+theorem frame_disposal_contract (claim : Exits.composition signature algebra program)
+    (table : Target.Definitions signature algebra program)
+    {before after : ExitComposition.CleanupFrameProgress signature algebra program answer}
+    (identity : Id .obligation) (outside : Target.Stack signature algebra program .unit result)
+    (steps : ExitComposition.CleanupFrameSteps table before count after outside.installationReferences) :
+    Target.DisposalRun table (.disposing ⟨answer, .frames identity before, outside⟩) count
+      (.disposing ⟨answer, .frames identity after, outside⟩) :=
+  claim.frame_disposal_embedding table identity outside steps
+
+theorem control_value_contract (claim : Exits.composition signature algebra program)
+    (table : Target.Definitions signature algebra program)
+    {before after : ExitComposition.ControlProgress signature algebra program answer}
+    (pending : ExitComposition.DisposalValues signature algebra program)
+    (steps : ExitComposition.ControlProgressSteps table before count after
+      (pending.flatMap (fun value => Target.valueReferences value.snd) ++ retained)) :
+    ExitComposition.ValueDisposalSteps table (.control before pending) count (.control after pending) retained :=
+  claim.control_value_embedding table pending steps
+
+omit [DecidableEq (TypeOf signature)] in
+theorem open_contract (claim : OpenControl.observation_relocation signature algebra program)
+    (operation : signature.operation effect) (pending : Target.Pending signature algebra program operation result)
+    (sourceFuture : Source.Context signature algebra program (signature.result operation) result)
+    (related : Defunctionalization.ContextRelated signature algebra program sourceFuture pending.future)
+    (response : Source.RuntimeValue signature algebra program (signature.result operation)) :
+    Target.interact (.parked pending)
+        (.response ⟨pending.occurrence, pending.attachment, Defunctionalization.value response⟩) =
+      .running (.returned (Defunctionalization.value response) pending.future) pending.owners ∧
+    Defunctionalization.EntryRelated (sourceFuture.plug (.returned response))
+      (.returned (Defunctionalization.value response) pending.future) :=
+  claim.response operation pending sourceFuture related response
+
+/-- Registered observations use the actual retained runtime and its admitted
+transitions, including clone and multi-use entry. -/
+theorem registered_source_observation_definition (table : Source.Definitions signature algebra program)
+    (before after : Source.Multi.Runtime signature algebra program result) observation :
+    Source.Multi.Observes table before after observation =
+      (∃ count, Source.Multi.Steps table before count after ∧
+        Source.HeadObservation after.control.computation observation) := rfl
+
+theorem registered_target_observation_definition (table : Target.Definitions signature algebra program)
+    (before after : Target.Multi.Runtime signature algebra program result) observation :
+    Target.Multi.Observes table before after observation =
+      (∃ count, Target.Multi.Steps table before count after ∧
+        Target.HeadObservation after.control.configuration observation) := rfl
+
+theorem registered_defunctionalization_contract
+    (claim : Defunctionalization.adequacy signature algebra program)
+    (table : Source.Definitions signature algebra program)
+    {source : Source.Multi.Runtime signature algebra program result}
+    {target : Target.Multi.Runtime signature algebra program result}
+    (related : Defunctionalization.MultiRuntimeRelated source target) :
+    (∀ final observation, Source.Multi.Observes table source final observation →
+      ∃ targetFinal targetObservation,
+        Target.Multi.Observes (Defunctionalization.definitions table) target targetFinal targetObservation ∧
+        Defunctionalization.MultiDataRelated final targetFinal ∧
+        Defunctionalization.StateObservationRelated final.state targetFinal.state observation targetObservation) ∧
+    (∀ final observation, Target.Multi.Observes (Defunctionalization.definitions table) target final observation →
+      ∃ sourceFinal sourceObservation,
+        Source.Multi.Observes table source sourceFinal sourceObservation ∧
+        Defunctionalization.MultiDataRelated sourceFinal final ∧
+        Defunctionalization.StateObservationRelated sourceFinal.state final.state sourceObservation observation) :=
+  ⟨fun _ => claim.registered_preservation table related, fun _ => claim.registered_reflection table related⟩
+
+theorem source_cleanup_contract (claim : Defunctionalization.adequacy signature algebra program)
+    (table : Source.Definitions signature algebra program)
+    {source : Source.CleanupProgress signature algebra program result}
+    {target : ExitComposition.CleanupFrameProgress signature algebra program result}
+    {sourceFinal : Source.State signature algebra program result}
+    (related : Defunctionalization.CleanupProgressRelated source target)
+    (steps : Source.CleanupSteps table source count (.running (.reenter sourceFinal diagnostics)) retained)
+    (head : Source.HeadObservation sourceFinal.control.computation observation) :
+    ∃ targetCount targetFinal targetObservation,
+      ExitComposition.CleanupFrameSteps (Defunctionalization.definitions table) target targetCount
+        (.running (.reenter targetFinal diagnostics)) retained ∧
+      Target.HeadObservation targetFinal.control.configuration targetObservation ∧
+      Defunctionalization.StateObservationRelated sourceFinal targetFinal observation targetObservation :=
+  claim.cleanup_observations table related steps head
+
+theorem source_value_disposal_contract (claim : Defunctionalization.adequacy signature algebra program)
+    (table : Source.Definitions signature algebra program)
+    {source final : Source.ValueDisposal signature algebra program}
+    {target : ExitComposition.ValueDisposal signature algebra program}
+    (steps : Source.ValueDisposalSteps table source count final retained)
+    (related : Defunctionalization.ValueDisposalRelated source target) :
+    ∃ targetCount targetFinal,
+      ExitComposition.ValueDisposalSteps (Defunctionalization.definitions table) target targetCount targetFinal retained ∧
+      Defunctionalization.ValueDisposalRelated final targetFinal :=
+  claim.value_disposal_preservation table steps related
+
+end BoundaryV2.Generalized.ContractChecks

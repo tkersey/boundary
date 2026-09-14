@@ -89,13 +89,16 @@ src/v2/source/writer_raise_example.zig
 src/v2/test_root.zig
 test/v2/bpi1_admission.zig
 test/v2/borrow_returns.zig
+test/v2/cleanup_disposal.zig
 test/v2/compiler_phases.zig
 test/v2/economy_v1.zig
 test/v2/economy_v2.zig
 test/v2/emit_capacity.zig
 test/v2/emit_economy.zig
+test/v2/emit_generated.zig
 test/v2/emit_scalar.zig
 test/v2/emit_source.zig
+test/v2/generated_programs.zig
 test/v2/oracle_scopes.zig
 tools/v2/bpi1_lift.zig
 tools/v2/bpi2_inspect.zig

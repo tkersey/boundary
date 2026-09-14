@@ -1,99 +1,78 @@
-import BoundaryV2
+import Lean
+import Lean.Replay
 
--- Kernel-checked dependency reports for every theorem in the current core.
-#print axioms BoundaryV2.Control.append_runs_in_order
-#print axioms BoundaryV2.Control.append_done
-#print axioms BoundaryV2.Control.append_associative
-#print axioms BoundaryV2.Control.selection_reconstructs_context
-#print axioms BoundaryV2.Control.selection_uses_capability_identity
-#print axioms BoundaryV2.Control.deep_resume_applies_return_once
-#print axioms BoundaryV2.Control.shallow_resume_does_not_reinstall
-#print axioms BoundaryV2.Control.clause_answer_bypasses_return
-#print axioms BoundaryV2.Control.non_tail_resume_retains_both_continuations
-#print axioms BoundaryV2.Control.operation_progress
-#print axioms BoundaryV2.Control.renamed_context_preserves_value
-#print axioms BoundaryV2.Control.linear_disposition_preserves_ownership
-#print axioms BoundaryV2.Control.linear_disposition_cannot_repeat
-#print axioms BoundaryV2.Control.live_linear_disposition_progress
-#print axioms BoundaryV2.Control.resume_consumes_before_returning_to_clause
-#print axioms BoundaryV2.Control.Target.compiled_block_preserves_value
-#print axioms BoundaryV2.Control.Target.compiled_frame_preserves_value
-#print axioms BoundaryV2.Control.Target.compilation_preserves_composition
-#print axioms BoundaryV2.Control.Target.compiled_context_preserves_value
-#print axioms BoundaryV2.Control.Target.compilation_preserves_selection
-#print axioms BoundaryV2.Control.Target.compilation_preserves_capture
-#print axioms BoundaryV2.Control.Target.compilation_preserves_non_tail_resume
-#print axioms BoundaryV2.Control.Target.return_step_simulation
-#print axioms BoundaryV2.Control.Target.return_trace_simulation
-#print axioms BoundaryV2.Core.code_append_runs_in_order
-#print axioms BoundaryV2.Core.compile_preserves_value_and_scope
-#print axioms BoundaryV2.ownership_empty_valid
-#print axioms BoundaryV2.capture_preserves_ownership
-#print axioms BoundaryV2.consume_preserves_ownership
-#print axioms BoundaryV2.consumed_token_cannot_resume
-#print axioms BoundaryV2.multi_activations_are_distinct
-#print axioms BoundaryV2.multi_activation_preserves_ownership
-#print axioms BoundaryV2.clone_preserves_outer_regions
-#print axioms BoundaryV2.clone_preserves_aliases
-#print axioms BoundaryV2.clone_preserves_distinctions
-#print axioms BoundaryV2.enter_region_preserves_scope
-#print axioms BoundaryV2.exit_region_preserves_scope
-#print axioms BoundaryV2.borrowed_region_cannot_escape
-#print axioms BoundaryV2.Regions.activation_preserves_scope
-#print axioms BoundaryV2.Regions.multi_resume_preserves_ownership_and_scope
-#print axioms BoundaryV2.Regions.successive_multi_resumes_have_distinct_control
-#print axioms BoundaryV2.Regions.freeze_consumes_original_ownership
-#print axioms BoundaryV2.Regions.renamed_read_preserves_frozen_contents
-#print axioms BoundaryV2.Regions.activation_preserves_local_read
-#print axioms BoundaryV2.Regions.activation_observes_current_outer_heap
-#print axioms BoundaryV2.Regions.activation_preserves_computation
-#print axioms BoundaryV2.Regions.activation_preserves_aliases
-#print axioms BoundaryV2.Regions.local_activation_names_are_disjoint
-#print axioms BoundaryV2.Regions.clone_preserves_region_scope
-#print axioms BoundaryV2.Regions.write_preserves_outer_read
-#print axioms BoundaryV2.Regions.write_preserves_reference_aliases
-#print axioms BoundaryV2.Regions.choice_outside_state
-#print axioms BoundaryV2.Regions.state_outside_choice
-#print axioms BoundaryV2.Effects.Stack.spine_induction
-#print axioms BoundaryV2.Effects.finish_capture_is_capture_then_consume
-#print axioms BoundaryV2.Effects.finish_capture_preserves_ownership
-#print axioms BoundaryV2.Effects.initial_is_well_owned
-#print axioms BoundaryV2.Effects.return_preserves_ownership
-#print axioms BoundaryV2.Effects.dispatch_preserves_ownership
-#print axioms BoundaryV2.Effects.tick_preserves_invariants
-#print axioms BoundaryV2.Effects.transition_preserves_invariants
-#print axioms BoundaryV2.Effects.residual_disposition_consumes_once
-#print axioms BoundaryV2.Effects.live_residual_progress
-#print axioms BoundaryV2.Effects.machine_progress
-#print axioms BoundaryV2.Effects.rebasing_preserves_current_outer_heap
-#print axioms BoundaryV2.Effects.map_preserves_composition
-#print axioms BoundaryV2.Effects.map_preserves_outer_heap
-#print axioms BoundaryV2.Effects.map_preserves_freezing
-#print axioms BoundaryV2.Effects.map_preserves_attachments
-#print axioms BoundaryV2.Effects.stack_map_commutes_with_renaming
-#print axioms BoundaryV2.Effects.map_preserves_activation
-#print axioms BoundaryV2.Effects.map_preserves_selection
-#print axioms BoundaryV2.Effects.map_preserves_capture
-#print axioms BoundaryV2.Effects.map_preserves_return_step
-#print axioms BoundaryV2.Effects.map_preserves_dispatch
-#print axioms BoundaryV2.Effects.map_preserves_tick
-#print axioms BoundaryV2.Effects.map_preserves_transition
-#print axioms BoundaryV2.Effects.map_preserves_observation
-#print axioms BoundaryV2.Effects.map_preserves_ownership
-#print axioms BoundaryV2.Effects.drive_preserves_invariants
-#print axioms BoundaryV2.Effects.map_preserves_observable_trace
-#print axioms BoundaryV2.Effects.compile_atom_preserves_evaluation
-#print axioms BoundaryV2.Effects.effectful_step_simulation
-#print axioms BoundaryV2.Effects.effectful_trace_simulation
-#print axioms BoundaryV2.Effects.Examples.deep_non_tail_applies_return_once
-#print axioms BoundaryV2.Effects.Examples.shallow_non_tail_omits_original_return
-#print axioms BoundaryV2.Effects.Examples.compiled_deep_non_tail
-#print axioms BoundaryV2.Effects.Examples.operation_clause_answer_bypasses_return
-#print axioms BoundaryV2.Effects.Examples.choice_outside_state_returns_one_one
-#print axioms BoundaryV2.Effects.Examples.state_outside_choice_returns_one_two
-#print axioms BoundaryV2.Effects.Examples.compiled_state_outside_choice
-#print axioms BoundaryV2.Effects.Examples.effectful_second_bind_reaches_residual
-#print axioms BoundaryV2.Effects.Examples.supplied_responses_return_through_both_binds
-#print axioms BoundaryV2.Effects.Examples.compiled_residual_script
-#print axioms BoundaryV2.Effects.Examples.disposal_terminates_pending_ownership
-#print axioms BoundaryV2.Effects.Examples.transfer_consumes_sender_custody
+/-! Verification tooling only. The runner supplies every discovered project
+module. Declaration ownership comes from Lean, including private helpers and
+names outside the project's namespace. No semantic module imports this tool. -/
+namespace BoundaryTrust
+open Lean
+
+def dependencies (info : ConstantInfo) : Array Name := Id.run do
+  let mut result := info.type.getUsedConstants
+  if let some body := info.value? (allowOpaque := true) then
+    result := result ++ body.getUsedConstants
+  if let .inductInfo value := info then result := result ++ value.ctors.toArray
+  return result
+
+/-- Lean generates partial executable companions for safe recursive definitions.
+Only their safe parent contributes logical meaning; a logical edge to an unsafe
+companion still rejects. A copied suffix alone cannot obtain this exception. -/
+def executableHelper (env : Environment) (info : ConstantInfo) : CoreM Bool := do
+  if !info.isPartial then return false
+  let some parent := Compiler.isUnsafeRecName? info.name | return false
+  let some (.defnInfo original) := env.find? parent | return false
+  if original.safety != .safe then return false
+  return (← Meta.MetaM.run' (Meta.isDefEq info.type original.type))
+
+def audit (modules : Array Name) : CoreM Unit := do
+  let env ← getEnv
+  for moduleName in modules do
+    unless env.header.moduleNames.contains moduleName do
+      throwError "trust audit: missing discovered module {moduleName}"
+  let mut pending := #[]
+  let mut declarations := 0
+  let mut theorems := 0
+  let mut helpers := 0
+  for (name, info) in env.constants.toList do
+    let some index := env.getModuleIdxFor? name | continue
+    let some owner := env.header.moduleNames[index.toNat]? |
+      throwError "trust audit: missing module provenance for {name}"
+    unless modules.contains owner do continue
+    declarations := declarations + 1
+    if info matches .thmInfo _ then theorems := theorems + 1
+    if owner == `Trust then
+      -- Tooling may call unsafe kernel/runtime APIs, but every declaration,
+      -- including its private helpers, still obeys the positive axiom policy.
+      for axiomName in (← collectAxioms name) do
+        unless #[`propext, `Quot.sound, `Classical.choice].contains axiomName do
+          throwError "trust audit: unapproved axiom {axiomName} in tooling {name}"
+    else if ← executableHelper env info then helpers := helpers + 1
+    else pending := pending.push name
+  if theorems == 0 then throwError "trust audit: no project theorems discovered"
+  let mut visited : NameSet := {}
+  while !pending.isEmpty do
+    let name := pending.back!
+    pending := pending.pop
+    if visited.contains name then continue
+    visited := visited.insert name
+    let some info := env.find? name | throwError "trust audit: missing declaration {name}"
+    if info.isUnsafe || info.isPartial then
+      throwError "trust audit: unsafe logical dependency {name}"
+    if let some index := env.getModuleIdxFor? name then
+      if env.header.moduleNames[index.toNat]? == some `Trust then
+        throwError "trust audit: semantic dependency on verification tooling {name}"
+    if info matches .axiomInfo _ then
+      unless #[`propext, `Quot.sound, `Classical.choice].contains name do
+        throwError "trust audit: unapproved axiom {name}"
+    pending := pending ++ dependencies info
+  logInfo m!"trust audit: {modules.size} modules, {declarations} declarations, {theorems} theorems, {helpers} generated executable companions; positive axiom policy passed"
+
+/-- Use the pinned toolchain's replay API to kernel-check imported declarations
+in a fresh empty environment, including private theorem bodies. -/
+def freshReplay : CoreM Unit := do
+  let env ← getEnv
+  let constants := Std.HashMap.ofList env.constants.toList
+  let _ ← Lean.Environment.replay constants (← mkEmptyEnvironment 0)
+  logInfo "trust replay: imported declarations checked in a fresh kernel environment"
+
+end BoundaryTrust

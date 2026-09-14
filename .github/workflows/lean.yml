@@ -1,0 +1,90 @@
+name: Proof core and conformance
+
+on:
+  pull_request:
+    paths:
+      - 'semantics/v2/**'
+      - 'src/v2/**'
+      - 'test/v2/**'
+      - 'tools/v2/**'
+      - 'build.zig'
+      - 'build.zig.zon'
+      - 'repo_zig_paths.txt'
+      - '.github/workflows/lean.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'semantics/v2/**'
+      - 'src/v2/**'
+      - 'test/v2/**'
+      - 'tools/v2/**'
+      - 'build.zig'
+      - 'build.zig.zon'
+      - 'repo_zig_paths.txt'
+      - '.github/workflows/lean.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: proof-core-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  proof-core:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: boundary
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: boundary
+          persist-credentials: false
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: tkersey/world
+          ref: 87698f92ca7be4d5442e97ba27a2468aa3ff6a7c
+          path: world
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '26.8.1'
+          package-manager-cache: false
+      - name: Install pinned Lean 4.33.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(cat semantics/v2/lean-toolchain)" = 'leanprover/lean4:v4.33.1'
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/lean.tar.zst" \
+            https://github.com/leanprover/lean4/releases/download/v4.33.1/lean-4.33.1-linux.tar.zst
+          echo "890afd185370f85666025b883914ab4f4b339136f8c96167b69cfb62aecaf235  $RUNNER_TEMP/lean.tar.zst" | sha256sum --check
+          mkdir "$RUNNER_TEMP/lean"
+          tar --zstd -xf "$RUNNER_TEMP/lean.tar.zst" --strip-components=1 -C "$RUNNER_TEMP/lean"
+          echo "$RUNNER_TEMP/lean/bin" >> "$GITHUB_PATH"
+      - name: Install pinned Zig 0.16.0
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/zig.tar.xz" \
+            https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz
+          echo "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00  $RUNNER_TEMP/zig.tar.xz" | sha256sum --check
+          mkdir "$RUNNER_TEMP/zig"
+          tar -xf "$RUNNER_TEMP/zig.tar.xz" --strip-components=1 -C "$RUNNER_TEMP/zig"
+          echo "$RUNNER_TEMP/zig" >> "$GITHUB_PATH"
+      - name: Record input identities
+        run: |
+          git rev-parse HEAD
+          git -C ../world rev-parse HEAD
+          lean --version
+          zig version
+          node --version
+      - name: Measure clean proof build
+        working-directory: boundary/semantics/v2
+        run: /usr/bin/time -f 'clean-proof-build elapsed-seconds=%e peak-rss-kib=%M' lake --wfail build
+      - name: Check Boundary and logical trust
+        run: /usr/bin/time -f 'boundary-checks elapsed-seconds=%e peak-rss-kib=%M' zig build check-v2 -Doptimize=ReleaseSafe -j2 --summary all
+      - name: Check source and fresh native/WASM conformance
+        run: /usr/bin/time -f 'conformance elapsed-seconds=%e peak-rss-kib=%M' zig build check-v2-conformance -Dworld-source="$GITHUB_WORKSPACE/world" -Doptimize=ReleaseSafe -j2 --summary all
