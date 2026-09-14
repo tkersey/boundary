@@ -25,7 +25,7 @@ inhabitants. Their checked components and required connections are:
 | `Defunctionalization.adequacy` | Retained-aware finite core and registered preservation/reflection, registered initialization/response entry, and clone correspondence against noncanonical target heaps | Embed disposal and exit/lifetime transitions without omitting their observations. |
 | `Handlers.interpretation` | Fresh installation, nearest selection, forwarding, context closure, actual resume/injection/successor correspondence | Use the stateful correspondence under arbitrary enclosing effectful handlers, including registered multi entry. |
 | `UseScope.preservation` | Actual control/cell steps, typed consumption, physical capture multiplicity, scoped packages, registry insertion, fresh activation and dormant support | Connect registry and lifetime handoff across capture, activation, completion, and disposal. |
-| `Exits.composition` | Stateful initiation, cancellation, ordered operands/failures, owned-result disposal, nested completion, region-to-cleanup-frame embedding | Connect region disposal during nested abandonment and compose exits with the source/target observation relation. |
+| `Exits.composition` | Stateful initiation, cancellation, ordered operands/failures, structured-result disposal, nested region handoff with retained caller roots, current-resource completion, and finite driver embeddings | Unify nested cleanup with the handler-aware running frames, connect registry/lifetime successors, and compose exits with source/target observations. |
 | `OpenControl.observation_relocation` | Typed polling/rejection/admission, occurrence separation, authority, control and dormant-support relocation | Apply the same admission and relocation laws to the integrated registry/cleanup futures. |
 
 These are explicit outstanding obligations. D's current-execution preservation,
@@ -344,8 +344,38 @@ gate controls final storage retirement. `CleanupFrameSteps.of_region` embeds
 every finite region run in the cleanup-frame driver. A checked path retains an
 earlier plain cell, consumes the later value's real grant, rejects a surviving
 cell alias, and then retires only the selected region while preserving outer
-storage, unrelated authority, and the original exit history. Region handoff
-during nested abandonment remains open.
+storage, unrelated authority, and the original exit history.
+
+`GeneralizedExitWork` now holds the shared nested/region/value work states;
+`GeneralizedExitTransitions` holds their mutually recursive finite transition
+relations. The value and region rules moved there intact; their existing law
+modules remain consumers. This removes the dependency cycle without introducing
+another definition of value disposal. The old finite nested-cleanup relation
+embeds into the extended relation. `DisposalRun` moved beside its execution laws
+and now embeds the same extended transitions. The structured-result regression
+also uses the existing composition theorem instead of its private duplicate.
+
+Nested abandonment can now enter the same region handoff, execute its actual
+value-disposal work, and resume unwinding with current memory. Suspended parents
+carry saved values, continuations, and exit records, never an earlier heap.
+Region steps receive parent roots, value disposal receives the enclosing region
+continuation, and nested control disposal receives its saved resume point and
+remaining value queue. The disposal and cleanup-frame callers supply their actual
+continuation roots. These roots reach the existing retirement gate; optional
+external roots can add support but cannot replace the retained roots. No added
+well-formedness assumption substitutes for this transfer.
+
+X's `nested_region_handoff`, `nested_region_resources`, `nested_retained_roots`,
+and `nested_disposal_embedding` fields have checked defaults. Their scope is
+finite local composition, including the entry and return around actual region
+steps. An eight-step regression consumes the region resource, keeps the new
+spent-authority history, outer storage, suspended parent, and distinct disposal
+caller, and rejects a saved parent's surviving cell alias. The trust mutations
+also reject dropping retained caller roots from the retirement transition.
+Nested `.cleanupReturn` handling and the older detached nested-cleanup entry
+still need integration with the handler-aware frames. Registry/lifetime
+successors and full stateful observation correspondence remain open; these
+local laws do not inhabit the final X contract.
 
 The outer unwind, cleanup-frame, and region handoff operations now use the
 completion condition owned by `Resolution`. Pending, running, and captured

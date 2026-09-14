@@ -343,6 +343,53 @@ structure composition : Prop where
     {before after : ExitComposition.RegionDisposal signature algebra program result},
     ExitComposition.RegionDisposalSteps table before count after →
       ExitComposition.CleanupFrameSteps table (.region before) count (.region after)
+  nested_region_handoff : ∀ (table : Target.Definitions signature algebra program) {count retained external}
+    {before after : ExitComposition.NestedProgress signature algebra program}
+    {current : ExitComposition.CleanupInfo algebra.Fault algebra.Reason}
+    {parents : List (ExitComposition.CleanupParent signature algebra program)}
+    {first last : ExitComposition.RegionDisposal signature algebra program .unit},
+    before.enterRegion = some (.region current parents first) →
+    ExitComposition.RegionDisposalSteps table first count last
+      (parents.flatMap ExitComposition.CleanupParent.references ++ retained) →
+    ExitComposition.NestedProgress.finishRegion (retained ++ external) (.region current parents last) = some after →
+      ExitComposition.NestedProgressSteps table before (count + 2) after retained :=
+        by
+          intro table count retained external before after current parents first last entered steps finished
+          exact ExitComposition.nested_region_finite_handoff entered steps finished
+  nested_region_resources : ∀ {external}
+    (current : ExitComposition.CleanupInfo algebra.Fault algebra.Reason)
+    (parents : List (ExitComposition.CleanupParent signature algebra program))
+    (work : ExitComposition.RegionDisposal signature algebra program .unit)
+    (after : ExitComposition.NestedProgress signature algebra program),
+    ExitComposition.NestedProgress.finishRegion external (.region current parents work) = some after →
+      ∃ (input : TypeOf signature), ∃ (runtime : ExitComposition.Runtime signature algebra program)
+        (outside : Target.Stack signature algebra program input .unit),
+        work.finish (parents.flatMap ExitComposition.CleanupParent.references ++ external) = some (.unwind runtime outside) ∧
+        after = .active ⟨ExitComposition.CleanupMemory.ofRuntime runtime, current, .unwinding runtime.exit outside, parents⟩ :=
+          by
+            intro external current parents work after accepted
+            exact ExitComposition.nested_region_exit_preserves_current_resources current parents work accepted
+  nested_retained_roots : ∀ (table : Target.Definitions signature algebra program) {retained}
+    {current : ExitComposition.CleanupInfo algebra.Fault algebra.Reason}
+    {parents : List (ExitComposition.CleanupParent signature algebra program)}
+    {work : ExitComposition.RegionDisposal signature algebra program .unit}
+    {after : ExitComposition.NestedCleanup signature algebra program},
+    ExitComposition.NestedProgressStep table (.region current parents work) (.active after) retained →
+      ∃ external, ExitComposition.NestedProgress.finishRegion (retained ++ external)
+        (.region current parents work) = some (.active after) :=
+          by
+            intro table retained current parents work after step
+            exact ExitComposition.nested_region_step_uses_retained_roots step
+  nested_disposal_embedding : ∀ (table : Target.Definitions signature algebra program) {answer result count}
+    {before after : ExitComposition.NestedProgress signature algebra program}
+    (resume : ExitComposition.ResumePoint signature algebra program answer)
+    (outside : Target.Stack signature algebra program .unit result),
+    ExitComposition.NestedProgressSteps table before count after
+      (resume.references ++ outside.installationReferences) →
+      Target.DisposalRun table (.nested before resume outside) count (.nested after resume outside) :=
+        by
+          intro table answer result count before after resume outside steps
+          exact Target.DisposalRun.nested_progress_steps resume outside steps
 
 end Exits
 

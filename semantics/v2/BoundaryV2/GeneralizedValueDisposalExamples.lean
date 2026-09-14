@@ -90,19 +90,12 @@ def work : CleanupDisposal signature leafAlgebra [] .unit := ⟨_, packaged, ini
 theorem structured_cleanup_disposal_rejoins_with_the_current_exit :
     ∃ count, CleanupFrameSteps (.nil : Target.Definitions signature leafAlgebra []) (.disposing work) count
       (.running (.reenter ⟨⟨final.store, .failed 20 outside⟩, [], []⟩ exit)) := by
-  have inside := CleanupFrameSteps.of_values structured_disposal_preserves_order_and_consumes_each_owner ⟨7⟩ (.failed 20) outside
+  have inside := CleanupFrameSteps.of_values (signature := signature) (algebra := leafAlgebra) ⟨7⟩ (.failed 20) outside
+    structured_disposal_preserves_order_and_consumes_each_owner
   have finish : CleanupFrameSteps (.nil : Target.Definitions signature leafAlgebra [])
       (.values ⟨7⟩ (.failed 20) outside (.ready final [])) 1
       (.running (.reenter ⟨⟨final.store, .failed 20 outside⟩, [], []⟩ exit)) :=
     .cons (.finishValues rfl) .refl
-  have append {n m : Nat} {first middle last : CleanupFrameProgress signature leafAlgebra [] .unit}
-      (left : CleanupFrameSteps (.nil : Target.Definitions signature leafAlgebra []) first n middle)
-      (right : CleanupFrameSteps (.nil : Target.Definitions signature leafAlgebra []) middle m last) :
-      ∃ total, CleanupFrameSteps (.nil : Target.Definitions signature leafAlgebra []) first total last := by
-    induction left with
-    | refl => exact ⟨_, right⟩
-    | cons step tail induction => obtain ⟨total, rest⟩ := induction right; exact ⟨total + 1, .cons step rest⟩
-  obtain ⟨count, completed⟩ := append inside finish
-  exact ⟨count + 1, .cons (.enterValues rfl) completed⟩
+  exact ⟨10, .cons (.enterValues rfl) (inside.trans finish)⟩
 
 end BoundaryV2.Generalized.Examples.StructuredDisposal

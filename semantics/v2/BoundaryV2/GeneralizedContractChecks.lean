@@ -66,6 +66,27 @@ theorem exit_contract (claim : Exits.composition signature algebra program)
     ¬ ExitComposition.CleanupFrameStep table (.disposing work) (.running after) :=
   claim.value_disposal table work after
 
+theorem nested_exit_contract (claim : Exits.composition signature algebra program)
+    (table : Target.Definitions signature algebra program)
+    {current : ExitComposition.CleanupInfo algebra.Fault algebra.Reason}
+    {parents : List (ExitComposition.CleanupParent signature algebra program)}
+    {work : ExitComposition.RegionDisposal signature algebra program .unit}
+    {after : ExitComposition.NestedCleanup signature algebra program}
+    (step : ExitComposition.NestedProgressStep table (.region current parents work) (.active after) retained) :
+    ∃ external, ExitComposition.NestedProgress.finishRegion (retained ++ external)
+      (.region current parents work) = some (.active after) :=
+  claim.nested_retained_roots table step
+
+theorem nested_disposal_contract (claim : Exits.composition signature algebra program)
+    (table : Target.Definitions signature algebra program)
+    {before after : ExitComposition.NestedProgress signature algebra program}
+    (resume : ExitComposition.ResumePoint signature algebra program answer)
+    (outside : Target.Stack signature algebra program .unit result)
+    (steps : ExitComposition.NestedProgressSteps table before count after
+      (resume.references ++ outside.installationReferences)) :
+    Target.DisposalRun table (.nested before resume outside) count (.nested after resume outside) :=
+  claim.nested_disposal_embedding table resume outside steps
+
 omit [DecidableEq (TypeOf signature)] in
 theorem open_contract (claim : OpenControl.observation_relocation signature algebra program)
     (operation : signature.operation effect) (pending : Target.Pending signature algebra program operation result)

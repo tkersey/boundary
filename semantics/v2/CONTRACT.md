@@ -154,12 +154,22 @@ Disposal and exit/lifetime composition remain unfinished. The registered
 driver still lacks those transitions, so this correspondence does not yet
 establish the complete D/H/U/X/O milestone.
 
+X now includes checked local fields for nested region handoff, current-resource
+return, mandatory retained roots, and finite embedding in the actual disposal
+driver. Nested cleanup, region handoff, and structured-value disposal share
+recursive transition rules. Enclosing callers, saved parent values, and pending
+value queues contribute their actual roots to inner retirement. Entry and return
+compose with the same region steps used by cleanup frames. The older nested
+cleanup entry still needs its connection to handler-aware running frames,
+including `.cleanupReturn`; no final contract inhabitant is claimed.
+
 `GeneralizedContractChecks` consumes the declared field types and checks the
 stateful observation definitions. Its hypothetical contract arguments are
 statement checks, not evidence that the contracts are inhabited. The existing
 trust mutation suite rejects replacing each contract with `True`, replacing
 the source stateful observation definition with the ordinary relation, and
 replacing either source or target registered observations with core-only observations. This
+gate also rejects omitting retained caller roots from nested region retirement. It
 does not replace review of the complete types or completion of their proofs.
 
 The conformance command must take an explicit unmodified World checkout/artifact,

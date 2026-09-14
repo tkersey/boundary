@@ -263,7 +263,7 @@ inductive CleanupFrameStep (table : Target.Definitions signature algebra program
   | enterValues : work.runtime.phase = .finished completion →
       CleanupFrameStep table (.disposing work)
         (.values work.runtime.id completion work.outside (ValueDisposal.start work.runtime work.value))
-  | values : ValueDisposalStep table before after →
+  | values : ValueDisposalStep table before after outside.installationReferences →
       CleanupFrameStep table (.values frame completion outside before) (.values frame completion outside after)
   | finishValues : machine.finished = some runtime →
       CleanupFrameStep table (.values frame completion outside machine)
@@ -285,20 +285,25 @@ theorem CleanupFrameSteps.trans {table : Target.Definitions signature algebra pr
     simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using CleanupFrameSteps.cons step (induction second)
 
 theorem CleanupFrameSteps.of_values {table : Target.Definitions signature algebra program}
-    (steps : ValueDisposalSteps table before count after) (frame : Id .obligation)
-    (completion : Completion algebra.Fault) (outside : Target.Stack signature algebra program input result) :
+    (frame : Id .obligation) (completion : Completion algebra.Fault)
+    (outside : Target.Stack signature algebra program input result)
+    (steps : ValueDisposalSteps table before count after outside.installationReferences) :
     CleanupFrameSteps table (.values frame completion outside before) count (.values frame completion outside after) := by
-  induction steps with
-  | refl => exact .refl
-  | cons step tail induction => exact .cons (.values step) induction
+  induction count generalizing before with
+  | zero => cases steps; exact .refl
+  | succ count induction =>
+    cases steps with
+    | cons step tail => exact .cons (.values step) (induction tail)
 
 theorem CleanupFrameSteps.of_region {table : Target.Definitions signature algebra program}
     {before after : RegionDisposal signature algebra program result}
     (steps : RegionDisposalSteps table before count after) :
     CleanupFrameSteps table (.region before) count (.region after) := by
-  induction steps with
-  | refl => exact .refl
-  | cons step tail induction => exact .cons (.region step) induction
+  induction count generalizing before with
+  | zero => cases steps; exact .refl
+  | succ count induction =>
+    cases steps with
+    | cons step tail => exact .cons (.region step) (induction tail)
 
 theorem owned_cleanup_result_cannot_skip_disposal
     {table : Target.Definitions signature algebra program} {work : CleanupDisposal signature algebra program result}
