@@ -22,6 +22,10 @@ inductive FrameRelated (signature : Signature) (algebra : LeafAlgebra signature.
       (captured : Source.RuntimeEnvironment signature algebra program context) :
       FrameRelated signature algebra program (.protection identity cleanup captured)
         (.protection identity (computation cleanup) (environment captured))
+  | cleanupReturn (identity : Id .obligation) (original : Option (Source.RuntimeValue signature algebra program result))
+      (exit : ExitInfo algebra.Fault algebra.Reason) :
+      FrameRelated signature algebra program (.cleanupReturn identity original exit)
+        (.cleanupReturn identity (original.map value) exit)
 
 inductive ContextRelated (signature : Signature) (algebra : LeafAlgebra signature.Data)
     (program : List (BodyType signature.Data signature.Effect)) :
@@ -100,6 +104,7 @@ theorem selection_corresponds (wanted : Id .attachment)
     | bind body captured => exact selection_options_prepend (.bind body captured) induction
     | region identity => exact selection_options_prepend (.region identity) induction
     | protection identity cleanup captured => exact selection_options_prepend (.protection identity cleanup captured) induction
+    | cleanupReturn identity original exit => exact selection_options_prepend (.cleanupReturn identity original exit) induction
     | handler effect mode identity returned handled captured =>
       simp only [Source.select, Target.select]
       by_cases same : wanted = identity

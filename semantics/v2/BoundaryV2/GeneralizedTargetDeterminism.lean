@@ -62,7 +62,12 @@ def returnedNext (value : RuntimeValue signature algebra program input)
   | .push frame rest => match frame with
     | .returnTo next bindings operands => some (.code next bindings (.cons value operands) rest)
     | .handler _ _ _ returned _ bindings => some (.code returned (.cons value bindings) .nil rest)
-    | .region _ | .protection _ _ _ => none
+    | .protection identity cleanup bindings => some (.code cleanup (.cons (.exit ⟨.normal, [], none⟩) bindings) .nil
+        (.push (.cleanupReturn identity (some value) ⟨.normal, [], none⟩) rest))
+    | .cleanupReturn _ original exit => match exit.primary with
+      | .normal => original.map (fun value => .returned value rest)
+      | _ => none
+    | .region _ => none
 
 def failedNext (fault : algebra.Fault) (outside : Stack signature algebra program input result) :
     Option (Configuration signature algebra program result) :=
@@ -70,7 +75,7 @@ def failedNext (fault : algebra.Fault) (outside : Stack signature algebra progra
   | .done => none
   | .push frame rest => match frame with
     | .returnTo _ _ _ | .handler _ _ _ _ _ _ => some (.failed fault rest)
-    | .region _ | .protection _ _ _ => none
+    | .region _ | .protection _ _ _ | .cleanupReturn _ _ _ => none
 
 def nextWithAttachment (table : Definitions signature algebra program) (attachment : Id .attachment) :
     Configuration signature algebra program result → Option (Configuration signature algebra program result)
@@ -95,7 +100,8 @@ theorem CallStep.computes_next (step : CallStep (table : Definitions signature a
   | operand step => exact ⟨⟨0⟩, step.code_next table ⟨0⟩ _⟩
   | attach => exact ⟨_, rfl⟩
   | branchLeft selected | branchRight selected => exact ⟨⟨0⟩, by simp only [nextWithAttachment, codeNext, operandNextCode, selected]⟩
-  | returned | enter | block | handlerReturned | caller | callerFault | handlerFault | fault | yield => exact ⟨⟨0⟩, rfl⟩
+  | cleanupReturn normal => exact ⟨⟨0⟩, by simp only [nextWithAttachment, returnedNext, normal, Option.map_some]⟩
+  | returned | enter | block | handlerReturned | caller | protectionReturn | callerFault | handlerFault | fault | yield => exact ⟨⟨0⟩, rfl⟩
   | named | closure | dispatch =>
     exact ⟨⟨0⟩, by simp only [nextWithAttachment, codeNext, operandNextCode, Environment.popReverse_pushReverse]⟩
 

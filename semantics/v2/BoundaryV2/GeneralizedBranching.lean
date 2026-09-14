@@ -35,7 +35,7 @@ theorem CallStep.branch_next {before after : Configuration signature algebra pro
   | operand step => cases step <;> simp [Configuration.isBranch, Code.isBranch] at branch
   | branchLeft selected => simp only [Configuration.branchNext, branchNextCode, selected]
   | branchRight selected => simp only [Configuration.branchNext, branchNextCode, selected]
-  | returned | enter | block | named | closure | dispatch | attach | handlerReturned | caller | callerFault | handlerFault | fault | yield =>
+  | returned | enter | block | named | closure | dispatch | attach | handlerReturned | caller | protectionReturn | cleanupReturn | callerFault | handlerFault | fault | yield =>
     simp [Configuration.isBranch, Code.isBranch] at branch
 
 end BoundaryV2.Generalized.Target

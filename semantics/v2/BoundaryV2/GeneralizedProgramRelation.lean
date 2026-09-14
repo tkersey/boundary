@@ -40,6 +40,10 @@ inductive ProgramRelated : {input result : TypeOf signature} →
       (bindings : Source.RuntimeEnvironment signature algebra program context)
       (inner : ProgramRelated source (.push (.protection identity (computation cleanup) (environment bindings)) outside) target) :
       ProgramRelated (.protection identity cleanup bindings source) outside target
+  | cleaning (identity : Id .obligation) (original : Option (Source.RuntimeValue signature algebra program input))
+      (exit : ExitInfo algebra.Fault algebra.Reason)
+      (inner : ProgramRelated source (.push (.cleanupReturn identity (original.map value) exit) outside) target) :
+      ProgramRelated (.cleaning identity original exit source) outside target
   | requested (operation : signature.operation effect) (attachment : Id .attachment)
       (payload : Source.RuntimeValue signature algebra program (signature.payload operation))
       (bodies : Source.RuntimeEnvironment signature algebra program ((signature.bodies operation).map BodyType.type))
@@ -69,6 +73,7 @@ theorem ProgramRelated.in_context
     exact .handler effect mode attachment returned clauses bindings (induction outside)
   | region identity inner induction => exact .region identity (induction outside)
   | protection identity cleanup bindings inner induction => exact .protection identity cleanup bindings (induction outside)
+  | cleaning identity original exit inner induction => exact .cleaning identity original exit (induction outside)
   | requested operation attachment payload bodies saved future =>
     simpa only [Target.Configuration.in_context, Target.Stack.append_associative] using
       ProgramRelated.requested operation attachment payload bodies saved (future.append outside)
@@ -93,6 +98,7 @@ theorem ContextRelated.close_program
     | bind body bindings => exact induction (.bind body bindings related)
     | handler effect mode attachment returned clauses bindings => exact induction (.handler effect mode attachment returned clauses bindings related)
     | region identity => exact induction (.region identity related)
+    | cleanupReturn identity original exit => exact induction (.cleaning identity original exit related)
     | protection identity cleanup bindings => exact induction (.protection identity cleanup bindings related)
 
 theorem EntryRelated.as_program
@@ -115,7 +121,7 @@ theorem ProgramRelated.returned_drains
   | passthrough bindings inner induction =>
     obtain ⟨count, steps⟩ := induction returned same
     exact ⟨count + 2, steps.trans (return_passthrough_takes_two_steps table _ (environment bindings) .nil _)⟩
-  | evaluate | failed | bind | handler | region | protection | requested | yielded => cases same
+  | evaluate | failed | bind | handler | region | protection | cleaning | requested | yielded => cases same
 
 theorem ProgramRelated.failed_drains
     (related : ProgramRelated (source : Source.Program signature algebra program input) outside target)
@@ -127,7 +133,7 @@ theorem ProgramRelated.failed_drains
   | passthrough bindings inner induction =>
     obtain ⟨count, steps⟩ := induction same
     exact ⟨count + 1, steps.trans (.single .callerFault)⟩
-  | evaluate | returned | bind | handler | region | protection | requested | yielded => cases same
+  | evaluate | returned | bind | handler | region | protection | cleaning | requested | yielded => cases same
 
 theorem ProgramRelated.yielded_view
     (related : ProgramRelated (source : Source.Program signature algebra program input) outside target)
@@ -138,7 +144,7 @@ theorem ProgramRelated.yielded_view
   | passthrough bindings inner induction =>
     obtain ⟨nextTarget, rfl, nextRelated⟩ := induction next same
     exact ⟨nextTarget, rfl, .passthrough bindings nextRelated⟩
-  | evaluate | returned | failed | bind | handler | region | protection | requested => cases same
+  | evaluate | returned | failed | bind | handler | region | protection | cleaning | requested => cases same
 
 theorem ProgramRelated.requested_view
     (related : ProgramRelated (source : Source.Program signature algebra program input) outside target)
@@ -156,6 +162,6 @@ theorem ProgramRelated.requested_view
     refine ⟨future.append (.push (.returnTo .ret (environment bindings) .nil) .done), ?_, ?_⟩
     · simpa only [Source.Context.append_done] using context_composition saved (.passthrough bindings .done)
     · simpa only [Target.Stack.append_associative, Target.Stack.append] using targetAt
-  | evaluate | returned | failed | bind | handler | region | protection | yielded => cases same
+  | evaluate | returned | failed | bind | handler | region | protection | cleaning | yielded => cases same
 
 end BoundaryV2.Generalized.Defunctionalization

@@ -71,6 +71,7 @@ def Frame.references : Frame signature algebra program input result → List Ref
     .name .attachment attachment :: (returned.references ++ clauses.references ++ environmentReferences bindings)
   | .region identity => [.name .region identity]
   | .protection identity cleanup bindings => .name .obligation identity :: (cleanup.references ++ environmentReferences bindings)
+  | .cleanupReturn identity original _ => .name .obligation identity :: original.toList.flatMap valueReferences
 
 def Stack.references : Stack signature algebra program input result → List Reference
   | .done => []
@@ -80,6 +81,8 @@ theorem Frame.references_relocate (relocation : UseScope.Relocation) (frame : Fr
     (frame.relocate relocation).references = frame.references.map (Reference.relocate relocation) := by
   cases frame <;> simp only [Frame.relocate, Frame.references, List.map_append, List.map_cons,
     List.map_nil, Reference.relocate, Code.references_relocate, Clauses.references_relocate, environment_references_relocate]
+  rename_i identity exit original
+  cases original <;> simp [value_references_relocate]
 
 theorem Stack.references_relocate (relocation : UseScope.Relocation) (future : Stack signature algebra program input result) :
     (future.relocate relocation).references = future.references.map (Reference.relocate relocation) := by

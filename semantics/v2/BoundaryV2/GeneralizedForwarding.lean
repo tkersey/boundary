@@ -25,6 +25,9 @@ inductive Source.Forwards (operation : signature.operation effect) (attachment :
   | protection (identity : Id .obligation) (cleanup : Source.Computation signature algebra program (.exit :: context) .unit)
       (bindings : Source.RuntimeEnvironment signature algebra program context) (tail : Forwards operation attachment rest) :
       Forwards operation attachment (.push (.protection identity cleanup bindings) rest)
+  | cleanupReturn (identity : Id .obligation) (original : Option (Source.RuntimeValue signature algebra program middle))
+      (exit : ExitInfo algebra.Fault algebra.Reason) (tail : Forwards operation attachment rest) :
+      Forwards operation attachment (.push (.cleanupReturn identity original exit) rest)
   | different (otherEffect : signature.Effect) (mode : Mode) (identity : Id .attachment)
       (returned : Source.Computation signature algebra program (input :: context) middle)
       (clauses : Source.Clauses signature algebra program otherEffect mode context input middle)
@@ -51,6 +54,9 @@ inductive Target.Forwards (operation : signature.operation effect) (attachment :
   | protection (identity : Id .obligation) (cleanup : Target.Code signature algebra program (.exit :: context) [] .unit)
       (bindings : Target.RuntimeEnvironment signature algebra program context) (tail : Forwards operation attachment rest) :
       Forwards operation attachment (.push (.protection identity cleanup bindings) rest)
+  | cleanupReturn (identity : Id .obligation) (original : Option (Target.RuntimeValue signature algebra program middle))
+      (exit : ExitInfo algebra.Fault algebra.Reason) (tail : Forwards operation attachment rest) :
+      Forwards operation attachment (.push (.cleanupReturn identity original exit) rest)
   | different (otherEffect : signature.Effect) (mode : Mode) (identity : Id .attachment)
       (returned : Target.Code signature algebra program (input :: context) [] middle)
       (clauses : Target.Clauses signature algebra program otherEffect mode context input middle)
@@ -128,6 +134,12 @@ theorem Defunctionalization.forwarding_corresponds
         | protection identity cleanup bindings tail => exact .protection _ _ _ (induction.mp tail)
       · intro forward; cases forward with
         | protection identity cleanup bindings tail => exact .protection _ _ _ (induction.mpr tail)
+    | cleanupReturn identity original exit =>
+      constructor
+      · intro forward; cases forward with
+        | cleanupReturn identity original exit tail => exact .cleanupReturn _ _ _ (induction.mp tail)
+      · intro forward; cases forward with
+        | cleanupReturn identity original exit tail => exact .cleanupReturn _ _ _ (induction.mpr tail)
     | handler effect mode identity returned clauses bindings =>
       constructor
       · intro forward; cases forward with
@@ -144,6 +156,7 @@ theorem Source.Forwards.append (first : Source.Forwards operation attachment ins
   | bind next description tail induction => exact .bind next description (induction second)
   | region identity tail induction => exact .region identity (induction second)
   | protection identity cleanup bindings tail induction => exact .protection identity cleanup bindings (induction second)
+  | cleanupReturn identity original exit tail induction => exact .cleanupReturn identity original exit (induction second)
   | different effect mode identity returned clauses bindings different tail induction =>
     exact .different effect mode identity returned clauses bindings different (induction second)
   | unhandled mode returned clauses bindings absent tail induction => exact .unhandled mode returned clauses bindings absent (induction second)
@@ -170,7 +183,7 @@ theorem Source.Forwards.append_right
     | push frame rest =>
       have smaller : rest.length ≤ bound := by simpa [Source.Context.length] using sized
       cases forward with
-      | bind next description tail | region identity tail | protection identity cleanup bindings tail => exact induction rest smaller outside tail
+      | bind next description tail | region identity tail | protection identity cleanup bindings tail | cleanupReturn identity original exit tail => exact induction rest smaller outside tail
       | different effect mode identity returned clauses bindings different tail | unhandled mode returned clauses bindings absent tail =>
         exact induction rest smaller outside tail
 
@@ -194,6 +207,9 @@ theorem Source.Forwards.expose_request
   | region identity tail induction =>
     simpa only [Source.Context.append_associative, Source.Context.append, Source.Context.plug, Source.Frame.plug, Source.Context.length] using
       Source.Steps.cons (Source.Step.in_context .regionRequest _) (induction _)
+  | cleanupReturn identity original exit tail induction =>
+    simpa only [Source.Context.append_associative, Source.Context.append, Source.Context.plug, Source.Frame.plug, Source.Context.length] using
+      Source.Steps.cons (Source.Step.in_context .cleaningRequest _) (induction _)
   | protection identity cleanup bindings tail induction =>
     simpa only [Source.Context.append_associative, Source.Context.append, Source.Context.plug, Source.Frame.plug, Source.Context.length] using
       Source.Steps.cons (Source.Step.in_context .protectionRequest _) (induction _)
@@ -222,6 +238,10 @@ theorem Target.Forwards.of_no_selection
       simpa only [Target.select, Option.map_eq_none_iff] using absent
     | protection identity cleanup bindings =>
       apply Target.Forwards.protection identity cleanup bindings
+      apply induction
+      simpa only [Target.select, Option.map_eq_none_iff] using absent
+    | cleanupReturn identity original exit =>
+      apply Target.Forwards.cleanupReturn identity original exit
       apply induction
       simpa only [Target.select, Option.map_eq_none_iff] using absent
     | handler effect mode identity returned clauses bindings =>
@@ -263,7 +283,7 @@ theorem Target.Forwards.not_handles (forward : Target.Forwards operation attachm
   | done =>
     rintro ⟨mode, context, body, answer, returned, clauses, bindings, inside, outside, selected, _⟩
     contradiction
-  | returnTo next bindings values tail induction | region identity tail induction | protection identity cleanup bindings tail induction =>
+  | returnTo next bindings values tail induction | region identity tail induction | protection identity cleanup bindings tail induction | cleanupReturn identity original exit tail induction =>
     intro handled
     exact induction (Target.Handles.of_prepend _ _ rfl handled)
   | different effect mode identity returned clauses bindings different tail induction =>

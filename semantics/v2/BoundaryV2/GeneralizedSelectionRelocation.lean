@@ -41,7 +41,7 @@ theorem selection_relocation (relocation : UseScope.Relocation) (wanted : Id .at
     have tail := induction (fun first firstAt second secondAt same =>
       injective first (included first firstAt) second (included second secondAt) same)
     cases frame with
-    | returnTo next bindings values | region identity | protection identity cleanup bindings =>
+    | returnTo next bindings values | region identity | protection identity cleanup bindings | cleanupReturn identity original exit =>
       simp only [Stack.relocate, Frame.relocate, select, tail, Option.map_map]
       rfl
     | handler effect mode identity returned clauses bindings =>

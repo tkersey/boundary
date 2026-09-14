@@ -146,8 +146,28 @@ theorem program_step_simulates (table : Source.Definitions signature algebra pro
       refine ⟨0, _, .refl, ?_⟩
       simpa only [Target.Stack.append_associative, Target.Stack.append] using
         ProgramRelated.requested _ _ _ _ (context_composition saved (.push (.region identity) .done)) _
+  | cleaning identity original exit inner induction =>
+    cases step with
+    | cleaningReturn normal =>
+      obtain ⟨count, steps⟩ := inner.returned_drains (definitions table) _ rfl
+      exact ⟨count + 1, _, steps.trans (.single (.cleanupReturn normal)), .returned _ _⟩
+    | cleaningStep sourceStep =>
+      obtain ⟨count, targetAfter, steps, related⟩ := induction sourceStep
+      exact ⟨count, targetAfter, steps, .cleaning identity original exit related⟩
+    | cleaningYield =>
+      obtain ⟨targetNext, rfl, nextRelated⟩ := inner.yielded_view _ rfl
+      exact ⟨0, _, .refl, .yielded (.cleaning identity original exit nextRelated)⟩
+    | cleaningRequest =>
+      obtain ⟨future, saved, rfl⟩ := inner.requested_view _ _ _ _ _ rfl
+      refine ⟨0, _, .refl, ?_⟩
+      simpa only [Target.Stack.append_associative, Target.Stack.append] using
+        ProgramRelated.requested _ _ _ _ (context_composition saved (.push (.cleanupReturn identity original exit) .done)) _
   | protection identity cleanup bindings inner induction =>
     cases step with
+    | protectionReturn =>
+      obtain ⟨count, steps⟩ := inner.returned_drains (definitions table) _ rfl
+      exact ⟨count + 1, _, steps.trans (.single .protectionReturn),
+        .cleaning identity _ _ (.evaluate cleanup (.cons (.exit ⟨.normal, [], none⟩) bindings) _)⟩
     | protectionStep sourceStep =>
       obtain ⟨count, targetAfter, steps, related⟩ := induction sourceStep
       exact ⟨count, targetAfter, steps, .protection identity cleanup bindings related⟩

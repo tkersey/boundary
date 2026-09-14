@@ -223,6 +223,7 @@ theorem compiled_capture_is_already_a_clone_view (source : Source.Capture signat
   | handler effect mode identity returned clauses bindings rest induction => exact congrArg _ induction
   | region identity rest induction => exact congrArg _ induction
   | protection identity cleanup bindings rest induction => exact congrArg _ induction
+  | cleanupReturn identity original exit rest induction => exact congrArg _ induction
 
 mutual
   theorem compiled_record_is_already_a_clone_view (record : Source.Multi.Record signature algebra program) :

@@ -22,6 +22,7 @@ def Frame.relocate (relocation : UseScope.Relocation) : Frame signature algebra 
   | .region identity => .region (relocation.name .region identity)
   | .protection identity cleanup bindings =>
     .protection (relocation.name .obligation identity) (cleanup.relocate relocation) (relocateEnvironment relocation bindings)
+  | .cleanupReturn identity original exit => .cleanupReturn (relocation.name .obligation identity) (original.map (relocateValue relocation)) exit
 
 def Stack.relocate (relocation : UseScope.Relocation) : Stack signature algebra program input result → Stack signature algebra program input result
   | .done => .done

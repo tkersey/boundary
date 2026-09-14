@@ -147,7 +147,7 @@ def NestedCleanup.advanceUnwind (machine : NestedCleanup signature algebra progr
     | .protection identity body captured remaining =>
       some (machine.push ⟨⟨identity, .pending ⟨_, body, captured⟩, machine.memory.store,
         machine.memory.cells, machine.memory.regions, exit⟩, .unwind remaining⟩)
-    | .region _ _ => none
+    | .region _ _ | .cleanupReturn _ _ _ _ => none
   | _ => none
 
 /-- Abandon the actual installed continuation. Yield wrappers do not conceal

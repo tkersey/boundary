@@ -99,6 +99,11 @@ inductive CallStep (table : Definitions signature algebra definitions) :
       (.code returned (.cons value environment) .nil future)
   | caller : CallStep table (.returned value (.push (.returnTo next environment operands) future))
       (.code next environment (.cons value operands) future)
+  | protectionReturn : CallStep table (.returned original (.push (.protection identity cleanup environment) future))
+      (.code cleanup (.cons (.exit ⟨.normal, [], none⟩) environment) .nil
+        (.push (.cleanupReturn identity (some original) ⟨.normal, [], none⟩) future))
+  | cleanupReturn : exit.primary = .normal →
+      CallStep table (.returned cleaned (.push (.cleanupReturn identity (some original) exit) future)) (.returned original future)
   | callerFault : CallStep table (.failed fault (.push (.returnTo next environment operands) future)) (.failed fault future)
   | handlerFault : CallStep table (.failed fault (.push (.handler effect mode attachment returned clauses environment) future))
       (.failed fault future)

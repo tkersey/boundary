@@ -10,6 +10,8 @@ namespace Source
 inductive UnwindBoundary (signature : Signature) (algebra : LeafAlgebra signature.Data)
     (program : List (BodyType signature.Data signature.Effect)) (result : TypeOf signature) where
   | complete
+  | cleanupReturn {input : TypeOf signature} : Id .obligation → Option (RuntimeValue signature algebra program input) →
+      ExitInfo algebra.Fault algebra.Reason → Context signature algebra program input result → UnwindBoundary signature algebra program result
   | region {input : TypeOf signature} : Id .region → Context signature algebra program input result → UnwindBoundary signature algebra program result
   | protection {input : TypeOf signature} {context : List (TypeOf signature)} :
       Id .obligation → Computation signature algebra program (.exit :: context) .unit →
@@ -19,9 +21,11 @@ inductive UnwindBoundary (signature : Signature) (algebra : LeafAlgebra signatur
 clauses. Regions remain explicit boundaries for their owning close operation. -/
 def unwindBoundary : Context signature algebra program input result → UnwindBoundary signature algebra program result
   | .done => .complete
-  | .push (.bind _ _) rest | .push (.handler _ _ _ _ _ _) rest => unwindBoundary rest
-  | .push (.region identity) rest => .region identity rest
-  | .push (.protection identity cleanup bindings) rest => .protection identity cleanup bindings rest
+  | .push frame rest => match frame with
+    | .bind _ _ | .handler _ _ _ _ _ _ => unwindBoundary rest
+    | .region identity => .region identity rest
+    | .protection identity cleanup bindings => .protection identity cleanup bindings rest
+    | .cleanupReturn identity original exit => .cleanupReturn identity original exit rest
 
 end Source
 
@@ -30,6 +34,8 @@ namespace Target
 inductive UnwindBoundary (signature : Signature) (algebra : LeafAlgebra signature.Data)
     (program : List (BodyType signature.Data signature.Effect)) (result : TypeOf signature) where
   | complete
+  | cleanupReturn {input : TypeOf signature} : Id .obligation → Option (RuntimeValue signature algebra program input) →
+      ExitInfo algebra.Fault algebra.Reason → Stack signature algebra program input result → UnwindBoundary signature algebra program result
   | region {input : TypeOf signature} : Id .region → Stack signature algebra program input result → UnwindBoundary signature algebra program result
   | protection {input : TypeOf signature} {context : List (TypeOf signature)} :
       Id .obligation → Code signature algebra program (.exit :: context) [] .unit →
@@ -37,12 +43,15 @@ inductive UnwindBoundary (signature : Signature) (algebra : LeafAlgebra signatur
 
 def unwindBoundary : Stack signature algebra program input result → UnwindBoundary signature algebra program result
   | .done => .complete
-  | .push (.returnTo _ _ _) rest | .push (.handler _ _ _ _ _ _) rest => unwindBoundary rest
-  | .push (.region identity) rest => .region identity rest
-  | .push (.protection identity cleanup bindings) rest => .protection identity cleanup bindings rest
+  | .push frame rest => match frame with
+    | .returnTo _ _ _ | .handler _ _ _ _ _ _ => unwindBoundary rest
+    | .region identity => .region identity rest
+    | .protection identity cleanup bindings => .protection identity cleanup bindings rest
+    | .cleanupReturn identity original exit => .cleanupReturn identity original exit rest
 
 def UnwindBoundary.pending : UnwindBoundary signature algebra program result → List (Id .obligation)
   | .complete => []
+  | .cleanupReturn _ _ _ outside => ExitComposition.pendingProtections outside
   | .region _ outside => ExitComposition.pendingProtections outside
   | .protection identity _ _ outside => identity :: ExitComposition.pendingProtections outside
 
@@ -53,7 +62,7 @@ theorem unwind_boundary_retains_pending (future : Stack signature algebra progra
   | push frame rest induction =>
     cases frame with
     | returnTo | handler => exact induction
-    | region | protection => rfl
+    | region | protection | cleanupReturn => rfl
 
 theorem selected_cleanup_is_innermost
     (future : Stack signature algebra program input result)
@@ -64,7 +73,7 @@ theorem selected_cleanup_is_innermost
   | push frame rest induction =>
     cases frame with
     | returnTo | handler => exact induction selected
-    | region => cases selected
+    | region | cleanupReturn => cases selected
     | protection => cases selected; rfl
 
 end Target
@@ -74,6 +83,9 @@ namespace Defunctionalization
 inductive UnwindBoundaryRelated : Source.UnwindBoundary signature algebra program result →
     Target.UnwindBoundary signature algebra program result → Prop where
   | complete : UnwindBoundaryRelated .complete .complete
+  | cleanupReturn (identity : Id .obligation) (original : Option (Source.RuntimeValue signature algebra program input))
+      (exit : ExitInfo algebra.Fault algebra.Reason) : ContextRelated signature algebra program source target →
+      UnwindBoundaryRelated (.cleanupReturn identity original exit source) (.cleanupReturn identity (original.map value) exit target)
   | region : ContextRelated signature algebra program source target → UnwindBoundaryRelated (.region identity source) (.region identity target)
   | protection (cleanup : Source.Computation signature algebra program (.exit :: context) .unit)
       (bindings : Source.RuntimeEnvironment signature algebra program context) :
@@ -89,6 +101,7 @@ theorem unwind_boundary_corresponds (related : ContextRelated signature algebra 
     cases frame with
     | bind | handler => exact induction
     | region => exact .region rest
+    | cleanupReturn identity original exit => exact .cleanupReturn identity original exit rest
     | protection identity cleanup bindings => exact .protection cleanup bindings rest
   | passthrough bindings rest induction => exact induction
 
@@ -102,11 +115,15 @@ inductive UnwindNext (signature : Signature) (algebra : LeafAlgebra signature.Da
   | region {input : TypeOf signature} : Id .region → Runtime signature algebra program →
       Target.Stack signature algebra program input result → UnwindNext signature algebra program result
   | cleanup : ScopeExit signature algebra program result → UnwindNext signature algebra program result
+  | cleanupReturn {input : TypeOf signature} : Id .obligation → Option (Target.RuntimeValue signature algebra program input) →
+      ExitInfo algebra.Fault algebra.Reason → Runtime signature algebra program → Target.Stack signature algebra program input result →
+      UnwindNext signature algebra program result
 
 def followUnwind (runtime : Runtime signature algebra program)
     (outside : Target.Stack signature algebra program input result) : UnwindNext signature algebra program result :=
   match Target.unwindBoundary outside with
   | .complete => .complete runtime
+  | .cleanupReturn identity original exit rest => .cleanupReturn identity original exit runtime rest
   | .region identity rest => .region identity runtime rest
   | .protection identity cleanup bindings rest =>
     .cleanup ⟨{ runtime with id := identity, phase := .pending ⟨_, cleanup, bindings⟩ }, .unwind rest⟩
@@ -187,12 +204,15 @@ inductive UnwindProgress (signature : Signature) (algebra : LeafAlgebra signatur
   | cleaning : ScopeExit signature algebra program result → UnwindProgress signature algebra program result
   | region {input : TypeOf signature} : Id .region → Runtime signature algebra program →
       Target.Stack signature algebra program input result → UnwindProgress signature algebra program result
+  | cleanupReturn {input : TypeOf signature} : Id .obligation → Option (Target.RuntimeValue signature algebra program input) →
+      ExitInfo algebra.Fault algebra.Reason → Runtime signature algebra program → Target.Stack signature algebra program input result →
+      UnwindProgress signature algebra program result
   | complete : Runtime signature algebra program → UnwindProgress signature algebra program result
 
 /-- The current cleanup has already been selected; these are the obligations
 still owned by its saved outer continuation. -/
 def UnwindProgress.pending : UnwindProgress signature algebra program result → List (Id .obligation)
-  | .seeking _ outside | .region _ _ outside => pendingProtections outside
+  | .seeking _ outside | .region _ _ outside | .cleanupReturn _ _ _ _ outside => pendingProtections outside
   | .cleaning scope => match scope.resume with
     | .returned _ outside | .unwind outside => pendingProtections outside
   | .complete _ => []
@@ -209,6 +229,8 @@ inductive UnwindStep (table : Target.Definitions signature algebra program) :
       UnwindStep table (.cleaning ⟨runtime, .unwind outside⟩) [] (.seeking runtime outside)
   | region : followUnwind runtime outside = .region identity runtime remaining →
       UnwindStep table (.seeking runtime outside) [] (.region identity runtime remaining)
+  | cleanupReturn : followUnwind runtime outside = .cleanupReturn identity original exit runtime remaining →
+      UnwindStep table (.seeking runtime outside) [] (.cleanupReturn identity original exit runtime remaining)
   | complete : followUnwind runtime outside = .complete runtime →
       UnwindStep table (.seeking runtime outside) [] (.complete runtime)
 
@@ -228,7 +250,7 @@ theorem UnwindStep.selection_order {table : Target.Definitions signature algebra
     simpa only [UnwindProgress.pending, List.singleton_append] using
       Target.selected_cleanup_is_innermost _ ‹_›
   | execute | finish => rfl
-  | region selected | complete selected =>
+  | region selected | cleanupReturn selected | complete selected =>
     unfold followUnwind at selected
     split at selected <;> cases selected
     have retained := congrArg Target.UnwindBoundary.pending ‹Target.unwindBoundary _ = _›

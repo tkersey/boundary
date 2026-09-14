@@ -167,6 +167,19 @@ inner cleanup yield, finishes both cleanups, and reenters the original caller.
 Its spent grant, unrelated owner, and existing caller-to-42 result are preserved.
 The original flat-cleanup disposal proofs remain checked.
 
+Running cleanup now also has a typed frame in the common source/target
+continuation model. Normal protection completion enters cleanup beneath that
+frame and the actual enclosing context. Requests therefore retain enclosing
+handlers, and normal cleanup completion restores the saved body value before
+the handler's return clause executes. Selection, forwarding, finite ordinary
+observation preservation/reflection, capture provenance, relocation, and clone
+views include the frame; a running cleanup cannot become a multi template.
+A checked example distinguishes the cleanup's unit result, the saved integer
+body value, and the enclosing handler's text answer. Abrupt completion remains
+an explicit unwind boundary retaining its original value and exit information;
+failure/cancellation completion and full ownership/lifetime integration at that
+boundary are not finished.
+
 ## Verification commands
 
 From the repository root:

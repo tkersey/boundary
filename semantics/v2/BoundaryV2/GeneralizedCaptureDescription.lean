@@ -26,6 +26,9 @@ inductive Capture (signature : Signature) (algebra : LeafAlgebra signature.Data)
       (cleanup : Computation signature algebra program (.exit :: context) .unit)
       (bindings : RuntimeEnvironment signature algebra program context)
       (rest : Capture signature algebra program input result) : Capture signature algebra program input result
+  | cleanupReturn (identity : Id .obligation) (original : Option (RuntimeValue signature algebra program middle))
+      (exit : ExitInfo algebra.Fault algebra.Reason) (rest : Capture signature algebra program middle result) :
+      Capture signature algebra program .unit result
 
 def Capture.future : Capture signature algebra program input result → Context signature algebra program input result
   | .done => .done
@@ -34,6 +37,7 @@ def Capture.future : Capture signature algebra program input result → Context 
       .push (.handler effect mode identity returned clauses bindings) rest.future
   | .region identity rest => .push (.region identity) rest.future
   | .protection identity cleanup bindings rest => .push (.protection identity cleanup bindings) rest.future
+  | .cleanupReturn identity original exit rest => .push (.cleanupReturn identity original exit) rest.future
 
 def Capture.references : Capture signature algebra program input result → List Reference
   | .done => []
@@ -43,12 +47,14 @@ def Capture.references : Capture signature algebra program input result → List
   | .region identity rest => .name .region identity :: rest.references
   | .protection identity cleanup bindings rest =>
       (.name .obligation identity :: (cleanup.references ++ environmentReferences bindings)) ++ rest.references
+  | .cleanupReturn identity original _ rest =>
+      (.name .obligation identity :: original.toList.flatMap valueReferences) ++ rest.references
 
 def Capture.copyable : Capture signature algebra program input result → Bool
   | .done => true
   | .bind _ bindings rest | .handler _ _ _ _ _ bindings rest => bindings.copyable && rest.copyable
   | .region _ rest => rest.copyable
-  | .protection _ _ _ _ => false
+  | .protection _ _ _ _ | .cleanupReturn _ _ _ _ => false
 
 theorem Capture.supported (capture : Capture signature algebra program input result) :
     ContextSupported capture.future capture.references := by
@@ -59,6 +65,7 @@ theorem Capture.supported (capture : Capture signature algebra program input res
       exact .push (.handler effect mode identity returned clauses bindings) induction
   | region identity rest induction => exact .push (.region identity) induction
   | protection identity cleanup bindings rest induction => exact .push (.protection identity cleanup bindings) induction
+  | cleanupReturn identity original exit rest induction => exact .push (.cleanupReturn identity original exit) induction
 
 theorem Capture.future_copyable (capture : Capture signature algebra program input result) :
     capture.future.copyable = capture.copyable := by
@@ -85,6 +92,7 @@ def capture : Source.Capture signature algebra program input result → Target.S
       .push (.handler effect mode identity (computation returned) (Defunctionalization.clauses clauses) (environment bindings)) (capture rest)
   | .region identity rest => .push (.region identity) (capture rest)
   | .protection identity cleanup bindings rest => .push (.protection identity (computation cleanup) (environment bindings)) (capture rest)
+  | .cleanupReturn identity original exit rest => .push (.cleanupReturn identity (original.map value) exit) (capture rest)
 
 theorem capture_correspondence (source : Source.Capture signature algebra program input result) :
     ContextRelated signature algebra program source.future (capture source) := by
@@ -95,6 +103,7 @@ theorem capture_correspondence (source : Source.Capture signature algebra progra
       exact .push (.handler effect mode identity returned clauses bindings) induction
   | region identity rest induction => exact .push (.region identity) induction
   | protection identity cleanup bindings rest induction => exact .push (.protection identity cleanup bindings) induction
+  | cleanupReturn identity original exit rest induction => exact .push (.cleanupReturn identity original exit) induction
 
 /-- Every context already related by the core has authored provenance. Only
 the target's silent identity frames disappear; no source frame is discarded. -/
@@ -116,6 +125,8 @@ theorem related_context_has_capture
     | region identity => exact ⟨.region identity description, congrArg _ original, congrArg _ compiled⟩
     | protection identity cleanup bindings =>
         exact ⟨.protection identity cleanup bindings description, congrArg _ original, congrArg _ compiled⟩
+    | cleanupReturn identity saved exit =>
+        exact ⟨.cleanupReturn identity saved exit description, congrArg _ original, congrArg _ compiled⟩
 
 theorem capture_copyability (source : Source.Capture signature algebra program input result) :
     (capture source).copyable = source.copyable := by
@@ -129,6 +140,7 @@ theorem capture_copyability (source : Source.Capture signature algebra program i
         Environment.copyable_map, Source.Capture.copyable, induction]
   | region identity rest induction => exact induction
   | protection identity cleanup bindings rest induction => rfl
+  | cleanupReturn identity original exit rest induction => rfl
 
 theorem capture_references (source : Source.Capture signature algebra program input result) :
     (capture source).references = source.references := by
@@ -142,6 +154,8 @@ theorem capture_references (source : Source.Capture signature algebra program in
       simp only [capture, Target.Stack.references, Target.Frame.references, computation_reference_support,
         clauses_reference_support, environment_reference_support, Source.Capture.references, induction]
   | region identity rest induction => exact congrArg (Reference.name .region identity :: ·) induction
+  | cleanupReturn identity original exit rest induction =>
+      cases original <;> simp [capture, Target.Stack.references, Target.Frame.references, value_reference_support, Source.Capture.references, induction]
   | protection identity cleanup bindings rest induction =>
       simp only [capture, Target.Stack.references, Target.Frame.references, computation_reference_support,
         environment_reference_support, Source.Capture.references, induction]

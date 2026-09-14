@@ -25,7 +25,7 @@ def Source.Program.needsOwnershipStep : Source.Program signature algebra program
     | .apply function arguments => ((Source.Arguments.cons function arguments).evaluate bindings).isOk
     | .handle _ _ _ _ _ => true
     | _ => false
-  | .bind body _ _ | .handler _ _ _ _ _ _ body | .region _ body | .protection _ _ _ body => body.needsOwnershipStep
+  | .bind body _ _ | .handler _ _ _ _ _ _ body | .region _ body | .protection _ _ _ body | .cleaning _ _ _ body => body.needsOwnershipStep
   | .returned _ | .failed _ | .yielded _ | .request _ _ _ _ _ => false
 
 def Target.Code.needsOwnershipStep : Target.Code signature algebra program context operands result → Bool

@@ -17,6 +17,7 @@ theorem Step.under_frame {before after : Program signature algebra program input
   | handler effect mode attachment returned clauses bindings => exact .handlerStep step
   | region identity => exact .regionStep step
   | protection identity cleanup bindings => exact .protectionStep step
+  | cleanupReturn identity original exit => exact .cleaningStep step
 
 theorem Step.in_context {before after : Program signature algebra program input} (step : Step (table : Definitions signature algebra program) before after)
     (outside : Context signature algebra program input result) :
@@ -42,6 +43,7 @@ theorem Frame.forward_yield (table : Definitions signature algebra program)
   | handler effect mode attachment returned clauses bindings => exact .handlerYield
   | region identity => exact .regionYield
   | protection identity cleanup bindings => exact .protectionYield
+  | cleanupReturn identity original exit => exact .cleaningYield
 
 /-- A yield crosses each enclosing frame once, preserving the entire suspended
 future. Region and protection frames remain present; no cleanup is discharged. -/
@@ -94,6 +96,8 @@ theorem CallStep.in_context {before after : Configuration signature algebra prog
   | attach => exact .attach
   | handlerReturned => exact .handlerReturned
   | caller => exact .caller
+  | protectionReturn => exact .protectionReturn
+  | cleanupReturn normal => exact .cleanupReturn normal
   | callerFault => exact .callerFault
   | handlerFault => exact .handlerFault
   | fault => exact .fault

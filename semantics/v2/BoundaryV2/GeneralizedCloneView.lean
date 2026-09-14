@@ -30,6 +30,7 @@ theorem Defunctionalization.clone_view_preserves_context_relation
     | handler effect mode identity returned clauses bindings => exact .push (.handler effect mode identity returned clauses bindings) induction
     | region identity => exact .push (.region identity) induction
     | protection identity cleanup bindings => exact .push (.protection identity cleanup bindings) induction
+    | cleanupReturn identity original exit => exact .push (.cleanupReturn identity original exit) induction
   | passthrough bindings rest induction => exact induction
 
 theorem Target.clone_view_keeps_pending_protections (future : Target.Stack signature algebra program input result) :
@@ -41,7 +42,7 @@ theorem Target.clone_view_keeps_pending_protections (future : Target.Stack signa
     | none =>
       simp only [Stack.cloneView, identified]
       cases frame with
-      | returnTo | handler | region => exact induction
+      | returnTo | handler | region | cleanupReturn => exact induction
       | protection => exact congrArg (_ :: ·) induction
     | some same =>
       rcases same with ⟨same⟩
@@ -49,6 +50,6 @@ theorem Target.clone_view_keeps_pending_protections (future : Target.Stack signa
       simp only [Stack.cloneView, identified]
       cases frame with
       | returnTo => exact induction
-      | handler | region | protection => simp [Frame.passthroughEquality] at identified
+      | handler | region | protection | cleanupReturn => simp [Frame.passthroughEquality] at identified
 
 end BoundaryV2.Generalized

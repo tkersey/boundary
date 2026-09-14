@@ -51,6 +51,7 @@ def Frame.referenceSupport : Frame signature algebra program input result → Li
       .name .attachment attachment :: (returned.references ++ clauses.references ++ environmentReferences captured)
   | .region identity => [.name .region identity]
   | .protection identity cleanup captured => .name .obligation identity :: (cleanup.references ++ environmentReferences captured)
+  | .cleanupReturn identity original _ => .name .obligation identity :: original.toList.flatMap valueReferences
 
 def Context.referenceSupport : Context signature algebra program input result → List Reference
   | .done => []
@@ -60,7 +61,7 @@ def Frame.copyable : Frame signature algebra program input result → Bool
   | .bind _ description => description.environment.copyable
   | .handler _ _ _ _ _ captured => captured.copyable
   | .region _ => true
-  | .protection _ _ _ => false
+  | .protection _ _ _ | .cleanupReturn _ _ _ => false
 
 def Context.copyable : Context signature algebra program input result → Bool
   | .done => true
@@ -83,6 +84,9 @@ inductive FrameSupported : Frame signature algebra program input result → List
   | protection (identity : Id .obligation) (cleanup : Computation signature algebra program (.exit :: context) .unit)
       (captured : RuntimeEnvironment signature algebra program context) :
       FrameSupported (.protection identity cleanup captured) (.name .obligation identity :: (cleanup.references ++ environmentReferences captured))
+  | cleanupReturn (identity : Id .obligation) (original : Option (RuntimeValue signature algebra program result))
+      (exit : ExitInfo algebra.Fault algebra.Reason) :
+      FrameSupported (.cleanupReturn identity original exit) (.name .obligation identity :: original.toList.flatMap valueReferences)
 
 inductive ContextSupported : Context signature algebra program input result → List Reference → Prop where
   | done : ContextSupported .done []
@@ -196,6 +200,7 @@ def Frame.installationReferences : Frame signature algebra program input result 
     .name .attachment attachment :: (returned.references ++ clauses.references ++ environmentReferences bindings)
   | .region identity => [.name .region identity]
   | .protection identity cleanup bindings => .name .obligation identity :: (cleanup.references ++ environmentReferences bindings)
+  | .cleanupReturn identity original _ => .name .obligation identity :: original.toList.flatMap valueReferences
 
 def Stack.installationReferences : Stack signature algebra program input result → List Reference
   | .done => []
@@ -289,6 +294,9 @@ theorem frame_installation_support (related : FrameRelated signature algebra pro
     simpa only [Target.Frame.installationReferences, computation_reference_support, clauses_reference_support,
       environment_reference_support] using Source.FrameSupported.handler effect mode identity returned handled captured
   | region identity => exact .region identity
+  | cleanupReturn identity original exit =>
+    have supported := Source.FrameSupported.cleanupReturn identity original exit
+    cases original <;> simpa [Target.Frame.installationReferences, Option.toList, value_reference_support] using supported
   | protection identity cleanup captured =>
     simpa only [Target.Frame.installationReferences, computation_reference_support, environment_reference_support] using
       Source.FrameSupported.protection identity cleanup captured

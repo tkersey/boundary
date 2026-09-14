@@ -96,6 +96,9 @@ private theorem ordinary_reflect_bounded (table : Source.Definitions signature a
         induction (.push (.handler effect mode attachment returned clauses bindings) outside) run head
     | region identity inner induction =>
       simpa only [Source.Context.plug, Source.Frame.plug] using induction (.push (.region identity) outside) run head
+    | cleaning identity original exit inner induction =>
+      simpa only [Source.Context.plug, Source.Frame.plug] using
+        induction (.push (.cleanupReturn identity original exit) outside) run head
     | protection identity cleanup bindings inner induction =>
       simpa only [Source.Context.plug, Source.Frame.plug] using
         induction (.push (.protection identity cleanup bindings) outside) run head
@@ -130,7 +133,24 @@ private theorem ordinary_reflect_bounded (table : Source.Definitions signature a
           obtain ⟨remaining, reduced, tail⟩ := Target.CallStep.handlerReturned.cancel_observed rfl run head
           obtain ⟨sourceObservation, observed, same⟩ := smaller (by omega) (.evaluate returned (.cons value bindings) _) rest tail head
           exact ⟨sourceObservation, observed.prepend (.single (Source.Step.handlerValue.in_context _)), same⟩
-        | region identity | protection identity cleanup bindings =>
+        | protection identity cleanup bindings =>
+          obtain ⟨remaining, reduced, tail⟩ := Target.CallStep.protectionReturn.cancel_observed rfl run head
+          obtain ⟨sourceObservation, observed, same⟩ := smaller (by omega)
+            (.cleaning identity (some value) ⟨.normal, [], none⟩ (.evaluate cleanup (.cons (.exit ⟨.normal, [], none⟩) bindings) _)) rest tail head
+          exact ⟨sourceObservation, observed.prepend (.single (Source.Step.protectionReturn.in_context _)), same⟩
+        | cleanupReturn identity original exit =>
+          cases original with
+          | none => cases run with
+            | refl => cases head
+            | cons step tail => cases step
+          | some original => cases run with
+            | refl => cases head
+            | cons step tail =>
+              cases step with
+              | cleanupReturn normal =>
+                obtain ⟨sourceObservation, observed, same⟩ := smaller (by omega) (.returned original _) rest tail head
+                exact ⟨sourceObservation, observed.prepend (.single ((Source.Step.cleaningReturn normal).in_context _)), same⟩
+        | region identity =>
           cases run with
           | refl => cases head
           | cons step tail => cases step
@@ -153,7 +173,7 @@ private theorem ordinary_reflect_bounded (table : Source.Definitions signature a
           obtain ⟨remaining, reduced, tail⟩ := Target.CallStep.handlerFault.cancel_observed rfl run head
           obtain ⟨sourceObservation, observed, same⟩ := smaller (by omega) (.failed fault _) rest tail head
           exact ⟨sourceObservation, observed.prepend (.single (Source.Step.handlerFault.in_context _)), same⟩
-        | region identity | protection identity cleanup bindings =>
+        | region identity | protection identity cleanup bindings | cleanupReturn identity original exit =>
           cases run with
           | refl => cases head
           | cons step tail => cases step

@@ -71,6 +71,16 @@ inductive Step (table : Definitions signature algebra definitions) :
       Step table (.handler effect mode attachment returned clauses environment before)
         (.handler effect mode attachment returned clauses environment after)
   | regionStep : Step table before after → Step table (.region identity before) (.region identity after)
+  | cleaningStep : Step table before after →
+      Step table (.cleaning identity original exit before) (.cleaning identity original exit after)
+  | cleaningReturn : exit.primary = .normal →
+      Step table (.cleaning identity (some original) exit (.returned cleaned)) (.returned original)
+  | protectionReturn : Step table (.protection identity cleanup bindings (.returned original))
+      (.cleaning identity (some original) ⟨.normal, [], none⟩ (.evaluate cleanup (.cons (.exit ⟨.normal, [], none⟩) bindings)))
+  | cleaningYield : Step table (.cleaning identity original exit (.yielded body))
+      (.yielded (.cleaning identity original exit body))
+  | cleaningRequest : Step table (.cleaning identity original exit (.request operation attachment payload bodies saved))
+      (.request operation attachment payload bodies (saved.append (.push (.cleanupReturn identity original exit) .done)))
   | regionYield : Step table (.region identity (.yielded body)) (.yielded (.region identity body))
   | regionRequest : Step table (.region identity (.request operation attachment payload bodies saved))
       (.request operation attachment payload bodies (saved.append (.push (.region identity) .done)))

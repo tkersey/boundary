@@ -46,6 +46,9 @@ mutual
     | protection : Id .obligation → Computation signature algebra definitions (.exit :: context) .unit →
       RuntimeEnvironment signature algebra definitions context → Program signature algebra definitions result →
       Program signature algebra definitions result
+    | cleaning : Id .obligation → Option (RuntimeValue signature algebra definitions result) →
+      ExitInfo algebra.Fault algebra.Reason → Program signature algebra definitions .unit →
+      Program signature algebra definitions result
 
   inductive Frame (signature : Signature) (algebra : LeafAlgebra signature.Data)
       (definitions : List (BodyType signature.Data signature.Effect)) : TypeOf signature → TypeOf signature → Type where
@@ -59,6 +62,8 @@ mutual
     | region : Id .region → Frame signature algebra definitions result result
     | protection : Id .obligation → Computation signature algebra definitions (.exit :: context) .unit →
       RuntimeEnvironment signature algebra definitions context → Frame signature algebra definitions result result
+    | cleanupReturn : Id .obligation → Option (RuntimeValue signature algebra definitions result) →
+      ExitInfo algebra.Fault algebra.Reason → Frame signature algebra definitions .unit result
 
   inductive Context (signature : Signature) (algebra : LeafAlgebra signature.Data)
       (definitions : List (BodyType signature.Data signature.Effect)) : TypeOf signature → TypeOf signature → Type where
@@ -82,6 +87,7 @@ def Frame.plug : Frame signature algebra definitions input result → Program si
   | .handler effect mode id returned clauses environment, computation => .handler effect mode id returned clauses environment computation
   | .region id, computation => .region id computation
   | .protection id cleanup environment, computation => .protection id cleanup environment computation
+  | .cleanupReturn id original exit, computation => .cleaning id original exit computation
 
 def Context.plug : Context signature algebra definitions input result → Program signature algebra definitions input →
     Program signature algebra definitions result
@@ -166,6 +172,8 @@ inductive Frame (signature : Signature) (algebra : LeafAlgebra signature.Data)
   | region : Id .region → Frame signature algebra definitions result result
   | protection : Id .obligation → Code signature algebra definitions (.exit :: context) [] .unit →
     RuntimeEnvironment signature algebra definitions context → Frame signature algebra definitions result result
+  | cleanupReturn : Id .obligation → Option (RuntimeValue signature algebra definitions result) →
+    ExitInfo algebra.Fault algebra.Reason → Frame signature algebra definitions .unit result
 
 inductive Stack (signature : Signature) (algebra : LeafAlgebra signature.Data)
     (definitions : List (BodyType signature.Data signature.Effect)) : TypeOf signature → TypeOf signature → Type where

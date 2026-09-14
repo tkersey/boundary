@@ -12,7 +12,7 @@ def Frame.copyable : Frame signature algebra program input result → Bool
   | .returnTo _ bindings operands => bindings.copyable && operands.copyable
   | .handler _ _ _ _ _ bindings => bindings.copyable
   | .region _ => true
-  | .protection _ _ _ => false
+  | .protection _ _ _ | .cleanupReturn _ _ _ => false
 
 def Stack.copyable : Stack signature algebra program input result → Bool
   | .done => true

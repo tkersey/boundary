@@ -24,6 +24,8 @@ def Capture.relocate (relocation : UseScope.Relocation) : Capture signature alge
   | .protection identity cleanup bindings rest =>
       .protection (relocation.name .obligation identity) (cleanup.relocate relocation)
         (relocateEnvironment relocation bindings) (rest.relocate relocation)
+  | .cleanupReturn identity original exit rest =>
+      .cleanupReturn (relocation.name .obligation identity) (original.map (relocateValue relocation)) exit (rest.relocate relocation)
 
 def relocateCell (relocation : UseScope.Relocation) (cell : Cell signature algebra (Computation signature algebra program)) :
     Cell signature algebra (Computation signature algebra program) :=
@@ -93,6 +95,8 @@ theorem capture_relocation_commutes (relocation : UseScope.Relocation) (source :
       simp only [capture, Source.Capture.relocate, Target.Stack.relocate, Target.Frame.relocate,
         computation_relocation_commutes, clauses_relocation_commutes, environment_relocation_commutes, induction]
   | region identity rest induction => exact congrArg (Target.Stack.push (.region (relocation.name .region identity))) induction
+  | cleanupReturn identity original exit rest induction =>
+      cases original <;> simp [capture, Source.Capture.relocate, Target.Stack.relocate, Target.Frame.relocate, value_relocation_commutes, induction]
   | protection identity cleanup bindings rest induction =>
       simp only [capture, Source.Capture.relocate, Target.Stack.relocate, Target.Frame.relocate,
         computation_relocation_commutes, environment_relocation_commutes, induction]
