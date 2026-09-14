@@ -144,6 +144,23 @@ test "BPI2 roundtrip owns decoded data and leaves the source independent" {
     try std.testing.expectEqualSlices(u8, decoded.bytes, encoded);
 }
 
+test "BPI2 admission scratch is released before the decoded owner" {
+    var buffer: [1024]u8 = undefined;
+    const bytes = try image.encode(std.testing.allocator, example, &buffer);
+    var tracked = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    {
+        var decoded = try image.decode(tracked.allocator(), bytes);
+        defer decoded.deinit();
+        try std.testing.expect(tracked.freed_bytes > 0);
+        try std.testing.expect(tracked.allocated_bytes > tracked.freed_bytes);
+        @memset(&buffer, 0xa5);
+        var again: [1024]u8 = undefined;
+        const encoded = try image.encode(std.testing.allocator, decoded.program, &again);
+        try std.testing.expectEqualSlices(u8, decoded.bytes, encoded);
+    }
+    try std.testing.expectEqual(tracked.allocated_bytes, tracked.freed_bytes);
+}
+
 test "canonical catalogs remove unused declarations and ignore allocation ordinals" {
     const canonical = @import("canonical.zig");
     const reordered: p.Program = .{

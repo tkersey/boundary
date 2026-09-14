@@ -40,8 +40,11 @@ pub fn canonicalizeMeasured(allocator: std.mem.Allocator, state: g.State, statis
     var arena = std.heap.ArenaAllocator.init(allocator);
     errdefer arena.deinit();
     const storage = arena.allocator();
-    const node_map = try storage.alloc(u64, state.nodes.len);
-    const blob_map = try storage.alloc(u64, state.blobs.len);
+    var temporary = std.heap.ArenaAllocator.init(allocator);
+    defer temporary.deinit();
+    const scratch = temporary.allocator();
+    const node_map = try scratch.alloc(u64, state.nodes.len);
+    const blob_map = try scratch.alloc(u64, state.blobs.len);
     @memset(node_map, absent);
     @memset(blob_map, absent);
     var order: std.ArrayList(usize) = .empty;
@@ -49,9 +52,9 @@ pub fn canonicalizeMeasured(allocator: std.mem.Allocator, state: g.State, statis
     var interned: std.HashMapUnmanaged(g.Blob, usize, BlobContext, 80) = .empty;
     var pending: std.ArrayList(Reference) = .empty;
     var children: std.ArrayList(Reference) = .empty;
-    try references(g.Roots, state.roots, &children, storage);
+    try references(g.Roots, state.roots, &children, scratch);
     if (statistics) |s| s.edges +|= children.items.len;
-    try reverseAppend(&pending, children.items, storage);
+    try reverseAppend(&pending, children.items, scratch);
     while (pending.pop()) |reference| {
         switch (reference) {
             .node => |id| {
@@ -59,12 +62,12 @@ pub fn canonicalizeMeasured(allocator: std.mem.Allocator, state: g.State, statis
                 const index: usize = @intCast(id);
                 if (node_map[index] != absent) continue;
                 node_map[index] = order.items.len;
-                try order.append(storage, index);
+                try order.append(scratch, index);
                 if (statistics) |s| s.nodes +|= 1;
                 children.clearRetainingCapacity();
-                try references(g.Node, state.nodes[index], &children, storage);
+                try references(g.Node, state.nodes[index], &children, scratch);
                 if (statistics) |s| s.edges +|= children.items.len;
-                try reverseAppend(&pending, children.items, storage);
+                try reverseAppend(&pending, children.items, scratch);
             },
             .blob => |id| {
                 if (id >= state.blobs.len) return error.InvalidReference;
@@ -76,8 +79,12 @@ pub fn canonicalizeMeasured(allocator: std.mem.Allocator, state: g.State, statis
                 var selected = interned.getContext(source, context);
                 if (selected == null) {
                     selected = blobs.items.len;
-                    try blobs.append(storage, .{ .schema = source.schema, .bytes = try storage.dupe(u8, source.bytes) });
-                    try interned.putContext(storage, blobs.items[blobs.items.len - 1], selected.?, context);
+                    const blob: g.Blob = .{
+                        .schema = source.schema,
+                        .bytes = try storage.dupe(u8, source.bytes),
+                    };
+                    try blobs.append(scratch, blob);
+                    try interned.putContext(scratch, blob, selected.?, context);
                     if (statistics) |s| s.stored_payload_bytes +|= source.bytes.len;
                 }
                 blob_map[index] = selected.?;
@@ -94,7 +101,7 @@ pub fn canonicalizeMeasured(allocator: std.mem.Allocator, state: g.State, statis
         .status = state.status,
         .roots = try remap(g.Roots, state.roots, node_map, blob_map, storage),
         .nodes = nodes,
-        .blobs = blobs.items,
+        .blobs = try storage.dupe(g.Blob, blobs.items),
     };
     return .{ .arena = arena, .state = canonical_state };
 }
@@ -339,4 +346,42 @@ fn detachedAllocationCase(allocator: std.mem.Allocator) !void {
 
 test "canonical graph owner retains final detached-root allocations" {
     try std.testing.checkAllAllocationFailures(std.testing.allocator, detachedAllocationCase, .{});
+}
+
+fn scratchLifetimeCase(allocator: std.mem.Allocator) !void {
+    var payload = [_]u8{ 1, 2, 3, 4 };
+    const values = [_]g.Value{
+        .{ .schema = 0, .body = .{ .blob = .{ .id = 0 } } },
+        .{ .schema = 0, .body = .{ .blob = .{ .id = 1 } } },
+    };
+    const nodes = [_]g.Node{
+        .{ .environment = .{ .values = &values, .tail = .{ .id = 1 } } },
+        .{ .environment = .{ .values = &values, .tail = .{ .id = 0 } } },
+    };
+    var normalized = try canonicalize(allocator, .{
+        .program_identity = .{0} ** 32,
+        .status = .active,
+        .roots = .{ .current = .{ .id = 0 } },
+        .nodes = &nodes,
+        .blobs = &.{
+            .{ .schema = 0, .bytes = &payload },
+            .{ .schema = 0, .bytes = &payload },
+        },
+    });
+    defer normalized.deinit();
+    @memset(&payload, 0xa5);
+    try std.testing.expectEqual(@as(usize, 2), normalized.state.nodes.len);
+    try std.testing.expectEqual(@as(usize, 1), normalized.state.blobs.len);
+    try std.testing.expectEqualSlices(u8, &.{ 1, 2, 3, 4 }, normalized.state.blobs[0].bytes);
+    try std.testing.expectEqual(@as(u64, 0), normalized.state.nodes[1].environment.tail.?.id);
+    var output: [1024]u8 = undefined;
+    const bytes = try encodeCanonical(normalized.state, &output);
+    var decoded = try decodeGraph(allocator, bytes);
+    defer decoded.deinit();
+    var again: [1024]u8 = undefined;
+    try std.testing.expectEqualSlices(u8, bytes, try encodeCanonical(decoded.state, &again));
+}
+
+test "snapshot scratch release preserves owned payloads, cycles and distinct nodes" {
+    try std.testing.checkAllAllocationFailures(std.testing.allocator, scratchLifetimeCase, .{});
 }
