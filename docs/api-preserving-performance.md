@@ -1,9 +1,33 @@
-# API-preserving performance work (in progress)
+# API-preserving performance results
+
+## Committed-candidate measurement guard
+
+Boundary `b599e664c57ca455395038bd28b703837f870030` and World
+`24867d20afd2076136c0cb14d64fee3a951d0f96` were measured on clean trees against
+B0/W0. Five paired fresh local/global-cache builds per workload found no
+demonstrated cold-build regression: source-to-image medians were 18.333 versus
+18.239 seconds (median paired ratio 0.997); kernel builds were 9.662 versus
+9.652 seconds (ratio 1.000). Native driver, compiler analysis, code generation
+and linking are included together; no unsupported phase decomposition is made.
+The already-built emitter was measured separately with five warmups and 21
+paired launches, about 2.1 ms including process startup on either side.
+[Raw observations](performance/final-cold-guard.json) and the
+[cold-guard script](performance/cold-guard.mjs) preserve commands and identities.
+This does not establish the separate historical 0.80-versus-1.8.2 target.
+
+[Compiler/data attribution](performance/final-data-phases.json) uses the existing
+public compiler observer and codec probe on the unchanged 64-installation image.
+Image emission measured 121.9 versus 106.9 µs; the other compiler stages were
+approximately unchanged. These are instrumented attribution observations, not
+standalone uninstrumented phase-speed claims. The companion World report records
+two full-call confirmation windows, full invocation memory and fixed-capacity
+decoder measurements, including the small large-constant scratch tradeoff.
 
 The accepted source is `pasted-text-1.txt`, supplied September 14, 2026, titled
 “Boundary 2 / World 5 — API-Preserving Performance Optimization v1”. Its full
-scope remains open, including World production improvements, compatibility,
-experiments, final measurements, draft PR publication and review closeout.
+scope remains binding. The production changes, measured experiment dispositions
+and final timing windows are recorded here and in the companion World report;
+review closeout is tracked on the draft PRs and in the native review receipts.
 
 ## Inputs and isolation
 
@@ -55,21 +79,18 @@ canonical bytes, malformed input and allocation failure sweeps. A new focused
 regression checks scratch frees before owner destruction, re-encoding after input
 overwrite, and complete deallocation.
 
-## Remaining work
+## Delivery scope
 
-Finish Boundary lifetime/codec and immutable metadata experiments, then World
-direct ownership, scratch and request preparation. Compare private stable
-transfers against the corrected ownership implementation; evaluate collection
-cadence separately. Complete the bounded in-format compiler experiment and cold
-build guard. Preserve all public APIs, formats, cleanup behavior and negative
-cases. Run the full B0/B1 × W0/W1 and native/WASM/restoration matrix, final paired
-measurements, package checks and review closeout. No PR has yet been created.
+Draft PRs are Boundary #150 and World #52. Their review records track Actuating
+closeout on the unchanged production candidate.
+The metadata, transfer, cadence and compiler experiments have measured
+dispositions, and the cold guard and paired runtime windows are recorded above.
 
 Primary timing set, fixed before candidate selection: short scalar invocation,
 64 installations, retained DFS search, and saved response with a retained
 environment and equal-looking successive requests. Include all required workload
-families as additional checks; fixture scripts and full timing boundaries still
-need binding before World experiments.
+families as additional checks. The companion report records the bound fixture
+hashes, complete timing boundaries and secondary regression observations.
 
 ## Snapshot and codec continuation
 
@@ -108,11 +129,11 @@ zig run -O ReleaseSafe --dep boundary_data_v2 \
   -Mboundary_data_v2="$SELECTED/src/v2/data/root.zig"
 ```
 
-All reported measurements remain exploratory dirty-candidate observations.
-Committed paired latency windows, cold-build guards, immutable-metadata and
-compiler-size experiment dispositions, allocator/peak coverage, complete
-cross-consumption and review convergence remain open. The planned draft
-publication is explicitly partial under specification sections 1 and 24.
+These initial retention probes are exploratory observations. The later
+committed-candidate measurements above add paired latency windows, cold-build
+guards, allocator/peak coverage and experiment dispositions. Draft publication
+remains explicitly partial until review closure under specification sections 1
+and 24.
 
 ## Cleanup conformance prerequisite
 
