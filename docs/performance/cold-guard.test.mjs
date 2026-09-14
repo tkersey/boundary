@@ -122,6 +122,37 @@ test('CLI executes through a symlink instead of silently skipping main', t => {
   t.after(() => fs.rmSync(cwd, { recursive: true, force: true }));
   const alias = path.join(cwd, 'guard alias.mjs');
   fs.symlinkSync(new URL('./cold-guard.mjs', import.meta.url), alias);
-  assert.match(command(cwd, [alias, '--help'], process.execPath).stdout.toString(), /Usage: node/);
+  for (const flags of [[], ['--preserve-symlinks-main'], ['--preserve-symlinks', '--preserve-symlinks-main']]) {
+    assert.match(command(cwd, [...flags, alias, '--help'], process.execPath).stdout.toString(), /Usage: node/);
+    assert.throws(() => command(cwd, [...flags, alias], process.execPath), /Missing required --boundary-baseline/);
+  }
   assert.throws(() => command(cwd, [alias], process.execPath), /Missing required --boundary-baseline/);
+});
+
+test('importing the guard does not execute the CLI, including preserved aliases', t => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'cold import '));
+  t.after(() => fs.rmSync(cwd, { recursive: true, force: true }));
+  const alias = path.join(cwd, 'guard.mjs');
+  fs.symlinkSync(new URL('./cold-guard.mjs', import.meta.url), alias);
+  fs.writeFileSync(path.join(cwd, 'caller.mjs'), 'import "./guard.mjs"; console.log("imported");');
+  for (const flags of [[], ['--preserve-symlinks', '--preserve-symlinks-main']]) {
+    assert.equal(command(cwd, [...flags, 'caller.mjs'], process.execPath).stdout.toString(), 'imported\n');
+  }
+});
+
+test('PATH tool symlinks retain their dispatch name', t => {
+  const { cwd, options } = fixture(t);
+  const original = process.env.PATH;
+  const selected = preflight(options).tools;
+  const bin = path.join(cwd, 'tool shims'); fs.mkdirSync(bin);
+  const dispatcher = path.join(bin, 'dispatch.cjs');
+  fs.writeFileSync(dispatcher, `#!${process.execPath}\nconst {spawnSync}=require('node:child_process');const {basename}=require('node:path');const selected=${JSON.stringify(selected)};const executable=selected[basename(process.argv[1])];if(!executable)process.exit(93);const r=spawnSync(executable,process.argv.slice(2),{stdio:'inherit'});process.exit(r.status??1);\n`, { mode: 0o755 });
+  for (const name of ['git', 'zig']) fs.symlinkSync(dispatcher, path.join(bin, name));
+  try {
+    process.env.PATH = `${bin}${path.delimiter}${original}`;
+    const result = preflight(options);
+    assert.equal(result.tools.zig, path.join(bin, 'zig'));
+    assert.equal(result.tools.git, path.join(bin, 'git'));
+    assert.equal(result.versions.zig, '0.16.0');
+  } finally { process.env.PATH = original; }
 });

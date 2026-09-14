@@ -12,7 +12,7 @@ export const usage = `Usage: node docs/performance/cold-guard.mjs ${names.map(na
 Paths are resolved against the invocation directory. All four checkouts must be
 clean repository roots with a tkersey/boundary or tkersey/world origin, respectively.
 The output must not exist; its parent must exist outside all measured checkouts.
-Requires git and Zig 0.16.0 on PATH. See docs/api-preserving-performance.md.`;
+Requires Node 26.8.1+, git and Zig 0.16.0 on PATH. See docs/api-preserving-performance.md.`;
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const writeJson = (file, value) => fs.writeFileSync(file, JSON.stringify(value, null, 2) + '\n');
 const inside = (parent, child) => { const relative = path.relative(parent, child); return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative)); };
@@ -50,7 +50,7 @@ export function command(cwd, args, executable = 'zig', runner = spawnSync) {
 function executableOnPath(name) {
   for (const entry of (process.env.PATH ?? '').split(path.delimiter)) {
     const candidate = path.resolve(entry || '.', name);
-    try { if (fs.statSync(candidate).isFile()) { fs.accessSync(candidate, fs.constants.X_OK); return fs.realpathSync(candidate); } } catch {}
+    try { if (fs.statSync(candidate).isFile()) { fs.accessSync(candidate, fs.constants.X_OK); return candidate; } } catch {}
   }
   throw new Error(`Required executable not found on PATH: ${name}`);
 }
@@ -138,7 +138,7 @@ export function runMeasurements(config, run = command, log = console.log) {
   }
 }
 
-if (process.argv[1] && fs.realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (import.meta.main) {
   try {
     if (process.argv.length === 3 && process.argv[2] === '--help') console.log(usage);
     else runMeasurements(preflight(parseArguments(process.argv.slice(2))));
