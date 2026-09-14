@@ -49,3 +49,5 @@ import BoundaryV2.GeneralizedNestedDisposalExamples
 import BoundaryV2.GeneralizedCleanupContextExamples
 import BoundaryV2.GeneralizedCleanupCompletionExamples
 import BoundaryV2.GeneralizedValueDisposalExamples
+import BoundaryV2.GeneralizedContractChecks
+import BoundaryV2.GeneralizedRegionDisposalExamples

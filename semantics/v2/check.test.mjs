@@ -1,12 +1,81 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
 import assert from 'node:assert/strict';
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { check } from './check.mjs';
 
 const project = fileURLToPath(new URL('.', import.meta.url));
+
+// Compile only the changed module and its statement consumers in an isolated
+// search-path overlay. Dependencies come from the preceding proof build; no
+// production source, shared olean, or working tree is mutated by a probe.
+function claimMutations() {
+  const directory = mkdtempSync(join(tmpdir(), 'boundary-claim-mutation-'));
+  const contracts = readFileSync(join(project, 'BoundaryV2', 'GeneralizedContracts.lean'), 'utf8');
+  const observations = readFileSync(join(project, 'BoundaryV2', 'GeneralizedStateObservations.lean'), 'utf8');
+  const consumers = readFileSync(join(project, 'BoundaryV2', 'GeneralizedContractChecks.lean'), 'utf8');
+  try {
+    mkdirSync(join(directory, 'BoundaryV2'));
+    const artifacts = join(project, '.lake', 'build', 'lib', 'lean', 'BoundaryV2');
+    for (const name of readdirSync(artifacts)) {
+      if (!/\.olean(?:\.|$)/.test(name) || /^(GeneralizedContracts|GeneralizedContractChecks|GeneralizedStateObservations)\./.test(name)) continue;
+      symlinkSync(join(artifacts, name), join(directory, 'BoundaryV2', name));
+    }
+    copyFileSync(join(project, 'lean-toolchain'), join(directory, 'lean-toolchain'));
+    const environment = { ...process.env, LEAN_PATH: [directory, join(project, '.lake', 'build', 'lib', 'lean')].join(process.platform === 'win32' ? ';' : ':') };
+    function compile(name, source, emit = false) {
+      const file = join(directory, 'BoundaryV2', `${name}.lean`);
+      writeFileSync(file, source);
+      const result = spawnSync('lean', ['-R', directory, ...(emit ? ['-o', file.replace(/\.lean$/, '.olean')] : []), file],
+        { cwd: directory, env: environment, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
+      if (result.error) throw result.error;
+      return { status: result.status, output: `${result.stdout ?? ''}${result.stderr ?? ''}` };
+    }
+    function accepted(result, label) {
+      assert.equal(result.status, 0, `${label}\n${result.output}`);
+    }
+    function rejected(result, label) {
+      assert.notEqual(result.status, 0, `${label}: weakened claim was accepted`);
+      assert.match(result.output, /error(?:\([^)]*\))?:.*(?:Invalid field|Function expected|Type mismatch|type mismatch|Application type mismatch|unsolved goals|Tactic `rfl` failed)/s, label);
+      console.log(`trust mutation: ${label}: rejected by statement checking`);
+    }
+    accepted(compile('GeneralizedStateObservations', observations, true), 'original stateful observations');
+    accepted(compile('GeneralizedContracts', contracts, true), 'original contract declarations');
+    accepted(compile('GeneralizedContractChecks', consumers), 'original contract consumers');
+    for (const [namespace, name] of [
+      ['Defunctionalization', 'adequacy'], ['Handlers', 'interpretation'],
+      ['UseScope', 'preservation'], ['Exits', 'composition'], ['OpenControl', 'observation_relocation'],
+    ]) {
+      const start = contracts.indexOf(`structure ${name} : Prop where`);
+      const end = contracts.indexOf(`\nend ${namespace}`, start);
+      assert(start >= 0 && end > start, `missing ${namespace}.${name} mutation target`);
+      const replacement = `def ${name} (_signature : Signature) (_algebra : LeafAlgebra _signature.Data)\n` +
+        '    (_program : List (BodyType _signature.Data _signature.Effect)) : Prop := True\n';
+      accepted(compile('GeneralizedContracts', contracts.slice(0, start) + replacement + contracts.slice(end), true),
+        `${namespace}.${name} to True probe must itself compile`);
+      rejected(compile('GeneralizedContractChecks', consumers), `${namespace}.${name} replaced with True`);
+    }
+    const stateful = '∃ count, ExecutionSteps table before count after ∧ HeadObservation after.control.computation observation';
+    assert(observations.includes(stateful), 'missing stateful observation mutation target');
+    // The source prepend lemma depends on the stateful meaning being removed;
+    // omit it from the forged module so the probe reaches the statement gate.
+    const prepend = observations.indexOf('theorem StateObserves.prepend');
+    const sourceEnd = observations.indexOf('\nend Source', prepend);
+    assert(prepend >= 0 && sourceEnd > prepend, 'missing source prepend dependent');
+    const ordinaryOnly = (observations.slice(0, prepend) + observations.slice(sourceEnd))
+      .replace(stateful, 'Observes table before.control.computation observation');
+    accepted(compile('GeneralizedStateObservations', ordinaryOnly, true), 'ordinary-only observation probe must itself compile');
+    accepted(compile('GeneralizedContracts', contracts, true), 'contracts over weakened observation relation');
+    rejected(compile('GeneralizedContractChecks', consumers), 'stateful observation replaced with ordinary-only observation');
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+
+claimMutations();
 function withProject(run) {
   const directory = mkdtempSync(join(tmpdir(), 'boundary-trust-mutation-'));
   try {

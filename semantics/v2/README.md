@@ -16,6 +16,25 @@ internal control, resource, region, and ownership references are structural.
 
 ## Checked laws and their current scope
 
+The five requested names are now Lean contract structures in
+[`GeneralizedContracts`](BoundaryV2/GeneralizedContracts.lean), with no exported
+inhabitants. Their checked components and required connections are:
+
+| Export | Existing components | Remaining proof or connection |
+| --- | --- | --- |
+| `Defunctionalization.adequacy` | `stateful_initialization`, `stateful_response_entry`, ordinary adequacy, and the existing positive operand/entry drains | Prove stateful finite preservation/reflection; compose registry entry and exit/disposal with that observation relation. Ordinary adequacy remains a separate component. |
+| `Handlers.interpretation` | Fresh installation, nearest selection, forwarding, context closure, actual resume/injection/successor correspondence | Use the stateful correspondence under arbitrary enclosing effectful handlers, including registered multi entry. |
+| `UseScope.preservation` | Actual control/cell steps, typed consumption, physical capture multiplicity, scoped packages, registry insertion, fresh activation and dormant support | Connect registry and lifetime handoff across capture, activation, completion, and disposal. |
+| `Exits.composition` | Stateful initiation, cancellation, ordered operands/failures, owned-result disposal, nested completion, region-to-cleanup-frame embedding | Connect region disposal during nested abandonment and compose exits with the source/target observation relation. |
+| `OpenControl.observation_relocation` | Typed polling/rejection/admission, occurrence separation, authority, control and dormant-support relocation | Apply the same admission and relocation laws to the integrated registry/cleanup futures. |
+
+These are explicit outstanding obligations, not claims discharged by compiling
+the contract declarations. `GeneralizedContractChecks` checks the principal
+field types and the stateful observation definitions; it constructs no contract
+proof. The source/target finite observation definitions use their actual
+permission-sensitive `ExecutionSteps`, retaining current resources at every
+return, fault, yield, and request.
+
 | Contract | Main proof surfaces | Checked content and limits |
 | --- | --- | --- |
 | D: defunctionalization | `GeneralizedValues`, `GeneralizedReification`, `GeneralizedOwnedOperandLowering`, `GeneralizedProgramSimulation`, `GeneralizedProgramObservations` | Closure/environment and context laws, recursive call unfolding, positive finite operand drains, and preservation/reflection of finite **ordinary** observations. Open requests retain related typed futures under every accepted response. Full stateful observation composition remains open. |
@@ -198,6 +217,17 @@ the original exit, and does not execute the closure body. The separate
 continuation-only completion path is retired. Complete capture/lifetime
 integration and general stateful adequacy remain unfinished.
 
+`GeneralizedRegionDisposal` connects the existing oldest-cell handoff to that
+same value-disposal queue. A disposal phase owns the current runtime; the region
+handoff retains only its identity, continuation, and offered plain-cell names.
+The current runtime returns after disposal, and the existing liveness/owner/alias
+gate controls final storage retirement. `CleanupFrameSteps.of_region` embeds
+every finite region run in the cleanup-frame driver. A checked path retains an
+earlier plain cell, consumes the later value's real grant, rejects a surviving
+cell alias, and then retires only the selected region while preserving outer
+storage, unrelated authority, and the original exit history. Region handoff
+during nested abandonment remains open.
+
 ## Verification commands
 
 From the repository root:
@@ -231,8 +261,12 @@ definitions, native-evaluation dependencies, unsafe definitions, and partial
 definitions. It also covers private declarations in Lean's module system and a
 spoofed recursive-companion name. A forged declaration inserted with kernel
 checking disabled deliberately passes the axiom-only control and must fail
-fresh replay. The final five exported claim types and claim-weakening mutations
-are still open; this logical trust gate is not a statement-meaning review.
+fresh replay. Six additional statement mutations reject `True` substitutions
+for each required contract and an ordinary-only replacement for the source
+stateful observation definition. The mutation step follows the proof build and
+uses an isolated compiled-module overlay. Completing the contract proofs and
+reviewing all remaining semantic connections are still open; logical trust and
+statement checking do not establish the entire milestone.
 
 ## Production correspondence
 

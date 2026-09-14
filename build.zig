@@ -164,6 +164,7 @@ pub fn build(b: *std.Build) void {
     const trust_mutations = b.addSystemCommand(&.{"node"});
     trust_mutations.addFileArg(b.path("semantics/v2/check.test.mjs"));
     trust_mutations.has_side_effects = true;
+    trust_mutations.step.dependOn(&trust.step);
     formal.dependOn(&trust.step);
     formal.dependOn(&trust_mutations.step);
     semantics.dependOn(formal);

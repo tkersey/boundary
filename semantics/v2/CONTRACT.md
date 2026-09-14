@@ -3,10 +3,12 @@
 This replaces the full-profile proof-closure and production-certification project.
 The accepted specification is **Boundary — Generalized Effects Proof Core**,
 version 1.0, September 12, 2026. The five claims below are the required exported
-statements; this contract does not assert that their implementations exist yet.
-The names below are required export targets, not existing Lean declarations or
-evidence of completion. The [current proof inventory](README.md) gives the
-checked scope and remaining composition work.
+statements. [GeneralizedContracts.lean](BoundaryV2/GeneralizedContracts.lean)
+now declares the five names as proposition-valued contract structures. No
+inhabitants of those structures are exported. Their present fields expose the
+stateful observation and local construction obligations; registry/exit execution
+coverage and the remaining compositional obligations below are still required.
+The [current proof inventory](README.md) gives the checked components and gaps.
 
 The proof subject is a typed symbolic calculus and its independently defined,
 first-order control representation. The production compiler and pinned World
@@ -100,6 +102,22 @@ preserving aliases, ownership, obligations, and explicitly external identities.
 This is logical relocation, not a codec, hash-injectivity, or anti-replay theorem.
 
 ## Production evidence and exclusions
+
+`GeneralizedStateObservations` takes finite closures of the existing independent,
+permission-sensitive source and target execution relations. Every observation
+retains the current heap, cells, live regions, and typed future. Initialization
+and response entry are proved structurally. The finite preservation/reflection
+fields are unproved; neither ordinary adequacy nor mutually missing stateful
+transitions establish them for the complete core. In particular, reusable
+registry entry, nested abandonment, and disposal must participate in the same
+compositional interpretation before D is complete.
+
+`GeneralizedContractChecks` consumes the declared field types and checks the
+stateful observation definitions. Its hypothetical contract arguments are
+statement checks, not evidence that the contracts are inhabited. The existing
+trust mutation suite rejects replacing each contract with `True` and replacing
+the source stateful observation definition with the ordinary relation. This
+does not replace review of the complete types or completion of their proofs.
 
 The conformance command must take an explicit unmodified World checkout/artifact,
 compile ordinary public-builder programs through the normal pipeline, and compare

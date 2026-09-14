@@ -1,5 +1,5 @@
 import BoundaryV2.GeneralizedNestedCleanup
-import BoundaryV2.GeneralizedValueDisposal
+import BoundaryV2.GeneralizedRegionDisposal
 
 namespace BoundaryV2.Generalized
 
@@ -223,6 +223,7 @@ inductive CleanupFrameProgress (signature : Signature) (algebra : LeafAlgebra si
     (program : List (BodyType signature.Data signature.Effect)) (result : TypeOf signature) where
   | running : Resolution signature algebra program result → CleanupFrameProgress signature algebra program result
   | disposing : CleanupDisposal signature algebra program result → CleanupFrameProgress signature algebra program result
+  | region : RegionDisposal signature algebra program result → CleanupFrameProgress signature algebra program result
   | values {input : TypeOf signature} : Id .obligation → Completion algebra.Fault →
       Target.Stack signature algebra program input result → ValueDisposal signature algebra program →
       CleanupFrameProgress signature algebra program result
@@ -243,6 +244,12 @@ inductive CleanupFrameStep (table : Target.Definitions signature algebra program
   | advance : advanceFailedResolution before = some after → CleanupFrameStep table (.running before) (.running after)
   | finish : finishCleanupFrame before = some after → CleanupFrameStep table (.running before) after.progress
   | cancel : before.cancelRunning reason = some after → CleanupFrameStep table (.running before) (.running after)
+  | enterRegion : RegionDisposal.begin before = some after →
+      CleanupFrameStep table (.running before) (.region after)
+  | region : RegionDisposalStep table before after →
+      CleanupFrameStep table (.region before) (.region after)
+  | finishRegion : RegionDisposal.finish external before = some after →
+      CleanupFrameStep table (.region before) (.running after)
   | enterValues : work.runtime.phase = .finished completion →
       CleanupFrameStep table (.disposing work)
         (.values work.runtime.id completion work.outside (ValueDisposal.start work.runtime work.value))
@@ -257,6 +264,16 @@ inductive CleanupFrameSteps (table : Target.Definitions signature algebra progra
   | refl : CleanupFrameSteps table state 0 state
   | cons : CleanupFrameStep table before middle → CleanupFrameSteps table middle count after → CleanupFrameSteps table before (count + 1) after
 
+theorem CleanupFrameSteps.trans {table : Target.Definitions signature algebra program}
+    {before middle after : CleanupFrameProgress signature algebra program result}
+    (first : CleanupFrameSteps table before count middle)
+    (second : CleanupFrameSteps table middle rest after) :
+    CleanupFrameSteps table before (count + rest) after := by
+  induction first with
+  | refl => simpa using second
+  | cons step tail induction =>
+    simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using CleanupFrameSteps.cons step (induction second)
+
 theorem CleanupFrameSteps.of_values {table : Target.Definitions signature algebra program}
     (steps : ValueDisposalSteps table before count after) (frame : Id .obligation)
     (completion : Completion algebra.Fault) (outside : Target.Stack signature algebra program input result) :
@@ -264,6 +281,14 @@ theorem CleanupFrameSteps.of_values {table : Target.Definitions signature algebr
   induction steps with
   | refl => exact .refl
   | cons step tail induction => exact .cons (.values step) induction
+
+theorem CleanupFrameSteps.of_region {table : Target.Definitions signature algebra program}
+    {before after : RegionDisposal signature algebra program result}
+    (steps : RegionDisposalSteps table before count after) :
+    CleanupFrameSteps table (.region before) count (.region after) := by
+  induction steps with
+  | refl => exact .refl
+  | cons step tail induction => exact .cons (.region step) induction
 
 theorem owned_cleanup_result_cannot_skip_disposal
     {table : Target.Definitions signature algebra program} {work : CleanupDisposal signature algebra program result}
