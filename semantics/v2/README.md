@@ -175,10 +175,19 @@ the handler's return clause executes. Selection, forwarding, finite ordinary
 observation preservation/reflection, capture provenance, relocation, and clone
 views include the frame; a running cleanup cannot become a multi template.
 A checked example distinguishes the cleanup's unit result, the saved integer
-body value, and the enclosing handler's text answer. Abrupt completion remains
-an explicit unwind boundary retaining its original value and exit information;
-failure/cancellation completion and full ownership/lifetime integration at that
-boundary are not finished.
+body value, and the enclosing handler's text answer.
+`GeneralizedCleanupCompletion` now starts failure/cancellation cleanup under that
+actual context and completes the running frame with the full exit record.
+Nested failure details retain their order and original-failure precedence.
+Cancellation updates the outermost running frame; the source/target context
+updates correspond and leave resource state and current body diagnostics intact.
+Abrupt completion examines actual owning fields. Nonowning aliases need no
+disposal, while owned saved results stay in an explicit pending state. Returned
+one-shot continuations use their real grants and saved futures for disposal,
+preserving the enclosing exit and unrelated owners. A checked transition path
+cannot propagate the exit before that disposal completes. Structured owned-value
+disposal, complete lifetime integration, and general stateful adequacy remain
+unfinished.
 
 ## Verification commands
 
