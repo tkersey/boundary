@@ -37,10 +37,11 @@ pub fn normalize(allocator: std.mem.Allocator, input: p.Program) Error!Normalize
 /// discovered ID must already equal its canonical number. Admission separately
 /// checks the ordered rows; no rewritten catalog or digest comparison is needed.
 pub fn require(allocator: std.mem.Allocator, input: p.Program) Error!void {
+    // Admission owns its workspace; release it before canonical discovery.
+    try admission.program(allocator, input);
     var temporary = std.heap.ArenaAllocator.init(allocator);
     defer temporary.deinit();
     const scratch = temporary.allocator();
-    try admission.program(scratch, input);
     const visitor = try scan(scratch, input);
     for (visitor.maps) |map| for (map, 0..) |id, index| {
         if (id != index) return error.NonCanonical;

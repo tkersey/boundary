@@ -148,3 +148,101 @@ Wasmtime 48.0.0. The candidate kernel was
 The handwritten checkpoint, stale-result and cancellation-rebinding lanes also
 passed. This closes the missing-fixture validation gap; final cross-version
 matrix and performance acceptance remain separate work.
+
+## Immutable parameter sharing experiment: rejected
+
+A bounded prototype pooled equal uniform block-parameter vectors while preserving
+all logical IDs, slice lengths, BPI2 bytes and full canonical admission. Mixed,
+permuted and repeated-operand vectors used ordinary owned storage. Optional
+allocation failure discarded the private decode and tried the original decoder;
+no public state or authority had been committed. Data and allocation-failure
+tests passed, including a new mixed/permuted-vector roundtrip.
+
+The [prototype patch](performance/metadata-pool-prototype.patch.txt) is retained
+only as experiment history; none of it remains in the production decoder.
+[Measurements](performance/metadata-pool-experiment.json) used five warmups and
+21 decoder samples through the existing 1 MiB World Workspace. Complete BPI2
+re-encoding was checked outside timing.
+
+| Image | Retained bytes before / pool | Peak payload before / pool | Decode median ns before / pool |
+|---|---:|---:|---:|
+| 1 installation | 6,178 / 6,178 | 11,416 / 11,416 | 3,875 / 3,916 |
+| 8 installations | 10,322 / 10,322 | 30,476 / 30,476 | 8,167 / 7,958 |
+| 64 installations | 101,024 / 101,024 | 179,898 / 179,898 | 68,458 / 71,875 |
+| Local State | 17,738 / 17,738 | 48,834 / 48,834 | 15,666 / 15,375 |
+
+These serial exploratory timing samples are not final paired acceptance results.
+The deterministic allocation result already fails the retention hypothesis:
+logical metadata sharing did not remove an arena backing allocation. With the
+native general allocator, 64-installation retention changed only from 135,322 to
+135,302 bytes and allocation calls increased from eight to nine. There is no
+justified gain for the additional parser path and scratch. A future contiguous
+packing experiment would need new evidence that it changes actual retained
+backing or complete operation cost, rather than merely reducing logical bytes.
+
+## Admission nesting and decoder peak
+
+The new bounded-memory probe exposed a real peak regression in the first
+lifetime change: eight installations used 30,476 peak payload bytes versus
+24,692 in B0, despite lower retention. `canonical.require` still nested the
+already-arena-owned admission operation inside another arena. Admission now
+uses the supplied allocator directly and finishes before canonical discovery.
+No validation is removed or result layout changed.
+
+After this correction, decoder retained / peak payload bytes in the same
+1 MiB Workspace are 6,178 / 9,042 (one installation), 10,322 / 16,590 (eight),
+101,024 / 140,036 (64), and 17,738 / 25,906 (local State). B0 peaks were
+16,856 / 24,692 / 210,002 / 48,998 respectively. Thus all four measured peaks
+are below B0, with the previously established retention reduction preserved.
+Raw observations are in the companion World's `docs/performance/decoder-memory-b0-b1.json`
+and `decoder-memory-flat-admission.json`, produced by `build-v2-decode-probe`.
+The rejected parameter-pool experiment is recorded as `NEG-000008`; the native
+Ledger binding and append were validated without rewriting prior events.
+
+## Administrative compiler experiment (rejected)
+
+The private identity-slot jump coalescing experiment passes authoring admission
+and the 41-fixture source-oracle/native/JavaScript/Wasmtime comparison, with the
+unmodified corrected W0 native consumer. Borrowed operands shrinks from 9,576 to
+9,501 BPI2 bytes; the generator shrinks from 808 to 796. The other 39 images are
+byte-identical. [Raw image hashes and sizes](performance/compiler-coalesce-experiment.json)
+record this exploratory result. These are new compilations with their own image
+identities, not a codec change or permission to reuse responses across images.
+
+The pass requires a unique incoming edge, the same function, an exact identity
+argument vector, and total scalar instructions. Function entries and yield
+boundaries remain intact. Focused admitted-record tests cover exact operand
+indices and the ineligible permutation/yield siblings. Full pre-transform
+admission and canonicalization's post-transform admission remain enabled.
+An exploratory already-built generator-emitter comparison used five warmup
+batches and 21 alternating paired samples, ten fresh processes per batch.
+The median paired elapsed ratio was 1.018 (candidate/reference), including
+process startup and output checking. This does not establish a compiler speedup
+and needs attribution before selection. [Raw emitter observations](performance/compiler-coalesce-emitter.json)
+retain every pair. The baseline emitter was built from `c914de1`; the candidate
+used the current working tree, both with Zig 0.16.0 and ReleaseSafe for every
+module.
+
+The follow-up [uninstrumented compiler loop](performance/compiler-coalesce-loop.json)
+excludes process startup and measures fresh construction, public compilation,
+encoding, digest checking and destruction. Across five warmup batches and 21
+alternating pairs of 100 compilations, generator medians were 124,021 ns before
+and 135,407 ns after; the median paired ratio was 1.100. A 12-byte reduction
+does not justify this measured compiler regression. The pass and its dedicated
+tests were removed; [the prototype patch](performance/compiler-coalesce-prototype.patch.txt)
+and [probe source](performance/compiler-loop-probe.zig.txt) preserve reproduction.
+
+The existing phase observer also located additional complete admission work:
+on the unchanged 64-installation image, the direct-optimization phase grew from
+708 to 38,375 ns. A no-jump early exit did not help because this workload has
+ineligible jumps. Both [original](performance/compiler-coalesce-phases.json) and
+[filtered](performance/compiler-coalesce-filtered-phases.json) attribution runs
+are retained. These instrumented fixed-buffer measurements are separate from
+the deciding uninstrumented compiler-loop timing. Final compiler output remains
+unchanged by this experiment; no smaller-program achievement is claimed.
+
+The rejected pass is recorded as `NEG-000009`. After removing it, the retained
+Boundary tree passed `zig build check-v2 -Doptimize=ReleaseSafe` with the isolated
+global cache, including the existing Lean/trust checks and all 41 source-oracle
+fixtures. The retained compiler source is identical to `c914de1`; the remaining
+production delta from that head is the canonical admission scratch-lifetime fix.

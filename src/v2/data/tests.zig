@@ -161,6 +161,28 @@ test "BPI2 admission scratch is released before the decoded owner" {
     try std.testing.expectEqual(tracked.allocated_bytes, tracked.freed_bytes);
 }
 
+test "decoded metadata preserves mixed and permuted parameter vectors" {
+    const program: p.Program = .{
+        .roots = .{ .entry = 0, .result = 0, .failure = 0 },
+        .schemas = &.{ .u64, .boolean },
+        .constants = &.{},
+        .effects = &.{},
+        .functions = &.{.{ .entry = 0, .parameters = &.{ 0, 1 }, .result = 0 }},
+        .blocks = &.{
+            .{ .function = 0, .parameters = &.{ 0, 1 }, .instructions = &.{}, .terminator = .{ .jump = .{ .block = 1, .arguments = &.{ .{ .slot = 1 }, .{ .slot = 0 } } } } },
+            .{ .function = 0, .parameters = &.{ 1, 0 }, .instructions = &.{}, .terminator = .{ .jump = .{ .block = 2, .arguments = &.{ .{ .slot = 1 }, .{ .slot = 0 }, .{ .slot = 1 } } } } },
+            .{ .function = 0, .parameters = &.{ 0, 1, 0 }, .instructions = &.{}, .terminator = .{ .return_value = 0 } },
+        },
+    };
+    var output: [1024]u8 = undefined;
+    const bytes = try image.encode(std.testing.allocator, program, &output);
+    var decoded = try image.decode(std.testing.allocator, bytes);
+    defer decoded.deinit();
+    try std.testing.expect(@import("canonical.zig").equal(p.Program, program, decoded.program));
+    var again: [1024]u8 = undefined;
+    try std.testing.expectEqualSlices(u8, bytes, try image.encode(std.testing.allocator, decoded.program, &again));
+}
+
 test "canonical catalogs remove unused declarations and ignore allocation ordinals" {
     const canonical = @import("canonical.zig");
     const reordered: p.Program = .{
