@@ -129,6 +129,7 @@ def followUnwind (runtime : Runtime signature algebra program)
     .cleanup ⟨{ runtime with id := identity, phase := .pending ⟨_, cleanup, bindings⟩ }, .unwind rest⟩
 
 def followUnwindResolution (resolution : Resolution signature algebra program result) : Option (UnwindNext signature algebra program result) :=
+  if !resolution.cleanupFinished then none else
   match resolution with
   | .unwind runtime outside => some (followUnwind runtime outside)
   | .reenter _ _ => none
@@ -221,18 +222,30 @@ variable [DecidableEq (ControlShape signature)] [DecidableEq (TypeOf signature)]
 
 inductive UnwindStep (table : Target.Definitions signature algebra program) :
     UnwindProgress signature algebra program result → List (Id .obligation) → UnwindProgress signature algebra program result → Prop where
-  | select : runtime.exit.primary ≠ .normal → followUnwind runtime outside = .cleanup scope →
+  | select (exiting : runtime.exit.primary ≠ .normal) (selected : followUnwind runtime outside = .cleanup scope)
+      (finished : (Resolution.unwind runtime outside).cleanupFinished = true := by rfl) :
       UnwindStep table (.seeking runtime outside) [scope.cleanup.id] (.cleaning scope)
   | execute : RuntimeStep table before initiations after →
       UnwindStep table (.cleaning ⟨before, .unwind outside⟩) [] (.cleaning ⟨after, .unwind outside⟩)
   | finish : runtime.phase = .finished outcome → runtime.exit.primary ≠ .normal →
       UnwindStep table (.cleaning ⟨runtime, .unwind outside⟩) [] (.seeking runtime outside)
-  | region : followUnwind runtime outside = .region identity runtime remaining →
+  | region (selected : followUnwind runtime outside = .region identity runtime remaining)
+      (finished : (Resolution.unwind runtime outside).cleanupFinished = true := by rfl) :
       UnwindStep table (.seeking runtime outside) [] (.region identity runtime remaining)
-  | cleanupReturn : followUnwind runtime outside = .cleanupReturn identity original exit runtime remaining →
+  | cleanupReturn (selected : followUnwind runtime outside = .cleanupReturn identity original exit runtime remaining)
+      (finished : (Resolution.unwind runtime outside).cleanupFinished = true := by rfl) :
       UnwindStep table (.seeking runtime outside) [] (.cleanupReturn identity original exit runtime remaining)
-  | complete : followUnwind runtime outside = .complete runtime →
+  | complete (selected : followUnwind runtime outside = .complete runtime)
+      (finished : (Resolution.unwind runtime outside).cleanupFinished = true := by rfl) :
       UnwindStep table (.seeking runtime outside) [] (.complete runtime)
+
+theorem unfinished_unwind_cannot_advance {table : Target.Definitions signature algebra program}
+    {runtime : Runtime signature algebra program}
+    {outside : Target.Stack signature algebra program input result}
+    (unfinished : (Resolution.unwind runtime outside).cleanupFinished = false) :
+    ¬ UnwindStep table (.seeking runtime outside) selected after := by
+  intro step
+  cases step <;> simp_all
 
 inductive UnwindSteps (table : Target.Definitions signature algebra program) :
     UnwindProgress signature algebra program result → List (Id .obligation) → UnwindProgress signature algebra program result → Prop where

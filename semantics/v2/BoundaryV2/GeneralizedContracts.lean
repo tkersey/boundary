@@ -206,6 +206,12 @@ namespace Exits
 and actual returned-value disposal. Finishing the registry/region embedding is
 required in addition to the local fields below; see the existing inventory. -/
 structure composition : Prop where
+  unfinished_boundary : ∀ {result} (resolution : ExitComposition.Resolution signature algebra program result),
+    resolution.cleanupFinished = false →
+      ExitComposition.finishCleanupFrame resolution = none ∧
+      ExitComposition.beginAbruptCleanup resolution = none ∧
+      ExitComposition.RegionDisposal.begin resolution = none ∧
+      ExitComposition.followUnwindResolution resolution = none
   initiation : ∀ (table : Target.Definitions signature algebra program)
     {before after : ExitComposition.Runtime signature algebra program} {count},
     ExitComposition.RuntimeSteps table before count after →

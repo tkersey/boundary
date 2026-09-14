@@ -178,6 +178,7 @@ Incoming diagnostics belong to this cleanup body; the frame owns the protected
 computation's original exit. Neither record replaces the other. -/
 def finishCleanupFrame (resolution : Resolution signature algebra program result) :
     Option (CompletedCleanup signature algebra program result) :=
+  if !resolution.cleanupFinished then none else
   match resolution with
   | .reenter state diagnostics => match state.control.configuration with
     | .returned _ future => match future with
@@ -204,6 +205,7 @@ def finishCleanupFrame (resolution : Resolution signature algebra program result
 with the original exit in the running frame and fresh body diagnostics. -/
 def beginAbruptCleanup (resolution : Resolution signature algebra program result) :
     Option (Resolution signature algebra program result) :=
+  if !resolution.cleanupFinished then none else
   match resolution with
   | .reenter state diagnostics => match state.control.configuration with
     | .failed fault future => match future with
@@ -218,6 +220,14 @@ def beginAbruptCleanup (resolution : Resolution signature algebra program result
       some (.reenter ⟨⟨runtime.store, .code cleanup (.cons (.exit runtime.exit) captured) .nil
         (.push (.cleanupReturn identity none runtime.exit) outside)⟩, runtime.cells, runtime.liveRegions⟩ ⟨.normal, [], none⟩)
     | _ => none
+
+theorem unfinished_cleanup_cannot_cross_outer_boundaries
+    (resolution : Resolution signature algebra program result)
+    (unfinished : resolution.cleanupFinished = false) :
+    finishCleanupFrame resolution = none ∧ beginAbruptCleanup resolution = none ∧
+      RegionDisposal.begin resolution = none ∧ followUnwindResolution resolution = none := by
+  simp only [finishCleanupFrame, beginAbruptCleanup, RegionDisposal.begin,
+    followUnwindResolution, unfinished, Bool.not_false, if_true, and_self]
 
 inductive CleanupFrameProgress (signature : Signature) (algebra : LeafAlgebra signature.Data)
     (program : List (BodyType signature.Data signature.Effect)) (result : TypeOf signature) where

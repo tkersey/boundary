@@ -228,6 +228,23 @@ cell alias, and then retires only the selected region while preserving outer
 storage, unrelated authority, and the original exit history. Region handoff
 during nested abandonment remains open.
 
+The outer unwind, cleanup-frame, and region handoff operations now use the
+completion condition owned by `Resolution`. Pending, running, and captured
+cleanup cannot be skipped to start outer work or dispose region cells. The
+unwind transition relation enforces the same condition, including its terminal
+case. General rejection laws cover arbitrary unfinished cursors; the completed
+region and cleanup paths remain checked.
+
+The standalone `ScopeProgress`, `ScopeStep`, and `ScopeSteps` wrapper is removed.
+It re-expressed `beginReturnedProtection`/`beginFailedProtection`, `RuntimeSteps`,
+and `finish` without adding a required interpretation. Its normal-return and
+captured-cleanup/write/cancellation regressions now assert those operations
+directly with the same inputs, initiation count, final resources, continuation,
+and exit. `RuntimeSteps.finished_never_restarts` states the no-restart consequence
+on actual cleanup execution. `ScopeExit` and its completion laws remain because
+the unwind and nested drivers still use them; their further integration is a
+named X obligation, not grounds to delete them prematurely.
+
 ## Verification commands
 
 From the repository root:

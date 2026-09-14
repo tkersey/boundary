@@ -21,8 +21,11 @@ def normalExitAfter : Target.State signature algebra [] (.leaf .boolean) :=
     normalExitBefore.cells, normalExitBefore.liveRegions⟩
 
 theorem completed_protection_returns_to_its_outer_continuation :
-    ExitComposition.ScopeSteps (.nil : Target.Definitions signature algebra [])
-      (.ready normalExitBefore) 1 (.resolved (.reenter normalExitAfter ⟨.normal, [], none⟩)) := by
+    ExitComposition.beginReturnedProtection normalExitBefore = some normalScope ∧
+    ExitComposition.RuntimeSteps (.nil : Target.Definitions signature algebra [])
+      normalScope.cleanup 1 normalScopeFinished ∧
+    ExitComposition.finish ⟨normalScopeFinished, normalScope.resume⟩ =
+      some (.reenter normalExitAfter ⟨.normal, [], none⟩) := by
   let started : ExitComposition.Runtime signature algebra [] :=
     ⟨⟨30⟩, .running (.code (.push .unit .ret) (.cons (.exit ⟨.normal, [], none⟩) .nil) .nil .done) .active,
       normalExitBefore.control.store, normalExitBefore.cells, normalExitBefore.liveRegions, ⟨.normal, [], none⟩⟩
@@ -38,7 +41,7 @@ theorem completed_protection_returns_to_its_outer_continuation :
   have ended : ExitComposition.RuntimeStep (.nil : Target.Definitions signature algebra []) ready 0 normalScopeFinished := .lifecycle .returned
   have run : ExitComposition.RuntimeSteps (.nil : Target.Definitions signature algebra []) normalScope.cleanup 1 normalScopeFinished :=
     .cons began (running.trans (.cons ended .refl))
-  exact ExitComposition.ScopeSteps.cons (signature := signature) (algebra := algebra) (count := 0) (rest := 1) (.returned rfl) (ExitComposition.complete_scope_after_cleanup normalScope.resume run rfl)
+  exact ⟨rfl, run, rfl⟩
 
 def failedExitBefore : Target.State signature algebra [] (.leaf .boolean) :=
   ⟨⟨writingCleanupPending.store, .failed .overflow
@@ -47,15 +50,16 @@ def failedExitBefore : Target.State signature algebra [] (.leaf .boolean) :=
     writingCleanupPending.cells, writingCleanupPending.liveRegions⟩
 
 theorem failed_scope_reentry_preserves_cleanup_updates_and_cancellation :
-    ExitComposition.ScopeSteps (.nil : Target.Definitions signature algebra [])
-      (.ready failedExitBefore) 1
-      (.resolved (.reenter ⟨⟨writingCleanupFinished.store, .failed .overflow completionOutside⟩,
-        writingCleanupFinished.cells, writingCleanupFinished.liveRegions⟩ writingCleanupFinished.exit)) ∧
+    ExitComposition.beginFailedProtection failedExitBefore [] none =
+      some ⟨writingCleanupPending, .unwind completionOutside⟩ ∧
+    ExitComposition.RuntimeSteps (.nil : Target.Definitions signature algebra [])
+      writingCleanupPending 1 writingCleanupFinished ∧
+    ExitComposition.finish ⟨writingCleanupFinished, .unwind completionOutside⟩ =
+      some (.reenter ⟨⟨writingCleanupFinished.store, .failed .overflow completionOutside⟩,
+        writingCleanupFinished.cells, writingCleanupFinished.liveRegions⟩ writingCleanupFinished.exit) ∧
     writingCleanupFinished.exit.cancellation = some "first" := by
   obtain ⟨run, _, _, _⟩ := captured_cleanup_finishes_without_losing_the_updated_cell
-  refine ⟨?_, rfl⟩
-  exact ExitComposition.ScopeSteps.cons (signature := signature) (algebra := algebra) (count := 0) (rest := 1) (.failed (failures := []) (cancellation := none) rfl)
-    (ExitComposition.complete_scope_after_cleanup (.unwind completionOutside) run rfl)
+  exact ⟨rfl, run, rfl, rfl⟩
 
 theorem next_scope_keeps_accumulated_cleanup_failures (original first second : Fault) :
     let exit : ExitInfo Fault String := ⟨.failure original, [first], some "first reason"⟩

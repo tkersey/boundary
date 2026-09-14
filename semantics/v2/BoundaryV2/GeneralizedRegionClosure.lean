@@ -156,12 +156,6 @@ def Resolution.withoutRegions (resolution : Resolution signature algebra program
   resolution.withStorage (resolution.cells.outsideRegions retiring)
     (resolution.regions.filter fun region => !retiring.contains region)
 
-def Resolution.cleanupFinished : Resolution signature algebra program result → Bool
-  | .reenter _ _ => true
-  | .unwind runtime _ => match runtime.phase with
-    | .finished _ => true
-    | .pending _ | .running _ _ => false
-
 /-- The argument is a completed exit resolution. Check the actual surviving
 control, retained/disposal futures, remaining cells, and declared external
 roots before publishing the storage/liveness change together. -/

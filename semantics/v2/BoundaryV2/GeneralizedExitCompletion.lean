@@ -27,6 +27,14 @@ inductive Resolution (signature : Signature) (algebra : LeafAlgebra signature.Da
   | unwind {input : TypeOf signature} : Runtime signature algebra program →
       Target.Stack signature algebra program input result → Resolution signature algebra program result
 
+/-- An outer boundary cannot consume the current cleanup's pending or running
+work. This is the common admission condition for all resolution consumers. -/
+def Resolution.cleanupFinished : Resolution signature algebra program result → Bool
+  | .reenter _ _ => true
+  | .unwind runtime _ => match runtime.phase with
+    | .finished _ => true
+    | .pending _ | .running _ _ => false
+
 def beginReturnedProtection (state : Target.State signature algebra program result) :
     Option (ScopeExit signature algebra program result) :=
   match state.control.configuration with
@@ -139,42 +147,6 @@ theorem abandonment_keeps_the_outside_for_unwinding
     finish ⟨runtime, .unwind outside⟩ = some (.unwind runtime outside) := by
   simp only [finish, completed, abandoned]
 
-inductive ScopeProgress (signature : Signature) (algebra : LeafAlgebra signature.Data)
-    (program : List (BodyType signature.Data signature.Effect)) (result : TypeOf signature) where
-  | ready : Target.State signature algebra program result → ScopeProgress signature algebra program result
-  | cleaning : ScopeExit signature algebra program result → ScopeProgress signature algebra program result
-  | resolved : Resolution signature algebra program result → ScopeProgress signature algebra program result
-
-variable [DecidableEq (ControlShape signature)] [DecidableEq (TypeOf signature)]
-
-inductive ScopeStep (table : Target.Definitions signature algebra program) :
-    ScopeProgress signature algebra program result → Nat → ScopeProgress signature algebra program result → Prop where
-  | returned : beginReturnedProtection state = some scope → ScopeStep table (.ready state) 0 (.cleaning scope)
-  | failed : beginFailedProtection state failures cancellation = some scope → ScopeStep table (.ready state) 0 (.cleaning scope)
-  | cleanup : RuntimeStep table before count after →
-      ScopeStep table (.cleaning ⟨before, resume⟩) count (.cleaning ⟨after, resume⟩)
-  | finish : ExitComposition.finish scope = some resolution → ScopeStep table (.cleaning scope) 0 (.resolved resolution)
-
-inductive ScopeSteps (table : Target.Definitions signature algebra program) :
-    ScopeProgress signature algebra program result → Nat → ScopeProgress signature algebra program result → Prop where
-  | refl : ScopeSteps table state 0 state
-  | cons : ScopeStep table first count middle → ScopeSteps table middle rest after → ScopeSteps table first (count + rest) after
-
-theorem completed_scope_has_no_second_transition
-    {table : Target.Definitions signature algebra program}
-    {resolution : Resolution signature algebra program result} :
-    ¬ ScopeStep table (.resolved resolution) count after := by intro step; cases step
-
-theorem complete_scope_after_cleanup
-    {table : Target.Definitions signature algebra program}
-    {before after : Runtime signature algebra program}
-    (resume : ResumePoint signature algebra program result)
-    (steps : RuntimeSteps table before count after)
-    (completed : finish ⟨after, resume⟩ = some resolution) :
-    ScopeSteps table (.cleaning ⟨before, resume⟩) count (.resolved resolution) := by
-  induction steps with
-  | refl => exact .cons (.finish completed) .refl
-  | cons step tail induction => exact .cons (.cleanup step) (induction completed)
 
 end BoundaryV2.Generalized.ExitComposition
 

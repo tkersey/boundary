@@ -65,4 +65,21 @@ theorem completed_region_keeps_unrelated_resources_and_original_exit :
     finished.cells = [outer] ∧ finished.regions = [⟨2⟩] ∧ finished.exitInfo = original.exit :=
   ⟨rfl, rfl, rfl, rfl, rfl⟩
 
+/-- This includes arbitrary executing and captured cleanup cursors. The old
+entry points admitted all four handoffs even with an unfinished phase. -/
+theorem unfinished_cleanup_retains_its_work (phase : Phase signature algebra [])
+    (unfinished : phase.unfinished = true) :
+    let runtime := { original with phase := phase }
+    ExitComposition.RegionDisposal.begin
+      (.unwind runtime (.push (.region ⟨1⟩) (.done : Target.Stack signature algebra [] .unit .unit))) = none ∧
+    ExitComposition.RegionDisposal.offer
+      (.offering (beginRegionHandoff ⟨1⟩ runtime (.done : Target.Stack signature algebra [] .unit .unit))) = none ∧
+    beginAbruptCleanup (.unwind runtime
+      (.push (.protection ⟨20⟩ (.fault .overflow) .nil) (.done : Target.Stack signature algebra [] .unit .unit))) = none ∧
+    finishCleanupFrame (.unwind runtime
+      (.push (.cleanupReturn ⟨20⟩ none ⟨.abandoned, [], none⟩) (.done : Target.Stack signature algebra [] .unit .unit))) = none := by
+  cases phase <;> simp_all [Phase.unfinished, ExitComposition.RegionDisposal.begin,
+    ExitComposition.RegionDisposal.offer, beginRegionHandoff, beginAbruptCleanup,
+    finishCleanupFrame, Resolution.cleanupFinished]
+
 end BoundaryV2.Generalized.Examples.RegionDisposal

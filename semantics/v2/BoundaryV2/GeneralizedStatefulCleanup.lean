@@ -94,4 +94,13 @@ theorem RuntimeSteps.running_never_restarts
   simp only [Phase.right] at conserved
   omega
 
+/-- Completion has no initiation right in the actual cleanup relation. This
+does not forbid later outer work or invent a separate terminal driver. -/
+theorem RuntimeSteps.finished_never_restarts
+    (steps : RuntimeSteps table ⟨identity, .finished completion, store, cells, regions, exit⟩ initiations after) :
+    initiations = 0 := by
+  have conserved := steps.initiation_conservation
+  simp only [Phase.right] at conserved
+  omega
+
 end BoundaryV2.Generalized.ExitComposition

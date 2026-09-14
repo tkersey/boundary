@@ -15,6 +15,7 @@ inductive RegionDisposal (signature : Signature) (algebra : LeafAlgebra signatur
 
 def RegionDisposal.begin (resolution : Resolution signature algebra program result) :
     Option (RegionDisposal signature algebra program result) :=
+  if !resolution.cleanupFinished then none else
   match resolution with
   | .unwind runtime future => match Target.unwindBoundary future with
     | .region identity outside => some (.offering (beginRegionHandoff identity runtime outside))
@@ -22,13 +23,22 @@ def RegionDisposal.begin (resolution : Resolution signature algebra program resu
   | _ => none
 
 def RegionDisposal.offer : RegionDisposal signature algebra program result → Option (RegionDisposal signature algebra program result)
-  | .offering handoff => handoff.offerNext.map fun (value, after) =>
+  | .offering handoff =>
+    if !(Resolution.unwind handoff.runtime handoff.outside).cleanupFinished then none else
+    handoff.offerNext.map fun (value, after) =>
       .disposing after.identity after.outside after.kept (ValueDisposal.start after.runtime value.snd)
   | _ => none
 
 def RegionDisposal.returnValue : RegionDisposal signature algebra program result → Option (RegionDisposal signature algebra program result)
   | .disposing identity outside kept work => work.finished.map fun runtime => .offering ⟨identity, runtime, outside, kept⟩
   | _ => none
+
+theorem unfinished_cleanup_cannot_offer_region_cells
+    (handoff : RegionHandoff signature algebra program input result)
+    (unfinished : (Resolution.unwind handoff.runtime handoff.outside).cleanupFinished = false) :
+    RegionDisposal.offer (.offering handoff) = none := by
+  change (if !(Resolution.unwind handoff.runtime handoff.outside).cleanupFinished then none else _) = none
+  simp only [unfinished, Bool.not_false, if_true]
 
 /-- An exhausted offer loop does not itself authorize retirement. The existing
 retirement operation checks completion, physical fields, and all surviving roots. -/
