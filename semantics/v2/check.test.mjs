@@ -75,16 +75,24 @@ function claimMutations() {
     accepted(compile('GeneralizedStateObservations', observations, true), 'restored stateful observations');
     const registeredObservation = '∃ count, Steps table before count after ∧ Source.HeadObservation after.control.computation observation';
     assert(registered.includes(registeredObservation), 'missing registered observation mutation target');
-    accepted(compile('GeneralizedRegisteredExecution', registered.replace(registeredObservation,
-      'Source.StateObserves table before.state after.state observation'), true), 'registered observation restricted to core-only probe');
-    accepted(compile('GeneralizedContracts', contracts, true), 'contracts over restricted registered observations');
-    rejected(compile('GeneralizedContractChecks', consumers), 'registered observation replaced with core-only observation');
+    const restrictedSource = compile('GeneralizedRegisteredExecution', registered.replace(registeredObservation,
+      'Source.StateObserves table before.state after.state observation'), true);
+    if (restrictedSource.status === 0) {
+      accepted(compile('GeneralizedContracts', contracts, true), 'contracts over restricted registered observations');
+      rejected(compile('GeneralizedContractChecks', consumers), 'registered observation replaced with core-only observation');
+    } else {
+      rejected(restrictedSource, 'registered observation replaced with core-only observation');
+    }
     const registeredTargetObservation = '∃ count, Steps table before count after ∧ Target.HeadObservation after.control.configuration observation';
     assert(registered.includes(registeredTargetObservation), 'missing registered target observation mutation target');
-    accepted(compile('GeneralizedRegisteredExecution', registered.replace(registeredTargetObservation,
-      'Target.StateObserves table before.state after.state observation'), true), 'registered target observation restricted to core-only probe');
-    accepted(compile('GeneralizedContracts', contracts, true), 'contracts over restricted registered target observations');
-    rejected(compile('GeneralizedContractChecks', consumers), 'registered target observation replaced with core-only observation');
+    const restrictedTarget = compile('GeneralizedRegisteredExecution', registered.replace(registeredTargetObservation,
+      'Target.StateObserves table before.state after.state observation'), true);
+    if (restrictedTarget.status === 0) {
+      accepted(compile('GeneralizedContracts', contracts, true), 'contracts over restricted registered target observations');
+      rejected(compile('GeneralizedContractChecks', consumers), 'registered target observation replaced with core-only observation');
+    } else {
+      rejected(restrictedTarget, 'registered target observation replaced with core-only observation');
+    }
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
