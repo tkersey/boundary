@@ -1,5 +1,0 @@
-0da1f478fa1de495c2354724a8b90d7279fd7219c4dcde7f9f79dff85c1e06b6  world-process-kernel-v2.wasm
-130c23d186233470dd0fb016ad79dc9c59516284baee71642c644f009e081b6b  world-v2-conformance.json
-1b864811a5d29d12fe5824846693d50a1eb549fecf3a22419bd681273fcdb795  world-v5.0.0-process-runtime.tar.gz
-993f23414fd372b92fe73cfe21df4e0e9a3adafa863810a69941e9a6f5c2a43e  world-v5.0.0-release-receipt.json
-cc74fc058cad74ed880df1607775c63035b3ecf6af095291969f1e99a62e73d5  world-v2-conformance.bin

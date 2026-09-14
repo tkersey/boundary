@@ -10,7 +10,7 @@ Draft delivery: [Boundary #150](https://github.com/tkersey/boundary/pull/150) an
 [World #52](https://github.com/tkersey/world/pull/52). The accepted September 14,
 2026 “Boundary 2 / World 5 — API-Preserving Performance Optimization v1” remains
 the scope. The [validation summary](performance/validation.md) identifies checked
-commits, commands, outcomes and accessible logs; it distinguishes production,
+commits, commands, outcomes and selected records; it distinguishes production,
 harness, packaging and measurement evidence.
 
 ## Inputs and retained implementation

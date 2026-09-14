@@ -1,4 +1,0 @@
-git diff --name-status 2c402b4b2ed69be68b2c5d9be2df77c2b3ce3797 d05df6bd5ec6c322088ef57c36278db93d779b0b -- src build.zig build.zig.zon test scripts semantics
-exit 0; empty diff
-
-All changes are reports, validation observations, the cold harness and its Node tests, and admitted review witnesses. No runtime, build, package, source fixture or existing runtime benchmark input changed.

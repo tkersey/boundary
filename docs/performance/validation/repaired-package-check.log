@@ -1,8 +1,0 @@
-authenticated runtime replayed 563 canonical record checks in both WASM embeddings
-Using CPython 3.14.7 interpreter at: /opt/homebrew/opt/python@3.14/bin/python3.14
-Creating virtual environment at: .cache/v2/wasmtime-environment
-Downloading wasmtime (8.0MiB)
- Downloaded wasmtime
-Installed 1 package in 1ms
-post-freeze consent-scan consumer: 833 exact records under 9545076f16482ccb346ab7792ae87f4d9a262c3fe08b4086b3c376ed2b218c06
-compiler example, bundled CLI, verified archives and runtime-only replay passed

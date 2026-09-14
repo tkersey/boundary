@@ -1,10 +1,10 @@
 # Performance delivery validation
 
-This is the shared validation record for Boundary #150 and World #52. Logs below
-are checked in as ordinary PR artifacts. They contain actual verifier output;
-release receipts identify actual locally built packages. No release was published.
-The absence of GitHub-attached checks at the reviewed heads was a visibility gap,
-not evidence that local checks had not run.
+This is the shared acceptance summary for Boundary #150 and World #52. The
+maintained evidence consists of the existing tests, material measurements and
+selected result records. Detailed verification output remains accessible in the
+[historical validation directory](https://github.com/tkersey/boundary/tree/e8513f34248e60c933c863abc8b1c95e0f91ef63/docs/performance/validation);
+it is not a required inventory of maintained source artifacts. No release was published.
 
 ## Checked inputs and reuse
 
@@ -13,94 +13,84 @@ not evidence that local checks had not run.
 | B0 | Boundary `55e8feedcae0b9ee1492da11f9fbd4a1ac7ff328` |
 | B-check | Boundary `2c402b4b2ed69be68b2c5d9be2df77c2b3ce3797` (aggregate, wire, matrix and first cold correction window) |
 | B-harness | Boundary `d05df6bd5ec6c322088ef57c36278db93d779b0b` (final executable harness and ten tests) |
-| B-package | Boundary `1cf24fbb0ce53da0c46b2f337c91888d0228200a` (reviewed fixture/package input) |
+| B-package | Boundary `1cf24fbb0ce53da0c46b2f337c91888d0228200a` (fixture/package input) |
 | W0 | World `87698f92ca7be4d5442e97ba27a2468aa3ff6a7c` |
 | W-code | World `a181646d8ef556b9f1be8187ba7c9f51b9c7fd74` |
 
-The correction checks use detached, clean checkouts at these immutable commits.
-[Command records](validation/correction-checks.json) and
-[additional command records](validation/correction-extra-checks.json) give exact
-executables, arguments, working directories, source heads, environment overrides,
-exit statuses and times. Their individual logs include the same command headers.
-Commits after B-harness and W-code add only reports, observations and supporting
-logs under `docs/`; they are not claimed to have been executed as code. The
-[final input comparison](validation/correction-final-input-comparison.txt) also
-confirms that B-harness changes no runtime, build, package or source-fixture inputs
-relative to B-check. Harness validation is separate from that reuse.
+The checks ran in detached, clean checkouts. Existing
+[execution records](validation/correction-checks.json) and
+[additional execution records](validation/correction-extra-checks.json) retain
+commands, working directories, source heads, configuration, exit statuses and
+times. Their `cold-interface` entry is the earlier eight-test run at B-check;
+the final ten-test run is separately bound to B-harness below.
 
 The original runtime windows measured Boundary
 `b599e664c57ca455395038bd28b703837f870030` and World
-`24867d20afd2076136c0cb14d64fee3a951d0f96`. The
-[input comparison](validation/measured-input-comparison.txt) establishes empty
-diffs for `src/`, `build.zig` and `build.zig.zon` from those inputs to B-check/W-code
-and lists all intervening changes. This preserves those timing observations'
-production relevance. It does not validate changed fixture packaging or the new
-harness; those have separate execution evidence below. No unrelated runtime
-window was repeated because a documentation commit changed HEAD.
+`24867d20afd2076136c0cb14d64fee3a951d0f96`. Their `src/`, `build.zig` and
+`build.zig.zon` inputs are unchanged at B-check/W-code. B-harness also changes no
+runtime, build, package, source-fixture or existing runtime-benchmark inputs
+relative to B-check. The comparisons are recorded in the historical directory.
+Those facts preserve the corresponding evidence; they do not substitute runtime
+timings for validation of the separately changed harness or packaging.
 
-Tool configuration: Zig **0.16.0**, Node **26.8.2**, macOS arm64 / Apple M2 Pro;
-native **ReleaseSafe**, guest **ReleaseSmall** as fixed by the repository.
-Cross-engine/package checks use Wasmtime **48.0.0** through the existing `uv`
-project (Python **3.14.7**). Boundary's existing Lean aggregate uses its unchanged
-`semantics/v2/lean-toolchain` (Lean 4.33.1); trust output is retained in the aggregate log.
-The [package receipts](validation/repaired-world-receipt.json) record tools,
-source file identities, kernel memory settings and artifacts. Reservations,
-capacity, public lifecycle and workload expectations were not weakened.
+Tools: Zig **0.16.0**, Node **26.8.2**, macOS arm64 / Apple M2 Pro; native
+**ReleaseSafe**, repository-fixed guest **ReleaseSmall**. Cross-engine/package
+checks use Wasmtime **48.0.0**, the existing `uv` project and Python **3.14.7**.
+Boundary's unchanged Lean aggregate uses **4.33.1**.
+
+Review closeout completed at Boundary
+`e8513f34248e60c933c863abc8b1c95e0f91ef63` and World
+`0a0b38d03282f7fddbbb9583c7ae81d99a059d6b`. The subsequent archival cleanup
+changes no executable inputs, independent expectations or material measurements.
+It reuses that acceptance and review evidence, with scope and link checks for the
+archival edits; it does not claim execution or fresh reviews of a later HEAD.
 
 ## Acceptance lanes
 
-| Lane | Inputs and command/configuration | Outcome and accessible output |
+All outcomes below describe the named executions, not new runs for this archival cleanup.
+
+| Lane | Inputs / command | Outcome and retained evidence |
 |---|---|---|
-| Repaired harness interface | B-harness; `node --test docs/performance/cold-guard.test.mjs` | **Passed** — [final log](validation/correction-final-interface.log); ten tests including arbitrary/relative/spaced paths, missing paths/tools, dirty trees, existing output, subprocess errors/signals, partial results, ordinary/preserved-symlink CLI entry, side-effect-free imports and name-dispatching PATH shims. Stubbed failure bookkeeping is not performance evidence. |
-| Boundary aggregate | B-check, World not involved; `zig build check-v2 -Doptimize=ReleaseSafe` with isolated output/cache | **Passed** — [log](validation/correction-boundary-aggregate.log). 375/375 build steps and 102/102 Zig tests; data/authoring/economy, source oracle, lifetime/alias/cycle/failure sweeps, artifact tests and existing Lean/trust checks. |
-| BPI2 wire equality | B0 and B-check; baseline source/economy emission and exact file-byte comparison | **Passed** — [build log](validation/correction-baseline-wire-build.log), [41 exact comparisons](validation/correction-wire.json). The older [dirty exploratory comparison](boundary-wire-equality.json) remains historical. |
-| Combined World aggregate | W-code + B-check and its emitted fixtures; `zig build check-v2 -Doptimize=ReleaseSafe` with explicit source, fixture, v1 kernel and lifter paths | **Passed** — [log](validation/correction-world-companion-aggregate.log). 54/54 build steps and 55/55 Zig tests; ownership/failure and capacity checks, source/target transfers across native/JS/Wasmtime, codecs, external consumers and physical package checks. |
-| Default-pin World aggregate | W-code + B0; no Boundary source override; explicit B0 fixtures, v1 kernel and lifter | **Passed; reused** — [actual log](validation/repaired-world-pinned-check-2.log), [stored execution receipt](validation/world-repair-proof.json). Pinned-source kernel `0da1f478…`; no pin changed. |
-| Four native source combinations | `zig build check-v2-native -Doptimize=ReleaseSafe` for W0/B0, W0/B-check, W-code/B0; W-code/B-check included in aggregate | **Passed** — [W0/B0](validation/correction-native-w0-b0.log), [W0/B-check](validation/correction-native-w0-b1.log), [W-code/B0](validation/correction-native-w1-b0.log). |
-| Cross-version source transfers | W0 native embedding built with B0, W-code/B-check guest; current source-transfer runner and B-check oracle/fixtures | **Passed** — [native build](validation/correction-cross-native-build.log), [41-fixture transfer log](validation/correction-cross-source.log). Actual native and JS producers alternate; Wasmtime also checks source checkpoints. |
-| Companion package and extracted examples | B-package + W-code assets; W-code `node scripts/v2/check_release.mjs … B-package W-code` | **Passed** — [fresh log](validation/correction-companion-package.log), [package result](validation/correction-companion-package.json). Strict source/archive inventory, extracted example 14, bundled CLI, runtime-only replay and 833 external records. [Example 40 and 14 log](validation/closed-emitter-package-check.log) is retained from the earlier checked archive. |
-| Default-pin package | B0 published Boundary assets + W-code pinned assets; same verifier with explicit commits | **Passed** — [fresh log](validation/correction-pinned-package.log), [package result](validation/correction-pinned-package.json). Same inventory/authentication and fresh consumer checks. |
-| Cold performance guard | B0/B-harness and W0/W-code, final B-harness script | **Passed** — [final observations](correction-cold-guard-2.json), [command](validation/cold-final-command.json), [log](validation/cold-final.log), [exit](validation/cold-final-exit.json). The [first correction window](correction-cold-guard.json) is preserved separately. |
-| Existing runtime/memory windows | Original measured commits above, unchanged production inputs | **Retained** — [World's raw observations and statistical scope](https://github.com/tkersey/world/blob/perf/api-preserving-data-path/docs/api-preserving-performance.md#runtime-results). Not rerun for report changes. |
+| Harness interface | B-harness; `node --test docs/performance/cold-guard.test.mjs` | **Passed**, ten tests: paths, preflight, launch failures/signals, partial results, preserved symlinks, safe imports and PATH shims. [Historical final output](https://github.com/tkersey/boundary/blob/e8513f34248e60c933c863abc8b1c95e0f91ef63/docs/performance/validation/correction-final-interface.log). Stubbed error tests are not performance evidence. |
+| Boundary aggregate | B-check; `zig build check-v2 -Doptimize=ReleaseSafe` | **Passed**, 375/375 build steps and 102/102 Zig tests, plus source-oracle, artifact and Lean/trust checks. Commands and outcome in `correction-checks.json`; detailed output in the historical directory. |
+| BPI2 wire equality | B0 / B-check; source and economy emission, exact byte comparison | **Passed**, [41 exact comparisons](validation/correction-wire.json); build invocation in `correction-extra-checks.json`. |
+| Combined World aggregate | W-code / B-check; `zig build check-v2 -Doptimize=ReleaseSafe` with explicit fixtures, legacy kernel and lifter | **Passed**, 54/54 build steps and 55/55 Zig tests; ownership/failure, capacity, native/JS/Wasmtime transfers, codecs, external consumers and physical package checks. Invocation in `correction-checks.json`. |
+| Default-pin World aggregate | W-code / B0; same aggregate without a source override | **Passed; reused**. [Historical output](https://github.com/tkersey/boundary/blob/e8513f34248e60c933c863abc8b1c95e0f91ef63/docs/performance/validation/repaired-world-pinned-check-2.log), bound at the same commit by `world-repair-proof.json` and the pinned package receipt. No pin changed. |
+| Four native combinations | `zig build check-v2-native -Doptimize=ReleaseSafe` for W0/B0, W0/B-check, W-code/B0 and W-code/B-check | **Passed**; first three invocations in `correction-checks.json`, fourth included in the combined aggregate. |
+| Cross-version source transfers | W0/B0 native producer and W-code/B-check guest; B-check oracle/fixtures | **Passed**, 41 source fixtures, alternating native/JS producers and Wasmtime checkpoints. Build and transfer invocations in `correction-extra-checks.json`. |
+| Companion package | B-package / W-code; `node scripts/v2/check_release.mjs` with explicit commits | **Passed**, [package result](validation/correction-companion-package.json): strict inventories, extracted example 14, bundled CLI, runtime-only replay, 563 conformance and 833 external records. Earlier extracted examples 14/40 passed on the same archive; their output remains in the historical directory. |
+| Default-pin package | B0 assets / W-code pinned assets; same verifier with explicit commits | **Passed**, [package result](validation/correction-pinned-package.json): 555 conformance and 833 external records, with the same authentication and inventory checks. |
+| Cold guard | B0/B-harness and W0/W-code | **Passed**, [final observations](correction-cold-guard-2.json) and [invocation](validation/cold-final-command.json). The [first correction window](correction-cold-guard.json) remains separate. |
+| Runtime and memory | Original measured commits above | **Retained**, [World results and raw observations](https://github.com/tkersey/world/blob/perf/api-preserving-data-path/docs/api-preserving-performance.md#runtime-results). Not rerun for archival or reporting edits. |
 
-The explicit historical kernel supplied to aggregate checks is the v1.8.2 asset,
-SHA-256 `4da38268f12e8a2749a266480748da5460b5030dadfc10804f79ba3a3bb8013e`.
-Its presence is a conformance prerequisite, not the separate 0.80 cold-compilation
-comparison. The exact command paths and lifter selection are in the new logs.
+The aggregate's historical v1.8.2 kernel has SHA-256
+`4da38268f12e8a2749a266480748da5460b5030dadfc10804f79ba3a3bb8013e`.
+Its use is conformance evidence, not the separate 0.80 cold-compilation comparison.
 
-## Package evidence
+## Artifact identities
 
-Before reuse, every available old log was compared byte-for-byte by SHA-256 with
-its stored [Boundary](validation/boundary-repair-proof.json) or
-[World](validation/world-repair-proof.json) execution receipt. All matched. The
-receipts' historical `/tmp` paths identify the original files; copies with those
-same basenames are linked here and remain byte-identical. A receipt alone is not
-substituted for the accessible verifier output.
+The package result records retain checked commits, kernel identities, comparison
+counts and runtime entry hashes. Full emission receipts and source inventories
+remain in the historical directory, including the clean B-package/W-code and
+B0/W-code bindings. Their existing local execution logs were checked against
+recorded hashes before reuse; they are not reconstructed from PR prose.
 
-| Asset set | Source binding and supporting records |
+| Artifact | Identity |
 |---|---|
-| Boundary candidate | [Receipt](validation/repaired-boundary-receipt.json), [SHA256SUMS](validation/repaired-boundary-SHA256SUMS.txt), [emission log](validation/repaired-boundary-release-2.log): B-package, clean; 41 programs, 126 source scripts. |
-| World companion | [Receipt](validation/repaired-world-receipt.json), [SHA256SUMS](validation/repaired-world-SHA256SUMS.txt), [emission log](validation/repaired-world-release-2.log): W-code + B-package, clean; 563 exact native/JS/Wasmtime record checks. |
-| World default pin | [Receipt](validation/repaired-world-pinned-receipt.json), [SHA256SUMS](validation/repaired-world-pinned-SHA256SUMS.txt), [emission log](validation/repaired-world-pinned-release.log): W-code + B0, clean; 555 exact record checks. |
-
-Companion kernel: **393,588 bytes**,
-`9545076f16482ccb346ab7792ae87f4d9a262c3fe08b4086b3c376ed2b218c06`.
-Default-pin kernel: **392,622 bytes**,
-`0da1f478fa1de495c2354724a8b90d7279fd7219c4dcde7f9f79dff85c1e06b6`.
-Boundary examples archive:
-`c4bb445cf00682205ae32e20f0cdade0eb5f9cefd4488b2d51fdb4a364fe1d12`.
-All source, archive, fixture bundle and conformance artifact identities are in
-the receipts. The current cold build reproduces the companion kernel hash.
+| Companion kernel | 393,588 bytes; `9545076f16482ccb346ab7792ae87f4d9a262c3fe08b4086b3c376ed2b218c06` |
+| Default-pin kernel | 392,622 bytes; `0da1f478fa1de495c2354724a8b90d7279fd7219c4dcde7f9f79dff85c1e06b6` |
+| Boundary examples archive | `c4bb445cf00682205ae32e20f0cdade0eb5f9cefd4488b2d51fdb4a364fe1d12` |
+| Final cold harness | `aed494ba631991fe47c2faedda8240afd0c7a8452405539081f94b763d097711` |
 
 ## Repaired harness
 
-The end-to-end run used caller-supplied relative paths under a fresh temporary
-directory named `boundary performance correction …`, with `B0 checkout`,
-`B1 checkout`, `W0 checkout`, `W1 checkout` and sibling `cold results` directories.
-These locations contain spaces and are outside the former hardcoded roots.
-The final invocation additionally preserves the main-module symlink. Preflight
-and final readback confirm clean source identities. No builds or other
-benchmarks ran alongside this measurement window.
+The final run used caller-supplied relative checkout paths containing spaces,
+with results/caches outside the clean measured trees and the main-module symlink
+preserved. No builds or other benchmarks overlapped the window. Each workload
+has five paired cold samples with fresh local/global Zig caches; the already-built
+emitter has five warmups and 21 paired launches. OS caches are not flushed and
+emitter times include process startup. Source, tool, harness and artifact
+identities accompany the raw rows.
 
 | Workload | Baseline median | Candidate median | Ratio of medians | Median paired ratio |
 |---|---:|---:|---:|---:|
@@ -108,35 +98,20 @@ benchmarks ran alongside this measurement window.
 | Cold World kernel | 9.549479 s | 9.661370 s | 1.011717 | 1.004112 |
 | Already-built emitter launch | 2.428417 ms | 2.408875 ms | 0.991953 | 0.987217 |
 
-There are five paired cold samples per workload, fresh local/global object caches
-for every sample, and five emitter warmups followed by 21 paired launches.
-OS caches are not flushed. Timings include the original subprocess boundaries;
-the emitter includes process startup. The 114-byte emitted image is identical
-across all cold and emitter samples, and kernels are reproducible per side.
-These near-parity observations do not establish a uniform cold speedup or a
-universal non-regression theorem.
+All 114-byte emitted images agree; kernels reproduce per side. The slower kernel
+median is retained alongside the other results. These samples establish neither
+uniform cold speedup nor universal non-regression. The original
+[cold window](final-cold-guard.json) and both correction windows retain their
+original hashes and observations.
 
-Harness SHA-256:
-`aed494ba631991fe47c2faedda8240afd0c7a8452405539081f94b763d097711`.
-The old [cold window](final-cold-guard.json) retains its original hash and data.
-One initial execution of revision `b54b02d` exited zero without running because
-its CLI entry comparison did not canonicalize macOS's `/var` alias. The
-[original command](validation/initial-performance-correction-cold-command.json),
-[empty log](validation/initial-performance-correction-cold.log) and
-[exit status](validation/initial-performance-correction-cold-exit.json) are retained.
-This attempt is a **failed harness validation with no performance samples**.
-B-check fixed the default symlink case and completed the first correction window.
-A subsequent [review](validation/harness-review-findings.json) found two further
-valid cases: preserved main-module aliases and name-dispatching tool shims.
-B-harness uses Node's native `import.meta.main` and preserves the selected PATH
-invocation name. Its ten-test log covers both witnesses and safe module imports.
-The final window is separate from the first; no historical observations were replaced.
+An initial `b54b02d` invocation exited zero without measuring because of macOS's
+`/var` alias. Later review found preserved-main aliases and PATH shim dispatch
+also needed correction. These were harness failures, not performance samples.
+B-harness uses Node's main-module identity and preserves PATH invocation names;
+the regression tests retain those distinctions. Intermediate empty logs and
+review output are historical detail, not additional maintained test artifacts.
 
-## Remaining limits
-
-No required environment gap is currently hidden by a report or digest. Final
-check outcomes above must be read at their named commits. This finite suite is
-not a universal proof of every runtime path, individual-request tail latency,
-or memory non-regression. The storage representation, repeated-advance and
-large-constant limitations remain in the reports. Draft status, public pins,
-formats and release state are unchanged.
+Public APIs, formats, admission, ownership, capacity, independent expectations
+and required acceptance checks remain unchanged. No validation gap was created
+by removing redundant archival copies. The reports retain the binary-size,
+repeated-advance, large-constant and tail-latency limitations.
