@@ -6,8 +6,9 @@ import { spawnSync } from 'node:child_process';
 import { performance } from 'node:perf_hooks';
 import { createHash } from 'node:crypto';
 
-const output = process.argv[2];
-assert.ok(output, 'expected an unused output directory');
+const outputArgument = process.argv[2];
+assert.ok(outputArgument, 'expected an unused output directory');
+const output = path.resolve(outputArgument);
 fs.mkdirSync(output); // Never silently reuse a cold cache.
 const roots = {
   boundary: ['/Users/tk/.codex/worktrees/perf-reference/boundary', '/Users/tk/.codex/worktrees/e38a/boundary'],

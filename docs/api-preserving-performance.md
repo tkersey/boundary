@@ -1,5 +1,16 @@
 # API-preserving performance results
 
+## Packaging and reproducer repairs
+
+Initial review found that the cleanup helper imported by the fixture emitter
+was absent from the shipped examples archive. The helper is now private to the
+already-shipped emitter, removing that extra file dependency without widening
+World's authenticated archive allowlist. All 41 source JSON/image pairs remain
+byte-identical. The generated archive passes World's strict source/inventory
+admission, and extracted examples 14 and 40 compile to their expected bytes.
+The cold-build reproducer now resolves its output directory before changing
+subprocess working directories; recorded absolute-path measurements remain valid.
+
 ## Committed-candidate measurement guard
 
 Boundary `b599e664c57ca455395038bd28b703837f870030` and World
