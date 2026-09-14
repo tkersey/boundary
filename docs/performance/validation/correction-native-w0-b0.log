@@ -1,0 +1,53 @@
+{
+  "name": "native-w0-b0",
+  "executable": "zig",
+  "args": [
+    "build",
+    "check-v2-native",
+    "-Doptimize=ReleaseSafe",
+    "-Dboundary-v2-source=/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/B0 checkout",
+    "--global-cache-dir",
+    "/Users/tk/.codex/worktrees/perf-reference/world-global",
+    "--summary",
+    "all"
+  ],
+  "cwd": "/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/W0 checkout",
+  "sources": [
+    {
+      "root": "/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/B0 checkout",
+      "commit": "55e8feedcae0b9ee1492da11f9fbd4a1ac7ff328",
+      "dirty": ""
+    },
+    {
+      "root": "/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/B1 checkout",
+      "commit": "2c402b4b2ed69be68b2c5d9be2df77c2b3ce3797",
+      "dirty": ""
+    },
+    {
+      "root": "/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/W0 checkout",
+      "commit": "87698f92ca7be4d5442e97ba27a2468aa3ff6a7c",
+      "dirty": ""
+    },
+    {
+      "root": "/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/W1 checkout",
+      "commit": "a181646d8ef556b9f1be8187ba7c9f51b9c7fd74",
+      "dirty": ""
+    }
+  ],
+  "started": "2026-09-14T21:51:56.051Z"
+}
+check-v2-native
++- run test w
+snapshot reachable=2 visits=2 edges=2 expected_edges=2
+branches=1 cloned_nodes=6 shared_environments=1 blob_copies=1 payload_bytes=65539
+branches=8 cloned_nodes=48 shared_environments=8 blob_copies=1 payload_bytes=65539
+branches=64 cloned_nodes=384 shared_environments=64 blob_copies=1 payload_bytes=65539
+failed command: ./.zig-cache/o/9a6f25db97d709af72fc525855bec20d/test --cache-dir=./.zig-cache --seed=0xe197ff9 --listen=-
+
+Build Summary: 3/3 steps succeeded; 51/51 tests passed
+check-v2-native success
++- run test 51 pass (51 total) 1s MaxRSS:444M
+   +- compile test ReleaseSafe native success 13s MaxRSS:734M
+
+
+{"status":0,"signal":null}

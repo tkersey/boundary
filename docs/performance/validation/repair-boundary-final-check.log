@@ -1,0 +1,118 @@
+24 handler return borrow cases passed
+.
+'BoundaryV2.Control.append_runs_in_order' does not depend on any axioms
+'BoundaryV2.Control.append_done' depends on axioms: [propext]
+'BoundaryV2.Control.append_associative' depends on axioms: [propext]
+'BoundaryV2.Control.selection_reconstructs_context' depends on axioms: [propext, Quot.sound]
+'BoundaryV2.Control.selection_uses_capability_identity' depends on axioms: [propext, Quot.sound]
+'BoundaryV2.Control.deep_resume_applies_return_once' does not depend on any axioms
+'BoundaryV2.Control.shallow_resume_does_not_reinstall' does not depend on any axioms
+'BoundaryV2.Control.clause_answer_bypasses_return' does not depend on any axioms
+'BoundaryV2.Control.non_tail_resume_retains_both_continuations' depends on axioms: [propext]
+'BoundaryV2.Control.operation_progress' depends on axioms: [propext, Quot.sound]
+'BoundaryV2.Control.renamed_context_preserves_value' depends on axioms: [propext]
+'BoundaryV2.Control.linear_disposition_preserves_ownership' depends on axioms: [propext, Classical.choice, Quot.sound]
+'BoundaryV2.Control.linear_disposition_cannot_repeat' depends on axioms: [propext, Classical.choice, Quot.sound]
+'BoundaryV2.Control.live_linear_disposition_progress' depends on axioms: [propext, Quot.sound]
+'BoundaryV2.Control.resume_consumes_before_returning_to_clause' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound]
+'BoundaryV2.Control.Target.compiled_block_preserves_value' depends on axioms: [propext]
+'BoundaryV2.Control.Target.compiled_frame_preserves_value' depends on axioms: [propext]
+'BoundaryV2.Control.Target.compilation_preserves_composition' depends on axioms: [propext]
+'BoundaryV2.Control.Target.compiled_context_preserves_value' depends on axioms: [propext]
+'BoundaryV2.Control.Target.compilation_preserves_selection' depends on axioms: [propext]
+'BoundaryV2.Control.Target.compilation_preserves_capture' depends on axioms: [propext]
+'BoundaryV2.Control.Target.compilation_preserves_non_tail_resume' depends on axioms: [propext]
+'BoundaryV2.Control.Target.return_step_simulation' depends on axioms: [propext]
+'BoundaryV2.Control.Target.return_trace_simulation' depends on axioms: [propext]
+'BoundaryV2.Core.code_append_runs_in_order' does not depend on any axioms
+'BoundaryV2.Core.compile_preserves_value_and_scope' depends on axioms: [propext]
+'BoundaryV2.ownership_empty_valid' depends on axioms: [propext, Quot.sound]
+'BoundaryV2.capture_preserves_ownership' depends on axioms: [propext, Quot.sound]
+'BoundaryV2.consume_preserves_ownership' depends on axioms: [propext, Classical.choice, Quot.sound]
+'BoundaryV2.consumed_token_cannot_resume' depends on axioms: [propext, Classical.choice, Quot.sound]
+'BoundaryV2.multi_activations_are_distinct' depends on axioms: [propext, Classical.choice, Quot.sound]
+'BoundaryV2.multi_activation_preserves_ownership' depends on axioms: [propext, Quot.sound]
+'BoundaryV2.clone_preserves_outer_regions' does not depend on any axioms
+'BoundaryV2.clone_preserves_aliases' does not depend on any axioms
+'BoundaryV2.clone_preserves_distinctions' does not depend on any axioms
+'BoundaryV2.enter_region_preserves_scope' does not depend on any axioms
+'BoundaryV2.exit_region_preserves_scope' depends on axioms: [propext]
+'BoundaryV2.borrowed_region_cannot_escape' depends on axioms: [propext]
+'BoundaryV2.Regions.activation_preserves_scope' depends on axioms: [propext, Quot.sound]
+'BoundaryV2.Regions.multi_resume_preserves_ownership_and_scope' depends on axioms: [propext, Quot.sound]
+'BoundaryV2.Regions.successive_multi_resumes_have_distinct_control' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound]
+'BoundaryV2.Regions.freeze_consumes_original_ownership' depends on axioms: [propext, Classical.choice, Quot.sound]
+'BoundaryV2.Regions.renamed_read_preserves_frozen_contents' depends on axioms: [propext]
+'BoundaryV2.Regions.activation_preserves_local_read' depends on axioms: [propext]
+'BoundaryV2.Regions.activation_observes_current_outer_heap' does not depend on any axioms
+'BoundaryV2.Regions.activation_preserves_computation' depends on axioms: [propext]
+'BoundaryV2.Regions.activation_preserves_aliases' does not depend on any axioms
+'BoundaryV2.Regions.local_activation_names_are_disjoint' does not depend on any axioms
+'BoundaryV2.Regions.clone_preserves_region_scope' depends on axioms: [propext, Quot.sound]
+'BoundaryV2.Regions.write_preserves_outer_read' does not depend on any axioms
+'BoundaryV2.Regions.write_preserves_reference_aliases' does not depend on any axioms
+'BoundaryV2.Regions.choice_outside_state' does not depend on any axioms
+'BoundaryV2.Regions.state_outside_choice' does not depend on any axioms
+'BoundaryV2.Effects.Stack.spine_induction' does not depend on any axioms
+'BoundaryV2.Effects.finish_capture_is_capture_then_consume' depends on axioms: [propext, Quot.sound]
+'BoundaryV2.Effects.finish_capture_preserves_ownership' depends on axioms: [propext, Classical.choice, Quot.sound]
+'BoundaryV2.Effects.initial_is_well_owned' depends on axioms: [propext, Quot.sound]
+'BoundaryV2.Effects.return_preserves_ownership' depends on axioms: [propext, Classical.choice, Quot.sound]
+'BoundaryV2.Effects.dispatch_preserves_ownership' depends on axioms: [propext, Classical.choice, Quot.sound]
+'BoundaryV2.Effects.tick_preserves_invariants' depends on axioms: [propext, Classical.choice, Quot.sound]
+'BoundaryV2.Effects.transition_preserves_invariants' depends on axioms: [propext, Classical.choice, Quot.sound]
+'BoundaryV2.Effects.residual_disposition_consumes_once' depends on axioms: [propext, Classical.choice, Quot.sound]
+'BoundaryV2.Effects.live_residual_progress' depends on axioms: [propext, Classical.choice, Quot.sound]
+'BoundaryV2.Effects.machine_progress' depends on axioms: [propext, Classical.choice, Quot.sound]
+'BoundaryV2.Effects.rebasing_preserves_current_outer_heap' depends on axioms: [propext]
+'BoundaryV2.Effects.map_preserves_composition' does not depend on any axioms
+'BoundaryV2.Effects.map_preserves_outer_heap' depends on axioms: [propext]
+'BoundaryV2.Effects.map_preserves_freezing' depends on axioms: [propext]
+'BoundaryV2.Effects.map_preserves_attachments' depends on axioms: [propext]
+'BoundaryV2.Effects.stack_map_commutes_with_renaming' depends on axioms: [propext, Quot.sound]
+'BoundaryV2.Effects.map_preserves_activation' depends on axioms: [propext, Quot.sound]
+'BoundaryV2.Effects.map_preserves_selection' depends on axioms: [propext, Classical.choice, Quot.sound]
+'BoundaryV2.Effects.map_preserves_capture' depends on axioms: [propext]
+'BoundaryV2.Effects.map_preserves_return_step' depends on axioms: [propext, Quot.sound]
+'BoundaryV2.Effects.map_preserves_dispatch' depends on axioms: [propext, Quot.sound]
+'BoundaryV2.Effects.map_preserves_tick' depends on axioms: [propext, Classical.choice, Quot.sound]
+'BoundaryV2.Effects.map_preserves_transition' depends on axioms: [propext, Classical.choice, Quot.sound]
+'BoundaryV2.Effects.map_preserves_observation' depends on axioms: [propext]
+'BoundaryV2.Effects.map_preserves_ownership' depends on axioms: [propext]
+'BoundaryV2.Effects.drive_preserves_invariants' depends on axioms: [propext, Classical.choice, Quot.sound]
+'BoundaryV2.Effects.map_preserves_observable_trace' depends on axioms: [propext, Classical.choice, Quot.sound]
+'BoundaryV2.Effects.compile_atom_preserves_evaluation' depends on axioms: [propext]
+'BoundaryV2.Effects.effectful_step_simulation' depends on axioms: [propext, Classical.choice, Quot.sound]
+'BoundaryV2.Effects.effectful_trace_simulation' depends on axioms: [propext, Classical.choice, Quot.sound]
+'BoundaryV2.Effects.Examples.deep_non_tail_applies_return_once' depends on axioms: [propext, Quot.sound]
+'BoundaryV2.Effects.Examples.shallow_non_tail_omits_original_return' depends on axioms: [propext, Quot.sound]
+'BoundaryV2.Effects.Examples.compiled_deep_non_tail' depends on axioms: [propext, Quot.sound]
+'BoundaryV2.Effects.Examples.operation_clause_answer_bypasses_return' depends on axioms: [propext, Quot.sound]
+'BoundaryV2.Effects.Examples.choice_outside_state_returns_one_one' depends on axioms: [propext, Quot.sound]
+'BoundaryV2.Effects.Examples.state_outside_choice_returns_one_two' depends on axioms: [propext, Quot.sound]
+'BoundaryV2.Effects.Examples.compiled_state_outside_choice' depends on axioms: [propext, Quot.sound]
+'BoundaryV2.Effects.Examples.effectful_second_bind_reaches_residual' depends on axioms: [propext, Quot.sound]
+'BoundaryV2.Effects.Examples.supplied_responses_return_through_both_binds' depends on axioms: [propext, Quot.sound]
+'BoundaryV2.Effects.Examples.compiled_residual_script' depends on axioms: [propext, Quot.sound]
+'BoundaryV2.Effects.Examples.disposal_terminates_pending_ownership' depends on axioms: [propext, Quot.sound]
+'BoundaryV2.Effects.Examples.transfer_consumes_sender_custody' depends on axioms: [propext, Quot.sound]
+source oracle preserves cleanup handlers across yield, request, and disposal
+independent source oracle: 41 compiled source fixtures and cancellation/cleanup scenarios passed
+✔ deterministic archives round-trip regular files and executable mode (1.822917ms)
+✔ archive admission rejects unsafe paths, links, bad framing and padding (1.47725ms)
+✔ container producers reject duplicate and escaping names (0.485459ms)
+✔ indexed data requires exact offsets, names, lengths and byte digests (0.360458ms)
+✔ outer asset admission rejects inventory or content changes before consumers run (6.519375ms)
+✔ source identity belongs to the selected repository and immutable commit (237.774084ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 6
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 322.608209

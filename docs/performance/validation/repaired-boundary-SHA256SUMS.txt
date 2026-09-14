@@ -1,0 +1,4 @@
+5713a63d4d62f3d5cf5a34e1b1d1ca04809b54259ff1481996a26117df469898  boundary-v2-semantic-fixtures.bin
+72b351f72c3e752b717d8ffc2edf82a6aed7e3e3d2a79e3fadb14903b1e0b991  boundary-v2-semantic-fixtures.json
+c4bb445cf00682205ae32e20f0cdade0eb5f9cefd4488b2d51fdb4a364fe1d12  boundary-v2-examples.tar.gz
+e209432bb28977bf356aa843cdcda1e50a1f5fad26c1715d32b717e2efaa2fcb  boundary-v2-release-receipt.json

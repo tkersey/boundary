@@ -1,0 +1,246 @@
+[
+  {
+    "name": "cold-interface",
+    "executable": "/opt/homebrew/Cellar/node/26.8.2/bin/node",
+    "args": [
+      "--test",
+      "docs/performance/cold-guard.test.mjs"
+    ],
+    "cwd": "/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/B1 checkout",
+    "sources": [
+      {
+        "root": "/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/B0 checkout",
+        "commit": "55e8feedcae0b9ee1492da11f9fbd4a1ac7ff328",
+        "dirty": ""
+      },
+      {
+        "root": "/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/B1 checkout",
+        "commit": "2c402b4b2ed69be68b2c5d9be2df77c2b3ce3797",
+        "dirty": ""
+      },
+      {
+        "root": "/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/W0 checkout",
+        "commit": "87698f92ca7be4d5442e97ba27a2468aa3ff6a7c",
+        "dirty": ""
+      },
+      {
+        "root": "/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/W1 checkout",
+        "commit": "a181646d8ef556b9f1be8187ba7c9f51b9c7fd74",
+        "dirty": ""
+      }
+    ],
+    "started": "2026-09-14T21:44:52.948Z",
+    "status": 0,
+    "signal": null,
+    "finished": "2026-09-14T21:44:56.296Z"
+  },
+  {
+    "name": "boundary-aggregate",
+    "executable": "zig",
+    "args": [
+      "build",
+      "check-v2",
+      "-Doptimize=ReleaseSafe",
+      "--global-cache-dir",
+      "/Users/tk/.codex/worktrees/e38a/zig-global",
+      "--prefix",
+      "/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/boundary validation",
+      "--summary",
+      "all"
+    ],
+    "cwd": "/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/B1 checkout",
+    "sources": [
+      {
+        "root": "/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/B0 checkout",
+        "commit": "55e8feedcae0b9ee1492da11f9fbd4a1ac7ff328",
+        "dirty": ""
+      },
+      {
+        "root": "/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/B1 checkout",
+        "commit": "2c402b4b2ed69be68b2c5d9be2df77c2b3ce3797",
+        "dirty": ""
+      },
+      {
+        "root": "/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/W0 checkout",
+        "commit": "87698f92ca7be4d5442e97ba27a2468aa3ff6a7c",
+        "dirty": ""
+      },
+      {
+        "root": "/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/W1 checkout",
+        "commit": "a181646d8ef556b9f1be8187ba7c9f51b9c7fd74",
+        "dirty": ""
+      }
+    ],
+    "started": "2026-09-14T21:44:56.399Z",
+    "status": 0,
+    "signal": null,
+    "finished": "2026-09-14T21:47:21.760Z"
+  },
+  {
+    "name": "world-companion-aggregate",
+    "executable": "zig",
+    "args": [
+      "build",
+      "check-v2",
+      "-Doptimize=ReleaseSafe",
+      "-Dboundary-v2-source=/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/B1 checkout",
+      "-Dboundary-v2-fixtures=/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/boundary validation",
+      "-Dlegacy-v1-kernel=/Users/tk/.codex/worktrees/perf-reference/results/legacy-release/boundary-process-kernel-v1.wasm",
+      "-Dbpi1-lift=/Users/tk/.codex/worktrees/perf-reference/results/legacy-lifter/bin/bpi1-lift",
+      "--global-cache-dir",
+      "/Users/tk/.codex/worktrees/e38a/world-global",
+      "--summary",
+      "all"
+    ],
+    "cwd": "/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/W1 checkout",
+    "sources": [
+      {
+        "root": "/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/B0 checkout",
+        "commit": "55e8feedcae0b9ee1492da11f9fbd4a1ac7ff328",
+        "dirty": ""
+      },
+      {
+        "root": "/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/B1 checkout",
+        "commit": "2c402b4b2ed69be68b2c5d9be2df77c2b3ce3797",
+        "dirty": ""
+      },
+      {
+        "root": "/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/W0 checkout",
+        "commit": "87698f92ca7be4d5442e97ba27a2468aa3ff6a7c",
+        "dirty": ""
+      },
+      {
+        "root": "/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/W1 checkout",
+        "commit": "a181646d8ef556b9f1be8187ba7c9f51b9c7fd74",
+        "dirty": ""
+      }
+    ],
+    "started": "2026-09-14T21:47:22.427Z",
+    "status": 0,
+    "signal": null,
+    "finished": "2026-09-14T21:51:55.421Z"
+  },
+  {
+    "name": "native-w0-b0",
+    "executable": "zig",
+    "args": [
+      "build",
+      "check-v2-native",
+      "-Doptimize=ReleaseSafe",
+      "-Dboundary-v2-source=/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/B0 checkout",
+      "--global-cache-dir",
+      "/Users/tk/.codex/worktrees/perf-reference/world-global",
+      "--summary",
+      "all"
+    ],
+    "cwd": "/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/W0 checkout",
+    "sources": [
+      {
+        "root": "/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/B0 checkout",
+        "commit": "55e8feedcae0b9ee1492da11f9fbd4a1ac7ff328",
+        "dirty": ""
+      },
+      {
+        "root": "/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/B1 checkout",
+        "commit": "2c402b4b2ed69be68b2c5d9be2df77c2b3ce3797",
+        "dirty": ""
+      },
+      {
+        "root": "/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/W0 checkout",
+        "commit": "87698f92ca7be4d5442e97ba27a2468aa3ff6a7c",
+        "dirty": ""
+      },
+      {
+        "root": "/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/W1 checkout",
+        "commit": "a181646d8ef556b9f1be8187ba7c9f51b9c7fd74",
+        "dirty": ""
+      }
+    ],
+    "started": "2026-09-14T21:51:56.051Z",
+    "status": 0,
+    "signal": null,
+    "finished": "2026-09-14T21:52:14.663Z"
+  },
+  {
+    "name": "native-w0-b1",
+    "executable": "zig",
+    "args": [
+      "build",
+      "check-v2-native",
+      "-Doptimize=ReleaseSafe",
+      "-Dboundary-v2-source=/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/B1 checkout",
+      "--global-cache-dir",
+      "/Users/tk/.codex/worktrees/perf-reference/world-global",
+      "--summary",
+      "all"
+    ],
+    "cwd": "/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/W0 checkout",
+    "sources": [
+      {
+        "root": "/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/B0 checkout",
+        "commit": "55e8feedcae0b9ee1492da11f9fbd4a1ac7ff328",
+        "dirty": ""
+      },
+      {
+        "root": "/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/B1 checkout",
+        "commit": "2c402b4b2ed69be68b2c5d9be2df77c2b3ce3797",
+        "dirty": ""
+      },
+      {
+        "root": "/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/W0 checkout",
+        "commit": "87698f92ca7be4d5442e97ba27a2468aa3ff6a7c",
+        "dirty": ""
+      },
+      {
+        "root": "/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/W1 checkout",
+        "commit": "a181646d8ef556b9f1be8187ba7c9f51b9c7fd74",
+        "dirty": ""
+      }
+    ],
+    "started": "2026-09-14T21:52:14.770Z",
+    "status": 0,
+    "signal": null,
+    "finished": "2026-09-14T21:52:34.669Z"
+  },
+  {
+    "name": "native-w1-b0",
+    "executable": "zig",
+    "args": [
+      "build",
+      "check-v2-native",
+      "-Doptimize=ReleaseSafe",
+      "-Dboundary-v2-source=/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/B0 checkout",
+      "--global-cache-dir",
+      "/Users/tk/.codex/worktrees/e38a/world-global",
+      "--summary",
+      "all"
+    ],
+    "cwd": "/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/W1 checkout",
+    "sources": [
+      {
+        "root": "/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/B0 checkout",
+        "commit": "55e8feedcae0b9ee1492da11f9fbd4a1ac7ff328",
+        "dirty": ""
+      },
+      {
+        "root": "/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/B1 checkout",
+        "commit": "2c402b4b2ed69be68b2c5d9be2df77c2b3ce3797",
+        "dirty": ""
+      },
+      {
+        "root": "/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/W0 checkout",
+        "commit": "87698f92ca7be4d5442e97ba27a2468aa3ff6a7c",
+        "dirty": ""
+      },
+      {
+        "root": "/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/W1 checkout",
+        "commit": "a181646d8ef556b9f1be8187ba7c9f51b9c7fd74",
+        "dirty": ""
+      }
+    ],
+    "started": "2026-09-14T21:52:34.863Z",
+    "status": 0,
+    "signal": null,
+    "finished": "2026-09-14T21:52:52.588Z"
+  }
+]

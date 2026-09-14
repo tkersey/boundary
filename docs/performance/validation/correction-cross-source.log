@@ -1,0 +1,44 @@
+{
+  "name": "cross-source",
+  "cwd": "/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/W1 checkout",
+  "executable": "/opt/homebrew/Cellar/node/26.8.2/bin/node",
+  "args": [
+    "test/v2/source_transfer.mjs",
+    "/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results/world-0-1/out/world-process-kernel-v2.wasm",
+    "/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/w0 native",
+    "/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/boundary validation",
+    "/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/B1 checkout/test/v2/source_oracle.mjs",
+    "/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/W1 checkout/test/v2/wasmtime"
+  ],
+  "env": {
+    "UV_CACHE_DIR": "/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/W1 checkout/.cache/v2/uv",
+    "UV_PROJECT_ENVIRONMENT": "/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/W1 checkout/.cache/v2/wasmtime-environment"
+  },
+  "sources": [
+    {
+      "root": "/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/B0 checkout",
+      "commit": "55e8feedcae0b9ee1492da11f9fbd4a1ac7ff328",
+      "dirty": ""
+    },
+    {
+      "root": "/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/B1 checkout",
+      "commit": "2c402b4b2ed69be68b2c5d9be2df77c2b3ce3797",
+      "dirty": ""
+    },
+    {
+      "root": "/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/W0 checkout",
+      "commit": "87698f92ca7be4d5442e97ba27a2468aa3ff6a7c",
+      "dirty": ""
+    },
+    {
+      "root": "/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/W1 checkout",
+      "commit": "a181646d8ef556b9f1be8187ba7c9f51b9c7fd74",
+      "dirty": ""
+    }
+  ],
+  "started": "2026-09-14T21:54:34.305Z"
+}
+source oracle/native/WASM agreement and fresh transfers passed for forty-one compiled source examples and cancellation scenarios
+Wasmtime 48.0.0 matched all source checkpoints; kernel 9545076f16482ccb346ab7792ae87f4d9a262c3fe08b4086b3c376ed2b218c06
+
+{"status":0,"signal":null}
