@@ -138,7 +138,7 @@ export function runMeasurements(config, run = command, log = console.log) {
   }
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && fs.realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     if (process.argv.length === 3 && process.argv[2] === '--help') console.log(usage);
     else runMeasurements(preflight(parseArguments(process.argv.slice(2))));

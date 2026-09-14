@@ -116,3 +116,12 @@ test('a failed measurement retains successful rows without a success result', t 
   assert.equal(partial.failure.executable, '/missing-zig');
   assert.equal(fs.existsSync(path.join(config.output, 'cold-guard.json')), false);
 });
+
+test('CLI executes through a symlink instead of silently skipping main', t => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'cold CLI '));
+  t.after(() => fs.rmSync(cwd, { recursive: true, force: true }));
+  const alias = path.join(cwd, 'guard alias.mjs');
+  fs.symlinkSync(new URL('./cold-guard.mjs', import.meta.url), alias);
+  assert.match(command(cwd, [alias, '--help'], process.execPath).stdout.toString(), /Usage: node/);
+  assert.throws(() => command(cwd, [alias], process.execPath), /Missing required --boundary-baseline/);
+});
