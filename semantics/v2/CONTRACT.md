@@ -154,18 +154,18 @@ Disposal and exit/lifetime composition remain unfinished. The registered
 driver still lacks those transitions, so this correspondence does not yet
 establish the complete D/H/U/X/O milestone.
 
-X now includes checked local fields for nested region handoff, current-resource
-return, mandatory retained roots, and finite embedding in the actual disposal
-driver. Nested cleanup, region handoff, and structured-value disposal share
-recursive transition rules. Enclosing callers, saved parent values, and pending
-value queues contribute their actual roots to inner retirement. Entry and return
-compose with the same region steps used by cleanup frames. The older nested
-cleanup entry still needs its connection to handler-aware running frames,
-including `.cleanupReturn`; no final contract inhabitant is claimed.
-Owned-value disposal exposes each nested transition, including unfinished
-prefixes, through X's `nested_value_embedding`; the former completion-only
-constructor is now a derived finite composition law. Pending values and their
-grants remain retained while cleanup yields, is captured, or awaits a response.
+X now includes checked local fields for frame completion, region handoff,
+retained roots, and finite frame/control/value embeddings. Authored disposal
+executes the same handler-aware frame transitions as cleanup. Its caller remains
+separate from the abandoned future; normal and abrupt cleanup completion use
+current resources and preserve the actual saved body value. Returned handler
+answers go through value disposal before the disposal caller receives unit.
+The separate nested-disposal states and old unwind wrapper have been removed.
+Pending values and their grants remain retained through intermediate frame
+states. Standalone capture/abandonment laws still support the unfinished local
+registry/lifetime and suspended-work connections; those connections and full
+source/target exit observations remain required. No final contract inhabitant
+is claimed.
 
 `GeneralizedContractChecks` consumes the declared field types and checks the
 stateful observation definitions. Its hypothetical contract arguments are

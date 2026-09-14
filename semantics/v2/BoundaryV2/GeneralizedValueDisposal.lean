@@ -16,51 +16,54 @@ theorem ValueDisposalSteps.trans {table : Target.Definitions signature algebra p
     cases first with
     | cons step tail => simpa only [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using ValueDisposalSteps.cons step (induction tail)
 
-/-- Each nested transition remains a visible disposal state. In particular,
-the prefix may end at a yield, request, capture, or unfinished region handoff. -/
-theorem ValueDisposalSteps.of_nested {table : Target.Definitions signature algebra program}
-    {before after : NestedProgress signature algebra program}
-    (resume : ResumePoint signature algebra program answer) (pending : DisposalValues signature algebra program)
-    (steps : NestedProgressSteps table before count after
-      (resume.references ++ pending.flatMap (fun value => Target.valueReferences value.snd) ++ retained)) :
-    ValueDisposalSteps table (.nested before resume pending) count (.nested after resume pending) retained := by
+/-- Every finite frame prefix is part of control disposal, including the
+actual enclosing handlers and non-tail continuation work. -/
+theorem ControlProgressSteps.of_frames {table : Target.Definitions signature algebra program}
+    {before after : CleanupFrameProgress signature algebra program answer}
+    (identity : Id .obligation) (steps : CleanupFrameSteps table before count after retained) :
+    ControlProgressSteps table (.frames identity before) count (.frames identity after) retained := by
   induction count generalizing before with
   | zero => cases steps; exact .refl
   | succ count induction =>
     cases steps with
-    | cons step tail => exact .cons (.nested step) (induction tail)
+    | cons step tail => exact .cons (.frames step) (induction tail)
 
-/-- The former whole-run constructor is now a consequence of entry, the
-visible finite run, and checked completion with its current runtime. -/
-theorem ValueDisposalSteps.nested_cleanup {table : Target.Definitions signature algebra program}
-    (scope : ScopeExit signature algebra program answer) (pending : DisposalValues signature algebra program)
-    (steps : NestedProgressSteps table (.active (NestedCleanup.start scope.cleanup)) count after
-      (scope.resume.references ++ pending.flatMap (fun value => Target.valueReferences value.snd) ++ retained))
-    (finished : after.finished = some runtime) :
-    ValueDisposalSteps table (.control ⟨answer, .cleaning scope, .done⟩ pending) (count + 2)
-      (.control ⟨answer, .cleaning ⟨runtime, scope.resume⟩, .done⟩ pending) retained := by
-  have run := ValueDisposalSteps.of_nested scope.resume pending steps
-  simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using
-    ((ValueDisposalSteps.cons (.enterNested scope) .refl).trans run).trans (.cons (.leaveNested finished) .refl)
+theorem ControlProgressSteps.trans {table : Target.Definitions signature algebra program}
+    {before middle after : ControlProgress signature algebra program answer}
+    (first : ControlProgressSteps table before count middle retained)
+    (second : ControlProgressSteps table middle rest after retained) :
+    ControlProgressSteps table before (count + rest) after retained := by
+  induction count generalizing before with
+  | zero => cases first; simpa using second
+  | succ count induction =>
+    cases first with
+    | cons step tail => simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using ControlProgressSteps.cons step (induction tail)
 
-theorem nested_value_disposal_keeps_its_pending_queue
+/-- Pending values supply their actual retained references to the current
+control disposal; the embedding preserves every intermediate state. -/
+theorem ValueDisposalSteps.of_control {table : Target.Definitions signature algebra program}
+    {before after : ControlProgress signature algebra program answer}
+    (pending : DisposalValues signature algebra program)
+    (steps : ControlProgressSteps table before count after
+      (pending.flatMap (fun value => Target.valueReferences value.snd) ++ retained)) :
+    ValueDisposalSteps table (.control before pending) count (.control after pending) retained := by
+  induction count generalizing before with
+  | zero => cases steps; exact .refl
+  | succ count induction =>
+    cases steps with
+    | cons step tail => exact .cons (.control step) (induction tail)
+
+theorem unfinished_frames_cannot_skip_to_pending_values
     {table : Target.Definitions signature algebra program}
-    {before after : NestedProgress signature algebra program}
-    {resume : ResumePoint signature algebra program answer}
-    (step : ValueDisposalStep table (.nested before resume first) (.nested after resume second) retained) :
-    first = second := by cases step; rfl
-
-theorem nested_value_disposal_cannot_skip_to_pending_values
-    {table : Target.Definitions signature algebra program}
-    (machine : NestedProgress signature algebra program) (resume : ResumePoint signature algebra program answer)
+    (machine : CleanupFrameProgress signature algebra program answer)
     (pending : DisposalValues signature algebra program) (runtime : Runtime signature algebra program) :
-    ¬ ValueDisposalStep table (.nested machine resume pending) (.ready runtime rest) retained := by
+    ¬ ValueDisposalStep table (.control (.frames identity machine) pending) (.ready runtime rest) retained := by
   intro step
   cases step
 
 theorem active_control_disposal_keeps_its_remaining_queue
     {table : Target.Definitions signature algebra program}
-    {before after : Target.Disposal signature algebra program .unit}
+    {before after : ControlProgress signature algebra program answer}
     (step : ValueDisposalStep table (.control before first) (.control after second) retained) : first = second := by
   cases step <;> rfl
 
@@ -95,7 +98,7 @@ theorem structural_disposal_never_restores_spent_authority
 
 omit [DecidableEq (ControlShape signature)] [DecidableEq (TypeOf signature)] in
 theorem unfinished_control_cannot_finish_all_values
-    (control : Target.Disposal signature algebra program .unit) (pending : DisposalValues signature algebra program) :
+    (control : ControlProgress signature algebra program answer) (pending : DisposalValues signature algebra program) :
     ValueDisposal.finished (.control control pending) = none := rfl
 
 end BoundaryV2.Generalized.ExitComposition

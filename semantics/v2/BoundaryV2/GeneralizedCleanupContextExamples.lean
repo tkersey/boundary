@@ -1,6 +1,7 @@
 import BoundaryV2.GeneralizedSourceActivation
 import BoundaryV2.GeneralizedExamples
 import BoundaryV2.GeneralizedUnwinding
+import BoundaryV2.GeneralizedDisposalExecution
 
 namespace BoundaryV2.Generalized.Examples.CleanupContext
 
@@ -93,5 +94,51 @@ theorem an_already_running_cleanup_cannot_become_a_multi_template :
 theorem unwinding_identifies_a_running_cleanup_without_restarting_it :
     Target.unwindBoundary running = .cleanupReturn ⟨7⟩ (some (.datum (.leaf (type := Data.integer) 42))) normal outside ∧
     ExitComposition.pendingProtections running = [] := ⟨rfl, rfl⟩
+
+def abandoned : ExitInfo Fault String := ⟨.abandoned, [], none⟩
+def disposalStore : Target.ControlHeap signature algebra [] := ⟨⟨[], [], []⟩, [], []⟩
+def abandonedBody : Target.Stack signature algebra [] (.leaf .integer) (.leaf .text) :=
+  .push (.protection ⟨7⟩ (Defunctionalization.computation cleanup) .nil) outside
+def disposalBindings : Target.RuntimeEnvironment signature algebra [] [.exit] := .cons (.exit abandoned) .nil
+def disposalRunning : Target.Stack signature algebra [] .unit (.leaf .text) :=
+  .push (.cleanupReturn ⟨7⟩ none abandoned) outside
+def disposalBinding : Target.Stack signature algebra [] (.leaf .boolean) (.leaf .text) :=
+  .push (.returnTo (.enter (Defunctionalization.computation afterRequest)) disposalBindings .nil) disposalRunning
+def disposalPending : Target.Stack signature algebra [] (.leaf .boolean) (.leaf .text) :=
+  .push (.returnTo .ret disposalBindings .nil) disposalBinding
+def disposalInside : Target.Stack signature algebra [] (.leaf .boolean) (.leaf .integer) :=
+  .push (.returnTo .ret disposalBindings .nil)
+    (.push (.returnTo (.enter (Defunctionalization.computation afterRequest)) disposalBindings .nil)
+      (.push (.cleanupReturn ⟨7⟩ none abandoned) .done))
+def disposalCaller : Target.Stack signature algebra [] .unit (.leaf .integer) :=
+  .push (.returnTo (.enter (.push (.leaf 99) .ret)) .nil .nil) .done
+def disposalFrames (cursor : Target.Configuration signature algebra [] (.leaf .text)) :
+    ExitComposition.CleanupFrameProgress signature algebra [] (.leaf .text) :=
+  .running (.reenter ⟨⟨disposalStore, cursor⟩, [], []⟩ normal)
+def disposalInitial : ExitComposition.CleanupFrameProgress signature algebra [] (.leaf .text) :=
+  .running (.unwind ⟨⟨0⟩, .finished .abandoned, disposalStore, [], [], abandoned⟩ abandonedBody)
+def disposalRequest : Target.Configuration signature algebra [] (.leaf .text) :=
+  .requested Operation.choice ⟨8⟩ (.datum .unit) .nil disposalPending
+
+/-- The disposal caller returns an integer, the abandoned future's handler
+answers text, and cleanup returns unit. The actual frame driver preserves all
+three boundaries while the cleanup selects its enclosing nominal handler. -/
+theorem disposal_cleanup_selects_the_actual_enclosing_handler :
+    Target.DisposalRun (.nil : Target.Definitions signature algebra [])
+      (.disposing ⟨.leaf .text, .frames ⟨0⟩ disposalInitial, disposalCaller⟩) 5
+      (.disposing ⟨.leaf .text, .frames ⟨0⟩ (disposalFrames disposalRequest), disposalCaller⟩) ∧
+    Target.select ⟨8⟩ disposalPending = some
+      ⟨.choose, .deep, ⟨8⟩, .leaf .integer, .leaf .text, [], Defunctionalization.computation normalReturn,
+        Defunctionalization.clauses sourceClauses, .nil, disposalInside, .done⟩ ∧
+    Target.select ⟨8⟩ disposalInside = none := by
+  refine ⟨?_, rfl, rfl⟩
+  apply Target.DisposalRun.frame_steps
+  refine .cons (middle := disposalFrames (.code (Defunctionalization.computation cleanup) disposalBindings .nil disposalRunning)) (.begin rfl) ?_
+  refine .cons (.execute (.cell (.ordinary .block))) ?_
+  refine .cons (.execute (.cell (.ordinary (.operand .push)))) ?_
+  refine .cons (.execute (.cell (.ordinary (.operand .push)))) ?_
+  exact .cons (middle := disposalFrames disposalRequest) (.execute (.cell (.ordinary
+    (Target.CallStep.dispatch (signature := signature) (algebra := algebra)
+      (operation := Operation.choice) (bodies := .nil) (operands := .nil))))) .refl
 
 end BoundaryV2.Generalized.Examples.CleanupContext

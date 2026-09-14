@@ -18,12 +18,13 @@ function claimMutations() {
   const observations = readFileSync(join(project, 'BoundaryV2', 'GeneralizedStateObservations.lean'), 'utf8');
   const registered = readFileSync(join(project, 'BoundaryV2', 'GeneralizedRegisteredExecution.lean'), 'utf8');
   const exits = readFileSync(join(project, 'BoundaryV2', 'GeneralizedExitTransitions.lean'), 'utf8');
+  const cleanup = readFileSync(join(project, 'BoundaryV2', 'GeneralizedCleanupCompletion.lean'), 'utf8');
   const consumers = readFileSync(join(project, 'BoundaryV2', 'GeneralizedContractChecks.lean'), 'utf8');
   try {
     mkdirSync(join(directory, 'BoundaryV2'));
     const artifacts = join(project, '.lake', 'build', 'lib', 'lean', 'BoundaryV2');
     for (const name of readdirSync(artifacts)) {
-      if (!/\.olean(?:\.|$)/.test(name) || /^(GeneralizedContracts|GeneralizedContractChecks|GeneralizedStateObservations|GeneralizedRegisteredExecution|GeneralizedExitTransitions)\./.test(name)) continue;
+      if (!/\.olean(?:\.|$)/.test(name) || /^(GeneralizedContracts|GeneralizedContractChecks|GeneralizedStateObservations|GeneralizedRegisteredExecution|GeneralizedExitTransitions|GeneralizedCleanupCompletion)\./.test(name)) continue;
       symlinkSync(join(artifacts, name), join(directory, 'BoundaryV2', name));
     }
     copyFileSync(join(project, 'lean-toolchain'), join(directory, 'lean-toolchain'));
@@ -45,6 +46,7 @@ function claimMutations() {
       console.log(`trust mutation: ${label}: rejected by statement checking`);
     }
     accepted(compile('GeneralizedExitTransitions', exits, true), 'original shared exit transitions');
+    accepted(compile('GeneralizedCleanupCompletion', cleanup, true), 'original cleanup composition laws');
     accepted(compile('GeneralizedStateObservations', observations, true), 'original stateful observations');
     accepted(compile('GeneralizedRegisteredExecution', registered, true), 'original registered execution');
     accepted(compile('GeneralizedContracts', contracts, true), 'original contract declarations');
@@ -95,10 +97,11 @@ function claimMutations() {
     } else {
       rejected(restrictedTarget, 'registered target observation replaced with core-only observation');
     }
-    const retainedRoots = 'before.finishRegion (retained ++ external) = some after';
+    const retainedRoots = 'RegionDisposal.finish (retained ++ external) before = some after';
     assert.equal(exits.split(retainedRoots).length, 2, 'expected one nested retirement mutation target');
-    rejected(compile('GeneralizedExitTransitions', exits.replace(retainedRoots,
-      'before.finishRegion external = some after')), 'nested region retirement omits retained caller roots');
+    accepted(compile('GeneralizedExitTransitions', exits.replace(retainedRoots,
+      'RegionDisposal.finish external before = some after'), true), 'retained-root omission probe must itself compile');
+    rejected(compile('GeneralizedCleanupCompletion', cleanup), 'cleanup region retirement omits retained caller roots');
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

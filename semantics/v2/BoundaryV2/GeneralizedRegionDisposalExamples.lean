@@ -31,14 +31,15 @@ def ready : RegionHandoff signature algebra [] .unit .unit := ⟨⟨1⟩, consum
 def finished : Resolution signature algebra [] .unit :=
   .unwind { consumed with cells := [outer], liveRegions := [⟨2⟩] } .done
 
-theorem actual_cell_values_are_disposed_in_creation_order (retained : List Reference := []) :
+theorem actual_cell_values_are_disposed_in_creation_order (retained : List Reference := [])
+    (outside : Target.Stack signature algebra [] .unit .unit := .done) :
     RegionDisposalSteps (.nil : Target.Definitions signature algebra [])
-      (.offering start) 6 (.offering ready) retained := by
-  refine .cons (middle := .disposing ⟨1⟩ .done [⟨0⟩] (ValueDisposal.start original plain)) (.offer rfl) ?_
-  refine .cons (middle := .disposing ⟨1⟩ .done [⟨0⟩] (.ready original [])) (.values (.stale rfl)) ?_
-  refine .cons (middle := .offering kept) (.returnValue rfl) ?_
-  refine .cons (middle := .disposing ⟨1⟩ .done [⟨0⟩] (ValueDisposal.start offered resource)) (.offer rfl) ?_
-  refine .cons (middle := .disposing ⟨1⟩ .done [⟨0⟩] (.ready consumed [])) ?_ ?_
+      (.offering { start with outside := outside }) 6 (.offering { ready with outside := outside }) retained := by
+  refine .cons (middle := .disposing ⟨1⟩ outside [⟨0⟩] (ValueDisposal.start original plain)) (.offer rfl) ?_
+  refine .cons (middle := .disposing ⟨1⟩ outside [⟨0⟩] (.ready original [])) (.values (.stale rfl)) ?_
+  refine .cons (middle := .offering { kept with outside := outside }) (.returnValue rfl) ?_
+  refine .cons (middle := .disposing ⟨1⟩ outside [⟨0⟩] (ValueDisposal.start offered resource)) (.offer rfl) ?_
+  refine .cons (middle := .disposing ⟨1⟩ outside [⟨0⟩] (.ready consumed [])) ?_ ?_
   · exact .values (.resource rfl)
   · exact .cons (.returnValue rfl) .refl
 
@@ -66,57 +67,48 @@ theorem completed_region_keeps_unrelated_resources_and_original_exit :
     finished.cells = [outer] ∧ finished.regions = [⟨2⟩] ∧ finished.exitInfo = original.exit :=
   ⟨rfl, rfl, rfl, rfl, rfl⟩
 
-def parent : CleanupParent signature algebra [] :=
-  ⟨⟨⟨99⟩, ⟨.normal, [], none⟩⟩, .returned (.datum .unit) .done⟩
-def nestedBefore : NestedCleanup signature algebra [] :=
-  ⟨CleanupMemory.ofRuntime original, CleanupInfo.ofRuntime original,
-    .unwinding original.exit (.push (.region ⟨1⟩) .done), [parent]⟩
-def nestedAfter : NestedCleanup signature algebra [] :=
-  { nestedBefore with
-    memory := CleanupMemory.ofRuntime { consumed with cells := [outer], liveRegions := [⟨2⟩] }
-    focus := .unwinding original.exit (.done : Target.Stack signature algebra [] .unit .unit) }
+def parentFuture : Target.Stack signature algebra [] .unit .unit :=
+  .push (.cleanupReturn ⟨99⟩ (some (.datum .unit)) ⟨.normal, [], none⟩) .done
+def nestedBefore : Resolution signature algebra [] .unit :=
+  .unwind original (.push (.region ⟨1⟩) parentFuture)
+def nestedAfter : Resolution signature algebra [] .unit :=
+  .unwind { consumed with cells := [outer], liveRegions := [⟨2⟩] } parentFuture
 
 def disposalCaller : Target.Stack signature algebra [] .unit (.leaf .integer) :=
   .push (.returnTo (.enter (.push (.leaf 42) .ret)) .nil .nil) .done
-def abandonedResume : ResumePoint signature algebra [] .unit := .unwind .done
 
-/-- The resource consumed inside the region stays consumed when the nested
-cleanup resumes. Its suspended parent and the distinct disposal caller survive. -/
+/-- Region retirement uses the actual suspended cleanup frame. Its resource
+state returns through the same frame driver used by the disposal caller. -/
 theorem nested_abandonment_uses_current_region_disposal :
-    NestedProgressSteps (.nil : Target.Definitions signature algebra [])
-      (.active nestedBefore) 8 (.active nestedAfter)
-      (abandonedResume.references ++ disposalCaller.installationReferences) ∧
+    CleanupFrameSteps (.nil : Target.Definitions signature algebra []) (.running nestedBefore) 8 (.running nestedAfter)
+      disposalCaller.installationReferences ∧
     Target.DisposalRun (.nil : Target.Definitions signature algebra [])
-      (.nested (.active nestedBefore) abandonedResume disposalCaller) 8
-      (.nested (.active nestedAfter) abandonedResume disposalCaller) ∧
-    nestedAfter.memory.store.fields.spent = [⟨300⟩, ⟨700⟩] ∧
-    nestedAfter.memory.store.fields.active = original.store.fields.active ∧
-    nestedAfter.memory.cells = [outer] ∧ nestedAfter.memory.regions = [⟨2⟩] ∧
-    nestedAfter.current = nestedBefore.current ∧ nestedAfter.parents = [parent] ∧
-    nestedAfter.finished = none := by
-  have run : NestedProgressSteps (.nil : Target.Definitions signature algebra [])
-      (.active nestedBefore) 8 (.active nestedAfter)
-      (abandonedResume.references ++ disposalCaller.installationReferences) :=
-    nested_region_finite_handoff (external := []) rfl
-      (actual_cell_values_are_disposed_in_creation_order _) rfl
-  exact ⟨run, Target.DisposalRun.nested_progress_steps abandonedResume disposalCaller run,
-    rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+      (.disposing ⟨.unit, .frames ⟨7⟩ (.running nestedBefore), disposalCaller⟩) 8
+      (.disposing ⟨.unit, .frames ⟨7⟩ (.running nestedAfter), disposalCaller⟩) ∧
+    nestedAfter.store.fields.spent = [⟨300⟩, ⟨700⟩] ∧
+    nestedAfter.store.fields.active = original.store.fields.active ∧
+    nestedAfter.cells = [outer] ∧ nestedAfter.regions = [⟨2⟩] ∧ nestedAfter.exitInfo = original.exit ∧
+    ControlProgress.finishFrames (.frames ⟨7⟩ (.running nestedAfter)) = none := by
+  have run : CleanupFrameSteps (.nil : Target.Definitions signature algebra []) (.running nestedBefore) 8 (.running nestedAfter)
+      disposalCaller.installationReferences := by
+    refine .cons (middle := .region (.offering { start with outside := parentFuture })) (.enterRegion rfl) ?_
+    have cells := CleanupFrameSteps.of_region
+      (actual_cell_values_are_disposed_in_creation_order disposalCaller.installationReferences parentFuture)
+    have finish : CleanupFrameSteps (.nil : Target.Definitions signature algebra [])
+        (.region (.offering { ready with outside := parentFuture })) 1 (.running nestedAfter)
+        disposalCaller.installationReferences := .cons (.finishRegion (external := []) rfl) .refl
+    exact cells.trans finish
+  exact ⟨run, Target.DisposalRun.frame_steps ⟨7⟩ disposalCaller run, rfl, rfl, rfl, rfl, rfl, rfl⟩
 
 def cellCaller : Target.Stack signature algebra [] (.cell (.leaf .integer)) .unit :=
   .push (.returnTo (.enter (.push .unit .ret)) .nil .nil) .done
-def retainingParent : CleanupParent signature algebra [] :=
-  { parent with resume := .returned (.cell ⟨0⟩ ⟨1⟩) cellCaller }
+def retainingFuture : Target.Stack signature algebra [] .unit .unit :=
+  .push (.cleanupReturn ⟨99⟩ (some (.cell ⟨0⟩ ⟨1⟩)) ⟨.normal, [], none⟩) cellCaller
 
-/-- Even after all offered values finish, a saved parent result keeps its
-cell's storage live. The parent roots are supplied by the operation itself. -/
 theorem nested_saved_result_prevents_early_retirement :
-    NestedProgress.finishRegion []
-      (.region nestedBefore.current [retainingParent] (.offering ready)) = none ∧
-    NestedProgress.finishRegion retainingParent.resume.references
-      (.region nestedBefore.current [] (.offering ready)) = none ∧
-    NestedProgress.finished
-      (.region nestedBefore.current [parent] (.disposing ⟨1⟩ .done [⟨0⟩]
-        (ValueDisposal.start offered resource))) = none := ⟨rfl, rfl, rfl⟩
+    RegionDisposal.finish [] (.offering { ready with outside := retainingFuture }) = none ∧
+    ControlProgress.finishFrames (.frames ⟨7⟩
+      (.region (.disposing ⟨1⟩ parentFuture [⟨0⟩] (ValueDisposal.start offered resource)))) = none := ⟨rfl, rfl⟩
 
 /-- This includes arbitrary executing and captured cleanup cursors. The old
 entry points admitted all four handoffs even with an unfinished phase. -/

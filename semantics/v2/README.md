@@ -24,8 +24,8 @@ inhabitants. Their checked components and required connections are:
 | --- | --- | --- |
 | `Defunctionalization.adequacy` | Retained-aware finite core and registered preservation/reflection, registered initialization/response entry, and clone correspondence against noncanonical target heaps | Embed disposal and exit/lifetime transitions without omitting their observations. |
 | `Handlers.interpretation` | Fresh installation, nearest selection, forwarding, context closure, actual resume/injection/successor correspondence | Use the stateful correspondence under arbitrary enclosing effectful handlers, including registered multi entry. |
-| `UseScope.preservation` | Actual control/cell steps, typed consumption, physical capture multiplicity, scoped packages, registry insertion, fresh activation and dormant support | Connect registry and lifetime handoff across capture, activation, completion, and disposal. |
-| `Exits.composition` | Stateful initiation, cancellation, ordered operands/failures, structured-result disposal, nested region handoff with retained caller roots, current-resource completion, and finite driver embeddings | Unify nested cleanup with the handler-aware running frames, connect registry/lifetime successors, and compose exits with source/target observations. |
+| `UseScope.preservation` | Actual control/cell steps, typed consumption, physical capture multiplicity, scoped packages, registry insertion, fresh activation and dormant support | Connect actual captured/unwound frame fields to registry and lifetime handoff across capture, activation, completion, and disposal. |
+| `Exits.composition` | Shared handler-aware frame execution for disposal and nested cleanup, structured saved-result and handler-answer disposal, retained-root region handoff, current-resource completion, and finite embeddings | Connect suspended-work abandonment and registry/lifetime successors, then compose all exits with source/target observations. |
 | `OpenControl.observation_relocation` | Typed polling/rejection/admission, occurrence separation, authority, control and dormant-support relocation | Apply the same admission and relocation laws to the integrated registry/cleanup futures. |
 
 These are explicit outstanding obligations. D's current-execution preservation,
@@ -278,116 +278,72 @@ suspension, and returns unit only after abandonment completes. Cleanup failure
 and cancellation retain their distinct outcomes. The remaining nested
 cleanup/lifetime composition still belongs to the unfinished X contract.
 
-`GeneralizedNestedCleanup` executes nested protection boundaries with one shared
-control/cell/region state. Saved parents retain typed return/unwind continuations
-and exit records. Child completion restores the parent with current resources;
-the parent is running again and receives no new initiation right. Nested body
-failure details stay separate until the enclosing cleanup completes, preserving
-the primary-before-details order and repeated equal faults. External cancellation
-updates the outermost running cleanup's exit and preserves the active or captured
-cursor. Abandonment follows the actual installed protection frames. Scope/region
-completion rejects while any parent remains suspended.
+Disposal now uses the same handler-aware frame driver as ordinary cleanup.
+`ControlProgress` runs the actual abandoned future under `CleanupFrameSteps`;
+`DisposalRun` retains the disposal caller separately. Cleanup starts beneath
+`cleanupReturn` and the live enclosing stack. Normal and abrupt completion,
+handler clauses, non-tail callers, region handoff, and nested value disposal
+therefore use the same continuations and current resources. The independent
+source/target ordinary execution and disposal-entry correspondence remain
+proved components.
 
-Every finite ordinary target execution lifts into the driver. A three-level
-checked run writes a cell, yields, is captured, receives repeated cancellation,
-resumes, and fails; both parents keep the new cell contents, physical authority,
-original failure, ordered nested failures, and first cancellation reason. Region
-boundaries encountered during abandonment remain with their closing owner;
-integration with the full registry and the general stateful observation theorem
-is still unfinished.
+`GeneralizedExitWork` holds the shared frame/control/region/value states and
+operations, and `GeneralizedExitTransitions` holds their recursive transitions.
+`GeneralizedCleanupCompletion` supplies their completion and composition laws.
+The former `NestedProgress` family, separate nested states in `DisposalRun` and
+`ValueDisposal`, and the disposal wrapper over `UnwindSteps` are removed.
+Their finite prefix and current-resource guarantees now use
+`ControlProgressSteps.of_frames`, `DisposalRun.frame_steps`, and
+`ValueDisposalSteps.of_control`. The old completed-run-only nested constructor
+remains removed. No file is excluded from declaration discovery or replay.
 
-The existing `DisposalRun` now enters and executes the nested driver while
-retaining both the abandoned future's resume point and the disposal caller.
-Only a finished nested machine can return its current runtime to unwinding;
-there is no direct nested-to-resolved transition. A checked authored-dispose
-example consumes its real grant, enters nested protection, waits through an
-inner cleanup yield, finishes both cleanups, and reenters the original caller.
-Its spent grant, unrelated owner, and existing caller-to-42 result are preserved.
-The original flat-cleanup disposal proofs remain checked.
+Running cleanup retains its saved body value and actual enclosing handlers.
+The original source/target context, selection, capture-provenance, relocation,
+and no-cloning-a-running-cleanup laws remain. A new disposal regression reaches
+its enclosing nominal handler while distinguishing cleanup's unit result, the
+handler's text answer, and the disposal caller's integer result. The existing
+normal-cleanup example also retains the original integer body value before the
+handler's return clause runs. The ordinary and nested disposal regressions now
+execute the common frame transitions, retain the spent grant and unrelated
+owner, and return to the original caller-to-42 computation only after cleanup.
 
-Running cleanup now also has a typed frame in the common source/target
-continuation model. Normal protection completion enters cleanup beneath that
-frame and the actual enclosing context. Requests therefore retain enclosing
-handlers, and normal cleanup completion restores the saved body value before
-the handler's return clause executes. Selection, forwarding, finite ordinary
-observation preservation/reflection, capture provenance, relocation, and clone
-views include the frame; a running cleanup cannot become a multi template.
-A checked example distinguishes the cleanup's unit result, the saved integer
-body value, and the enclosing handler's text answer.
-`GeneralizedCleanupCompletion` now starts failure/cancellation cleanup under that
-actual context and completes the running frame with the full exit record.
-Nested failure details retain their order and original-failure precedence.
-Cancellation updates the outermost running frame; the source/target context
-updates correspond and leave resource state and current body diagnostics intact.
-Abrupt completion examines actual owning fields. Nonowning aliases need no
-disposal, while owned saved results stay in an explicit pending state. Returned
-one-shot continuations use their real grants and saved futures for disposal,
-preserving the enclosing exit and unrelated owners. A checked transition path
-cannot propagate the exit before that disposal completes.
-`GeneralizedValueDisposal` now extends that path to products, sums, packages,
-closure captures, and nominal resource grants. It processes stored children in
-order, checks actual active authority before disposing a view, and opens sealed
-containers through the package/computation handoffs. Those handoffs also accept
-the flattened transparent groups produced by control release. Structural steps
-preserve store validity, exit information, cells, and spent-authority history;
-active control cleanup retains the remaining queue. A composite package/closure
-example consumes the intended grants in order, preserves an unrelated owner and
-the original exit, and does not execute the closure body. The separate
-continuation-only completion path is retired. Complete capture/lifetime
-integration and general stateful adequacy remain unfinished.
+Frame completion preserves the current store, cells, and live regions on both
+normal and abrupt paths. Its exit records retain original-failure precedence,
+ordered nested failures, and the first cancellation reason. Owned saved body
+results enter explicit disposal; they cannot be skipped while propagating an
+exit. A returned handler answer also enters the actual value-disposal queue
+before disposal returns unit to its caller. This includes arbitrary typed owned
+answers; a regression consumes the answer's real resource grant first.
 
-`GeneralizedRegionDisposal` connects the existing oldest-cell handoff to that
-same value-disposal queue. A disposal phase owns the current runtime; the region
-handoff retains only its identity, continuation, and offered plain-cell names.
-The current runtime returns after disposal, and the existing liveness/owner/alias
-gate controls final storage retirement. `CleanupFrameSteps.of_region` embeds
-every finite region run in the cleanup-frame driver. A checked path retains an
-earlier plain cell, consumes the later value's real grant, rejects a surviving
-cell alias, and then retires only the selected region while preserving outer
-storage, unrelated authority, and the original exit history.
+`GeneralizedValueDisposal` processes products, sums, packages, closure captures,
+resource grants, and saved continuations through their actual owning occurrences.
+It checks current active authority before disposing a view and uses the existing
+package/computation handoffs for sealed contents. Structural steps preserve
+store validity, exit information, cells, and spent-authority history. Control
+disposal retains the remaining queue through every frame prefix. The composite
+package/closure regression preserves declaration order, an unrelated owner, and
+the original exit without executing the closure body. A nested-yield regression
+keeps the next resource grant live until the current cleanup finishes, then
+consumes it in order.
 
-`GeneralizedExitWork` now holds the shared nested/region/value work states;
-`GeneralizedExitTransitions` holds their mutually recursive finite transition
-relations. The value and region rules moved there intact; their existing law
-modules remain consumers. This removes the dependency cycle without introducing
-another definition of value disposal. The old finite nested-cleanup relation
-embeds into the extended relation. `DisposalRun` moved beside its execution laws
-and now embeds the same extended transitions. The structured-result regression
-also uses the existing composition theorem instead of its private duplicate.
+`GeneralizedRegionDisposal` uses the same queue for actual oldest-cell handoff.
+Earlier plain cells remain readable while later owned cells are disposed. The
+current runtime returns to the same continuation; the existing physical-owner,
+reference, and liveness gate controls storage retirement. Region steps include
+the live enclosing frame references, and disposal callers and pending values
+supply their actual retained roots. Optional external roots cannot replace them.
+An eight-step nested-region regression preserves outer storage and spent
+authority. A saved cell alias in an actual parent `cleanupReturn` frame blocks
+retirement. The trust mutation rejects omission of retained caller roots.
 
-Nested abandonment can now enter the same region handoff, execute its actual
-value-disposal work, and resume unwinding with current memory. Suspended parents
-carry saved values, continuations, and exit records, never an earlier heap.
-Region steps receive parent roots, value disposal receives the enclosing region
-continuation, and nested control disposal receives its saved resume point and
-remaining value queue. The disposal and cleanup-frame callers supply their actual
-continuation roots. These roots reach the existing retirement gate; optional
-external roots can add support but cannot replace the retained roots. No added
-well-formedness assumption substitutes for this transfer.
-
-X's `nested_region_handoff`, `nested_region_resources`, `nested_retained_roots`,
-and `nested_disposal_embedding` fields have checked defaults. Their scope is
-finite local composition, including the entry and return around actual region
-steps. An eight-step regression consumes the region resource, keeps the new
-spent-authority history, outer storage, suspended parent, and distinct disposal
-caller, and rejects a saved parent's surviving cell alias. The trust mutations
-also reject dropping retained caller roots from the retirement transition.
-Nested `.cleanupReturn` handling and the older detached nested-cleanup entry
-still need integration with the handler-aware frames. Registry/lifetime
-successors and full stateful observation correspondence remain open; these
-local laws do not inhabit the final X contract.
-
-Owned-value disposal now retains a nested cleanup as an explicit work state.
-The former `ValueDisposalStep.nestedControl` constructor required an entire
-completed nested run and hid every intermediate yield or request. It is removed;
-entry, individual nested transitions, and checked return now expose those
-prefixes with the same saved resume point and pending value queue. The former
-completed behavior follows from `ValueDisposalSteps.nested_cleanup`, while
-`of_nested` supplies X's `nested_value_embedding` for arbitrary finite prefixes.
-The mutually recursive work states contain the current runtime only in the
-active operation. A regression stops at a captured nested yield with a queued
-resource's real grant intact, then resumes cleanup and consumes that grant in
-order. It cannot skip directly from nested work to the remaining queue.
+X's `frame_completion`, `frame_region_handoff`, `retained_region_roots`,
+`frame_disposal_embedding`, `control_value_embedding`, and `control_answer`
+fields have checked defaults. They are local composition laws, not an exported
+inhabitant of the final X contract. The earlier standalone lifecycle and nested
+capture/abandonment laws remain checked while their remaining ownership and
+lifetime connections are resolved. Suspended-work abandonment, handoff of
+scope-owned frame fields, registry/lifetime successors, and full source/target
+observation correspondence remain open.
 
 The outer unwind, cleanup-frame, and region handoff operations now use the
 completion condition owned by `Resolution`. Pending, running, and captured
@@ -402,9 +358,9 @@ and `finish` without adding a required interpretation. Its normal-return and
 captured-cleanup/write/cancellation regressions now assert those operations
 directly with the same inputs, initiation count, final resources, continuation,
 and exit. `RuntimeSteps.finished_never_restarts` states the no-restart consequence
-on actual cleanup execution. `ScopeExit` and its completion laws remain because
-the unwind and nested drivers still use them; their further integration is a
-named X obligation, not grounds to delete them prematurely.
+on actual cleanup execution. `ScopeExit` and its local lifetime laws remain for the named unfinished
+registry/lifetime and suspended-work connections. They are not the execution
+path used by authored disposal.
 
 ## Verification commands
 

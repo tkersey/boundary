@@ -64,9 +64,8 @@ def exit : ExitInfo Nat String := ⟨.failure 20, [20, 21], some "first"⟩
 def work : CleanupDisposal signature leafAlgebra [] (.leaf .text) :=
   ⟨controlType, ownedValue, ⟨⟨7⟩, .finished (.failed 20), ownedStore, [], [], exit⟩, afterOutside⟩
 def releasedRuntime : Runtime signature leafAlgebra [] := ⟨⟨7⟩, .finished .abandoned, afterStore, [], [], exit⟩
-def dropping : Target.Disposal signature leafAlgebra [] .unit :=
-  ⟨.unit, .seeking releasedRuntime saved.future, .done⟩
-def dropped : Target.Disposal signature leafAlgebra [] .unit := ⟨.unit, .complete releasedRuntime, .done⟩
+def dropping : ControlProgress signature leafAlgebra [] .unit := .seeking releasedRuntime saved.future
+def dropped : ControlProgress signature leafAlgebra [] .unit := .complete releasedRuntime
 def startedValues := ValueDisposal.start work.runtime work.value
 def enteredValues : ValueDisposal signature leafAlgebra [] := .control dropping []
 def completedValues : ValueDisposal signature leafAlgebra [] := .control dropped []
@@ -83,23 +82,35 @@ theorem failed_cleanup_retains_an_owned_return_for_real_disposal :
     startedValues.finished = none := ⟨rfl, rfl⟩
 
 theorem returned_control_disposal_consumes_authority_and_keeps_exit :
-    ValueDisposalSteps (.nil : Target.Definitions signature leafAlgebra []) startedValues 3 finishedValues ∧
+    ValueDisposalSteps (.nil : Target.Definitions signature leafAlgebra []) startedValues 4 finishedValues ∧
     finishedValues.finished = some releasedRuntime ∧
     afterStore.fields.spent = [⟨100⟩] ∧ UseScope.inventory afterStore.fields = [⟨900⟩] ∧
     UseScope.disposeOwned view afterStore = none := by
   refine ⟨?_, rfl, rfl, rfl, rfl⟩
   have enter : ValueDisposalStep (.nil : Target.Definitions signature leafAlgebra []) startedValues enteredValues := ValueDisposalStep.enterControl (signature := signature) (algebra := leafAlgebra) (runtime := work.runtime) (acquired := ⟨afterStore, ⟨controlShape, saved⟩⟩) rfl
   refine .cons enter ?_
-  exact .cons (middle := completedValues) (.control (.unwind (.complete rfl))) (.cons .finishControl .refl)
+  refine .cons (middle := .control (.frames ⟨7⟩ (.running (.unwind releasedRuntime .done))) [])
+    (.control (.frames (.unwind rfl))) ?_
+  exact .cons (middle := completedValues) (.control (.finishFrames rfl)) (.cons .finishControl .refl)
 
 theorem failed_frame_executes_its_owned_return_disposal_before_propagation :
-    CleanupFrameSteps (.nil : Target.Definitions signature leafAlgebra []) (.running ownedFailure) 6
+    CleanupFrameSteps (.nil : Target.Definitions signature leafAlgebra []) (.running ownedFailure) 7
       (.running (.reenter ⟨⟨afterStore, .failed 20 afterOutside⟩, [], []⟩ exit)) := by
   refine .cons (middle := .disposing work) (.finish (show finishCleanupFrame ownedFailure = some (.disposing work) from rfl)) ?_
   refine .cons (middle := .values (signature := signature) (algebra := leafAlgebra) ⟨7⟩ (.failed 20) afterOutside startedValues) (.enterValues rfl) ?_
-  refine .cons (middle := .values (signature := signature) (algebra := leafAlgebra) ⟨7⟩ (.failed 20) afterOutside enteredValues) (.values (ValueDisposalStep.enterControl (signature := signature) (algebra := leafAlgebra) (runtime := work.runtime) (acquired := ⟨afterStore, ⟨controlShape, saved⟩⟩) rfl)) ?_
-  refine .cons (middle := .values (signature := signature) (algebra := leafAlgebra) ⟨7⟩ (.failed 20) afterOutside completedValues) (.values (.control (.unwind (.complete rfl)))) ?_
-  exact .cons (.values .finishControl) (.cons (.finishValues (show finishedValues.finished = some releasedRuntime from rfl)) .refl)
+  have work : ValueDisposalSteps (.nil : Target.Definitions signature leafAlgebra []) startedValues 4 finishedValues
+      (afterOutside.installationReferences ++ []) := by
+    refine .cons (middle := enteredValues) (ValueDisposalStep.enterControl (signature := signature) (algebra := leafAlgebra)
+      (runtime := work.runtime) (acquired := ⟨afterStore, ⟨controlShape, saved⟩⟩) rfl) ?_
+    refine .cons (middle := .control (.frames ⟨7⟩ (.running (.unwind releasedRuntime .done))) [])
+      (.control (.frames (.unwind rfl))) ?_
+    exact .cons (middle := completedValues) (.control (.finishFrames rfl)) (.cons .finishControl .refl)
+  have values := CleanupFrameSteps.of_values (signature := signature) (algebra := leafAlgebra) ⟨7⟩ (.failed 20) afterOutside work
+  have finish : CleanupFrameSteps (.nil : Target.Definitions signature leafAlgebra [])
+      (.values ⟨7⟩ (.failed 20) afterOutside finishedValues) 1
+      (.running (.reenter ⟨⟨afterStore, .failed 20 afterOutside⟩, [], []⟩ exit)) :=
+    .cons (.finishValues (show finishedValues.finished = some releasedRuntime from rfl)) .refl
+  exact values.trans finish
 
 theorem a_stale_nonowning_control_view_does_not_create_disposal_work :
     finalizeCleanup (some (.continuation ⟨10⟩ none : Target.RuntimeValue signature leafAlgebra [] controlType)) exit =

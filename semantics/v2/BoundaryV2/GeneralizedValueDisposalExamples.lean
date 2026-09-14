@@ -36,9 +36,8 @@ def afterControl : Runtime signature leafAlgebra [] :=
   ⟨⟨7⟩, .finished .abandoned, ⟨controlFields, [], []⟩, [], [], exit⟩
 def afterClosure : Runtime signature leafAlgebra [] := { afterControl with store := { afterControl.store with fields := closureFields } }
 def final : Runtime signature leafAlgebra [] := { afterControl with store := { afterControl.store with fields := finalFields } }
-def controlDisposal : Target.Disposal signature leafAlgebra [] .unit :=
-  ⟨.unit, .seeking afterControl saved.future, .done⟩
-def completedControl : Target.Disposal signature leafAlgebra [] .unit := ⟨.unit, .complete afterControl, .done⟩
+def controlDisposal : ControlProgress signature leafAlgebra [] .unit := .seeking afterControl saved.future
+def completedControl : ControlProgress signature leafAlgebra [] .unit := .complete afterControl
 
 theorem package_opens_its_actual_contents : PackageHandoff pair ⟨500⟩ (.lexical ⟨0⟩ 0) initialFields packageFields :=
   .unpack [] [other] retained []
@@ -52,13 +51,15 @@ theorem closure_opening_consumes_its_grant_before_exposing_captures :
 
 theorem structured_disposal_preserves_order_and_consumes_each_owner :
     ValueDisposalSteps (.nil : Target.Definitions signature leafAlgebra [])
-      (ValueDisposal.start initial packaged) 8 (.ready final []) := by
+      (ValueDisposal.start initial packaged) 9 (.ready final []) := by
   refine .cons (middle := .ready opened [⟨_, pair⟩]) (.package package_opens_its_actual_contents) ?_
   refine .cons (middle := .ready opened [⟨_, control⟩, ⟨_, closure⟩]) .pair ?_
   refine .cons (middle := .control controlDisposal [⟨_, closure⟩])
     (ValueDisposalStep.enterControl (signature := signature) (algebra := leafAlgebra)
       (runtime := opened) releasing_a_control_leaves_a_flat_closure_boundary) ?_
-  refine .cons (middle := .control completedControl [⟨_, closure⟩]) (.control (.unwind (.complete rfl))) ?_
+  refine .cons (middle := .control (.frames ⟨7⟩ (.running (.unwind afterControl .done))) [⟨_, closure⟩])
+    (.control (.frames (.unwind rfl))) ?_
+  refine .cons (middle := .control completedControl [⟨_, closure⟩]) (.control (.finishFrames rfl)) ?_
   refine .cons (middle := .ready afterControl [⟨_, closure⟩]) .finishControl ?_
   refine .cons (middle := .ready afterClosure [⟨_, resource⟩, ⟨_, alias⟩])
     (ValueDisposalStep.closure (signature := signature) (algebra := leafAlgebra) (body := (.fault 999)) closure_opening_consumes_its_grant_before_exposing_captures) ?_
@@ -96,6 +97,6 @@ theorem structured_cleanup_disposal_rejoins_with_the_current_exit :
       (.values ⟨7⟩ (.failed 20) outside (.ready final [])) 1
       (.running (.reenter ⟨⟨final.store, .failed 20 outside⟩, [], []⟩ exit)) :=
     .cons (.finishValues rfl) .refl
-  exact ⟨10, .cons (.enterValues rfl) (inside.trans finish)⟩
+  exact ⟨11, .cons (.enterValues rfl) (inside.trans finish)⟩
 
 end BoundaryV2.Generalized.Examples.StructuredDisposal

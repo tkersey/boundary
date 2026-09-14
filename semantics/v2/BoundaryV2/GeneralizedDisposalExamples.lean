@@ -55,68 +55,71 @@ theorem authored_dispose_has_corresponding_owned_entry :
     ⟨rfl, .cons ⟨rfl, rfl, rfl, .same future⟩ .nil, .nil⟩
     ⟨disposalSourceAfter, ⟨disposeShape, disposalSourceFuture⟩⟩ rfl (.push (.bind disposalCaller .nil) .done)
 
-def disposalRuntime (phase : ExitComposition.Phase signature algebra []) : ExitComposition.Runtime signature algebra [] :=
+open ExitComposition
+
+def disposalRuntime (phase : Phase signature algebra []) : Runtime signature algebra [] :=
   ⟨⟨7⟩, phase, disposalTargetAfter, [], [], ⟨.abandoned, [], none⟩⟩
-def disposalPending := disposalRuntime (.pending ⟨[], Defunctionalization.computation disposalCleanup, .nil⟩)
-def disposalYielded := disposalRuntime (.running
-  (.yielded (.code (.push .unit .ret) (.cons (.exit ⟨.abandoned, [], none⟩) .nil) .nil .done)) .parked)
 def disposalCompleted := disposalRuntime (.finished .returned)
-
-theorem explicit_disposal_runs_cleanup_through_its_real_yield :
-    ExitComposition.RuntimeSteps (.nil : Target.Definitions signature algebra []) disposalPending 1 disposalYielded ∧
-    ExitComposition.RuntimeSteps (.nil : Target.Definitions signature algebra []) disposalYielded 0 disposalCompleted := by
-  let started := disposalRuntime (.running (.code (Defunctionalization.computation disposalCleanup)
-    (.cons (.exit ⟨.abandoned, [], none⟩) .nil) .nil .done) .active)
-  let yielded := disposalRuntime (.running (.yielded (.code (.push .unit .ret)
-    (.cons (.exit ⟨.abandoned, [], none⟩) .nil) .nil .done)) .active)
-  let resumed := disposalRuntime (.running (.code (.push .unit .ret)
-    (.cons (.exit ⟨.abandoned, [], none⟩) .nil) .nil .done) .active)
-  let pushed := disposalRuntime (.running (.code .ret
-    (.cons (.exit ⟨.abandoned, [], none⟩) .nil) (.cons (.datum .unit) .nil) .done) .active)
-  let returned := disposalRuntime (.running (.returned (.datum .unit) .done) .active)
-  have first : ExitComposition.RuntimeStep (.nil : Target.Definitions signature algebra []) disposalPending 1 started := .lifecycle .begin
-  have second : ExitComposition.RuntimeStep (.nil : Target.Definitions signature algebra []) started 0 yielded :=
-    .execute (Target.ExecutionStep.cell (signature := signature) (algebra := algebra) (.ordinary .yield))
-  have third : ExitComposition.RuntimeStep (.nil : Target.Definitions signature algebra []) yielded 0 disposalYielded := .lifecycle .parkYield
-  have fourth : ExitComposition.RuntimeStep (.nil : Target.Definitions signature algebra []) disposalYielded 0 resumed := .lifecycle .continueYield
-  have fifth : ExitComposition.RuntimeStep (.nil : Target.Definitions signature algebra []) resumed 0 pushed :=
-    .execute (Target.ExecutionStep.cell (signature := signature) (algebra := algebra) (.ordinary (.operand .push)))
-  have sixth : ExitComposition.RuntimeStep (.nil : Target.Definitions signature algebra []) pushed 0 returned :=
-    .execute (Target.ExecutionStep.cell (signature := signature) (algebra := algebra) (.ordinary .returned))
-  have last : ExitComposition.RuntimeStep (.nil : Target.Definitions signature algebra []) returned 0 disposalCompleted := .lifecycle .returned
-  exact ⟨.cons first (.cons second (.cons third .refl)), .cons fourth (.cons fifth (.cons sixth (.cons last .refl)))⟩
-
 def disposalTail : Target.Stack signature algebra [] (.leaf .boolean) .unit :=
   .push (.returnTo (.enter (Defunctionalization.computation disposalReturn)) .nil .nil) .done
 
-theorem yielding_disposal_has_not_returned_to_its_caller :
-    Target.Disposal.finish ⟨.unit, .cleaning ⟨disposalYielded, .unwind disposalTail⟩, disposalTargetStart.outside⟩ = none := rfl
+def disposalRunningFuture : Target.Stack signature algebra [] .unit .unit :=
+  .push (.cleanupReturn ⟨7⟩ none ⟨.abandoned, [], none⟩) disposalTail
+def disposalCleanupBindings : Target.RuntimeEnvironment signature algebra [] [.exit] :=
+  .cons (.exit ⟨.abandoned, [], none⟩) .nil
 
-def disposedResolution : ExitComposition.Resolution signature algebra [] (.leaf .integer) :=
+def disposalFrameState (cursor : Target.Configuration signature algebra [] .unit) :
+    CleanupFrameProgress signature algebra [] .unit :=
+  .running (.reenter ⟨⟨disposalTargetAfter, cursor⟩, [], []⟩ ⟨.normal, [], none⟩)
+def disposalUnwind : CleanupFrameProgress signature algebra [] .unit :=
+  .running (.unwind ⟨⟨0⟩, .finished .abandoned, disposalTargetAfter, [], [], ⟨.abandoned, [], none⟩⟩ disposalTargetFuture.future)
+def disposalYieldCursor : Target.Configuration signature algebra [] .unit :=
+  .yielded (.code (.push .unit .ret) disposalCleanupBindings .nil disposalRunningFuture)
+def disposalYieldedFrames : CleanupFrameProgress signature algebra [] .unit :=
+  .parked (.reenter ⟨⟨disposalTargetAfter, disposalYieldCursor⟩, [], []⟩ ⟨.normal, [], none⟩)
+def disposalCompletedFrames : CleanupFrameProgress signature algebra [] .unit := .running (.unwind disposalCompleted .done)
+
+theorem explicit_disposal_runs_cleanup_through_its_real_yield (retained : List Reference := []) :
+    CleanupFrameSteps (.nil : Target.Definitions signature algebra []) disposalUnwind 3 disposalYieldedFrames retained ∧
+    CleanupFrameSteps (.nil : Target.Definitions signature algebra []) disposalYieldedFrames 5 disposalCompletedFrames retained := by
+  constructor
+  · refine .cons (middle := disposalFrameState (.code (Defunctionalization.computation disposalCleanup)
+      disposalCleanupBindings .nil disposalRunningFuture)) (.begin rfl) ?_
+    refine .cons (middle := disposalFrameState disposalYieldCursor) (.execute (.cell (.ordinary .yield))) ?_
+    exact .cons .parkYield .refl
+  · refine .cons (middle := disposalFrameState (.code (.push .unit .ret) disposalCleanupBindings .nil disposalRunningFuture)) .continueYield ?_
+    refine .cons (middle := disposalFrameState (.code .ret disposalCleanupBindings (.cons (.datum .unit) .nil) disposalRunningFuture))
+      (.execute (.cell (.ordinary (.operand .push)))) ?_
+    refine .cons (middle := disposalFrameState (.returned (.datum .unit) disposalRunningFuture))
+      (.execute (.cell (.ordinary .returned))) ?_
+    refine .cons (middle := .running (.unwind disposalCompleted disposalTail))
+      (.finish (after := .resolved (.unwind disposalCompleted disposalTail)) rfl) ?_
+    exact .cons (middle := disposalCompletedFrames) (.unwind rfl) .refl
+
+theorem yielding_disposal_has_not_returned_to_its_caller :
+    Target.Disposal.finish ⟨.unit, .frames ⟨0⟩ disposalYieldedFrames, disposalTargetStart.outside⟩ = none := rfl
+
+def disposedResolution : Resolution signature algebra [] (.leaf .integer) :=
   .reenter ⟨⟨disposalTargetAfter, .returned (.datum .unit) disposalTargetStart.outside⟩, [], []⟩ ⟨.normal, [], none⟩
 
 theorem explicit_disposal_completes_before_returning_unit_to_its_caller :
-    ∃ count, Target.DisposalRun (.nil : Target.Definitions signature algebra [])
+    Target.DisposalRun (.nil : Target.Definitions signature algebra [])
       (.evaluating ⟨⟨disposalTargetStore, .code (Defunctionalization.computation (.dispose (.reference .here)))
-        (Defunctionalization.environment disposalBindings) .nil disposalTargetOutside⟩, [], []⟩) count
+        (Defunctionalization.environment disposalBindings) .nil disposalTargetOutside⟩, [], []⟩) 12
       (.resolved disposedResolution) := by
   have admission : Target.DisposalRun (.nil : Target.Definitions signature algebra [])
       (.evaluating ⟨⟨disposalTargetStore, .code (Defunctionalization.computation (.dispose (.reference .here)))
         (Defunctionalization.environment disposalBindings) .nil disposalTargetOutside⟩, [], []⟩) 2
       (.disposing disposalTargetStart.begin) :=
-    Target.DisposalRun.cons (signature := signature) (algebra := algebra)
-      (.evaluate (Target.ExecutionStep.cell (signature := signature) (algebra := algebra) (.ordinary (.operand .load))))
+    .cons (.evaluate (.cell (.ordinary (.operand .load))))
       (.cons (.enter (Target.DisposeEntry.enter (use := .linear) rfl)) .refl)
-  have cleanup := explicit_disposal_runs_cleanup_through_its_real_yield.1.trans explicit_disposal_runs_cleanup_through_its_real_yield.2
-  have tail := ExitComposition.run_selected_cleanup disposalTail cleanup rfl (by intro impossible; cases impossible)
-  have unwind : ExitComposition.UnwindSteps (.nil : Target.Definitions signature algebra [])
-      disposalTargetStart.begin.progress [⟨7⟩] (.complete disposalCompleted) :=
-    ExitComposition.UnwindSteps.cons (signature := signature) (algebra := algebra)
-      (.select (by intro impossible; cases impossible) rfl) (tail.trans (.cons (.complete rfl) .refl))
-  have steps := Target.DisposalSteps.of_unwind disposalTargetStart.outside unwind
-  obtain ⟨count, finished⟩ := Target.DisposalRun.finish_after_unwind steps (show Target.Disposal.finish
-    ⟨.unit, .complete disposalCompleted, disposalTargetStart.outside⟩ = some disposedResolution from rfl)
-  exact ⟨2 + count, admission.trans finished⟩
+  have cleanupRun := explicit_disposal_runs_cleanup_through_its_real_yield disposalTargetStart.outside.installationReferences
+  have body := Target.DisposalRun.frame_steps ⟨0⟩ disposalTargetStart.outside (cleanupRun.1.trans cleanupRun.2)
+  have finish : Target.DisposalRun (.nil : Target.Definitions signature algebra [])
+      (.disposing ⟨.unit, .frames ⟨0⟩ disposalCompletedFrames, disposalTargetStart.outside⟩) 2 (.resolved disposedResolution) :=
+    .cons (middle := .disposing ⟨.unit, .complete disposalCompleted, disposalTargetStart.outside⟩)
+      (.dispose (.finishFrames rfl)) (.cons (.finish rfl) .refl)
+  exact (admission.trans body).trans finish
 
 theorem disposed_grant_is_spent_and_other_owner_is_preserved :
     disposalTargetAfter.fields.spent = [⟨100⟩] ∧ UseScope.inventory disposalTargetAfter.fields = [⟨900⟩] ∧
