@@ -90,6 +90,26 @@ theorem source_first_cancellation_contract (claim : Exits.composition signature 
     (accepted : before.cancelRunning first = some after) : after.cancelRunning later = some after :=
   claim.source_first_cancellation first later before after accepted
 
+theorem source_region_disposal_contract (claim : Defunctionalization.adequacy signature algebra program)
+    (table : Source.Definitions signature algebra program)
+    {source final : Source.RegionDisposal signature algebra program result}
+    {target : ExitComposition.RegionDisposal signature algebra program result}
+    (steps : Source.RegionDisposalSteps table source count final retained)
+    (related : Defunctionalization.RegionDisposalRelated source target) :
+    ∃ targetCount targetFinal, ExitComposition.RegionDisposalSteps (Defunctionalization.definitions table) target targetCount targetFinal retained ∧
+      Defunctionalization.RegionDisposalRelated final targetFinal :=
+  claim.region_disposal_preservation table steps related
+
+theorem authored_disposal_contract (claim : Defunctionalization.adequacy signature algebra program)
+    (table : Source.Definitions signature algebra program)
+    {source final : Source.DisposalProgress signature algebra program result}
+    {target : Target.DisposalProgress signature algebra program result}
+    (steps : Source.DisposalRun table source count final)
+    (related : Defunctionalization.DisposalProgressRelated source target) :
+    ∃ targetCount targetFinal, Target.DisposalRun (Defunctionalization.definitions table) target targetCount targetFinal ∧
+      Defunctionalization.DisposalProgressRelated final targetFinal :=
+  claim.authored_disposal_preservation table steps related
+
 theorem frame_exit_contract (claim : Exits.composition signature algebra program)
     (table : Target.Definitions signature algebra program)
     {before : ExitComposition.RegionDisposal signature algebra program result}

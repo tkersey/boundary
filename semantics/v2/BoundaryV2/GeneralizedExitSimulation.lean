@@ -1,5 +1,6 @@
 import BoundaryV2.GeneralizedExitContextView
 import BoundaryV2.GeneralizedExitCorrespondence
+import BoundaryV2.GeneralizedSourceRegionCorrespondence
 import BoundaryV2.GeneralizedStateSimulation
 
 namespace BoundaryV2.Generalized.Defunctionalization
@@ -183,6 +184,12 @@ private abbrev ControlSimulation (table : Source.Definitions signature algebra p
   ∀ {target}, ControlProgressRelated source target →
     ∃ count targetAfter, ExitComposition.ControlProgressSteps (definitions table) target count targetAfter retained ∧ ControlProgressRelated after targetAfter
 
+private abbrev RegionSimulation (table : Source.Definitions signature algebra program)
+    {result} (source after : Source.RegionDisposal signature algebra program result) retained
+    (_ : Source.RegionDisposalStep table source after retained) : Prop :=
+  ∀ {target}, RegionDisposalRelated source target →
+    ∃ count targetAfter, ExitComposition.RegionDisposalSteps (definitions table) target count targetAfter retained ∧ RegionDisposalRelated after targetAfter
+
 /-- Every constructor of the source cleanup relation uses an existing core
 simulation or a proved exit-boundary correspondence with finite target drains. -/
 private theorem cleanup_step_preserved_case (table : Source.Definitions signature algebra program)
@@ -190,7 +197,7 @@ private theorem cleanup_step_preserved_case (table : Source.Definitions signatur
     {target : ExitComposition.CleanupFrameProgress signature algebra program result}
     (step : Source.CleanupStep table source after retained)
     (below : Source.CleanupStep.below (motive_1 := CleanupSimulation table) (motive_2 := ValueSimulation table)
-      (motive_3 := ControlSimulation table) step) (related : CleanupProgressRelated source target) :
+      (motive_3 := ControlSimulation table) (motive_4 := RegionSimulation table) step) (related : CleanupProgressRelated source target) :
     ∃ count targetAfter, ExitComposition.CleanupFrameSteps (definitions table) target count targetAfter retained ∧
       CleanupProgressRelated after targetAfter := by
   cases below with
@@ -217,6 +224,28 @@ private theorem cleanup_step_preserved_case (table : Source.Definitions signatur
         obtain ⟨count, targetAfter, _, steps, joined⟩ := unwind_cleanup_preserved
           (retained := retained) table _ _ _ runtime _ outside
         exact ⟨count, targetAfter, steps, joined⟩
+  | unwindBind =>
+    cases related with
+    | running matching =>
+      cases matching with
+      | unwind runtime outside =>
+        obtain ⟨targetFrame, targetRest, count, frame, context, drain⟩ := outside.expose_unwind_frame
+          (retained := retained) (definitions table) _ runtime.completion _ _ rfl
+        cases frame
+        refine ⟨count + 1, _, drain.trans (.cons (.unwind ?_) .refl), .running (.unwind runtime context)⟩
+        simp only [ExitComposition.advanceUnwindResolution, ExitComposition.Resolution.cleanupFinished,
+          runtime.completion, Bool.not_true, Bool.false_eq_true, ↓reduceIte]
+  | unwindHandler =>
+    cases related with
+    | running matching =>
+      cases matching with
+      | unwind runtime outside =>
+        obtain ⟨targetFrame, targetRest, count, frame, context, drain⟩ := outside.expose_unwind_frame
+          (retained := retained) (definitions table) _ runtime.completion _ _ rfl
+        cases frame
+        refine ⟨count + 1, _, drain.trans (.cons (.unwind ?_) .refl), .running (.unwind runtime context)⟩
+        simp only [ExitComposition.advanceUnwindResolution, ExitComposition.Resolution.cleanupFinished,
+          runtime.completion, Bool.not_true, Bool.false_eq_true, ↓reduceIte]
   | returned accepted =>
     cases related with
     | running matching =>
@@ -311,6 +340,21 @@ private theorem cleanup_step_preserved_case (table : Source.Definitions signatur
     | captured matching =>
       obtain ⟨targetAfter, cancelled, joined⟩ := matching.cancel_preserved accepted
       exact ⟨1, _, .cons (.cancelCaptured cancelled) .refl, .captured joined⟩
+  | enterRegion accepted =>
+    cases related with
+    | running matching =>
+      obtain ⟨targetAfter, admitted, joined⟩ := option_related_some (RegionDisposalRelated.begin matching) accepted
+      exact ⟨1, _, .cons (.enterRegion admitted) .refl, .region joined⟩
+  | region step childBelow simulate =>
+    cases related with
+    | region matching =>
+      obtain ⟨count, targetAfter, run, joined⟩ := simulate matching
+      exact ⟨count, _, ExitComposition.CleanupFrameSteps.of_region run, .region joined⟩
+  | finishRegion accepted =>
+    cases related with
+    | region matching =>
+      obtain ⟨targetAfter, admitted, joined⟩ := option_related_some (matching.finish _) accepted
+      exact ⟨1, _, .cons (.finishRegion admitted) .refl, .running joined⟩
 
 
 private theorem value_disposal_step_preserved_case (table : Source.Definitions signature algebra program)
@@ -318,7 +362,7 @@ private theorem value_disposal_step_preserved_case (table : Source.Definitions s
     {target : ExitComposition.ValueDisposal signature algebra program}
     (step : Source.ValueDisposalStep table source after retained)
     (below : Source.ValueDisposalStep.below (motive_1 := CleanupSimulation table) (motive_2 := ValueSimulation table)
-      (motive_3 := ControlSimulation table) step) (related : ValueDisposalRelated source target) :
+      (motive_3 := ControlSimulation table) (motive_4 := RegionSimulation table) step) (related : ValueDisposalRelated source target) :
     ∃ count targetAfter, ExitComposition.ValueDisposalSteps (definitions table) target count targetAfter retained ∧
       ValueDisposalRelated after targetAfter := by
   cases below with
@@ -394,7 +438,7 @@ private theorem control_progress_step_preserved_case (table : Source.Definitions
     {target : ExitComposition.ControlProgress signature algebra program answer}
     (step : Source.ControlProgressStep table source after retained)
     (below : Source.ControlProgressStep.below (motive_1 := CleanupSimulation table) (motive_2 := ValueSimulation table)
-      (motive_3 := ControlSimulation table) step) (related : ControlProgressRelated source target) :
+      (motive_3 := ControlSimulation table) (motive_4 := RegionSimulation table) step) (related : ControlProgressRelated source target) :
     ∃ count targetAfter, ExitComposition.ControlProgressSteps (definitions table) target count targetAfter retained ∧
       ControlProgressRelated after targetAfter := by
   cases below with
@@ -451,6 +495,28 @@ private theorem control_progress_step_preserved_case (table : Source.Definitions
       obtain ⟨runtime, accepted, relatedRuntime⟩ := finished_value_disposal_corresponds matching finished
       exact ⟨1, _, .cons (.finishAnswer accepted) .refl, .complete relatedRuntime⟩
 
+private theorem region_disposal_step_preserved_case (table : Source.Definitions signature algebra program)
+    {source after : Source.RegionDisposal signature algebra program result}
+    {target : ExitComposition.RegionDisposal signature algebra program result}
+    (step : Source.RegionDisposalStep table source after retained)
+    (below : Source.RegionDisposalStep.below (motive_1 := CleanupSimulation table) (motive_2 := ValueSimulation table)
+      (motive_3 := ControlSimulation table) (motive_4 := RegionSimulation table) step) (related : RegionDisposalRelated source target) :
+    ∃ count targetAfter, ExitComposition.RegionDisposalSteps (definitions table) target count targetAfter retained ∧
+      RegionDisposalRelated after targetAfter := by
+  cases below with
+  | offer accepted =>
+    obtain ⟨targetAfter, offered, joined⟩ := option_related_some related.offer accepted
+    exact ⟨1, targetAfter, .cons (.offer offered) .refl, joined⟩
+  | values step childBelow simulate =>
+    cases related with
+    | disposing outside matching =>
+      obtain ⟨count, targetAfter, run, joined⟩ := simulate matching
+      rw [← context_reference_support outside] at run
+      exact ⟨count, _, ExitComposition.RegionDisposalSteps.of_values _ _ _ run, .disposing outside joined⟩
+  | returnValue accepted =>
+    obtain ⟨targetAfter, offered, joined⟩ := option_related_some related.return_value accepted
+    exact ⟨1, targetAfter, .cons (.returnValue offered) .refl, joined⟩
+
 theorem cleanup_step_preserved (table : Source.Definitions signature algebra program)
     {source after : Source.CleanupProgress signature algebra program result}
     {target : ExitComposition.CleanupFrameProgress signature algebra program result}
@@ -459,10 +525,11 @@ theorem cleanup_step_preserved (table : Source.Definitions signature algebra pro
       CleanupProgressRelated after targetAfter := by
   have proved : CleanupSimulation table source after retained step :=
     Source.CleanupStep.brecOn (motive_1 := CleanupSimulation table) (motive_2 := ValueSimulation table)
-      (motive_3 := ControlSimulation table) step
+      (motive_3 := ControlSimulation table) (motive_4 := RegionSimulation table) step
       (fun _ _ _ current below => cleanup_step_preserved_case table current below)
       (fun _ _ _ current below => value_disposal_step_preserved_case table current below)
       (fun _ _ _ current below => control_progress_step_preserved_case table current below)
+      (fun _ _ _ current below => region_disposal_step_preserved_case table current below)
   exact proved related
 
 theorem value_disposal_step_preserved (table : Source.Definitions signature algebra program)
@@ -473,10 +540,11 @@ theorem value_disposal_step_preserved (table : Source.Definitions signature alge
       ValueDisposalRelated after targetAfter := by
   have proved : ValueSimulation table source after retained step :=
     Source.ValueDisposalStep.brecOn (motive_1 := CleanupSimulation table) (motive_2 := ValueSimulation table)
-      (motive_3 := ControlSimulation table) step
+      (motive_3 := ControlSimulation table) (motive_4 := RegionSimulation table) step
       (fun _ _ _ current below => cleanup_step_preserved_case table current below)
       (fun _ _ _ current below => value_disposal_step_preserved_case table current below)
       (fun _ _ _ current below => control_progress_step_preserved_case table current below)
+      (fun _ _ _ current below => region_disposal_step_preserved_case table current below)
   exact proved related
 
 theorem control_progress_step_preserved (table : Source.Definitions signature algebra program)
@@ -487,10 +555,11 @@ theorem control_progress_step_preserved (table : Source.Definitions signature al
       ControlProgressRelated after targetAfter := by
   have proved : ControlSimulation table source after retained step :=
     Source.ControlProgressStep.brecOn (motive_1 := CleanupSimulation table) (motive_2 := ValueSimulation table)
-      (motive_3 := ControlSimulation table) step
+      (motive_3 := ControlSimulation table) (motive_4 := RegionSimulation table) step
       (fun _ _ _ current below => cleanup_step_preserved_case table current below)
       (fun _ _ _ current below => value_disposal_step_preserved_case table current below)
       (fun _ _ _ current below => control_progress_step_preserved_case table current below)
+      (fun _ _ _ current below => region_disposal_step_preserved_case table current below)
   exact proved related
 
 
@@ -555,6 +624,34 @@ theorem finite_control_disposal_preserved (table : Source.Definitions signature 
   | refl => exact ⟨0, target, .refl, related⟩
   | cons step tail induction =>
     obtain ⟨firstCount, middle, first, joined⟩ := control_progress_step_preserved table step related
+    obtain ⟨restCount, final, rest, last⟩ := induction joined
+    exact ⟨firstCount + restCount, final, first.trans rest, last⟩
+
+theorem region_disposal_step_preserved (table : Source.Definitions signature algebra program)
+    {source after : Source.RegionDisposal signature algebra program result}
+    {target : ExitComposition.RegionDisposal signature algebra program result}
+    (step : Source.RegionDisposalStep table source after retained) (related : RegionDisposalRelated source target) :
+    ∃ count targetAfter, ExitComposition.RegionDisposalSteps (definitions table) target count targetAfter retained ∧
+      RegionDisposalRelated after targetAfter := by
+  have proved : RegionSimulation table source after retained step :=
+    Source.RegionDisposalStep.brecOn (motive_1 := CleanupSimulation table) (motive_2 := ValueSimulation table)
+      (motive_3 := ControlSimulation table) (motive_4 := RegionSimulation table) step
+      (fun _ _ _ current below => cleanup_step_preserved_case table current below)
+      (fun _ _ _ current below => value_disposal_step_preserved_case table current below)
+      (fun _ _ _ current below => control_progress_step_preserved_case table current below)
+      (fun _ _ _ current below => region_disposal_step_preserved_case table current below)
+  exact proved related
+
+theorem finite_region_disposal_preserved (table : Source.Definitions signature algebra program)
+    {source after : Source.RegionDisposal signature algebra program result}
+    {target : ExitComposition.RegionDisposal signature algebra program result}
+    (steps : Source.RegionDisposalSteps table source count after retained) (related : RegionDisposalRelated source target) :
+    ∃ targetCount targetAfter, ExitComposition.RegionDisposalSteps (definitions table) target targetCount targetAfter retained ∧
+      RegionDisposalRelated after targetAfter := by
+  induction steps generalizing target with
+  | refl => exact ⟨0, target, .refl, related⟩
+  | cons step tail induction =>
+    obtain ⟨firstCount, middle, first, joined⟩ := region_disposal_step_preserved table step related
     obtain ⟨restCount, final, rest, last⟩ := induction joined
     exact ⟨firstCount + restCount, final, first.trans rest, last⟩
 

@@ -28,23 +28,16 @@ theorem ExitResolutionRelated.cancel_running (related : ExitResolutionRelated so
     rcases states with ⟨stores, storage, regions, computation⟩
     have matched := computation.cancel_inside reason rfl
     unfold Source.ExitResolution.cancelRunning ExitComposition.Resolution.cancelRunning
-    exact cancellation_options_map matched _ _ (fun _ _ matching => .reenter ⟨stores, storage, regions, matching⟩)
+    exact option_related_map matched _ _ (fun _ _ matching => .reenter ⟨stores, storage, regions, matching⟩)
   | unwind runtime outside =>
     have matched := running_cancellation_corresponds reason outside
     unfold Source.ExitResolution.cancelRunning ExitComposition.Resolution.cancelRunning
-    exact cancellation_options_map matched _ _ (fun _ _ matching => .unwind runtime matching)
+    exact option_related_map matched _ _ (fun _ _ matching => .unwind runtime matching)
 
 theorem ExitResolutionRelated.cancel_preserved (related : ExitResolutionRelated source target)
     (accepted : source.cancelRunning reason = some after) :
-    ∃ targetAfter, target.cancelRunning reason = some targetAfter ∧ ExitResolutionRelated after targetAfter := by
-  have matched := related.cancel_running reason
-  rw [accepted] at matched
-  cases found : target.cancelRunning reason with
-  | none => rw [found] at matched; cases matched
-  | some targetAfter =>
-    rw [found] at matched
-    cases matched with
-    | some matching => exact ⟨_, rfl, matching⟩
+    ∃ targetAfter, target.cancelRunning reason = some targetAfter ∧ ExitResolutionRelated after targetAfter :=
+  option_related_some (related.cancel_running reason) accepted
 
 inductive CleanupDisposalRelated : Source.CleanupDisposal signature algebra program result →
     ExitComposition.CleanupDisposal signature algebra program result → Prop where
@@ -60,12 +53,19 @@ inductive CompletedCleanupRelated : Source.CompletedCleanup signature algebra pr
 def disposalValues (values : Source.DisposalValues signature algebra program) : ExitComposition.DisposalValues signature algebra program :=
   values.map fun item => ⟨item.fst, value item.snd⟩
 
+inductive RegionHandoffRelated : Source.RegionHandoff signature algebra program input result →
+    ExitComposition.RegionHandoff signature algebra program input result → Prop where
+  | same (identity : Id .region) (kept : List (Id .cell)) : ExitRuntimeRelated source target →
+      ContextRelated signature algebra program sourceOutside targetOutside →
+      RegionHandoffRelated ⟨identity, source, sourceOutside, kept⟩ ⟨identity, target, targetOutside, kept⟩
+
 mutual
   inductive CleanupProgressRelated : Source.CleanupProgress signature algebra program result →
       ExitComposition.CleanupFrameProgress signature algebra program result → Prop where
     | running : ExitResolutionRelated source target → CleanupProgressRelated (.running source) (.running target)
     | parked : ExitResolutionRelated source target → CleanupProgressRelated (.parked source) (.parked target)
     | captured : ExitResolutionRelated source target → CleanupProgressRelated (.captured identity source) (.captured identity target)
+    | region : RegionDisposalRelated source target → CleanupProgressRelated (.region source) (.region target)
     | disposing : CleanupDisposalRelated source target → CleanupProgressRelated (.disposing source) (.disposing target)
     | values : ContextRelated signature algebra program sourceOutside targetOutside → ValueDisposalRelated source target →
         CleanupProgressRelated (.values identity completion sourceOutside source) (.values identity completion targetOutside target)
@@ -81,6 +81,12 @@ mutual
     | frames : CleanupProgressRelated source target → ControlProgressRelated (.frames identity source) (.frames identity target)
     | returnedValue : ValueDisposalRelated source target → ControlProgressRelated (.returnedValue source) (.returnedValue target)
     | complete : ExitRuntimeRelated source target → ControlProgressRelated (.complete source) (.complete target)
+
+  inductive RegionDisposalRelated : Source.RegionDisposal signature algebra program result →
+      ExitComposition.RegionDisposal signature algebra program result → Prop where
+    | offering : RegionHandoffRelated source target → RegionDisposalRelated (.offering source) (.offering target)
+    | disposing : ContextRelated signature algebra program sourceOutside targetOutside → ValueDisposalRelated source target →
+        RegionDisposalRelated (.disposing identity sourceOutside kept source) (.disposing identity targetOutside kept target)
 end
 
 theorem disposal_values_references (values : Source.DisposalValues signature algebra program) :

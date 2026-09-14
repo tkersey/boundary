@@ -73,6 +73,25 @@ def takeOldest (region : Id .region) (cells : Cells signature algebra Body) (kep
     | some (selected, remaining) => some (selected, first :: remaining)
     | none => if first.region == region && !(kept.contains first.identity && first.value.owningField.tokens.isEmpty) then some (first, rest) else none
 
+theorem take_oldest_commutes_with_body_mapping
+    (transform : ∀ context type, Before context type → After context type)
+    (region : Id .region) (cells : Cells signature algebra Before) (kept : List (Id .cell)) :
+    takeOldest region (cells.mapBodies transform) kept =
+      (takeOldest region cells kept).map (fun selected => (selected.1.map transform, selected.2.mapBodies transform)) := by
+  induction cells with
+  | nil => rfl
+  | cons first rest induction =>
+    simp only [mapBodies, List.map_cons, takeOldest]
+    change (match takeOldest region (Cells.mapBodies transform rest) kept with
+      | some (selected, remaining) => some (selected, first.map transform :: remaining)
+      | none => _) = _
+    rw [induction]
+    cases found : takeOldest region rest kept with
+    | none =>
+      simp only [Option.map_none, Cell.map, Value.map_preserves_owning_fields]
+      split <;> rfl
+    | some selected => cases selected; rfl
+
 theorem take_oldest_preserves_cells (cells : Cells signature algebra Body)
     (taken : takeOldest region cells kept = some (selected, remaining)) : cells.Perm (selected :: remaining) := by
   induction cells generalizing remaining with

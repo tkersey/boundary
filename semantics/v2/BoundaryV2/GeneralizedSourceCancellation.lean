@@ -119,7 +119,7 @@ theorem Target.Stack.cancel_append_inner (reason : algebra.Reason)
 
 namespace Defunctionalization
 
-theorem cancellation_options_map {left : Option α} {right : Option β}
+theorem option_related_map {left : Option α} {right : Option β}
     {before : α → β → Prop} {after : γ → δ → Prop}
     (related : Option.Rel before left right) (first : α → γ) (second : β → δ)
     (preserves : ∀ a b, before a b → after (first a) (second b)) :
@@ -127,6 +127,17 @@ theorem cancellation_options_map {left : Option α} {right : Option β}
   cases related with
   | none => exact .none
   | some matching => exact .some (preserves _ _ matching)
+
+theorem option_related_some {left : Option α} {right : Option β} {relation : α → β → Prop}
+    (related : Option.Rel relation left right) (accepted : left = some after) :
+    ∃ targetAfter, right = some targetAfter ∧ relation after targetAfter := by
+  rw [accepted] at related
+  cases found : right with
+  | none => rw [found] at related; cases related
+  | some targetAfter =>
+    rw [found] at related
+    cases related with
+    | some matching => exact ⟨_, rfl, matching⟩
 
 /-- A running cleanup in the enclosing context takes precedence over every
 cleanup inside the current computation, including a requested or yielded body. -/
@@ -177,21 +188,21 @@ theorem ProgramRelated.cancel_inside
   | bind body bindings inner induction =>
     have matched := induction (by simp only [Target.Stack.cancelRunning, absent])
     simpa only [Source.Program.bindAuthored, Source.Program.cancelRunning, Option.map_id, id_eq] using
-      cancellation_options_map matched (fun first => Source.Program.bindAuthored first body bindings) id
+      option_related_map matched (fun first => Source.Program.bindAuthored first body bindings) id
         (fun _ _ matching => ProgramRelated.bind body bindings matching)
   | handler effect mode attachment returned clauses bindings inner induction =>
     have matched := induction (by simp only [Target.Stack.cancelRunning, absent])
     simpa only [Source.Program.cancelRunning, Option.map_id, id_eq] using
-      cancellation_options_map matched (Source.Program.handler effect mode attachment returned clauses bindings) id
+      option_related_map matched (Source.Program.handler effect mode attachment returned clauses bindings) id
         (fun _ _ matching => ProgramRelated.handler effect mode attachment returned clauses bindings matching)
   | region identity inner induction =>
     have matched := induction (by simp only [Target.Stack.cancelRunning, absent])
     simpa only [Source.Program.cancelRunning, Option.map_id, id_eq] using
-      cancellation_options_map matched (Source.Program.region identity) id (fun _ _ matching => ProgramRelated.region identity matching)
+      option_related_map matched (Source.Program.region identity) id (fun _ _ matching => ProgramRelated.region identity matching)
   | protection identity cleanup bindings inner induction =>
     have matched := induction (by simp only [Target.Stack.cancelRunning, absent])
     simpa only [Source.Program.cancelRunning, Option.map_id, id_eq] using
-      cancellation_options_map matched (Source.Program.protection identity cleanup bindings) id
+      option_related_map matched (Source.Program.protection identity cleanup bindings) id
         (fun _ _ matching => ProgramRelated.protection identity cleanup bindings matching)
   | cleaning identity original exit inner induction =>
     obtain ⟨final, step, matching⟩ := inner.cancel_outside reason (by simp only [Target.Stack.cancelRunning, absent]; rfl)
@@ -201,17 +212,17 @@ theorem ProgramRelated.cancel_inside
     have matched := running_cancellation_corresponds reason saved
     simp only [Source.Program.cancelRunning, Target.Configuration.cancelRunning,
       Target.Stack.cancel_append_inner reason _ _ absent]
-    simpa only [Option.map_map, Function.comp_def] using cancellation_options_map matched
+    simpa only [Option.map_map, Function.comp_def] using option_related_map matched
       (Source.Program.request operation attachment payload bodies)
       (fun after => Target.Configuration.requested operation attachment (value payload) (environment bodies) (after.append future))
       (fun _ _ matching => ProgramRelated.requested operation attachment payload bodies matching future)
   | yielded inner induction =>
     have matched := induction absent
-    exact cancellation_options_map matched Source.Program.yielded Target.Configuration.yielded
+    exact option_related_map matched Source.Program.yielded Target.Configuration.yielded
       (fun _ _ matching => ProgramRelated.yielded matching)
   | passthrough bindings inner induction =>
     have matched := induction (by simp only [Target.Stack.cancelRunning, absent])
-    simpa only [Option.map_id, id_eq] using cancellation_options_map matched id id
+    simpa only [Option.map_id, id_eq] using option_related_map matched id id
       (fun _ _ matching => ProgramRelated.passthrough bindings matching)
 
 end Defunctionalization

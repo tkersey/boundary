@@ -21,13 +21,15 @@ function claimMutations() {
   const cleanup = readFileSync(join(project, 'BoundaryV2', 'GeneralizedCleanupCompletion.lean'), 'utf8');
   const sourceExits = readFileSync(join(project, 'BoundaryV2', 'GeneralizedSourceExits.lean'), 'utf8');
   const sourceCancellation = readFileSync(join(project, 'BoundaryV2', 'GeneralizedSourceCancellation.lean'), 'utf8');
+  const sourceRegion = readFileSync(join(project, 'BoundaryV2', 'GeneralizedSourceRegionCorrespondence.lean'), 'utf8');
+  const sourceDisposal = readFileSync(join(project, 'BoundaryV2', 'GeneralizedSourceDisposalExecution.lean'), 'utf8');
   const exitSimulation = readFileSync(join(project, 'BoundaryV2', 'GeneralizedExitSimulation.lean'), 'utf8');
   const consumers = readFileSync(join(project, 'BoundaryV2', 'GeneralizedContractChecks.lean'), 'utf8');
   try {
     mkdirSync(join(directory, 'BoundaryV2'));
     const artifacts = join(project, '.lake', 'build', 'lib', 'lean', 'BoundaryV2');
     for (const name of readdirSync(artifacts)) {
-      if (!/\.olean(?:\.|$)/.test(name) || /^(GeneralizedContracts|GeneralizedContractChecks|GeneralizedStateObservations|GeneralizedRegisteredExecution|GeneralizedExitTransitions|GeneralizedCleanupCompletion|GeneralizedSourceCancellation|GeneralizedSourceExits|GeneralizedExitSimulation)\./.test(name)) continue;
+      if (!/\.olean(?:\.|$)/.test(name) || /^(GeneralizedContracts|GeneralizedContractChecks|GeneralizedStateObservations|GeneralizedRegisteredExecution|GeneralizedExitTransitions|GeneralizedCleanupCompletion|GeneralizedSourceCancellation|GeneralizedSourceExits|GeneralizedSourceRegionCorrespondence|GeneralizedSourceDisposalExecution|GeneralizedExitSimulation)\./.test(name)) continue;
       symlinkSync(join(artifacts, name), join(directory, 'BoundaryV2', name));
     }
     copyFileSync(join(project, 'lean-toolchain'), join(directory, 'lean-toolchain'));
@@ -54,7 +56,9 @@ function claimMutations() {
     accepted(compile('GeneralizedRegisteredExecution', registered, true), 'original registered execution');
     accepted(compile('GeneralizedSourceCancellation', sourceCancellation, true), 'original source cancellation');
     accepted(compile('GeneralizedSourceExits', sourceExits, true), 'original independent source exits');
+    accepted(compile('GeneralizedSourceRegionCorrespondence', sourceRegion, true), 'original source region correspondence');
     accepted(compile('GeneralizedExitSimulation', exitSimulation, true), 'original source exit simulation');
+    accepted(compile('GeneralizedSourceDisposalExecution', sourceDisposal, true), 'original authored source disposal');
     accepted(compile('GeneralizedContracts', contracts, true), 'original contract declarations');
     accepted(compile('GeneralizedContractChecks', consumers), 'original contract consumers');
     for (const [namespace, name] of [
@@ -109,6 +113,18 @@ function claimMutations() {
       'RegionDisposal.finish external before = some after'), true), 'retained-root omission probe must itself compile');
     rejected(compile('GeneralizedCleanupCompletion', cleanup), 'cleanup region retirement omits retained caller roots');
     accepted(compile('GeneralizedExitTransitions', exits, true), 'restored shared exit transitions');
+    const sourceRegionRoots = 'storeReferences runtime.store ++ cellsReferences remaining ++ outside.referenceSupport ++ external';
+    assert.equal(sourceExits.split(sourceRegionRoots).length, 2, 'expected one source region retained-root mutation target');
+    accepted(compile('GeneralizedSourceExits', sourceExits.replace(sourceRegionRoots,
+      'storeReferences runtime.store ++ cellsReferences remaining ++ external'), true),
+    'source region retained-root omission probe must itself compile');
+    rejected(compile('GeneralizedSourceRegionCorrespondence', sourceRegion), 'source region retirement omits the actual outside continuation');
+    const sourcePlainCell = '(⟨cell.type, cell.value⟩, { handoff with kept := cell.identity :: handoff.kept })';
+    assert.equal(sourceExits.split(sourcePlainCell).length, 2, 'expected one source nonowning-cell mutation target');
+    accepted(compile('GeneralizedSourceExits', sourceExits.replace(sourcePlainCell,
+      '(⟨cell.type, cell.value⟩, { handoff with runtime := { handoff.runtime with cells := remaining }, kept := cell.identity :: handoff.kept })'), true),
+    'source early cell-removal probe must itself compile');
+    rejected(compile('GeneralizedSourceRegionCorrespondence', sourceRegion), 'source region disposal removes still-readable nonowning storage');
     const sourceDiagnostics = '⟨.failure fault, diagnostics.failures, diagnostics.cancellation⟩ outside';
     assert.equal(sourceExits.split(sourceDiagnostics).length, 2, 'expected one source cleanup diagnostic mutation target');
     accepted(compile('GeneralizedSourceExits', sourceExits.replace(sourceDiagnostics,
@@ -127,6 +143,11 @@ function claimMutations() {
     rejected(compile('GeneralizedSourceCancellation', sourceCancellation.replace(runningCancellation,
       'some (.cleaning identity original (exit.cancel reason) (.returned (.datum .unit)))')),
     'source cancellation discards the running cleanup continuation');
+    accepted(compile('GeneralizedSourceExits', sourceExits, true), 'restored source exits before authored-disposal probe');
+    const disposalCallerRoots = 'ControlProgressStep table before after outside.referenceSupport';
+    assert.equal(sourceDisposal.split(disposalCallerRoots).length, 2, 'expected one authored-disposal caller-root mutation target');
+    rejected(compile('GeneralizedSourceDisposalExecution', sourceDisposal.replace(disposalCallerRoots,
+      'ControlProgressStep table before after []')), 'authored source disposal omits its retained caller roots');
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

@@ -3,6 +3,7 @@ import BoundaryV2.GeneralizedRegisteredSimulation
 import BoundaryV2.GeneralizedRegisteredReflection
 import BoundaryV2.GeneralizedExitSimulation
 import BoundaryV2.GeneralizedDisposalExecution
+import BoundaryV2.GeneralizedSourceDisposalExecution
 import BoundaryV2.GeneralizedCleanupCompletion
 import BoundaryV2.GeneralizedInteraction
 import BoundaryV2.GeneralizedOwnedRelocation
@@ -156,6 +157,22 @@ structure adequacy : Prop where
         ControlProgressRelated final targetFinal := by
           intro table answer count retained source final target steps related
           exact finite_control_disposal_preserved table steps related
+  region_disposal_preservation : ∀ (table : Source.Definitions signature algebra program) {result count retained}
+    {source final : Source.RegionDisposal signature algebra program result}
+    {target : ExitComposition.RegionDisposal signature algebra program result},
+    Source.RegionDisposalSteps table source count final retained → RegionDisposalRelated source target →
+      ∃ targetCount targetFinal, ExitComposition.RegionDisposalSteps (definitions table) target targetCount targetFinal retained ∧
+        RegionDisposalRelated final targetFinal := by
+          intro table result count retained source final target steps related
+          exact finite_region_disposal_preserved table steps related
+  authored_disposal_preservation : ∀ (table : Source.Definitions signature algebra program) {result count}
+    {source final : Source.DisposalProgress signature algebra program result}
+    {target : Target.DisposalProgress signature algebra program result},
+    Source.DisposalRun table source count final → DisposalProgressRelated source target →
+      ∃ targetCount targetFinal, Target.DisposalRun (definitions table) target targetCount targetFinal ∧
+        DisposalProgressRelated final targetFinal := by
+          intro table result count source final target steps related
+          exact finite_authored_disposal_preserved table steps related
   registered_initialization : ∀ {context result}
     (body : Source.Computation signature algebra program context result)
     (bindings : Source.RuntimeEnvironment signature algebra program context)

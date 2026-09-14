@@ -7,6 +7,18 @@ variable {signature : Signature} {algebra : LeafAlgebra signature.Data}
 
 variable [DecidableEq (ControlShape signature)] [DecidableEq (TypeOf signature)]
 
+theorem RegionDisposalSteps.trans {table : Target.Definitions signature algebra program}
+    {before middle after : RegionDisposal signature algebra program result}
+    (first : RegionDisposalSteps table before count middle retained)
+    (second : RegionDisposalSteps table middle rest after retained) :
+    RegionDisposalSteps table before (count + rest) after retained := by
+  induction count generalizing before with
+  | zero => cases first; simpa using second
+  | succ count induction =>
+    cases first with
+    | cons step tail =>
+      simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using RegionDisposalSteps.cons step (induction tail)
+
 theorem RegionDisposalSteps.of_values {table : Target.Definitions signature algebra program}
     (identity : Id .region) (outside : Target.Stack signature algebra program input result) (kept : List (Id .cell))
     (steps : ValueDisposalSteps table before count after (outside.installationReferences ++ retained)) :

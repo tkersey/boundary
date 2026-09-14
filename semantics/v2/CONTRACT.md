@@ -167,10 +167,15 @@ inside disposed continuations. D's `value_disposal_preservation` and
 these operations. Running, parked, and captured cancellation now preserves the actual
 source future and first reason; D also exposes its source/target admission
 correspondence. Yield parking, continuation, capture, and reattachment compose
-through the same finite exit simulation. These remain components of D: source
-region/suspended-work abandonment
-operations, authored dispose entry, registered execution, and reverse finite
-exit correspondence still need integration before complete adequacy can be claimed.
+through the same finite exit simulation. Source unwinding-region disposal now
+uses current cells and retained outside roots inside that mutual relation.
+D's `region_disposal_preservation` and `authored_disposal_preservation` fields
+connect arbitrary finite region work and authored disposal to their existing
+target operations. The authored operation keeps its caller distinct and returns
+to its ordinary computation after yielding cleanup and actual authority consumption.
+These remain components of D: normal-return region/scope composition,
+suspended-work abandonment, the join with registered execution, and reverse
+finite exit correspondence remain required before complete adequacy can be claimed.
 
 X now includes checked local fields for frame completion, region handoff,
 retained roots, and finite frame/control/value embeddings. Authored disposal

@@ -86,6 +86,36 @@ def beginExitCleanup (identity : Id .obligation)
 abbrev DisposalValues (signature : Signature) (algebra : LeafAlgebra signature.Data)
     (program : List (BodyType signature.Data signature.Effect)) := List (Sigma (RuntimeValue signature algebra program))
 
+/-- Source region work keeps current storage with its actual higher-order
+outside context. Previously offered nonowning cells remain readable. -/
+structure RegionHandoff (signature : Signature) (algebra : LeafAlgebra signature.Data)
+    (program : List (BodyType signature.Data signature.Effect)) (input result : TypeOf signature) where
+  identity : Id .region
+  runtime : ExitRuntime signature algebra program
+  outside : Context signature algebra program input result
+  kept : List (Id .cell)
+
+def RegionHandoff.offerNext (handoff : RegionHandoff signature algebra program input result) :
+    Option ((Sigma (RuntimeValue signature algebra program)) × RegionHandoff signature algebra program input result) :=
+  (Cells.takeOldest handoff.identity handoff.runtime.cells handoff.kept).map fun (cell, remaining) =>
+    if cell.value.owningField.tokens.isEmpty then
+      (⟨cell.type, cell.value⟩, { handoff with kept := cell.identity :: handoff.kept })
+    else
+      let fields := { handoff.runtime.store.fields with active := handoff.runtime.store.fields.active ++ [cell.value.owningField] }
+      let runtime := { handoff.runtime with cells := remaining, store := { handoff.runtime.store with fields := fields } }
+      (⟨cell.type, cell.value⟩, { handoff with runtime := runtime })
+
+def retireUnwoundRegion (identity : Id .region) (runtime : ExitRuntime signature algebra program)
+    (outside : Context signature algebra program input result) (external : List Reference) :
+    Option (ExitResolution signature algebra program result) :=
+  let remaining := runtime.cells.outsideRegions [identity]
+  let support := storeReferences runtime.store ++ cellsReferences remaining ++ outside.referenceSupport ++ external
+  if canRetireStorage [identity] runtime.regions runtime.cells support then
+    some (.unwind { runtime with
+      cells := remaining
+      regions := runtime.regions.filter fun region => !([identity].contains region) } outside)
+  else none
+
 /- Source work retains source computations and higher-order contexts. The
 mutual states expose ongoing control disposal and its remaining owned values. -/
 mutual
@@ -94,6 +124,7 @@ mutual
     | running : ExitResolution signature algebra program result → CleanupProgress signature algebra program result
     | parked : ExitResolution signature algebra program result → CleanupProgress signature algebra program result
     | captured : Id .control → ExitResolution signature algebra program result → CleanupProgress signature algebra program result
+    | region : RegionDisposal signature algebra program result → CleanupProgress signature algebra program result
     | disposing : CleanupDisposal signature algebra program result → CleanupProgress signature algebra program result
     | values {input : TypeOf signature} : Id .obligation → ExitComposition.Completion algebra.Fault →
         Context signature algebra program input result → ValueDisposal signature algebra program → CleanupProgress signature algebra program result
@@ -109,6 +140,12 @@ mutual
     | frames : Id .obligation → CleanupProgress signature algebra program answer → ControlProgress signature algebra program answer
     | returnedValue : ValueDisposal signature algebra program → ControlProgress signature algebra program answer
     | complete : ExitRuntime signature algebra program → ControlProgress signature algebra program answer
+
+  inductive RegionDisposal (signature : Signature) (algebra : LeafAlgebra signature.Data)
+      (program : List (BodyType signature.Data signature.Effect)) : TypeOf signature → Type where
+    | offering {input : TypeOf signature} : RegionHandoff signature algebra program input result → RegionDisposal signature algebra program result
+    | disposing {input : TypeOf signature} : Id .region → Context signature algebra program input result →
+        List (Id .cell) → ValueDisposal signature algebra program → RegionDisposal signature algebra program result
 end
 
 def ValueDisposal.start (runtime : ExitRuntime signature algebra program) (value : RuntimeValue signature algebra program type) :
@@ -116,6 +153,27 @@ def ValueDisposal.start (runtime : ExitRuntime signature algebra program) (value
 
 def ValueDisposal.finished : ValueDisposal signature algebra program → Option (ExitRuntime signature algebra program)
   | .ready runtime [] => some runtime
+  | _ => none
+
+def RegionDisposal.begin : ExitResolution signature algebra program result → Option (RegionDisposal signature algebra program result)
+  | .unwind runtime future => match unwindBoundary future with
+    | .region identity outside => some (.offering ⟨identity, runtime, outside, []⟩)
+    | _ => none
+  | _ => none
+
+def RegionDisposal.offer : RegionDisposal signature algebra program result → Option (RegionDisposal signature algebra program result)
+  | .offering handoff => handoff.offerNext.map fun (value, after) =>
+      .disposing after.identity after.outside after.kept (ValueDisposal.start after.runtime value.snd)
+  | _ => none
+
+def RegionDisposal.returnValue : RegionDisposal signature algebra program result → Option (RegionDisposal signature algebra program result)
+  | .disposing identity outside kept work => work.finished.map fun runtime => .offering ⟨identity, runtime, outside, kept⟩
+  | _ => none
+
+def RegionDisposal.finish (external : List Reference) :
+    RegionDisposal signature algebra program result → Option (ExitResolution signature algebra program result)
+  | .offering handoff => if handoff.offerNext.isNone then
+      retireUnwoundRegion handoff.identity handoff.runtime handoff.outside external else none
   | _ => none
 
 def ControlProgress.seeking (runtime : ExitRuntime signature algebra program)
@@ -140,6 +198,11 @@ mutual
     | beginUnwind {outside : Context signature algebra program input result} :
         CleanupStep table (.running (.unwind runtime (.push (.protection identity cleanup bindings) outside)))
           (.running (beginExitCleanup identity cleanup bindings runtime.store runtime.cells runtime.regions runtime.exit outside)) retained
+    | unwindBind : CleanupStep table (.running (.unwind runtime (.push (.bind next description) outside)))
+        (.running (.unwind runtime outside)) retained
+    | unwindHandler : CleanupStep table (.running (.unwind runtime
+        (.push (.handler effect mode identity returned clauses bindings) outside)))
+        (.running (.unwind runtime outside)) retained
     | returned {outside : Context signature algebra program input result} :
         ExitComposition.finalizeCleanup original exit = some outcome →
         CleanupStep table (.running (.reenter
@@ -181,6 +244,12 @@ mutual
     | reattach : CleanupStep table (.captured identity resolution) (.running resolution) retained
     | cancelCaptured : before.cancelRunning reason = some after →
         CleanupStep table (.captured identity before) (.captured identity after) retained
+    | enterRegion : RegionDisposal.begin before = some after →
+        CleanupStep table (.running before) (.region after) retained
+    | region : RegionDisposalStep table before after retained →
+        CleanupStep table (.region before) (.region after) retained
+    | finishRegion : before.finish (retained ++ external) = some after →
+        CleanupStep table (.region before) (.running after) retained
 
 
   inductive ValueDisposalStep [DecidableEq (ControlShape signature)] [DecidableEq (TypeOf signature)]
@@ -234,6 +303,14 @@ mutual
         ControlProgressStep table (.returnedValue before) (.returnedValue after) retained
     | finishAnswer : work.finished = some runtime → ControlProgressStep table (.returnedValue work) (.complete runtime) retained
 
+  inductive RegionDisposalStep [DecidableEq (ControlShape signature)] [DecidableEq (TypeOf signature)]
+      (table : Definitions signature algebra program) :
+      RegionDisposal signature algebra program result → RegionDisposal signature algebra program result → (retained : List Reference := []) → Prop where
+    | offer : before.offer = some after → RegionDisposalStep table before after retained
+    | values : ValueDisposalStep table before after (outside.referenceSupport ++ retained) →
+        RegionDisposalStep table (.disposing identity outside kept before) (.disposing identity outside kept after) retained
+    | returnValue : before.returnValue = some after → RegionDisposalStep table before after retained
+
 end
 
 inductive CleanupSteps [DecidableEq (ControlShape signature)] [DecidableEq (TypeOf signature)]
@@ -264,5 +341,29 @@ inductive ControlProgressSteps [DecidableEq (ControlShape signature)] [Decidable
   | refl : ControlProgressSteps table state 0 state retained
   | cons : ControlProgressStep table before middle retained → ControlProgressSteps table middle count after retained →
       ControlProgressSteps table before (count + 1) after retained
+
+inductive RegionDisposalSteps [DecidableEq (ControlShape signature)] [DecidableEq (TypeOf signature)]
+    (table : Definitions signature algebra program) : RegionDisposal signature algebra program result →
+    Nat → RegionDisposal signature algebra program result → (retained : List Reference := []) → Prop where
+  | refl : RegionDisposalSteps table state 0 state retained
+  | cons : RegionDisposalStep table before middle retained → RegionDisposalSteps table middle count after retained →
+      RegionDisposalSteps table before (count + 1) after retained
+
+theorem CleanupSteps.trans [DecidableEq (ControlShape signature)] [DecidableEq (TypeOf signature)]
+    {table : Definitions signature algebra program}
+    (first : CleanupSteps table before count middle retained) (second : CleanupSteps table middle rest after retained) :
+    CleanupSteps table before (count + rest) after retained := by
+  induction first with
+  | refl => simpa using second
+  | cons step tail induction =>
+    simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using CleanupSteps.cons step (induction second)
+
+theorem CleanupSteps.of_region [DecidableEq (ControlShape signature)] [DecidableEq (TypeOf signature)]
+    {table : Definitions signature algebra program}
+    (steps : RegionDisposalSteps table before count after retained) :
+    CleanupSteps table (.region before) count (.region after) retained := by
+  induction steps with
+  | refl => exact .refl
+  | cons step tail induction => exact .cons (.region step) induction
 
 end BoundaryV2.Generalized.Source

@@ -164,7 +164,7 @@ inhabitants. Their checked components and required connections are:
 
 | Export | Existing components | Remaining proof or connection |
 | --- | --- | --- |
-| `Defunctionalization.adequacy` | Core/registered preservation and reflection, and finite source cleanup/value/control-disposal preservation with all four cleanup observations | Complete reverse exit correspondence and source region/suspended-abandonment rules, then join exits and registered execution without omitting observations. |
+| `Defunctionalization.adequacy` | Core/registered preservation and reflection; finite source cleanup, value/control/region disposal and authored-disposal preservation | Complete normal-return region/scope composition, suspended-work abandonment, reverse exit correspondence, and the join with registered execution without omitting observations. |
 | `Handlers.interpretation` | Fresh installation, nearest selection, forwarding, context closure, actual resume/injection/successor correspondence | Use the stateful correspondence under arbitrary enclosing effectful handlers, including registered multi entry. |
 | `UseScope.preservation` | Actual control/cell steps, typed consumption, physical capture multiplicity, scoped packages, registry insertion, fresh activation and dormant support | Connect actual captured/unwound frame fields to registry and lifetime handoff across capture, activation, completion, and disposal. |
 | `Exits.composition` | Shared handler-aware frame execution for disposal and nested cleanup, structured saved-result and handler-answer disposal, retained-root region handoff, current-resource completion, and finite embeddings | Connect suspended-work abandonment and registry/lifetime successors, then compose all exits with source/target observations. |
@@ -240,9 +240,33 @@ owned grants. Trust mutations reject overwriting that reason and discarding
 the running body. Registry custody and abandonment of suspended work are still
 separate unfinished connections, not implied by the location correspondence.
 
+Source unwinding now enters `Source.RegionDisposal` inside the same mutual
+cleanup/value/control relation. The source owns its current cell table and
+higher-order outside context. Offering a cell transfers its real owning field;
+nonowning storage remains readable until retirement. Source and target independently
+collect surviving roots, then use the existing pure storage-admission predicate.
+`GeneralizedSourceRegionCorrespondence` proves entry, offer, return, and retirement
+correspondence; `finite_region_disposal_preserved` supplies D's region field.
+The source-derived regression disposes two owning cells in creation order,
+rejects a surviving cell alias, preserves unrelated ownership/outer storage, and
+composes region exit through the parent cleanup to a related target failure.
+
+`GeneralizedSourceDisposalExecution` connects the existing authored source
+`DisposeEntry` to those actual shared operations. Operand evaluation precedes
+authority consumption, and the disposal caller remains separately retained.
+`finite_authored_disposal_preserved` supplies D's authored-disposal field for
+arbitrary finite runs, including operand failure, cleanup, value/control/region
+work, and final return/failure/cancellation. Source unwinding skips ordinary bind
+and handler frames without invoking their callbacks. The target reuses one finite
+execution embedding for ordinary work, operand failure, and disposal entry.
+A Boolean-input continuation's yielding cleanup finishes before its original
+integer caller resumes with unit and returns 42; the target result is derived
+from that independent source run. New mutations reject omitted caller roots,
+omitted region outside roots, and premature removal of still-readable cells.
+
 This is a preservation component, not complete cleanup adequacy. The source
-cleanup relation still needs region and suspended-work abandonment operations, the authored
-dispose entry connection, and its connection to registered execution; reverse finite correspondence must
+cleanup relation still needs normal-return region/scope composition, suspended-work
+abandonment, and its connection to registered execution; reverse finite correspondence must
 cover those operations as they are integrated. It is not enough that the
 present relation and its currently implemented constructors compile.
 
