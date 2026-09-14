@@ -113,3 +113,38 @@ Committed paired latency windows, cold-build guards, immutable-metadata and
 compiler-size experiment dispositions, allocator/peak coverage, complete
 cross-consumption and review convergence remain open. The planned draft
 publication is explicitly partial under specification sections 1 and 24.
+
+## Cleanup conformance prerequisite
+
+World's corrected W0 source-transfer harness requires four cleanup-disposal
+fixtures absent from the release Boundary base. Their public-builder definitions
+and registration were taken from Boundary commit
+`4be961b51f2a5720b4a86943e08c4747425e1a2e`, without any proof-branch merge,
+production compiler changes or new formal dependency.
+
+The owned-result fixture independently specifies a pending generator finalizer
+writing `7`, followed by the abandoning clause's `99`; its complete log is
+`[3,7,99]`. Before correction, the source oracle produced `[3,99]`, while the
+unmodified approved W0 kernel produced `[3,7,99]`. The
+[old oracle observation](performance/cleanup-original-oracle.json) and
+[W0 observation](performance/cleanup-reference-world.json) retain that difference.
+The old oracle had no owner for a normal protected result during interrupted
+cleanup. Only the source-oracle cleanup/ownership correction from the same
+commit was reused: retain that result through cleanup, transfer on normal
+completion, and unwind it on abandonment; preserve primary failure and first
+cancellation. No low-level constructor interpreter or JSON changes were imported.
+
+The 41-fixture independent source suite now passes, retaining every previous
+assertion and adding the four disposal cases plus repeated cancellation during
+failing cleanup. This oracle correction is separately attributable and is not
+an optimization gain. Historical corpus projection was unavailable because its
+store binding was invalid; no recurrence or complete-history claim is made.
+
+With these fixtures and the isolated oracle correction, World
+`check-v2-wasmtime` passed all 41 compiled source examples and cancellation
+scenarios across the source oracle, native execution, JavaScript WASM and
+Wasmtime 48.0.0. The candidate kernel was
+`feeb3a33602cbe86f060af4cb7266ffad8f66e0b2bf9c4a0415975f9b36faef9`.
+The handwritten checkpoint, stale-result and cancellation-rebinding lanes also
+passed. This closes the missing-fixture validation gap; final cross-version
+matrix and performance acceptance remain separate work.
