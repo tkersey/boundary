@@ -1,4 +1,5 @@
 import BoundaryV2.GeneralizedDisposalExamples
+import BoundaryV2.GeneralizedValueDisposal
 
 namespace BoundaryV2.Generalized.Examples.NestedDisposal
 
@@ -143,5 +144,44 @@ theorem nested_disposal_keeps_the_consumed_grant_and_unrelated_owner :
     rootFinished.memory.store.fields.spent = [⟨100⟩] ∧
     UseScope.inventory rootFinished.memory.store.fields = [⟨900⟩] ∧
     UseScope.disposeOwned disposeView rootFinished.memory.store = none := ⟨rfl, rfl, rfl⟩
+
+def pendingResource : Target.RuntimeValue signature algebra [] (.resource ⟨77⟩) :=
+  .datum (.resource ⟨3⟩ ⟨900⟩ (.lexical ⟨0⟩ 1))
+def pendingValues : DisposalValues signature algebra [] := [⟨_, pendingResource⟩]
+
+/-- Owned-result disposal exposes the same captured yield as ordinary nested
+disposal. The next owning occurrence stays queued with its unconsumed grant. -/
+theorem owned_value_disposal_retains_a_visible_nested_yield :
+    ∃ count, ValueDisposalSteps (.nil : Target.Definitions signature algebra [])
+      (.control ⟨.unit, .cleaning rootScope, .done⟩ pendingValues) count
+      (.nested (.active childParked) rootScope.resume pendingValues) ∧
+      ValueDisposal.finished (.nested (.active childParked) rootScope.resume pendingValues) = none ∧
+      childParked.memory.store.fields.spent = [⟨100⟩] ∧
+      UseScope.inventory childParked.memory.store.fields = pendingResource.owningField.tokens := by
+  obtain ⟨count, nested⟩ := NestedProgressSteps.of_nested
+    (saved_cleanup_enters_its_nested_protection.trans nested_disposal_yields_without_returning_to_the_caller.1)
+  have inside := ValueDisposalSteps.of_nested (retained := []) rootScope.resume pendingValues nested
+  exact ⟨count + 1, .cons (.enterNested rootScope) inside, rfl, rfl, rfl⟩
+
+def allDisposed : Runtime signature algebra [] :=
+  { disposalCompleted with store := { disposalCompleted.store with fields := ⟨[.cleanup ⟨7⟩ []], [], [⟨900⟩, ⟨100⟩]⟩ } }
+
+theorem pending_owned_value_runs_only_after_nested_cleanup_finishes :
+    ∃ count, ValueDisposalSteps (.nil : Target.Definitions signature algebra [])
+      (.nested (.active childParked) rootScope.resume pendingValues) count (.ready allDisposed []) ∧
+      allDisposed.store.fields.spent.reverse = [⟨100⟩, ⟨900⟩] ∧ allDisposed.exit = disposalCompleted.exit := by
+  obtain ⟨count, nested⟩ := NestedProgressSteps.of_nested nested_disposal_resumes_and_finishes_both_cleanups.1
+  have inside := ValueDisposalSteps.of_nested (retained := []) rootScope.resume pendingValues nested
+  have finish : ValueDisposalSteps (.nil : Target.Definitions signature algebra [])
+      (.nested (.active rootFinished) rootScope.resume pendingValues) 5 (.ready allDisposed []) := by
+    refine .cons (middle := .control ⟨.unit, .cleaning ⟨disposalCompleted, .unwind disposalTail⟩, .done⟩ pendingValues)
+      (.leaveNested rfl) ?_
+    refine .cons (middle := .control ⟨.unit, .seeking disposalCompleted disposalTail, .done⟩ pendingValues)
+      (.control (.unwind (.finish rfl (by intro impossible; cases impossible)))) ?_
+    refine .cons (middle := .control ⟨.unit, .complete disposalCompleted, .done⟩ pendingValues)
+      (.control (.unwind (.complete rfl))) ?_
+    refine .cons (middle := .ready disposalCompleted pendingValues) .finishControl ?_
+    exact .cons (middle := .ready allDisposed []) (.resource rfl) .refl
+  exact ⟨count + 5, inside.trans finish, rfl, rfl⟩
 
 end BoundaryV2.Generalized.Examples.NestedDisposal

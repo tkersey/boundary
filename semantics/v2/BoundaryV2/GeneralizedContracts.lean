@@ -390,6 +390,16 @@ structure composition : Prop where
         by
           intro table answer result count before after resume outside steps
           exact Target.DisposalRun.nested_progress_steps resume outside steps
+  nested_value_embedding : ∀ (table : Target.Definitions signature algebra program) {answer count retained}
+    {before after : ExitComposition.NestedProgress signature algebra program}
+    (resume : ExitComposition.ResumePoint signature algebra program answer)
+    (pending : ExitComposition.DisposalValues signature algebra program),
+    ExitComposition.NestedProgressSteps table before count after
+      (resume.references ++ pending.flatMap (fun value => Target.valueReferences value.snd) ++ retained) →
+      ExitComposition.ValueDisposalSteps table (.nested before resume pending) count (.nested after resume pending) retained :=
+        by
+          intro table answer count retained before after resume pending steps
+          exact ExitComposition.ValueDisposalSteps.of_nested resume pending steps
 
 end Exits
 

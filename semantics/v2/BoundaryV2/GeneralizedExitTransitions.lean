@@ -56,11 +56,15 @@ mutual
             acquired.future.snd.future, .done⟩ rest) retained
     | control : Target.DisposalStep table before selected after →
         ValueDisposalStep table (.control before rest) (.control after rest) retained
-    | nestedControl (scope : ScopeExit signature algebra program answer) :
-        NestedProgressSteps table (.active (NestedCleanup.start scope.cleanup)) count after
-          (scope.resume.references ++ rest.flatMap (fun value => Target.valueReferences value.snd) ++ retained) → after.finished = some runtime →
+    | enterNested (scope : ScopeExit signature algebra program answer) :
         ValueDisposalStep table (.control ⟨answer, .cleaning scope, .done⟩ rest)
-          (.control ⟨answer, .cleaning ⟨runtime, scope.resume⟩, .done⟩ rest) retained
+          (.nested (.active (NestedCleanup.start scope.cleanup)) scope.resume rest) retained
+    | nested : NestedProgressStep table before after
+          (resume.references ++ rest.flatMap (fun value => Target.valueReferences value.snd) ++ retained) →
+        ValueDisposalStep table (.nested before resume rest) (.nested after resume rest) retained
+    | leaveNested {resume : ResumePoint signature algebra program answer} : machine.finished = some runtime →
+        ValueDisposalStep table (.nested machine resume rest)
+          (.control ⟨answer, .cleaning ⟨runtime, resume⟩, .done⟩ rest) retained
     | finishControl : ValueDisposalStep table (.control ⟨answer, .complete runtime, .done⟩ rest) (.ready runtime rest) retained
 
   inductive ValueDisposalSteps (table : Target.Definitions signature algebra program) :

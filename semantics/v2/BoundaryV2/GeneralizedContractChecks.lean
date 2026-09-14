@@ -87,6 +87,16 @@ theorem nested_disposal_contract (claim : Exits.composition signature algebra pr
     Target.DisposalRun table (.nested before resume outside) count (.nested after resume outside) :=
   claim.nested_disposal_embedding table resume outside steps
 
+theorem nested_value_contract (claim : Exits.composition signature algebra program)
+    (table : Target.Definitions signature algebra program)
+    {before after : ExitComposition.NestedProgress signature algebra program}
+    (resume : ExitComposition.ResumePoint signature algebra program answer)
+    (pending : ExitComposition.DisposalValues signature algebra program)
+    (steps : ExitComposition.NestedProgressSteps table before count after
+      (resume.references ++ pending.flatMap (fun value => Target.valueReferences value.snd) ++ retained)) :
+    ExitComposition.ValueDisposalSteps table (.nested before resume pending) count (.nested after resume pending) retained :=
+  claim.nested_value_embedding table resume pending steps
+
 omit [DecidableEq (TypeOf signature)] in
 theorem open_contract (claim : OpenControl.observation_relocation signature algebra program)
     (operation : signature.operation effect) (pending : Target.Pending signature algebra program operation result)

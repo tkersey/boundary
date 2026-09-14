@@ -43,12 +43,32 @@ variable {program : List (BodyType signature.Data signature.Effect)}
 abbrev DisposalValues (signature : Signature) (algebra : LeafAlgebra signature.Data)
     (program : List (BodyType signature.Data signature.Effect)) := List (Sigma (Target.RuntimeValue signature algebra program))
 
-/-- Queue entries are views. The current runtime, or the active control
-disposal, owns all physical fields. No older resource snapshot is retained. -/
-inductive ValueDisposal (signature : Signature) (algebra : LeafAlgebra signature.Data)
-    (program : List (BodyType signature.Data signature.Effect)) where
-  | ready : Runtime signature algebra program → DisposalValues signature algebra program → ValueDisposal signature algebra program
-  | control : Target.Disposal signature algebra program .unit → DisposalValues signature algebra program → ValueDisposal signature algebra program
+mutual
+  /-- Queue entries are views. The current runtime, or the active control
+  disposal, owns all physical fields. No older resource snapshot is retained. -/
+  inductive ValueDisposal (signature : Signature) (algebra : LeafAlgebra signature.Data)
+      (program : List (BodyType signature.Data signature.Effect)) where
+    | ready : Runtime signature algebra program → DisposalValues signature algebra program → ValueDisposal signature algebra program
+    | control : Target.Disposal signature algebra program .unit → DisposalValues signature algebra program → ValueDisposal signature algebra program
+    | nested {answer : TypeOf signature} : NestedProgress signature algebra program →
+        ResumePoint signature algebra program answer → DisposalValues signature algebra program → ValueDisposal signature algebra program
+
+  /-- Only the active phase owns the runtime. A value disposal keeps the region
+  identity, outside continuation, and offered-cell names, not a heap snapshot. -/
+  inductive RegionDisposal (signature : Signature) (algebra : LeafAlgebra signature.Data)
+      (program : List (BodyType signature.Data signature.Effect)) : TypeOf signature → Type where
+    | offering {input : TypeOf signature} : RegionHandoff signature algebra program input result → RegionDisposal signature algebra program result
+    | disposing {input : TypeOf signature} : Id .region → Target.Stack signature algebra program input result →
+        List (Id .cell) → ValueDisposal signature algebra program → RegionDisposal signature algebra program result
+
+  /-- A region detour owns resources in RegionDisposal. Only the suspended
+  cleanup's information and parent continuations accompany it, never old memory. -/
+  inductive NestedProgress (signature : Signature) (algebra : LeafAlgebra signature.Data)
+      (program : List (BodyType signature.Data signature.Effect)) where
+    | active : NestedCleanup signature algebra program → NestedProgress signature algebra program
+    | region : CleanupInfo algebra.Fault algebra.Reason → List (CleanupParent signature algebra program) →
+        RegionDisposal signature algebra program .unit → NestedProgress signature algebra program
+end
 
 def ValueDisposal.start (runtime : Runtime signature algebra program) (value : Target.RuntimeValue signature algebra program type) :
     ValueDisposal signature algebra program := .ready runtime [⟨type, value⟩]
@@ -56,14 +76,6 @@ def ValueDisposal.start (runtime : Runtime signature algebra program) (value : T
 def ValueDisposal.finished : ValueDisposal signature algebra program → Option (Runtime signature algebra program)
   | .ready runtime [] => some runtime
   | _ => none
-
-/-- Only the active phase owns the runtime. A value disposal keeps the region
-identity, outside continuation, and offered-cell names, not a heap snapshot. -/
-inductive RegionDisposal (signature : Signature) (algebra : LeafAlgebra signature.Data)
-    (program : List (BodyType signature.Data signature.Effect)) (result : TypeOf signature) where
-  | offering {input : TypeOf signature} : RegionHandoff signature algebra program input result → RegionDisposal signature algebra program result
-  | disposing {input : TypeOf signature} : Id .region → Target.Stack signature algebra program input result →
-      List (Id .cell) → ValueDisposal signature algebra program → RegionDisposal signature algebra program result
 
 def RegionDisposal.begin (resolution : Resolution signature algebra program result) :
     Option (RegionDisposal signature algebra program result) :=
@@ -100,14 +112,6 @@ def RegionDisposal.finish (external : List Reference) :
     if handoff.offerNext.isNone then (Resolution.unwind handoff.runtime handoff.outside).retireRegions [handoff.identity] external
     else none
   | _ => none
-
-/-- A region detour owns resources in RegionDisposal. Only the suspended
-cleanup's information and parent continuations accompany it, never old memory. -/
-inductive NestedProgress (signature : Signature) (algebra : LeafAlgebra signature.Data)
-    (program : List (BodyType signature.Data signature.Effect)) where
-  | active : NestedCleanup signature algebra program → NestedProgress signature algebra program
-  | region : CleanupInfo algebra.Fault algebra.Reason → List (CleanupParent signature algebra program) →
-      RegionDisposal signature algebra program .unit → NestedProgress signature algebra program
 
 def ResumePoint.references : ResumePoint signature algebra program result → List Reference
   | .returned value outside => Target.valueReferences value ++ outside.installationReferences

@@ -16,6 +16,48 @@ theorem ValueDisposalSteps.trans {table : Target.Definitions signature algebra p
     cases first with
     | cons step tail => simpa only [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using ValueDisposalSteps.cons step (induction tail)
 
+/-- Each nested transition remains a visible disposal state. In particular,
+the prefix may end at a yield, request, capture, or unfinished region handoff. -/
+theorem ValueDisposalSteps.of_nested {table : Target.Definitions signature algebra program}
+    {before after : NestedProgress signature algebra program}
+    (resume : ResumePoint signature algebra program answer) (pending : DisposalValues signature algebra program)
+    (steps : NestedProgressSteps table before count after
+      (resume.references ++ pending.flatMap (fun value => Target.valueReferences value.snd) ++ retained)) :
+    ValueDisposalSteps table (.nested before resume pending) count (.nested after resume pending) retained := by
+  induction count generalizing before with
+  | zero => cases steps; exact .refl
+  | succ count induction =>
+    cases steps with
+    | cons step tail => exact .cons (.nested step) (induction tail)
+
+/-- The former whole-run constructor is now a consequence of entry, the
+visible finite run, and checked completion with its current runtime. -/
+theorem ValueDisposalSteps.nested_cleanup {table : Target.Definitions signature algebra program}
+    (scope : ScopeExit signature algebra program answer) (pending : DisposalValues signature algebra program)
+    (steps : NestedProgressSteps table (.active (NestedCleanup.start scope.cleanup)) count after
+      (scope.resume.references ++ pending.flatMap (fun value => Target.valueReferences value.snd) ++ retained))
+    (finished : after.finished = some runtime) :
+    ValueDisposalSteps table (.control ⟨answer, .cleaning scope, .done⟩ pending) (count + 2)
+      (.control ⟨answer, .cleaning ⟨runtime, scope.resume⟩, .done⟩ pending) retained := by
+  have run := ValueDisposalSteps.of_nested scope.resume pending steps
+  simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using
+    ((ValueDisposalSteps.cons (.enterNested scope) .refl).trans run).trans (.cons (.leaveNested finished) .refl)
+
+theorem nested_value_disposal_keeps_its_pending_queue
+    {table : Target.Definitions signature algebra program}
+    {before after : NestedProgress signature algebra program}
+    {resume : ResumePoint signature algebra program answer}
+    (step : ValueDisposalStep table (.nested before resume first) (.nested after resume second) retained) :
+    first = second := by cases step; rfl
+
+theorem nested_value_disposal_cannot_skip_to_pending_values
+    {table : Target.Definitions signature algebra program}
+    (machine : NestedProgress signature algebra program) (resume : ResumePoint signature algebra program answer)
+    (pending : DisposalValues signature algebra program) (runtime : Runtime signature algebra program) :
+    ¬ ValueDisposalStep table (.nested machine resume pending) (.ready runtime rest) retained := by
+  intro step
+  cases step
+
 theorem active_control_disposal_keeps_its_remaining_queue
     {table : Target.Definitions signature algebra program}
     {before after : Target.Disposal signature algebra program .unit}

@@ -162,6 +162,10 @@ value queues contribute their actual roots to inner retirement. Entry and return
 compose with the same region steps used by cleanup frames. The older nested
 cleanup entry still needs its connection to handler-aware running frames,
 including `.cleanupReturn`; no final contract inhabitant is claimed.
+Owned-value disposal exposes each nested transition, including unfinished
+prefixes, through X's `nested_value_embedding`; the former completion-only
+constructor is now a derived finite composition law. Pending values and their
+grants remain retained while cleanup yields, is captured, or awaits a response.
 
 `GeneralizedContractChecks` consumes the declared field types and checks the
 stateful observation definitions. Its hypothetical contract arguments are

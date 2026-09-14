@@ -377,6 +377,18 @@ still need integration with the handler-aware frames. Registry/lifetime
 successors and full stateful observation correspondence remain open; these
 local laws do not inhabit the final X contract.
 
+Owned-value disposal now retains a nested cleanup as an explicit work state.
+The former `ValueDisposalStep.nestedControl` constructor required an entire
+completed nested run and hid every intermediate yield or request. It is removed;
+entry, individual nested transitions, and checked return now expose those
+prefixes with the same saved resume point and pending value queue. The former
+completed behavior follows from `ValueDisposalSteps.nested_cleanup`, while
+`of_nested` supplies X's `nested_value_embedding` for arbitrary finite prefixes.
+The mutually recursive work states contain the current runtime only in the
+active operation. A regression stops at a captured nested yield with a queued
+resource's real grant intact, then resumes cleanup and consumes that grant in
+order. It cannot skip directly from nested work to the remaining queue.
+
 The outer unwind, cleanup-frame, and region handoff operations now use the
 completion condition owned by `Resolution`. Pending, running, and captured
 cleanup cannot be skipped to start outer work or dispose region cells. The
