@@ -22,7 +22,7 @@ inhabitants. Their checked components and required connections are:
 
 | Export | Existing components | Remaining proof or connection |
 | --- | --- | --- |
-| `Defunctionalization.adequacy` | Finite stateful preservation, initialization/response entry, both head-observation directions, target-derived operand-prefix reflection for every computation constructor, and ordinary adequacy | Reflect the receiving control instructions and compose through arbitrary contexts; integrate registry entry and exit/disposal with the observation relation. |
+| `Defunctionalization.adequacy` | Finite stateful preservation, initialization/response entry, both head-observation directions, operand-prefix reflection, cell/package/control/fresh-entry inverses, composed application reflection, and ordinary adequacy | Assemble receiving-instruction reflection and finite composition through arbitrary contexts; integrate registry entry and exit/disposal with the observation relation. |
 | `Handlers.interpretation` | Fresh installation, nearest selection, forwarding, context closure, actual resume/injection/successor correspondence | Use the stateful correspondence under arbitrary enclosing effectful handlers, including registered multi entry. |
 | `UseScope.preservation` | Actual control/cell steps, typed consumption, physical capture multiplicity, scoped packages, registry insertion, fresh activation and dormant support | Connect registry and lifetime handoff across capture, activation, completion, and disposal. |
 | `Exits.composition` | Stateful initiation, cancellation, ordered operands/failures, owned-result disposal, nested completion, region-to-cleanup-frame embedding | Connect region disposal during nested abandonment and compose exits with the source/target observation relation. |
@@ -65,6 +65,22 @@ The close-instruction views only expose existing typed code, operands, and the
 caller for inversion; they define no additional interpreter. The broader
 ordinary-step inverse replaces the initial plain-operand-only helper. Remaining
 receiving-instruction and context reflection still block the full D claim.
+
+`GeneralizedControlReflection` now recovers source cell reads/writes/allocation,
+package/unpackage, one-shot resume/injection/successor, closure application, and
+fresh handler/protection/region entry from the actual target transition. Each
+inverse preserves the related current resources and caller and returns a shorter
+observing target run. Field handoffs are reflected through body translation;
+copyability, owning occurrences, consumed grants, capture partitions, and actual
+lookup results retain their existing meaning. The application inverse composes
+with the generic operand-prefix inverse for arbitrary authored functions and
+arguments, including operand failure, and supplies D's `application_reflection`
+field. Its target-only stored-closure regression consumes grant 8, retains owner
+100 and captured owner 6, and yields beneath the retained caller. The inspection
+view for application exposes existing typed operands; it adds no evaluator.
+The existing configuration reindexing lemma is reused by both ordinary and
+stateful reflection. Common receiving-instruction/context composition and
+registry/exit integration remain unfinished.
 
 | Contract | Main proof surfaces | Checked content and limits |
 | --- | --- | --- |

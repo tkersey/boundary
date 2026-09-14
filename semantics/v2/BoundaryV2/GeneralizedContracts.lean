@@ -1,4 +1,4 @@
-import BoundaryV2.GeneralizedStateReflection
+import BoundaryV2.GeneralizedControlReflection
 import BoundaryV2.GeneralizedMultiEntry
 import BoundaryV2.GeneralizedDisposalExecution
 import BoundaryV2.GeneralizedCleanupCompletion
@@ -27,6 +27,26 @@ and the current store/cell/region state. No premise assumes a simulation or an
 observation correspondence. Registry and exit drivers must be connected to this
 execution relation before this is the complete core contract (see CONTRACT.md). -/
 structure adequacy : Prop where
+  application_reflection : ∀ (table : Source.Definitions signature algebra program) {context use parameters answer result}
+    (function : Source.Expression signature algebra program context (.computation use parameters answer))
+    (arguments : Source.Arguments signature algebra program context parameters)
+    (bindings : Source.RuntimeEnvironment signature algebra program context)
+    (storage : Cells signature algebra (Source.Computation signature algebra program)) regions
+    {sourceStore : Source.ControlHeap signature algebra program} {targetStore : Target.ControlHeap signature algebra program},
+    ControlHeapRelated sourceStore targetStore →
+    ∀ {sourceOutside : Source.Context signature algebra program answer result}
+      {targetOutside : Target.Stack signature algebra program answer result},
+    ContextRelated signature algebra program sourceOutside targetOutside →
+    ∀ {count} {final : Target.State signature algebra program result} {observation},
+    Target.ExecutionSteps (definitions table)
+      ⟨⟨targetStore, .code (computation (.apply function arguments)) (environment bindings) .nil targetOutside⟩,
+        cells storage, regions⟩ count final →
+    Target.HeadObservation final.control.configuration observation →
+    ∃ sourceAfter targetAfter remaining, remaining < count ∧
+      Source.ExecutionStep table ⟨⟨sourceStore, sourceOutside.plug (.evaluate (.apply function arguments) bindings)⟩, storage, regions⟩ sourceAfter ∧
+      ExecutionStateRelated sourceAfter targetAfter ∧ Target.ExecutionSteps (definitions table) targetAfter remaining final := by
+        intro table context use parameters answer result function arguments bindings storage regions sourceStore targetStore stores sourceOutside targetOutside outside count final observation run head
+        exact applied_computation_step_reflected table function arguments bindings storage regions stores outside run head
   operand_reflection : ∀ (table : Source.Definitions signature algebra program) {context input result}
     (body : Source.Computation signature algebra program context input)
     (bindings : Source.RuntimeEnvironment signature algebra program context)

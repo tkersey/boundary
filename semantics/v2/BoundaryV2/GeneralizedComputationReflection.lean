@@ -25,7 +25,7 @@ theorem Source.Arguments.cons_evaluated
 
 namespace Defunctionalization
 
-private theorem configuration_reindex
+theorem configuration_reindex
     {first second : List (TypeOf signature)} (same : first = second)
     (body : Target.Code signature algebra program context first input)
     (bindings : Target.RuntimeEnvironment signature algebra program context)
