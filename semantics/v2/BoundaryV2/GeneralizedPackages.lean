@@ -89,11 +89,15 @@ inductive PackageHandoff (value : Value signature algebra Body content) (token :
       PackageHandoff value token owner
         ⟨before ++ (Value.package token owner value).owningField :: after, retained, spent⟩
         ⟨before ++ value.owningField :: after, retained, token :: spent⟩
+  | unpackFlat (before after retained : List UseScope.Field) (spent : List (Id .custody)) :
+      PackageHandoff value token owner
+        ⟨before ++ .owned token owner :: .package [value.owningField] :: after, retained, spent⟩
+        ⟨before ++ value.owningField :: after, retained, token :: spent⟩
 
 theorem PackageHandoff.preserves_ownership (handoff : PackageHandoff value token owner before after)
     (valid : UseScope.Valid before) : UseScope.Valid after := by
   cases handoff with
-  | unpack leftFields rightFields retained spent =>
+  | unpack leftFields rightFields retained spent | unpackFlat leftFields rightFields retained spent =>
     have prepared : UseScope.Valid ⟨.owned token owner :: (leftFields ++ value.owningField :: rightFields), retained, spent⟩ := by
       apply UseScope.valid_of_inventory _
         ⟨.owned token owner :: (leftFields ++ value.owningField :: rightFields), retained, spent⟩ valid ?_ rfl
@@ -104,15 +108,17 @@ theorem PackageHandoff.preserves_ownership (handoff : PackageHandoff value token
 
 theorem PackageHandoff.grant_was_present (handoff : PackageHandoff value token owner before after) :
     token ∈ UseScope.inventory before := by
-  cases handoff
-  simp [UseScope.inventory, UseScope.tokens_append, UseScope.tokens, Value.owningField, UseScope.Field.tokens]
+  cases handoff <;>
+    simp [UseScope.inventory, UseScope.tokens_append, UseScope.tokens, Value.owningField, UseScope.Field.tokens]
 
 theorem PackageHandoff.cannot_repeat (handoff : PackageHandoff value token owner before after)
     (valid : UseScope.Valid before) : ¬ PackageHandoff value token owner after later := by
   intro repeated
   have afterValid := handoff.preserves_ownership valid
-  cases handoff
-  exact afterValid.2.2 token repeated.grant_was_present List.mem_cons_self
+  cases handoff <;> exact afterValid.2.2 token repeated.grant_was_present List.mem_cons_self
+
+theorem PackageHandoff.spends_outer_grant (handoff : PackageHandoff value token owner before after) :
+    after.spent = token :: before.spent := by cases handoff <;> rfl
 
 theorem PackageHandoff.map (transform : ∀ context type, Before context type → After context type)
     (handoff : PackageHandoff (value : Value signature algebra Before content) token owner before after) :
@@ -121,6 +127,9 @@ theorem PackageHandoff.map (transform : ∀ context type, Before context type �
   | unpack leftFields rightFields retained spent =>
     simpa only [Value.owningField, Value.map_preserves_owning_fields] using
       PackageHandoff.unpack (value := value.map transform) (token := token) (owner := owner) leftFields rightFields retained spent
+  | unpackFlat leftFields rightFields retained spent =>
+    simpa only [Value.map_preserves_owning_fields] using
+      PackageHandoff.unpackFlat (value := value.map transform) (token := token) (owner := owner) leftFields rightFields retained spent
 
 theorem package_creation_corresponds
     {SourceFuture TargetFuture : Type} (related : SourceFuture → TargetFuture → Prop)

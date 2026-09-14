@@ -48,3 +48,4 @@ import BoundaryV2.GeneralizedNestedCleanupExamples
 import BoundaryV2.GeneralizedNestedDisposalExamples
 import BoundaryV2.GeneralizedCleanupContextExamples
 import BoundaryV2.GeneralizedCleanupCompletionExamples
+import BoundaryV2.GeneralizedValueDisposalExamples

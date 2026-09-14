@@ -1,5 +1,5 @@
 import BoundaryV2.GeneralizedNestedCleanup
-import BoundaryV2.GeneralizedDisposal
+import BoundaryV2.GeneralizedValueDisposal
 
 namespace BoundaryV2.Generalized
 
@@ -219,44 +219,13 @@ def beginAbruptCleanup (resolution : Resolution signature algebra program result
         (.push (.cleanupReturn identity none runtime.exit) outside)⟩, runtime.cells, runtime.liveRegions⟩ ⟨.normal, [], none⟩)
     | _ => none
 
-structure CleanupControlDisposal (signature : Signature) (algebra : LeafAlgebra signature.Data)
-    (program : List (BodyType signature.Data signature.Effect)) (result : TypeOf signature) where
-  type : TypeOf signature
-  outside : Target.Stack signature algebra program type result
-  frame : Id .obligation
-  completion : Completion algebra.Fault
-  disposal : Target.Disposal signature algebra program .unit
-
-/-- A returned one-shot continuation is disposed through its real authority
-and saved future. Its input type need not have an inhabitant. -/
-def CleanupDisposal.beginControl (work : CleanupDisposal signature algebra program result) :
-    Option (CleanupControlDisposal signature algebra program result) :=
-  match work with
-  | ⟨type, value, runtime, outside⟩ => match runtime.phase with
-    | .finished completion => match value with
-      | .continuation identity (some (authority, owner)) =>
-        (UseScope.disposeOwned ⟨identity, authority, owner⟩ runtime.store).map fun acquired =>
-          ⟨_, outside, runtime.id, completion,
-            ⟨acquired.future.fst.answer, .seeking
-              ⟨runtime.id, .finished .abandoned, acquired.store, runtime.cells, runtime.liveRegions, runtime.exit⟩
-              acquired.future.snd.future, .done⟩⟩
-      | _ => none
-    | _ => none
-
-/-- Read the raw completed unwind rather than converting abandonment into the
-unit result of an ordinary dispose expression. The enclosing exit must survive. -/
-def CleanupControlDisposal.finish (work : CleanupControlDisposal signature algebra program result) :
-    Option (CompletedCleanup signature algebra program result) :=
-  match work.disposal.progress with
-  | .complete runtime => some (reenterCleanupResult work.frame work.completion runtime.store runtime.cells runtime.liveRegions
-      work.outside (.exiting runtime.exit))
-  | _ => none
-
 inductive CleanupFrameProgress (signature : Signature) (algebra : LeafAlgebra signature.Data)
     (program : List (BodyType signature.Data signature.Effect)) (result : TypeOf signature) where
   | running : Resolution signature algebra program result → CleanupFrameProgress signature algebra program result
   | disposing : CleanupDisposal signature algebra program result → CleanupFrameProgress signature algebra program result
-  | control : CleanupControlDisposal signature algebra program result → CleanupFrameProgress signature algebra program result
+  | values {input : TypeOf signature} : Id .obligation → Completion algebra.Fault →
+      Target.Stack signature algebra program input result → ValueDisposal signature algebra program →
+      CleanupFrameProgress signature algebra program result
 
 def CompletedCleanup.progress : CompletedCleanup signature algebra program result → CleanupFrameProgress signature algebra program result
   | .resolved resolution => .running resolution
@@ -274,21 +243,27 @@ inductive CleanupFrameStep (table : Target.Definitions signature algebra program
   | advance : advanceFailedResolution before = some after → CleanupFrameStep table (.running before) (.running after)
   | finish : finishCleanupFrame before = some after → CleanupFrameStep table (.running before) after.progress
   | cancel : before.cancelRunning reason = some after → CleanupFrameStep table (.running before) (.running after)
-  | enterControl : work.beginControl = some after → CleanupFrameStep table (.disposing work) (.control after)
-  | dispose {before after : Target.Disposal signature algebra program .unit} :
-      Target.DisposalStep table before selected after →
-      CleanupFrameStep table (.control ⟨type, outside, frame, completion, before⟩) (.control ⟨type, outside, frame, completion, after⟩)
-  | disposeNested (scope : ScopeExit signature algebra program answer) :
-      NestedSteps table (NestedCleanup.start scope.cleanup) initiations after → after.finished = some runtime →
-      CleanupFrameStep table
-        (.control ⟨type, outside, frame, completion, ⟨answer, .cleaning scope, .done⟩⟩)
-        (.control ⟨type, outside, frame, completion, ⟨answer, .cleaning ⟨runtime, scope.resume⟩, .done⟩⟩)
-  | finishControl : work.finish = some after → CleanupFrameStep table (.control work) after.progress
+  | enterValues : work.runtime.phase = .finished completion →
+      CleanupFrameStep table (.disposing work)
+        (.values work.runtime.id completion work.outside (ValueDisposal.start work.runtime work.value))
+  | values : ValueDisposalStep table before after →
+      CleanupFrameStep table (.values frame completion outside before) (.values frame completion outside after)
+  | finishValues : machine.finished = some runtime →
+      CleanupFrameStep table (.values frame completion outside machine)
+        (reenterCleanupResult frame completion runtime.store runtime.cells runtime.liveRegions outside (.exiting runtime.exit)).progress
 
 inductive CleanupFrameSteps (table : Target.Definitions signature algebra program) :
     CleanupFrameProgress signature algebra program result → Nat → CleanupFrameProgress signature algebra program result → Prop where
   | refl : CleanupFrameSteps table state 0 state
   | cons : CleanupFrameStep table before middle → CleanupFrameSteps table middle count after → CleanupFrameSteps table before (count + 1) after
+
+theorem CleanupFrameSteps.of_values {table : Target.Definitions signature algebra program}
+    (steps : ValueDisposalSteps table before count after) (frame : Id .obligation)
+    (completion : Completion algebra.Fault) (outside : Target.Stack signature algebra program input result) :
+    CleanupFrameSteps table (.values frame completion outside before) count (.values frame completion outside after) := by
+  induction steps with
+  | refl => exact .refl
+  | cons step tail induction => exact .cons (.values step) induction
 
 theorem owned_cleanup_result_cannot_skip_disposal
     {table : Target.Definitions signature algebra program} {work : CleanupDisposal signature algebra program result}

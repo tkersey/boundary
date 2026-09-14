@@ -185,9 +185,18 @@ Abrupt completion examines actual owning fields. Nonowning aliases need no
 disposal, while owned saved results stay in an explicit pending state. Returned
 one-shot continuations use their real grants and saved futures for disposal,
 preserving the enclosing exit and unrelated owners. A checked transition path
-cannot propagate the exit before that disposal completes. Structured owned-value
-disposal, complete lifetime integration, and general stateful adequacy remain
-unfinished.
+cannot propagate the exit before that disposal completes.
+`GeneralizedValueDisposal` now extends that path to products, sums, packages,
+closure captures, and nominal resource grants. It processes stored children in
+order, checks actual active authority before disposing a view, and opens sealed
+containers through the package/computation handoffs. Those handoffs also accept
+the flattened transparent groups produced by control release. Structural steps
+preserve store validity, exit information, cells, and spent-authority history;
+active control cleanup retains the remaining queue. A composite package/closure
+example consumes the intended grants in order, preserves an unrelated owner and
+the original exit, and does not execute the closure body. The separate
+continuation-only completion path is retired. Complete capture/lifetime
+integration and general stateful adequacy remain unfinished.
 
 ## Verification commands
 
