@@ -1,6 +1,7 @@
 import BoundaryV2.GeneralizedFiniteReflection
 import BoundaryV2.GeneralizedRegisteredSimulation
 import BoundaryV2.GeneralizedRegisteredReflection
+import BoundaryV2.GeneralizedExitSimulation
 import BoundaryV2.GeneralizedDisposalExecution
 import BoundaryV2.GeneralizedCleanupCompletion
 import BoundaryV2.GeneralizedInteraction
@@ -111,6 +112,27 @@ structure adequacy : Prop where
         StateObservationRelated sourceFinal.state final.state sourceObservation observation := by
           intro table result source target final related observation observed
           exact registered_observation_reflected table related observed
+  cleanup_preservation : ∀ (table : Source.Definitions signature algebra program) {result count retained}
+    {source final : Source.CleanupProgress signature algebra program result}
+    {target : ExitComposition.CleanupFrameProgress signature algebra program result},
+    Source.CleanupSteps table source count final retained → CleanupProgressRelated source target →
+      ∃ targetCount targetFinal, ExitComposition.CleanupFrameSteps (definitions table) target targetCount targetFinal retained ∧
+        CleanupProgressRelated final targetFinal := by
+          intro table result count retained source final target steps related
+          exact finite_cleanup_preserved table steps related
+  cleanup_observations : ∀ (table : Source.Definitions signature algebra program) {result count retained diagnostics observation}
+    {source : Source.CleanupProgress signature algebra program result}
+    {target : ExitComposition.CleanupFrameProgress signature algebra program result}
+    {sourceFinal : Source.State signature algebra program result},
+    CleanupProgressRelated source target →
+    Source.CleanupSteps table source count (.running (.reenter sourceFinal diagnostics)) retained →
+    Source.HeadObservation sourceFinal.control.computation observation →
+      ∃ targetCount targetFinal targetObservation,
+        ExitComposition.CleanupFrameSteps (definitions table) target targetCount (.running (.reenter targetFinal diagnostics)) retained ∧
+        Target.HeadObservation targetFinal.control.configuration targetObservation ∧
+        StateObservationRelated sourceFinal targetFinal observation targetObservation := by
+          intro table result count retained diagnostics observation source target sourceFinal related steps head
+          exact cleanup_observation_preserved table related steps head
   registered_initialization : ∀ {context result}
     (body : Source.Computation signature algebra program context result)
     (bindings : Source.RuntimeEnvironment signature algebra program context)

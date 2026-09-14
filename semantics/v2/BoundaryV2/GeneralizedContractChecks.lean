@@ -148,4 +148,19 @@ theorem registered_defunctionalization_contract
         Defunctionalization.StateObservationRelated sourceFinal.state final.state sourceObservation observation) :=
   ⟨fun _ => claim.registered_preservation table related, fun _ => claim.registered_reflection table related⟩
 
+theorem source_cleanup_contract (claim : Defunctionalization.adequacy signature algebra program)
+    (table : Source.Definitions signature algebra program)
+    {source : Source.CleanupProgress signature algebra program result}
+    {target : ExitComposition.CleanupFrameProgress signature algebra program result}
+    {sourceFinal : Source.State signature algebra program result}
+    (related : Defunctionalization.CleanupProgressRelated source target)
+    (steps : Source.CleanupSteps table source count (.running (.reenter sourceFinal diagnostics)) retained)
+    (head : Source.HeadObservation sourceFinal.control.computation observation) :
+    ∃ targetCount targetFinal targetObservation,
+      ExitComposition.CleanupFrameSteps (Defunctionalization.definitions table) target targetCount
+        (.running (.reenter targetFinal diagnostics)) retained ∧
+      Target.HeadObservation targetFinal.control.configuration targetObservation ∧
+      Defunctionalization.StateObservationRelated sourceFinal targetFinal observation targetObservation :=
+  claim.cleanup_observations table related steps head
+
 end BoundaryV2.Generalized.ContractChecks

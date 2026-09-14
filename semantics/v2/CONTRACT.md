@@ -154,6 +154,16 @@ Disposal and exit/lifetime composition remain unfinished. The registered
 driver still lacks those transitions, so this correspondence does not yet
 establish the complete D/H/U/X/O milestone.
 
+The source now defines cleanup entry and completion independently through its
+higher-order programs and contexts. D's `cleanup_preservation` and
+`cleanup_observations` fields connect every currently implemented source cleanup
+step and arbitrary finite derivations to the shared target frame driver. The
+proof retains current resources, owned saved results, all four observations,
+and related suspended futures. Local finalization admission also reflects from
+target to source. These are components of D: source region/value disposal,
+suspended-work operations, registered execution, and reverse finite cleanup
+correspondence still need integration before complete adequacy can be claimed.
+
 X now includes checked local fields for frame completion, region handoff,
 retained roots, and finite frame/control/value embeddings. Authored disposal
 executes the same handler-aware frame transitions as cleanup. Its caller remains
@@ -173,7 +183,8 @@ statement checks, not evidence that the contracts are inhabited. The existing
 trust mutation suite rejects replacing each contract with `True`, replacing
 the source stateful observation definition with the ordinary relation, and
 replacing either source or target registered observations with core-only observations. This
-gate also rejects omitting retained caller roots from nested region retirement. It
+gate also rejects omitting retained caller roots from nested region retirement
+and discarding source failure history/cancellation when cleanup begins. It
 does not replace review of the complete types or completion of their proofs.
 
 The conformance command must take an explicit unmodified World checkout/artifact,

@@ -22,7 +22,7 @@ inhabitants. Their checked components and required connections are:
 
 | Export | Existing components | Remaining proof or connection |
 | --- | --- | --- |
-| `Defunctionalization.adequacy` | Retained-aware finite core and registered preservation/reflection, registered initialization/response entry, and clone correspondence against noncanonical target heaps | Embed disposal and exit/lifetime transitions without omitting their observations. |
+| `Defunctionalization.adequacy` | Retained-aware core/registered preservation and reflection, registered initialization/response entry, and finite source-cleanup preservation with all four observations | Complete cleanup reflection and source disposal/region rules, then join exits and registered execution without omitting observations. |
 | `Handlers.interpretation` | Fresh installation, nearest selection, forwarding, context closure, actual resume/injection/successor correspondence | Use the stateful correspondence under arbitrary enclosing effectful handlers, including registered multi entry. |
 | `UseScope.preservation` | Actual control/cell steps, typed consumption, physical capture multiplicity, scoped packages, registry insertion, fresh activation and dormant support | Connect actual captured/unwound frame fields to registry and lifetime handoff across capture, activation, completion, and disposal. |
 | `Exits.composition` | Shared handler-aware frame execution for disposal and nested cleanup, structured saved-result and handler-answer disposal, retained-root region handoff, current-resource completion, and finite embeddings | Connect suspended-work abandonment and registry/lifetime successors, then compose all exits with source/target observations. |
@@ -35,6 +35,37 @@ field types and the stateful observation definitions; it constructs no contract
 proof. The source/target finite observation definitions use their actual
 permission-sensitive `ExecutionSteps`, retaining current resources at every
 return, fault, yield, and request.
+
+`GeneralizedSourceExits` supplies independent higher-order source cleanup entry
+and completion, including normal return, authored failure, abandonment, and
+owned saved results. Ongoing cleanup remains an ordinary source program under
+its actual context. Its unwind runtime holds completed exit information;
+unfinished work remains in the running source program rather than being marked
+complete. No source transition executes target code.
+
+`GeneralizedExitCorrespondence` relates current heaps, cells, regions, original
+values, and outside contexts. Finalization admission preserves and reflects the
+source's return/exit/owned-disposal decision. `GeneralizedExitSimulation` lifts
+the local correspondences and existing core simulation over every constructor
+and arbitrary finite derivations of the current source cleanup relation. It
+reuses `open_program_context`; the duplicate context-opening helper developed
+during integration was removed. `GeneralizedExitContextView` supplies only the
+finite target administrative-prefix drains needed to reach the actual frame.
+Those drains preserve current resources, and exit entry/completion then takes
+a positive target step.
+
+D's `cleanup_preservation` and `cleanup_observations` fields have checked
+defaults. The latter distinguishes all four observations and relates scoped
+bodies and suspended futures through the existing observation relation. The
+source regressions derive a cleanup yield beneath an enclosing handler and
+retain an owned saved result across extra target administrative frames. These
+are source-derived expectations, not calls to the target evaluator.
+
+This is a preservation component, not complete cleanup adequacy. The source
+cleanup relation still needs region/value disposal, suspended-work operations,
+and its connection to registered execution; reverse finite correspondence must
+cover those operations as they are integrated. It is not enough that the
+present relation and its currently implemented constructors compile.
 
 `GeneralizedStateSimulation` composes all current source execution constructors:
 ordinary/context steps, cell operations, owned control and effectful clause
@@ -373,6 +404,9 @@ zig build check-v2-conformance -Dworld-source="$WORLD_CHECKOUT" -Doptimize=Relea
 ```
 
 For focused proof development, run `lake --wfail build` in this directory.
+From the repository root, use
+`elan run leanprover/lean4:v4.33.1 lake -d semantics/v2 --wfail build`;
+`lake -d` alone selects the invoking directory's toolchain before changing directories.
 `check-v2-formal` discovers project modules, enforces logical trust, runs trust
 mutations, and performs fresh kernel replay. `check-v2` includes that gate and
 the existing Boundary-only checks. World is required only by the explicit
@@ -395,10 +429,11 @@ definitions, native-evaluation dependencies, unsafe definitions, and partial
 definitions. It also covers private declarations in Lean's module system and a
 spoofed recursive-companion name. A forged declaration inserted with kernel
 checking disabled deliberately passes the axiom-only control and must fail
-fresh replay. Eight additional statement mutations reject `True` substitutions
+fresh replay. The statement/definition mutations reject `True` substitutions
 for each required contract and an ordinary-only replacement for the source
 stateful observation definition, plus core-only replacements for source and
-target registered observations. The mutation step follows the proof build and
+target registered observations, omitted retained caller roots, and loss of
+source cleanup failure history/cancellation. The mutation step follows the proof build and
 uses an isolated compiled-module overlay. Completing the contract proofs and
 reviewing all remaining semantic connections are still open; logical trust and
 statement checking do not establish the entire milestone.
