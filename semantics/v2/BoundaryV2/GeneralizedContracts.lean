@@ -1,4 +1,4 @@
-import BoundaryV2.GeneralizedControlReflection
+import BoundaryV2.GeneralizedFiniteReflection
 import BoundaryV2.GeneralizedMultiEntry
 import BoundaryV2.GeneralizedDisposalExecution
 import BoundaryV2.GeneralizedCleanupCompletion
@@ -84,7 +84,9 @@ structure adequacy : Prop where
     ∀ observation, Target.StateObserves (definitions table) target final observation →
       ∃ sourceFinal sourceObservation,
         Source.StateObserves table source sourceFinal sourceObservation ∧
-        StateObservationRelated sourceFinal final sourceObservation observation
+        StateObservationRelated sourceFinal final sourceObservation observation := by
+          intro table result source target final related observation observed
+          exact stateful_observation_reflected table related observed
   initialization : ∀ {context result}
     (body : Source.Computation signature algebra program context result)
     (bindings : Source.RuntimeEnvironment signature algebra program context)

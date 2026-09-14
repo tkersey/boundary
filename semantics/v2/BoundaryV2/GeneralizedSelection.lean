@@ -132,9 +132,92 @@ theorem injection_respects_context_composition (inside : Context signature algeb
     inject (inside.append outside) computation = outside.plug (inject inside computation) :=
   Context.append_plug inside outside computation
 
+theorem select_after_no_match (wanted : Id .attachment)
+    (before : Context signature algebra definitions input middle) (after : Context signature algebra definitions middle output)
+    (absent : select wanted before = none) :
+    select wanted (before.append after) =
+      (select wanted after).map (fun selected => { selected with inside := before.append selected.inside }) := by
+  suffices ∀ bound {input middle} (before : Context signature algebra definitions input middle), before.length ≤ bound →
+      ∀ (after : Context signature algebra definitions middle output), select wanted before = none →
+      select wanted (before.append after) =
+        (select wanted after).map (fun selected => { selected with inside := before.append selected.inside }) from
+    this before.length before (Nat.le_refl _) after absent
+  intro bound
+  induction bound with
+  | zero =>
+    intro input middle before bounded after absent
+    cases before with
+    | done => simp only [Context.append]; cases select wanted after <;> rfl
+    | push frame rest => simp [Context.length] at bounded
+  | succ bound induction =>
+    intro input middle before bounded after absent
+    cases before with
+    | done => simp only [Context.append]; cases select wanted after <;> rfl
+    | push frame rest =>
+      have smaller : rest.length ≤ bound := by simpa [Context.length] using bounded
+      cases frame <;> simp only [select] at absent
+      all_goals first
+        | (split at absent
+           · contradiction
+           · rename_i different
+             have tail := Option.map_eq_none_iff.mp absent
+             simp only [Context.append, select, if_neg different, induction rest smaller after tail, Option.map_map]
+             rfl)
+        | (have tail := Option.map_eq_none_iff.mp absent
+           simp only [Context.append, select, induction rest smaller after tail, Option.map_map]
+           rfl)
+
+/-- The source prefix guard selects this delimiter with its complete captured
+context, whether that prefix was saved with a request or surrounds its syntax. -/
+theorem matching_delimiter_after_prefix (attachment : Id .attachment)
+    (inside : Context signature algebra definitions input body)
+    (effect : signature.Effect) (mode : Mode)
+    (returned : Computation signature algebra definitions (body :: context) answer)
+    (clauses : Clauses signature algebra definitions effect mode context body answer)
+    (bindings : RuntimeEnvironment signature algebra definitions context)
+    (outside : Context signature algebra definitions answer output)
+    (absent : select attachment inside = none) :
+    select attachment (inside.append (.push (.handler effect mode attachment returned clauses bindings) outside)) =
+      some ⟨effect, mode, attachment, body, answer, context, returned, clauses, bindings, inside, outside⟩ := by
+  rw [select_after_no_match _ _ _ absent]
+  simp [select, Context.append_done]
+
+theorem select_none_of_absent (future : Context signature algebra definitions input result)
+    (absent : wanted ∉ future.attachments) : select wanted future = none := by
+  suffices ∀ bound {input result} (future : Context signature algebra definitions input result),
+      future.length ≤ bound → wanted ∉ future.attachments → select wanted future = none from
+    this future.length future (Nat.le_refl _) absent
+  intro bound
+  induction bound with
+  | zero =>
+    intro input result future bounded absent
+    cases future with
+    | done => rfl
+    | push frame rest => simp [Context.length] at bounded
+  | succ bound induction =>
+    intro input result future bounded absent
+    cases future with
+    | done => rfl
+    | push frame rest =>
+      have smaller : rest.length ≤ bound := by simpa [Context.length] using bounded
+      cases frame <;> simp only [Context.attachments, List.mem_cons, not_or] at absent
+      all_goals first
+        | (simp only [select, if_neg absent.1, induction rest smaller absent.2, Option.map_none])
+        | (simp only [select, induction rest smaller absent, Option.map_none])
+
+theorem selection_inside_has_no_match
+    (future : Context signature algebra definitions input result) (wanted : Id .attachment)
+    (selected : Selection signature algebra definitions input result)
+    (found : select wanted future = some selected) : select wanted selected.inside = none :=
+  select_none_of_absent selected.inside (selection_is_nearest future wanted selected found)
+
 end BoundaryV2.Generalized.Source
 
 namespace BoundaryV2.Generalized.Target
+
+def Stack.length : Stack signature algebra definitions input output → Nat
+  | .done => 0
+  | .push _ rest => rest.length + 1
 
 structure Selection (signature : Signature) (algebra : LeafAlgebra signature.Data)
     (definitions : List (BodyType signature.Data signature.Effect)) (input output : TypeOf signature) where
@@ -202,5 +285,33 @@ theorem matching_delimiter_after_prefix (attachment : Id .attachment)
       some ⟨effect, mode, attachment, body, answer, context, returned, clauses, bindings, inside, outside⟩ := by
   rw [select_after_no_match _ _ _ absent]
   simp [select, Stack.append_done]
+
+theorem selection_reconstructs (context : Stack signature algebra definitions input output) (wanted : Id .attachment)
+    (selected : Selection signature algebra definitions input output) (found : select wanted context = some selected) : selected.whole = context := by
+  suffices ∀ (n : Nat) {input output} (context : Stack signature algebra definitions input output)
+      (selected : Selection signature algebra definitions input output), context.length ≤ n →
+      select wanted context = some selected → selected.whole = context from
+    this context.length context selected (Nat.le_refl _) found
+  intro n
+  induction n with
+  | zero =>
+    intro input output context selected bounded found
+    cases context with
+    | done => contradiction
+    | push frame rest => simp [Stack.length] at bounded
+  | succ n induction =>
+    intro input output context selected bounded found
+    cases context with
+    | done => contradiction
+    | push frame rest =>
+      have smaller : rest.length ≤ n := by simpa [Stack.length] using bounded
+      cases frame <;> simp only [select] at found
+      all_goals first
+        | (split at found
+           · cases found; rfl
+           · obtain ⟨next, innerAt, rfl⟩ := Option.map_eq_some_iff.mp found
+             exact congrArg (Stack.push _) (induction rest next smaller innerAt))
+        | (obtain ⟨next, innerAt, rfl⟩ := Option.map_eq_some_iff.mp found
+           exact congrArg (Stack.push _) (induction rest next smaller innerAt))
 
 end BoundaryV2.Generalized.Target

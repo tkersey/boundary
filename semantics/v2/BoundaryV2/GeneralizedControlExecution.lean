@@ -53,7 +53,31 @@ inductive OwnedStep (table : Definitions signature algebra program) (reserved : 
       ComputationHandoff captured bodyUse authority evaluated.fields fields →
       injectControl ⟨mode, effect, input, answer⟩ view { evaluated with fields := fields } body captured outside = some after →
       OwnedStep table reserved ⟨store, outside.plug (.evaluate (.inject continuation injected) bindings)⟩ after
-  | handled {effect : signature.Effect} {operation : signature.operation effect}
+  /-- One selector governs requests in saved and surrounding source contexts.
+  Selection and physical capture use only source data and source operations. -/
+  | handledRequest {effect : signature.Effect} {operation : signature.operation effect}
+      [DecidableEq (signature.operation effect)]
+      {mode : Mode} {context : List (TypeOf signature)} {body answer result : TypeOf signature}
+      {returned : Computation signature algebra program (body :: context) answer}
+      {clauses : Clauses signature algebra program effect mode context body answer}
+      {bindings : RuntimeEnvironment signature algebra program context}
+      {payload : RuntimeValue signature algebra program (signature.payload operation)}
+      {bodies : RuntimeEnvironment signature algebra program ((signature.bodies operation).map BodyType.type)}
+      {input : TypeOf signature}
+      {saved : Context signature algebra program (signature.result operation) input}
+      {around : Context signature algebra program input result}
+      {inside : Context signature algebra program (signature.result operation) body}
+      {outside : Context signature algebra program answer result}
+      {store : ControlHeap signature algebra program} {before captured after : List UseScope.Field}
+      {partition : store.fields.active = before ++ captured ++ after} {clause : OwnedClause signature algebra program result} :
+      select attachment (saved.append around) =
+        some ⟨effect, mode, attachment, body, answer, context, returned, clauses, bindings, inside, outside⟩ →
+      dispatchOwnedClause operation attachment returned clauses bindings inside payload bodies outside
+        owner before captured after store partition reserved = some clause →
+      OwnedStep table reserved ⟨store, around.plug (.request operation attachment payload bodies saved)⟩ clause.state
+
+/-- The syntactically installed handler is a derived case of request dispatch. -/
+theorem OwnedStep.handled {effect : signature.Effect} {operation : signature.operation effect}
       [DecidableEq (signature.operation effect)]
       {mode : Mode} {context : List (TypeOf signature)} {body answer result : TypeOf signature}
       {returned : Computation signature algebra program (body :: context) answer}
@@ -64,12 +88,15 @@ inductive OwnedStep (table : Definitions signature algebra program) (reserved : 
       {inside : Context signature algebra program (signature.result operation) body}
       {outside : Context signature algebra program answer result}
       {store : ControlHeap signature algebra program} {before captured after : List UseScope.Field}
-      {partition : store.fields.active = before ++ captured ++ after} {clause : OwnedClause signature algebra program result} :
-      select attachment inside = none →
+      {partition : store.fields.active = before ++ captured ++ after} {clause : OwnedClause signature algebra program result}
+      (nearest : select attachment inside = none)
+      (accepted :
       dispatchOwnedClause operation attachment returned clauses bindings inside payload bodies outside
-        owner before captured after store partition reserved = some clause →
+        owner before captured after store partition reserved = some clause) :
       OwnedStep table reserved ⟨store, outside.plug (.handler effect mode attachment returned clauses bindings
-        (.request operation attachment payload bodies inside))⟩ clause.state
+        (.request operation attachment payload bodies inside))⟩ clause.state :=
+  .handledRequest (saved := inside) (around := .push (.handler effect mode attachment returned clauses bindings) outside)
+    (matching_delimiter_after_prefix attachment inside effect mode returned clauses bindings outside nearest) accepted
 
 inductive OwnedSteps (table : Definitions signature algebra program) (reserved : UseScope.ReservedNames) :
     {result : TypeOf signature} → ControlState signature algebra program result → Nat →

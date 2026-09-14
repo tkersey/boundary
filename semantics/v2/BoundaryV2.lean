@@ -53,3 +53,4 @@ import BoundaryV2.GeneralizedContractChecks
 import BoundaryV2.GeneralizedRegionDisposalExamples
 import BoundaryV2.GeneralizedStateReflectionExamples
 import BoundaryV2.GeneralizedControlReflectionExamples
+import BoundaryV2.GeneralizedSavedHandlerExamples

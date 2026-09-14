@@ -254,6 +254,17 @@ theorem Target.Forwards.of_no_selection
 
 /-- Whether the nearest nominal delimiter contains this operation. Forwarding
 additionally checks the rest of the stack before exposing a residual request. -/
+def Source.Handles (operation : signature.operation effect) (attachment : Id .attachment)
+    (future : Source.Context signature algebra program input result) : Prop :=
+  ∃ (mode : Mode) (context : List (TypeOf signature)) (body answer : TypeOf signature)
+    (returned : Source.Computation signature algebra program (body :: context) answer)
+    (clauses : Source.Clauses signature algebra program effect mode context body answer)
+    (bindings : Source.RuntimeEnvironment signature algebra program context)
+    (inside : Source.Context signature algebra program input body)
+    (outside : Source.Context signature algebra program answer result),
+      Source.select attachment future = some ⟨effect, mode, attachment, body, answer, context, returned, clauses, bindings, inside, outside⟩ ∧
+      operation ∈ clauses.operations
+
 def Target.Handles (operation : signature.operation effect) (attachment : Id .attachment)
     (future : Target.Stack signature algebra program input result) : Prop :=
   ∃ (mode : Mode) (context : List (TypeOf signature)) (body answer : TypeOf signature)
@@ -292,6 +303,36 @@ theorem Target.Forwards.not_handles (forward : Target.Forwards operation attachm
   | unhandled mode returned clauses bindings absent tail induction =>
     rintro ⟨mode, context, body, answer, returned, clauses, bindings, inside, outside, selected, member⟩
     simp only [Target.select, if_true] at selected
+    cases selected
+    exact absent member
+
+private theorem Source.Handles.of_prepend
+    (frame : Source.Frame signature algebra program input middle)
+    (future : Source.Context signature algebra program middle result)
+    (selection : Source.select attachment (.push frame future) = (Source.select attachment future).map (Source.Selection.prepend frame))
+    (handled : Source.Handles operation attachment (.push frame future)) : Source.Handles operation attachment future := by
+  obtain ⟨mode, context, body, answer, returned, clauses, bindings, inside, outside, selected, member⟩ := handled
+  rw [selection] at selected
+  obtain ⟨chosen, chosenAt, same⟩ := Option.map_eq_some_iff.mp selected
+  cases chosen
+  cases same
+  exact ⟨_, _, _, _, _, _, _, _, _, chosenAt, member⟩
+
+theorem Source.Forwards.not_handles (forward : Source.Forwards operation attachment future) :
+    ¬ Source.Handles operation attachment future := by
+  induction forward with
+  | done =>
+    rintro ⟨mode, context, body, answer, returned, clauses, bindings, inside, outside, selected, _⟩
+    contradiction
+  | bind next description tail induction | region identity tail induction | protection identity cleanup bindings tail induction | cleanupReturn identity original exit tail induction =>
+    intro handled
+    exact induction (Source.Handles.of_prepend _ _ rfl handled)
+  | different effect mode identity returned clauses bindings different tail induction =>
+    intro handled
+    exact induction (Source.Handles.of_prepend _ _ (by simp only [Source.select, if_neg different]) handled)
+  | unhandled mode returned clauses bindings absent tail induction =>
+    rintro ⟨mode, context, body, answer, returned, clauses, bindings, inside, outside, selected, member⟩
+    simp only [Source.select, if_true] at selected
     cases selected
     exact absent member
 

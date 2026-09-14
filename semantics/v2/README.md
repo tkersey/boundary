@@ -22,14 +22,14 @@ inhabitants. Their checked components and required connections are:
 
 | Export | Existing components | Remaining proof or connection |
 | --- | --- | --- |
-| `Defunctionalization.adequacy` | Finite stateful preservation, initialization/response entry, both head-observation directions, operand-prefix reflection, cell/package/control/fresh-entry inverses, composed application reflection, and ordinary adequacy | Assemble receiving-instruction reflection and finite composition through arbitrary contexts; integrate registry entry and exit/disposal with the observation relation. |
+| `Defunctionalization.adequacy` | Finite preservation and reflection for the current execution relation, all four observations, related initialization/response entry, operation inverses, and ordinary adequacy | Integrate registered-template/disposal entry and exit/lifetime drivers with the same compositional interpretation. Missing driver transitions are not verified behavior. |
 | `Handlers.interpretation` | Fresh installation, nearest selection, forwarding, context closure, actual resume/injection/successor correspondence | Use the stateful correspondence under arbitrary enclosing effectful handlers, including registered multi entry. |
 | `UseScope.preservation` | Actual control/cell steps, typed consumption, physical capture multiplicity, scoped packages, registry insertion, fresh activation and dormant support | Connect registry and lifetime handoff across capture, activation, completion, and disposal. |
 | `Exits.composition` | Stateful initiation, cancellation, ordered operands/failures, owned-result disposal, nested completion, region-to-cleanup-frame embedding | Connect region disposal during nested abandonment and compose exits with the source/target observation relation. |
 | `OpenControl.observation_relocation` | Typed polling/rejection/admission, occurrence separation, authority, control and dormant-support relocation | Apply the same admission and relocation laws to the integrated registry/cleanup futures. |
 
-These are explicit outstanding obligations. D's preservation, initialization,
-and response fields now have checked defaults; no complete contract inhabitant
+These are explicit outstanding obligations. D's current-execution preservation,
+reflection, initialization, and response fields have checked defaults; no complete contract inhabitant
 is exported. `GeneralizedContractChecks` checks the principal
 field types and the stateful observation definitions; it constructs no contract
 proof. The source/target finite observation definitions use their actual
@@ -79,12 +79,37 @@ field. Its target-only stored-closure regression consumes grant 8, retains owner
 100 and captured owner 6, and yields beneath the retained caller. The inspection
 view for application exposes existing typed operands; it adds no evaluator.
 The existing configuration reindexing lemma is reused by both ordinary and
-stateful reflection. Common receiving-instruction/context composition and
-registry/exit integration remain unfinished.
+stateful reflection. The common receiving-instruction/context composition is
+now assembled below; registry/exit integration remains unfinished.
+
+`GeneralizedFiniteReflection` assembles the operand and receiving-instruction
+inverses and inducts over arbitrary finite target executions. It reconstructs
+source transitions under binds, effectful handlers, regions, protections, and
+running cleanup frames. Return, authored failure, yield, and pending requests
+retain their corresponding current resources and typed futures. No simulation,
+runtime fuel, or universal termination premise is assumed. Separate template,
+disposal, and exit drivers still need their required embedding; the current
+relation's inability to execute those entries is explicitly not whole-core
+adequacy evidence.
+
+This composition exposed a source-model gap: a root request with a matching
+handler in its saved context had a target dispatch but no source step. The source
+now selects across `saved.append around` and invokes its existing physical
+capture operation. `OwnedStep.handled` is a general derived case for syntactic
+handlers; there is one source request-dispatch rule, with no reattachment loop.
+The selectors preserve their independent implementations and have explicit
+reconstruction and nearest-prefix laws on the needed sides. Source handledness
+excludes external opening independently. The old handler-specific
+`ProgramRelated.handler_request_view` and `ExecutionStateRelated.handler_request_view`
+helpers are removed; shared context/selection laws supply their role. The
+syntactic and saved-handler regressions reuse one effectful clause tail, retain
+the same seven source and seventeen target steps, consume the new authority once,
+and preserve both older owners. The general finite inverse is instantiated on
+the complete saved-handler target trace and its final text request.
 
 | Contract | Main proof surfaces | Checked content and limits |
 | --- | --- | --- |
-| D: defunctionalization | `GeneralizedValues`, `GeneralizedReification`, `GeneralizedOwnedOperandLowering`, `GeneralizedProgramObservations`, `GeneralizedStateSimulation` | Closure/context laws, recursive call unfolding, finite ordinary adequacy, and general finite preservation for the current permission-sensitive stateful relation. Open requests retain related typed futures and current resources. Stateful reflection and registry/exit coverage remain open. |
+| D: defunctionalization | `GeneralizedValues`, `GeneralizedReification`, `GeneralizedProgramObservations`, `GeneralizedStateSimulation`, `GeneralizedFiniteReflection` | Closure/context laws, recursive call unfolding, finite ordinary adequacy, and finite preservation/reflection for the current permission-sensitive relation. Open requests retain related typed futures and current resources. Registry/disposal/exit embedding remains open. |
 | H: handlers | `GeneralizedSelection`, `GeneralizedForwarding`, `GeneralizedHandlerEntry`, `GeneralizedControlExecution`, `GeneralizedSuccessor`, `GeneralizedInjectionExecution`, `GeneralizedFreshHandlerExecution` | Nominal selection and forwarding, deep/shallow capture, effectful clause entry, distinct body/answer types, successor handling, non-tail resumption, and use-site injection have local correspondence laws. Installation computes fresh support-aware identities. Remaining scoped and multi-use composition is unfinished. |
 | U: use and scope | `GeneralizedFields`, `GeneralizedOwnership`, `GeneralizedControlStore`, `GeneralizedScopes`, `GeneralizedScopeCapture`, `GeneralizedResources`, `GeneralizedTemplates`, `GeneralizedStateExecution` | Actual owning occurrences preserve multiplicity across control stores, closures, cells, and retained containers. Local transfer, one-shot consumption, packaging, release, scope/borrow, resource-authority, and computed template-instantiation laws are checked. Stateful region entry is connected to cell allocation. Full lifetime closure and remaining activation/composition laws are open. |
 | X: exits | `GeneralizedOperandPrefix`, `GeneralizedExit`, `GeneralizedStatefulCleanup`, `GeneralizedExitCompletion`, `GeneralizedUnwinding`, `GeneralizedRegionRetirement` | Ordered handoff, retained cleanup cursors, single initiation, first cancellation reason, failure precedence, cleanup completion, and finite outer-unwinding order are checked. Cell-held control can transfer into saved-context disposal; plain cells remain readable for later cleanup. Final region/resource lifetime closure remains open. |

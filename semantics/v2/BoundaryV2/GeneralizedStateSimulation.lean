@@ -316,67 +316,6 @@ theorem ExecutionStateRelated.target_state
   (congrArg (fun storage => Target.State.mk target.control storage target.liveRegions) related.cells).trans
     (congrArg (Target.State.mk target.control (Defunctionalization.cells source.cells)) related.regions.symm)
 
-theorem ProgramRelated.handler_request_view
-    {targetOutside : Target.Stack signature algebra program answer result}
-    {target : Target.Configuration signature algebra program result}
-    (related : ProgramRelated (whole : Source.Program signature algebra program answer) targetOutside target)
-    (operation : signature.operation effect) (mode : Mode) (attachment : Id .attachment)
-    (returned : Source.Computation signature algebra program (body :: context) answer)
-    (clauses : Source.Clauses signature algebra program effect mode context body answer)
-    (bindings : Source.RuntimeEnvironment signature algebra program context)
-    (payload : Source.RuntimeValue signature algebra program (signature.payload operation))
-    (bodies : Source.RuntimeEnvironment signature algebra program ((signature.bodies operation).map BodyType.type))
-    (sourceInside : Source.Context signature algebra program (signature.result operation) body)
-    (same : whole = .handler effect mode attachment returned clauses bindings
-      (.request operation attachment payload bodies sourceInside))
-    {sourceOutside : Source.Context signature algebra program answer result}
-    (outside : ContextRelated signature algebra program sourceOutside targetOutside) :
-    ∃ targetInside targetCaller,
-      ContextRelated signature algebra program sourceInside targetInside ∧
-      ContextRelated signature algebra program sourceOutside targetCaller ∧
-      target = .requested operation attachment (value payload) (environment bodies)
-        (targetInside.append (.push (.handler effect mode attachment (computation returned)
-          (Defunctionalization.clauses clauses) (environment bindings)) targetCaller)) := by
-  induction related with
-  | handler otherEffect otherMode otherAttachment otherReturned otherClauses otherBindings inner induction =>
-    cases same
-    obtain ⟨targetInside, inside, configuration⟩ := inner.requested_view _ _ _ _ _ rfl
-    exact ⟨targetInside, _, inside, outside, configuration⟩
-  | passthrough captured inner induction =>
-    exact induction returned clauses same (.passthrough captured outside)
-  | evaluate | returned | failed | requested | yielded | bind | region | protection | cleaning => cases same
-
-theorem ExecutionStateRelated.handler_request_view
-    {sourceStore : Source.ControlHeap signature algebra program}
-    {sourceCells : Cells signature algebra (Source.Computation signature algebra program)}
-    {regions : List (Id .region)} {target : Target.State signature algebra program result}
-    (operation : signature.operation effect) (mode : Mode) (attachment : Id .attachment)
-    (returned : Source.Computation signature algebra program (body :: context) answer)
-    (clauses : Source.Clauses signature algebra program effect mode context body answer)
-    (bindings : Source.RuntimeEnvironment signature algebra program context)
-    (payload : Source.RuntimeValue signature algebra program (signature.payload operation))
-    (bodies : Source.RuntimeEnvironment signature algebra program ((signature.bodies operation).map BodyType.type))
-    (sourceInside : Source.Context signature algebra program (signature.result operation) body)
-    (sourceOutside : Source.Context signature algebra program answer result)
-    (related : ExecutionStateRelated
-      ⟨⟨sourceStore, sourceOutside.plug (.handler effect mode attachment returned clauses bindings
-        (.request operation attachment payload bodies sourceInside))⟩, sourceCells, regions⟩ target) :
-    ∃ targetInside targetOutside,
-      ContextRelated signature algebra program sourceInside targetInside ∧
-      ContextRelated signature algebra program sourceOutside targetOutside ∧
-      target = ⟨⟨target.control.store,
-        .requested operation attachment (value payload) (environment bodies)
-          (targetInside.append (.push (.handler effect mode attachment (Defunctionalization.computation returned)
-            (Defunctionalization.clauses clauses) (environment bindings)) targetOutside))⟩,
-        Defunctionalization.cells sourceCells, regions⟩ := by
-  obtain ⟨middle, outside, inner⟩ := open_program_context sourceOutside _ related.computation .done
-  obtain ⟨targetInside, targetOutside, inside, caller, configuration⟩ :=
-    inner.handler_request_view operation mode attachment returned clauses bindings payload bodies sourceInside rfl outside
-  refine ⟨targetInside, targetOutside, inside, ?_, ?_⟩
-  · simpa only [Source.Context.append_done] using caller
-  · rw [related.target_state]
-    exact congrArg (fun control => Target.State.mk control (Defunctionalization.cells sourceCells) regions)
-      (congrArg (Target.ControlState.mk target.control.store) configuration)
 
 end Inversion
 
@@ -454,16 +393,28 @@ theorem control_state_step_simulates (table : Source.Definitions signature algeb
       compiled_computation_injection table use continuation injected bindings body captured authority view sourceCells regions
         operands related.store handoff outside accepted
     exact ⟨count, _, steps, matched.as_execution⟩
-  | @handled attachment owner effect operation operationEquality mode context body answer result returned clauses bindings payload bodies sourceInside sourceOutside sourceStore before captured after partition clause nearest accepted =>
-    obtain ⟨targetInside, targetOutside, inside, outside, configuration⟩ :=
-      related.handler_request_view operation mode attachment returned clauses bindings payload bodies sourceInside sourceOutside
-    rw [configuration]
-    have targetPartition : target.control.store.fields.active = before ++ captured ++ after := by
-      rw [← related.store.fields]
-      exact partition
-    obtain ⟨targetAfter, matched, _, steps⟩ := handled_operation_with_cells_corresponds table operation attachment returned clauses bindings
-      inside payload bodies outside owner before captured after related.store sourceCells regions partition targetPartition nearest accepted
-    exact ⟨1, _, steps, matched.as_execution⟩
+  | @handledRequest attachment owner effect operation operationEquality mode context body answer result returned clauses bindings payload bodies input saved around sourceInside sourceOutside sourceStore before captured after partition clause selected accepted =>
+    obtain ⟨targetAround, aroundRelated, inner⟩ := open_program_context around
+      (.request operation attachment payload bodies saved) related.computation .done
+    obtain ⟨targetSaved, savedRelated, configuration⟩ := inner.requested_view _ _ _ _ _ rfl
+    have combined : ContextRelated signature algebra program (saved.append around) (targetSaved.append targetAround) := by
+      simpa only [Source.Context.append_done] using context_composition savedRelated aroundRelated
+    have nearest := Source.selection_inside_has_no_match (saved.append around) attachment _ selected
+    obtain ⟨targetSelected, targetFound, selectedRelated⟩ := corresponding_acceptance (selection_corresponds attachment combined) selected
+    have reconstructed := Target.selection_reconstructs (targetSaved.append targetAround) attachment targetSelected targetFound
+    cases selectedRelated with
+    | selected effect mode identity returned clauses bindings inside outside =>
+      have targetPartition : target.control.store.fields.active = before ++ captured ++ after := by
+        rw [← related.store.fields]
+        exact partition
+      obtain ⟨targetAfter, matched, _, steps⟩ := handled_operation_with_cells_corresponds table operation attachment returned clauses bindings
+        inside payload bodies outside owner before captured after related.store sourceCells regions partition targetPartition nearest accepted
+      refine ⟨1, _, ?_, matched.as_execution⟩
+      rw [related.target_state]
+      change Target.ExecutionSteps (definitions table)
+        ⟨⟨target.control.store, target.control.configuration⟩, cells sourceCells, regions⟩ 1 _
+      rw [configuration, ← reconstructed]
+      exact steps
 
 /-- Preservation for every constructor of the current stateful execution
 relation. The proof invokes the actual operation laws with the caller recovered

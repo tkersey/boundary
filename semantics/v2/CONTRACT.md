@@ -115,17 +115,19 @@ law for every computation constructor, recovering actual source evaluations,
 capture partitions, owning state, and a finite residual target run. Authored
 return expressions have full finite observation reflection, including owned
 closure construction and later operand failure. Reflection through the remaining
-receiving instructions and arbitrary contexts is still incomplete.
-`GeneralizedControlReflection` recovers actual cell/package operations,
-one-shot resume/injection/successor, closure application, and fresh
-handler/protection/region entry. `applied_computation_step_reflected` composes
-operand reflection and handoff for arbitrary authored applications under related
-callers, supplying D's checked `application_reflection` field. These local
-inverses still need the common control/context finite-composition argument;
-they do not inhabit D's general reflection field. Neither ordinary adequacy nor
-mutually missing stateful transitions establish the complete core claim. Reusable
-registry entry, nested abandonment, and disposal must participate in the same
-compositional interpretation before D is complete.
+receiving instructions and arbitrary contexts now composes in
+`GeneralizedFiniteReflection`. `stateful_observation_reflected` supplies D's
+reflection field for the current execution relation, with actual source steps,
+current resources, and all four observation forms. Handled requests use the
+source selector across their saved and surrounding contexts; the old syntactic
+handler rule is a derived case. The source and target selectors remain independent.
+
+This is not complete whole-core D: registered-template and disposal entry still
+use separate drivers, and exit/lifetime composition is not fully embedded. The
+proof explicitly identifies those current relation boundaries; their inability
+to step is not evidence that the required behavior has been verified. These
+embeddings and their observation laws remain mandatory before claiming the five
+contract milestone complete.
 
 `GeneralizedContractChecks` consumes the declared field types and checks the
 stateful observation definitions. Its hypothetical contract arguments are
