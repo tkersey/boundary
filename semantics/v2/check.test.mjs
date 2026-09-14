@@ -112,6 +112,11 @@ function claimMutations() {
     accepted(compile('GeneralizedSourceExits', sourceExits.replace(sourceDiagnostics,
       '⟨.failure fault, [], none⟩ outside'), true), 'source cleanup diagnostic omission probe must itself compile');
     rejected(compile('GeneralizedExitSimulation', exitSimulation), 'source cleanup entry discards failure history and cancellation');
+    const spentAuthority = 'token :: runtime.store.fields.spent';
+    assert.equal(sourceExits.split(spentAuthority).length, 2, 'expected one source resource-disposal mutation target');
+    accepted(compile('GeneralizedSourceExits', sourceExits.replace(spentAuthority,
+      'runtime.store.fields.spent'), true), 'source spent-authority omission probe must itself compile');
+    rejected(compile('GeneralizedExitSimulation', exitSimulation), 'source resource disposal forgets spent authority');
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

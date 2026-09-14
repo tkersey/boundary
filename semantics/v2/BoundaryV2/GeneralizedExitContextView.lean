@@ -91,4 +91,26 @@ theorem ContextRelated.expose_unwind_frame
     obtain ⟨targetFrame, targetRest, count, matching, outside, steps⟩ := induction frame rest same
     exact ⟨targetFrame, targetRest, count + 1, matching, outside, .cons (.unwind rfl) steps⟩
 
+theorem ContextRelated.unwind_done_steps
+    {source : Source.Context signature algebra program result result}
+    {target : Target.Stack signature algebra program result result}
+    (related : ContextRelated signature algebra program source target)
+    (table : Target.Definitions signature algebra program)
+    (runtime : ExitComposition.Runtime signature algebra program) (completed : runtime.phase = .finished completion)
+    (same : source = .done) :
+    ∃ count, ExitComposition.CleanupFrameSteps table (.running (.unwind runtime target)) count
+      (.running (.unwind runtime (.done : Target.Stack signature algebra program result result))) retained := by
+  rcases runtime with ⟨identity, phase, store, cells, regions, exit⟩
+  dsimp only at completed
+  subst phase
+  cases related with
+  | done => exact ⟨0, .refl⟩
+  | push => cases same
+  | passthrough bindings context =>
+    obtain ⟨count, steps⟩ := context.unwind_done_steps table ⟨identity, .finished completion, store, cells, regions, exit⟩ rfl same
+    exact ⟨count + 1, .cons (.unwind rfl) steps⟩
+
+termination_by target.length
+decreasing_by simp_all [Target.Stack.length]
+
 end BoundaryV2.Generalized.Defunctionalization

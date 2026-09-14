@@ -32,10 +32,60 @@ inductive CompletedCleanupRelated : Source.CompletedCleanup signature algebra pr
   | resolved : ExitResolutionRelated source target → CompletedCleanupRelated (.resolved source) (.resolved target)
   | disposing : CleanupDisposalRelated source target → CompletedCleanupRelated (.disposing source) (.disposing target)
 
-inductive CleanupProgressRelated : Source.CleanupProgress signature algebra program result →
-    ExitComposition.CleanupFrameProgress signature algebra program result → Prop where
-  | running : ExitResolutionRelated source target → CleanupProgressRelated (.running source) (.running target)
-  | disposing : CleanupDisposalRelated source target → CleanupProgressRelated (.disposing source) (.disposing target)
+def disposalValues (values : Source.DisposalValues signature algebra program) : ExitComposition.DisposalValues signature algebra program :=
+  values.map fun item => ⟨item.fst, value item.snd⟩
+
+mutual
+  inductive CleanupProgressRelated : Source.CleanupProgress signature algebra program result →
+      ExitComposition.CleanupFrameProgress signature algebra program result → Prop where
+    | running : ExitResolutionRelated source target → CleanupProgressRelated (.running source) (.running target)
+    | disposing : CleanupDisposalRelated source target → CleanupProgressRelated (.disposing source) (.disposing target)
+    | values : ContextRelated signature algebra program sourceOutside targetOutside → ValueDisposalRelated source target →
+        CleanupProgressRelated (.values identity completion sourceOutside source) (.values identity completion targetOutside target)
+
+  inductive ValueDisposalRelated : Source.ValueDisposal signature algebra program → ExitComposition.ValueDisposal signature algebra program → Prop where
+    | ready (pending : Source.DisposalValues signature algebra program) : ExitRuntimeRelated source target →
+        ValueDisposalRelated (.ready source pending) (.ready target (disposalValues pending))
+    | control (pending : Source.DisposalValues signature algebra program) : ControlProgressRelated source target →
+        ValueDisposalRelated (.control source pending) (.control target (disposalValues pending))
+
+  inductive ControlProgressRelated : Source.ControlProgress signature algebra program answer →
+      ExitComposition.ControlProgress signature algebra program answer → Prop where
+    | frames : CleanupProgressRelated source target → ControlProgressRelated (.frames identity source) (.frames identity target)
+    | returnedValue : ValueDisposalRelated source target → ControlProgressRelated (.returnedValue source) (.returnedValue target)
+    | complete : ExitRuntimeRelated source target → ControlProgressRelated (.complete source) (.complete target)
+end
+
+theorem disposal_values_references (values : Source.DisposalValues signature algebra program) :
+    (disposalValues values).flatMap (fun item => Target.valueReferences item.snd) = values.flatMap (fun item => Source.valueReferences item.snd) := by
+  induction values with
+  | nil => rfl
+  | cons first rest induction =>
+    simp only [disposalValues, List.map_cons, List.flatMap_cons]
+    unfold disposalValues at induction
+    rw [value_reference_support, induction]
+
+theorem disposal_values_append (first second : Source.DisposalValues signature algebra program) :
+    disposalValues (first ++ second) = disposalValues first ++ disposalValues second := List.map_append
+
+theorem disposal_values_environment (bindings : Source.RuntimeEnvironment signature algebra program context) :
+    disposalValues bindings.disposalValues = (environment bindings).disposalValues := by
+  exact (Environment.disposal_values_map (fun _ _ body => computation body) bindings).symm
+
+theorem ExitRuntimeRelated.with_fields (related : ExitRuntimeRelated source target) (fields : UseScope.State) :
+    ExitRuntimeRelated { source with store := { source.store with fields := fields } }
+      { target with store := { target.store with fields := fields } } :=
+  { related with store := { related.store with fields := rfl } }
+
+theorem finished_value_disposal_corresponds (related : ValueDisposalRelated source target)
+    (finished : source.finished = some sourceRuntime) :
+    ∃ targetRuntime, target.finished = some targetRuntime ∧ ExitRuntimeRelated sourceRuntime targetRuntime := by
+  cases related with
+  | control => cases finished
+  | ready pending runtime =>
+    cases pending with
+    | cons => cases finished
+    | nil => cases finished; exact ⟨_, rfl, runtime⟩
 
 theorem CompletedCleanupRelated.progress (related : CompletedCleanupRelated source target) :
     CleanupProgressRelated source.progress target.progress := by
@@ -69,6 +119,23 @@ theorem cleanup_reentry_corresponds
       cases primary with
       | failure fault => exact .resolved (.reenter ⟨stores, rfl, rfl, outside.close_program (.failed fault _)⟩)
       | normal | cancelled | abandoned => exact .resolved (.unwind ⟨rfl, rfl, stores, rfl, rfl, rfl⟩ outside)
+
+theorem finished_values_reentry_corresponds
+    (identity : Id .obligation) (completion : ExitComposition.Completion algebra.Fault)
+    {source : Source.ExitRuntime signature algebra program} {target : ExitComposition.Runtime signature algebra program}
+    (runtime : ExitRuntimeRelated source target)
+    {sourceOutside : Source.Context signature algebra program input result}
+    {targetOutside : Target.Stack signature algebra program input result}
+    (outside : ContextRelated signature algebra program sourceOutside targetOutside) :
+    CleanupProgressRelated
+      (Source.reenterCleanupResult identity completion source.store source.cells source.regions sourceOutside (.exiting source.exit)).progress
+      (ExitComposition.reenterCleanupResult identity completion target.store target.cells target.liveRegions targetOutside (.exiting target.exit)).progress := by
+  rcases source with ⟨sourceId, finished, sourceStore, sourceCells, regions, exit⟩
+  rcases target with ⟨targetId, phase, targetStore, targetCells, targetRegions, targetExit⟩
+  rcases runtime with ⟨sameId, completed, stores, storage, live, sameExit⟩
+  dsimp only at sameId completed stores storage live sameExit
+  subst targetId phase targetCells targetRegions targetExit
+  exact (cleanup_reentry_corresponds identity completion stores sourceCells regions outside (.exiting exit)).progress
 
 /-- This entry theorem retains arbitrary source handlers and callbacks in the
 outside context; target cleanup uses only compiled code and data frames. -/

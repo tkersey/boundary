@@ -163,4 +163,15 @@ theorem source_cleanup_contract (claim : Defunctionalization.adequacy signature 
       Defunctionalization.StateObservationRelated sourceFinal targetFinal observation targetObservation :=
   claim.cleanup_observations table related steps head
 
+theorem source_value_disposal_contract (claim : Defunctionalization.adequacy signature algebra program)
+    (table : Source.Definitions signature algebra program)
+    {source final : Source.ValueDisposal signature algebra program}
+    {target : ExitComposition.ValueDisposal signature algebra program}
+    (steps : Source.ValueDisposalSteps table source count final retained)
+    (related : Defunctionalization.ValueDisposalRelated source target) :
+    ∃ targetCount targetFinal,
+      ExitComposition.ValueDisposalSteps (Defunctionalization.definitions table) target targetCount targetFinal retained ∧
+      Defunctionalization.ValueDisposalRelated final targetFinal :=
+  claim.value_disposal_preservation table steps related
+
 end BoundaryV2.Generalized.ContractChecks

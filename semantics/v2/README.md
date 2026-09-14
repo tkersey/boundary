@@ -22,7 +22,7 @@ inhabitants. Their checked components and required connections are:
 
 | Export | Existing components | Remaining proof or connection |
 | --- | --- | --- |
-| `Defunctionalization.adequacy` | Retained-aware core/registered preservation and reflection, registered initialization/response entry, and finite source-cleanup preservation with all four observations | Complete cleanup reflection and source disposal/region rules, then join exits and registered execution without omitting observations. |
+| `Defunctionalization.adequacy` | Core/registered preservation and reflection, and finite source cleanup/value/control-disposal preservation with all four cleanup observations | Complete reverse exit correspondence and source region/suspended-work rules, then join exits and registered execution without omitting observations. |
 | `Handlers.interpretation` | Fresh installation, nearest selection, forwarding, context closure, actual resume/injection/successor correspondence | Use the stateful correspondence under arbitrary enclosing effectful handlers, including registered multi entry. |
 | `UseScope.preservation` | Actual control/cell steps, typed consumption, physical capture multiplicity, scoped packages, registry insertion, fresh activation and dormant support | Connect actual captured/unwound frame fields to registry and lifetime handoff across capture, activation, completion, and disposal. |
 | `Exits.composition` | Shared handler-aware frame execution for disposal and nested cleanup, structured saved-result and handler-answer disposal, retained-root region handoff, current-resource completion, and finite embeddings | Connect suspended-work abandonment and registry/lifetime successors, then compose all exits with source/target observations. |
@@ -61,9 +61,28 @@ source regressions derive a cleanup yield beneath an enclosing handler and
 retain an owned saved result across extra target administrative frames. These
 are source-derived expectations, not calls to the target evaluator.
 
+Source cleanup now enters actual value disposal for owned saved results.
+`Source.ValueDisposalStep` processes products, sums, packages, closure captures,
+resource grants, and owned continuations; `Source.ControlProgressStep` executes
+source cleanup and disposes returned answers. The three source relations recurse
+through one another while retaining pending queues and current resources. Their
+target correspondences use the existing package/computation handoffs, authority
+consumption, context support, and value-reference mapping laws.
+
+The preservation proof uses Lean's generated mutual induction principle.
+Its recursive hypotheses concern strictly contained derivations; no runtime
+fuel, target execution premise, or new assurance framework is introduced.
+`finite_value_disposal_preserved` and `finite_control_disposal_preserved` supply
+D's corresponding fields. The existing cleanup/observation preservation proof
+now covers those operations too. Source-derived regressions consume a saved
+result before propagating failure, release a package's resource and closure
+captures in declared order, and execute a disposed continuation's source cleanup.
+They preserve unrelated ownership and exact spent-grant history. The existing
+trust harness rejects a source resource rule that forgets the spent authority.
+
 This is a preservation component, not complete cleanup adequacy. The source
-cleanup relation still needs region/value disposal, suspended-work operations,
-and its connection to registered execution; reverse finite correspondence must
+cleanup relation still needs region and suspended-work operations, the authored
+dispose entry connection, and its connection to registered execution; reverse finite correspondence must
 cover those operations as they are integrated. It is not enough that the
 present relation and its currently implemented constructors compile.
 
@@ -433,7 +452,7 @@ fresh replay. The statement/definition mutations reject `True` substitutions
 for each required contract and an ordinary-only replacement for the source
 stateful observation definition, plus core-only replacements for source and
 target registered observations, omitted retained caller roots, and loss of
-source cleanup failure history/cancellation. The mutation step follows the proof build and
+source cleanup failure history/cancellation, and forgotten spent authority. The mutation step follows the proof build and
 uses an isolated compiled-module overlay. Completing the contract proofs and
 reviewing all remaining semantic connections are still open; logical trust and
 statement checking do not establish the entire milestone.

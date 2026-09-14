@@ -61,47 +61,139 @@ def beginExitCleanup (identity : Id .obligation)
   .reenter ⟨⟨store, outside.plug (.cleaning identity none exit
     (.evaluate cleanup (.cons (.exit exit) bindings)))⟩, cells, regions⟩ ⟨.normal, [], none⟩
 
-/-- Local source exit steps coexist with ordinary source execution. Their
-boundaries are actual source program constructors, not target observations. -/
-inductive CleanupProgress (signature : Signature) (algebra : LeafAlgebra signature.Data)
-    (program : List (BodyType signature.Data signature.Effect)) (result : TypeOf signature) where
-  | running : ExitResolution signature algebra program result → CleanupProgress signature algebra program result
-  | disposing : CleanupDisposal signature algebra program result → CleanupProgress signature algebra program result
+abbrev DisposalValues (signature : Signature) (algebra : LeafAlgebra signature.Data)
+    (program : List (BodyType signature.Data signature.Effect)) := List (Sigma (RuntimeValue signature algebra program))
+
+/- Source work retains source computations and higher-order contexts. The
+mutual states expose ongoing control disposal and its remaining owned values. -/
+mutual
+  inductive CleanupProgress (signature : Signature) (algebra : LeafAlgebra signature.Data)
+      (program : List (BodyType signature.Data signature.Effect)) : TypeOf signature → Type where
+    | running : ExitResolution signature algebra program result → CleanupProgress signature algebra program result
+    | disposing : CleanupDisposal signature algebra program result → CleanupProgress signature algebra program result
+    | values {input : TypeOf signature} : Id .obligation → ExitComposition.Completion algebra.Fault →
+        Context signature algebra program input result → ValueDisposal signature algebra program → CleanupProgress signature algebra program result
+
+  inductive ValueDisposal (signature : Signature) (algebra : LeafAlgebra signature.Data)
+      (program : List (BodyType signature.Data signature.Effect)) where
+    | ready : ExitRuntime signature algebra program → DisposalValues signature algebra program → ValueDisposal signature algebra program
+    | control {answer : TypeOf signature} : ControlProgress signature algebra program answer →
+        DisposalValues signature algebra program → ValueDisposal signature algebra program
+
+  inductive ControlProgress (signature : Signature) (algebra : LeafAlgebra signature.Data)
+      (program : List (BodyType signature.Data signature.Effect)) : TypeOf signature → Type where
+    | frames : Id .obligation → CleanupProgress signature algebra program answer → ControlProgress signature algebra program answer
+    | returnedValue : ValueDisposal signature algebra program → ControlProgress signature algebra program answer
+    | complete : ExitRuntime signature algebra program → ControlProgress signature algebra program answer
+end
+
+def ValueDisposal.start (runtime : ExitRuntime signature algebra program) (value : RuntimeValue signature algebra program type) :
+    ValueDisposal signature algebra program := .ready runtime [⟨type, value⟩]
+
+def ValueDisposal.finished : ValueDisposal signature algebra program → Option (ExitRuntime signature algebra program)
+  | .ready runtime [] => some runtime
+  | _ => none
+
+def ControlProgress.seeking (runtime : ExitRuntime signature algebra program)
+    (outside : Context signature algebra program input answer) : ControlProgress signature algebra program answer :=
+  .frames runtime.id (.running (.unwind runtime outside))
 
 def CompletedCleanup.progress : CompletedCleanup signature algebra program result → CleanupProgress signature algebra program result
   | .resolved resolution => .running resolution
   | .disposing work => .disposing work
 
-inductive CleanupStep [DecidableEq (ControlShape signature)] [DecidableEq (TypeOf signature)]
-    (table : Definitions signature algebra program) : CleanupProgress signature algebra program result →
-    CleanupProgress signature algebra program result → (retained : List Reference := []) → Prop where
-  | execute : ExecutionStep table before after retained →
-      CleanupStep table (.running (.reenter before diagnostics)) (.running (.reenter after diagnostics)) retained
-  | beginFailure {outside : Context signature algebra program input result} :
-      CleanupStep table (.running (.reenter
-        ⟨⟨store, outside.plug (.protection identity cleanup bindings (.failed fault))⟩, cells, regions⟩ diagnostics))
-        (.running (beginExitCleanup identity cleanup bindings store cells regions
-          ⟨.failure fault, diagnostics.failures, diagnostics.cancellation⟩ outside)) retained
-  | beginUnwind {outside : Context signature algebra program input result} :
-      CleanupStep table (.running (.unwind runtime (.push (.protection identity cleanup bindings) outside)))
-        (.running (beginExitCleanup identity cleanup bindings runtime.store runtime.cells runtime.regions runtime.exit outside)) retained
-  | returned {outside : Context signature algebra program input result} :
-      ExitComposition.finalizeCleanup original exit = some outcome →
-      CleanupStep table (.running (.reenter
-        ⟨⟨store, outside.plug (.cleaning identity original exit (.returned cleaned))⟩, cells, regions⟩ diagnostics))
-        (reenterCleanupResult identity .returned store cells regions outside outcome).progress retained
-  | failed {outside : Context signature algebra program input result} :
-      ExitComposition.finalizeCleanup original (exit.nestedFailure fault diagnostics.failures diagnostics.cancellation) = some outcome →
-      CleanupStep table (.running (.reenter
-        ⟨⟨store, outside.plug (.cleaning identity original exit (.failed fault))⟩, cells, regions⟩ diagnostics))
-        (reenterCleanupResult identity (.failed fault) store cells regions outside outcome).progress retained
-  | unwound {outside : Context signature algebra program input result} :
-      ExitComposition.finalizeCleanup original
-        (match runtime.exit.primary with
-          | .failure fault => exit.nestedFailure fault runtime.exit.failures runtime.exit.cancellation
-          | _ => exit.nestedAbandon runtime.exit) = some outcome →
-      CleanupStep table (.running (.unwind runtime (.push (.cleanupReturn identity original exit) outside)))
-        (reenterCleanupResult identity .abandoned runtime.store runtime.cells runtime.regions outside outcome).progress retained
+mutual
+  inductive CleanupStep [DecidableEq (ControlShape signature)] [DecidableEq (TypeOf signature)]
+      (table : Definitions signature algebra program) : CleanupProgress signature algebra program result →
+      CleanupProgress signature algebra program result → (retained : List Reference := []) → Prop where
+    | execute : ExecutionStep table before after retained →
+        CleanupStep table (.running (.reenter before diagnostics)) (.running (.reenter after diagnostics)) retained
+    | beginFailure {outside : Context signature algebra program input result} :
+        CleanupStep table (.running (.reenter
+          ⟨⟨store, outside.plug (.protection identity cleanup bindings (.failed fault))⟩, cells, regions⟩ diagnostics))
+          (.running (beginExitCleanup identity cleanup bindings store cells regions
+            ⟨.failure fault, diagnostics.failures, diagnostics.cancellation⟩ outside)) retained
+    | beginUnwind {outside : Context signature algebra program input result} :
+        CleanupStep table (.running (.unwind runtime (.push (.protection identity cleanup bindings) outside)))
+          (.running (beginExitCleanup identity cleanup bindings runtime.store runtime.cells runtime.regions runtime.exit outside)) retained
+    | returned {outside : Context signature algebra program input result} :
+        ExitComposition.finalizeCleanup original exit = some outcome →
+        CleanupStep table (.running (.reenter
+          ⟨⟨store, outside.plug (.cleaning identity original exit (.returned cleaned))⟩, cells, regions⟩ diagnostics))
+          (reenterCleanupResult identity .returned store cells regions outside outcome).progress retained
+    | failed {outside : Context signature algebra program input result} :
+        ExitComposition.finalizeCleanup original (exit.nestedFailure fault diagnostics.failures diagnostics.cancellation) = some outcome →
+        CleanupStep table (.running (.reenter
+          ⟨⟨store, outside.plug (.cleaning identity original exit (.failed fault))⟩, cells, regions⟩ diagnostics))
+          (reenterCleanupResult identity (.failed fault) store cells regions outside outcome).progress retained
+    | unwound {outside : Context signature algebra program input result} :
+        ExitComposition.finalizeCleanup original
+          (match runtime.exit.primary with
+            | .failure fault => exit.nestedFailure fault runtime.exit.failures runtime.exit.cancellation
+            | _ => exit.nestedAbandon runtime.exit) = some outcome →
+        CleanupStep table (.running (.unwind runtime (.push (.cleanupReturn identity original exit) outside)))
+          (reenterCleanupResult identity .abandoned runtime.store runtime.cells runtime.regions outside outcome).progress retained
+    | enterValues : CleanupStep table (.disposing work)
+        (.values work.runtime.id work.runtime.completion work.outside (ValueDisposal.start work.runtime work.value)) retained
+    | values : ValueDisposalStep table before after (outside.referenceSupport ++ retained) →
+        CleanupStep table (.values identity completion outside before) (.values identity completion outside after) retained
+    | finishValues : work.finished = some runtime →
+        CleanupStep table (.values identity completion outside work)
+          (reenterCleanupResult identity completion runtime.store runtime.cells runtime.regions outside (.exiting runtime.exit)).progress retained
+
+
+  inductive ValueDisposalStep [DecidableEq (ControlShape signature)] [DecidableEq (TypeOf signature)]
+      (table : Definitions signature algebra program) :
+        ValueDisposal signature algebra program → ValueDisposal signature algebra program → (retained : List Reference := []) → Prop where
+      | stale : value.hasActiveRoot runtime.store.fields = false →
+          ValueDisposalStep table (.ready runtime (⟨type, value⟩ :: rest)) (.ready runtime rest) retained
+      | pair : ValueDisposalStep table (.ready runtime (⟨_, .pair first second⟩ :: rest))
+          (.ready runtime (⟨_, first⟩ :: ⟨_, second⟩ :: rest)) retained
+      | left : ValueDisposalStep table (.ready runtime (⟨_, .left value⟩ :: rest)) (.ready runtime (⟨_, value⟩ :: rest)) retained
+      | right : ValueDisposalStep table (.ready runtime (⟨_, .right value⟩ :: rest)) (.ready runtime (⟨_, value⟩ :: rest)) retained
+      | datumPair : ValueDisposalStep table (.ready runtime (⟨_, .datum (.pair first second)⟩ :: rest))
+          (.ready runtime (⟨_, .datum first⟩ :: ⟨_, .datum second⟩ :: rest)) retained
+      | datumLeft : ValueDisposalStep table (.ready runtime (⟨_, .datum (.left value)⟩ :: rest))
+          (.ready runtime (⟨_, .datum value⟩ :: rest)) retained
+      | datumRight : ValueDisposalStep table (.ready runtime (⟨_, .datum (.right value)⟩ :: rest))
+          (.ready runtime (⟨_, .datum value⟩ :: rest)) retained
+      | package : PackageHandoff value token owner runtime.store.fields fields →
+          ValueDisposalStep table (.ready runtime (⟨_, .package token owner value⟩ :: rest))
+            (.ready { runtime with store := { runtime.store with fields := fields } } (⟨_, value⟩ :: rest)) retained
+      | closure {body : Computation signature algebra program (parameters ++ capturedTypes) result} :
+          ComputationHandoff captured use authority runtime.store.fields fields →
+          ValueDisposalStep table (.ready runtime (⟨_, .closure (use := use) body captured authority⟩ :: rest))
+            (.ready { runtime with store := { runtime.store with fields := fields } } (captured.disposalValues ++ rest)) retained
+      | resource : UseScope.takeGrant token owner (UseScope.activeFields runtime.store.fields.active) = some active →
+          ValueDisposalStep table (.ready runtime (⟨_, .datum (.resource identity token owner)⟩ :: rest))
+            (.ready { runtime with store := { runtime.store with
+              fields := ⟨active, runtime.store.fields.retained, token :: runtime.store.fields.spent⟩ } } rest) retained
+      | enterControl : UseScope.disposeOwned ⟨identity, authority, owner⟩ runtime.store = some acquired →
+          ValueDisposalStep table (.ready runtime (⟨_, .continuation identity (some (authority, owner))⟩ :: rest))
+            (.control (ControlProgress.seeking
+              ⟨runtime.id, .abandoned, acquired.store, runtime.cells, runtime.regions, runtime.exit⟩
+              acquired.future.snd.future) rest) retained
+      | control : ControlProgressStep table before after
+            (rest.flatMap (fun value => Source.valueReferences value.snd) ++ retained) →
+          ValueDisposalStep table (.control before rest) (.control after rest) retained
+      | finishControl : ValueDisposalStep table (.control (.complete runtime) rest) (.ready runtime rest) retained
+
+  inductive ControlProgressStep [DecidableEq (ControlShape signature)] [DecidableEq (TypeOf signature)]
+      (table : Definitions signature algebra program) :
+      ControlProgress signature algebra program answer → ControlProgress signature algebra program answer → (retained : List Reference := []) → Prop where
+    | frames : CleanupStep table before after retained →
+        ControlProgressStep table (.frames identity before) (.frames identity after) retained
+    | unwindDone : ControlProgressStep table (.frames identity (.running (.unwind runtime .done))) (.complete runtime) retained
+    | returned {value : RuntimeValue signature algebra program answer} :
+        ControlProgressStep table (.frames identity (.running (.reenter ⟨⟨store, .returned value⟩, cells, regions⟩ diagnostics)))
+          (.returnedValue (ValueDisposal.start ⟨identity, .returned, store, cells, regions, diagnostics⟩ value)) retained
+    | failed : ControlProgressStep table (.frames identity (.running (.reenter ⟨⟨store, .failed fault⟩, cells, regions⟩ diagnostics)))
+        (.complete ⟨identity, .failed fault, store, cells, regions, { diagnostics with primary := .failure fault }⟩) retained
+    | answerStep : ValueDisposalStep table before after retained →
+        ControlProgressStep table (.returnedValue before) (.returnedValue after) retained
+    | finishAnswer : work.finished = some runtime → ControlProgressStep table (.returnedValue work) (.complete runtime) retained
+
+end
 
 inductive CleanupSteps [DecidableEq (ControlShape signature)] [DecidableEq (TypeOf signature)]
     (table : Definitions signature algebra program) : CleanupProgress signature algebra program result →
@@ -117,5 +209,19 @@ theorem CleanupSteps.of_execution [DecidableEq (ControlShape signature)] [Decida
   induction steps with
   | refl => exact .refl
   | cons step tail induction => exact .cons (.execute step) induction
+
+inductive ValueDisposalSteps [DecidableEq (ControlShape signature)] [DecidableEq (TypeOf signature)]
+    (table : Definitions signature algebra program) : ValueDisposal signature algebra program →
+    Nat → ValueDisposal signature algebra program → (retained : List Reference := []) → Prop where
+  | refl : ValueDisposalSteps table state 0 state retained
+  | cons : ValueDisposalStep table before middle retained → ValueDisposalSteps table middle count after retained →
+      ValueDisposalSteps table before (count + 1) after retained
+
+inductive ControlProgressSteps [DecidableEq (ControlShape signature)] [DecidableEq (TypeOf signature)]
+    (table : Definitions signature algebra program) : ControlProgress signature algebra program answer →
+    Nat → ControlProgress signature algebra program answer → (retained : List Reference := []) → Prop where
+  | refl : ControlProgressSteps table state 0 state retained
+  | cons : ControlProgressStep table before middle retained → ControlProgressSteps table middle count after retained →
+      ControlProgressSteps table before (count + 1) after retained
 
 end BoundaryV2.Generalized.Source

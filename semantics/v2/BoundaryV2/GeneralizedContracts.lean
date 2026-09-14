@@ -133,6 +133,22 @@ structure adequacy : Prop where
         StateObservationRelated sourceFinal targetFinal observation targetObservation := by
           intro table result count retained diagnostics observation source target sourceFinal related steps head
           exact cleanup_observation_preserved table related steps head
+  value_disposal_preservation : ∀ (table : Source.Definitions signature algebra program) {count retained}
+    {source final : Source.ValueDisposal signature algebra program}
+    {target : ExitComposition.ValueDisposal signature algebra program},
+    Source.ValueDisposalSteps table source count final retained → ValueDisposalRelated source target →
+      ∃ targetCount targetFinal, ExitComposition.ValueDisposalSteps (definitions table) target targetCount targetFinal retained ∧
+        ValueDisposalRelated final targetFinal := by
+          intro table count retained source final target steps related
+          exact finite_value_disposal_preserved table steps related
+  control_disposal_preservation : ∀ (table : Source.Definitions signature algebra program) {answer count retained}
+    {source final : Source.ControlProgress signature algebra program answer}
+    {target : ExitComposition.ControlProgress signature algebra program answer},
+    Source.ControlProgressSteps table source count final retained → ControlProgressRelated source target →
+      ∃ targetCount targetFinal, ExitComposition.ControlProgressSteps (definitions table) target targetCount targetFinal retained ∧
+        ControlProgressRelated final targetFinal := by
+          intro table answer count retained source final target steps related
+          exact finite_control_disposal_preserved table steps related
   registered_initialization : ∀ {context result}
     (body : Source.Computation signature algebra program context result)
     (bindings : Source.RuntimeEnvironment signature algebra program context)

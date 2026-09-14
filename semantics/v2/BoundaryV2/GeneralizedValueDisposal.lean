@@ -39,6 +39,16 @@ theorem ControlProgressSteps.trans {table : Target.Definitions signature algebra
     cases first with
     | cons step tail => simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using ControlProgressSteps.cons step (induction tail)
 
+theorem ControlProgressSteps.of_values {table : Target.Definitions signature algebra program}
+    {before after : ValueDisposal signature algebra program}
+    (steps : ValueDisposalSteps table before count after retained) :
+    ControlProgressSteps table (.returnedValue (answer := answer) before) count (.returnedValue after) retained := by
+  induction count generalizing before with
+  | zero => cases steps; exact .refl
+  | succ count induction =>
+    cases steps with
+    | cons step tail => exact .cons (.returnedValue step) (induction tail)
+
 /-- Pending values supply their actual retained references to the current
 control disposal; the embedding preserves every intermediate state. -/
 theorem ValueDisposalSteps.of_control {table : Target.Definitions signature algebra program}

@@ -5,7 +5,7 @@ namespace BoundaryV2.Generalized.Examples.SourceExit
 
 open Defunctionalization
 
-def fields : UseScope.State := ⟨[.owned ⟨900⟩ (.lexical ⟨0⟩ 1)], [], []⟩
+def fields : UseScope.State := ⟨[.owned ⟨900⟩ (.lexical ⟨0⟩ 1), .owned ⟨901⟩ (.lexical ⟨0⟩ 2)], [], []⟩
 def sourceStore : Source.ControlHeap signature algebra [] := ⟨fields, [], []⟩
 def targetStore : Target.ControlHeap signature algebra [] := ⟨fields, [], []⟩
 def originalExit : ExitInfo Fault String := ⟨.failure Fault.overflow, [], none⟩
@@ -87,5 +87,45 @@ theorem owned_saved_result_survives_administrative_target_frames :
         (.passthrough (.nil : Source.RuntimeEnvironment signature algebra [] []) (ProgramRelated.failed (signature := signature) (algebra := algebra) Fault.overflow _)))⟩
   exact failed_cleanup_preserved (.nil : Source.Definitions signature algebra []) ⟨7⟩ (some owned) Fault.overflow normal normal
     sourceStore [] [] ownerCaller matching rfl
+
+def consumedStore : Source.ControlHeap signature algebra [] :=
+  ⟨⟨[.owned ⟨901⟩ (.lexical ⟨0⟩ 2)], [], [⟨900⟩]⟩, [], []⟩
+def consumedRuntime : Source.ExitRuntime signature algebra [] :=
+  ⟨⟨7⟩, .failed Fault.overflow, consumedStore, [], [], ownedExit⟩
+def disposedSource : Source.State signature algebra [] .unit :=
+  ⟨⟨consumedStore, .failed Fault.overflow⟩, [], []⟩
+
+theorem source_saved_result_disposes_its_real_grant_before_exit :
+    Source.CleanupSteps (.nil : Source.Definitions signature algebra [])
+      (.running (.reenter failedOwned normal)) 5 (.running (.reenter disposedSource ownedExit)) ∧
+    UseScope.inventory consumedStore.fields = [⟨901⟩] ∧ consumedStore.fields.spent = [⟨900⟩] := by
+  refine ⟨?_, rfl, rfl⟩
+  refine .cons (middle := .disposing sourceOwnedDisposal)
+    (Source.CleanupStep.failed (signature := signature) (algebra := algebra)
+      (outcome := .disposing owned ownedExit) rfl) ?_
+  refine .cons (middle := .values ⟨7⟩ (.failed Fault.overflow) ownerCaller
+    (Source.ValueDisposal.start sourceOwnedDisposal.runtime owned))
+      (Source.CleanupStep.enterValues (work := sourceOwnedDisposal)) ?_
+  refine .cons (middle := .values ⟨7⟩ (.failed Fault.overflow) ownerCaller (.ready consumedRuntime []))
+    (.values (Source.ValueDisposalStep.resource (runtime := sourceOwnedDisposal.runtime) rfl)) ?_
+  refine .cons (middle := .running (.reenter ⟨⟨consumedStore, ownerCaller.plug (.failed Fault.overflow)⟩, [], []⟩ ownedExit))
+    (Source.CleanupStep.finishValues (work := .ready consumedRuntime []) rfl) ?_
+  exact .cons (.execute (.cell (.ordinary .bindFault rfl))) .refl
+
+theorem source_disposal_reaches_the_matching_target_failure :
+    ∃ count targetFinal targetObservation,
+      ExitComposition.CleanupFrameSteps (.nil : Target.Definitions signature algebra [])
+        (.running (.reenter targetFailedOwned normal)) count (.running (.reenter targetFinal ownedExit)) ∧
+      Target.HeadObservation targetFinal.control.configuration targetObservation ∧
+      StateObservationRelated disposedSource targetFinal (.failed Fault.overflow) targetObservation := by
+  have outside : ContextRelated signature algebra [] ownerCaller targetOwnerCaller :=
+    .push (.bind (.returnValue (.datum .unit)) .nil) .done
+  have matching : ExecutionStateRelated failedOwned targetFailedOwned :=
+    ⟨⟨rfl, .nil, .nil⟩, rfl, rfl, outside.close_program
+      (.cleaning ⟨7⟩ (some owned) normal
+        (.passthrough (.nil : Source.RuntimeEnvironment signature algebra [] [])
+          (ProgramRelated.failed (signature := signature) (algebra := algebra) Fault.overflow _)))⟩
+  exact cleanup_observation_preserved (.nil : Source.Definitions signature algebra []) (.running (.reenter matching))
+    source_saved_result_disposes_its_real_grant_before_exit.1 .failed
 
 end BoundaryV2.Generalized.Examples.SourceExit
