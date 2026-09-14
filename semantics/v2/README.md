@@ -22,7 +22,7 @@ inhabitants. Their checked components and required connections are:
 
 | Export | Existing components | Remaining proof or connection |
 | --- | --- | --- |
-| `Defunctionalization.adequacy` | `stateful_observation_preserved`, `stateful_initialization`, `stateful_response_entry`, both stateful head-observation directions, and ordinary adequacy | Prove target-derived stateful reflection; compose registry entry and exit/disposal with the observation relation. Ordinary adequacy remains a separate component. |
+| `Defunctionalization.adequacy` | Finite stateful preservation, initialization/response entry, both head-observation directions, target-derived operand-prefix reflection for every computation constructor, and ordinary adequacy | Reflect the receiving control instructions and compose through arbitrary contexts; integrate registry entry and exit/disposal with the observation relation. |
 | `Handlers.interpretation` | Fresh installation, nearest selection, forwarding, context closure, actual resume/injection/successor correspondence | Use the stateful correspondence under arbitrary enclosing effectful handlers, including registered multi entry. |
 | `UseScope.preservation` | Actual control/cell steps, typed consumption, physical capture multiplicity, scoped packages, registry insertion, fresh activation and dormant support | Connect registry and lifetime handoff across capture, activation, completion, and disposal. |
 | `Exits.composition` | Stateful initiation, cancellation, ordered operands/failures, owned-result disposal, nested completion, region-to-cleanup-frame embedding | Connect region disposal during nested abandonment and compose exits with the source/target observation relation. |
@@ -48,7 +48,23 @@ directions are checked, including finite source forwarding through running
 cleanup. A source-derived owned-closure call followed by yield instantiates the
 general theorem and checks the spent grant, all three remaining physical owners,
 and its typed future. This closes the current stateful preservation field; it
-does not supply missing registry/exit transitions or target-derived reflection.
+does not supply missing registry/exit transitions or complete target-derived reflection.
+
+`GeneralizedStateReflection` now inverts actual finite target operand execution.
+Its generic law covers every expression and argument constructor, including
+owned/shared closure allocation and primitive failure after a successful prefix.
+The inverse recovers the source evaluation and related updated store; successful
+expressions and failed argument prefixes leave strictly shorter target runs.
+Every computation uses this same operand-prefix result through
+`computation_operands_observing_run_reflected`, which supplies D's checked
+`operand_reflection` field. Return expressions additionally have complete finite
+observation reflection. A six-instruction target-only regression allocates an
+exclusive closure and fails in a later operand; reflection recovers the source
+fault, fresh closure grant, captured owner, unrelated owner, and related cells.
+The close-instruction views only expose existing typed code, operands, and the
+caller for inversion; they define no additional interpreter. The broader
+ordinary-step inverse replaces the initial plain-operand-only helper. Remaining
+receiving-instruction and context reflection still block the full D claim.
 
 | Contract | Main proof surfaces | Checked content and limits |
 | --- | --- | --- |

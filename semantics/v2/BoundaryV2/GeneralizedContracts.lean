@@ -1,4 +1,4 @@
-import BoundaryV2.GeneralizedStateSimulation
+import BoundaryV2.GeneralizedStateReflection
 import BoundaryV2.GeneralizedMultiEntry
 import BoundaryV2.GeneralizedDisposalExecution
 import BoundaryV2.GeneralizedCleanupCompletion
@@ -27,6 +27,26 @@ and the current store/cell/region state. No premise assumes a simulation or an
 observation correspondence. Registry and exit drivers must be connected to this
 execution relation before this is the complete core contract (see CONTRACT.md). -/
 structure adequacy : Prop where
+  operand_reflection : ∀ (table : Source.Definitions signature algebra program) {context input result}
+    (body : Source.Computation signature algebra program context input)
+    (bindings : Source.RuntimeEnvironment signature algebra program context)
+    (storage : Cells signature algebra (Source.Computation signature algebra program)) regions
+    {sourceStore : Source.ControlHeap signature algebra program} {targetStore : Target.ControlHeap signature algebra program},
+    ControlHeapRelated sourceStore targetStore →
+    ∀ (outside : Target.Stack signature algebra program input result) {count}
+      {final : Target.State signature algebra program result} {observation},
+    Target.ExecutionSteps (definitions table)
+      ⟨⟨targetStore, .code (computation body) (environment bindings) .nil outside⟩, cells storage, regions⟩ count final →
+    Target.HeadObservation final.control.configuration observation →
+    ∃ outcome sourceAfter changed remaining,
+      Source.ArgumentsEvaluation bindings storage.reservations.custody sourceStore body.operandPrefix.arguments outcome sourceAfter ∧
+      ControlHeapRelated sourceAfter changed ∧ remaining ≤ count ∧
+      (∀ fault, outcome = .error fault → remaining < count) ∧
+      Target.ExecutionSteps (definitions table)
+        ⟨⟨changed, Target.argumentsOutcome (operandTail body) (environment bindings) .nil outside (outcome.map environment)⟩,
+          cells storage, regions⟩ remaining final := by
+            intro table context input result body bindings storage regions sourceStore targetStore stores outside count final observation run head
+            exact computation_operands_observing_run_reflected table body bindings storage regions stores outside run head
   preservation : ∀ (table : Source.Definitions signature algebra program) {result}
     {source final : Source.State signature algebra program result}
     {target : Target.State signature algebra program result},

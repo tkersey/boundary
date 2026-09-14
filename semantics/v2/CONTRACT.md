@@ -110,7 +110,12 @@ and response entry are proved structurally. `GeneralizedStateSimulation` now
 proves preservation for every constructor of the current stateful relation and
 lifts it over arbitrary finite derivations to all four observations. That proof
 supplies D's preservation field; initialization and response fields also have
-checked defaults. Reflection is still unproved. Neither ordinary adequacy nor
+checked defaults. `GeneralizedStateReflection` proves the reverse operand-prefix
+law for every computation constructor, recovering actual source evaluations,
+capture partitions, owning state, and a finite residual target run. Authored
+return expressions have full finite observation reflection, including owned
+closure construction and later operand failure. Reflection through the remaining
+receiving instructions and arbitrary contexts is still unproved. Neither ordinary adequacy nor
 mutually missing stateful transitions establish the complete core claim. Reusable
 registry entry, nested abandonment, and disposal must participate in the same
 compositional interpretation before D is complete.
