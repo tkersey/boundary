@@ -3,8 +3,8 @@
 BPC1 stores the existing canonical profile-1 Program. It preserves every
 logical field, ordered occurrence and `boundary.program-image/v2` identity.
 Execution, PST2 and the external protocols retain their existing meanings.
-This document describes the implementation on `perf/compact-program-images`;
-the paired implementation is still undergoing performance and integration checks.
+The paired implementation, measured costs and compatibility evidence are
+documented in [World's results](https://github.com/tkersey/world/blob/perf/compact-program-images/docs/compact-program-images.md).
 
 ## Public codec
 
