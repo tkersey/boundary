@@ -4,6 +4,7 @@ pub const wire = @import("wire.zig");
 pub const program = @import("program.zig");
 pub const admission = @import("admission.zig");
 pub const image = @import("image.zig");
+pub const compact_image = @import("compact_image.zig");
 pub const graph = @import("graph.zig");
 pub const snapshot = @import("snapshot.zig");
 pub const scalar = @import("scalar.zig");
