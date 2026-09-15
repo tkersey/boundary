@@ -45,6 +45,15 @@ changes no executable inputs, independent expectations or material measurements.
 It reuses that acceptance and review evidence, with scope and link checks for the
 archival edits; it does not claim execution or fresh reviews of a later HEAD.
 
+Patch-version preparation was separately checked at Boundary
+`4a33555170f72bdcf7ac9b0c151f75fac85c9772` (2.0.1) and World
+`d5fd3dc165d8bc7bb963e288c594869114c6d75b` (5.0.1): six Boundary asset tests,
+34 World Node tests, local package emission and extracted-package verification
+passed. The companion/default-pin packages passed 563/555 conformance records
+and 833 external records each. The fixture bundle and both kernel hashes remain
+unchanged; version metadata and versioned archive names were updated. Later
+report-only changes do not claim another execution or measurement window.
+
 ## Acceptance lanes
 
 All outcomes below describe the named executions, not new runs for this archival cleanup.
@@ -61,7 +70,7 @@ All outcomes below describe the named executions, not new runs for this archival
 | Companion package | B-package / W-code; `node scripts/v2/check_release.mjs` with explicit commits | **Passed**, [package result](validation/correction-companion-package.json): strict inventories, extracted example 14, bundled CLI, runtime-only replay, 563 conformance and 833 external records. Earlier extracted examples 14/40 passed on the same archive; their output remains in the historical directory. |
 | Default-pin package | B0 assets / W-code pinned assets; same verifier with explicit commits | **Passed**, [package result](validation/correction-pinned-package.json): 555 conformance and 833 external records, with the same authentication and inventory checks. |
 | Cold guard | B0/B-harness and W0/W-code | **Passed**, [final observations](correction-cold-guard-2.json) and [invocation](validation/cold-final-command.json). The [first correction window](correction-cold-guard.json) remains separate. |
-| Runtime and memory | Original measured commits above | **Retained**, [World results and raw observations](https://github.com/tkersey/world/blob/perf/api-preserving-data-path/docs/api-preserving-performance.md#runtime-results). Not rerun for archival or reporting edits. |
+| Runtime and memory | Original measured commits above | **Retained**, [World results and raw observations](https://github.com/tkersey/world/blob/main/docs/api-preserving-performance.md#runtime-results). Not rerun for archival or reporting edits. |
 
 The aggregate's historical v1.8.2 kernel has SHA-256
 `4da38268f12e8a2749a266480748da5460b5030dadfc10804f79ba3a3bb8013e`.
@@ -79,7 +88,7 @@ recorded hashes before reuse; they are not reconstructed from PR prose.
 |---|---|
 | Companion kernel | 393,588 bytes; `9545076f16482ccb346ab7792ae87f4d9a262c3fe08b4086b3c376ed2b218c06` |
 | Default-pin kernel | 392,622 bytes; `0da1f478fa1de495c2354724a8b90d7279fd7219c4dcde7f9f79dff85c1e06b6` |
-| Boundary examples archive | `c4bb445cf00682205ae32e20f0cdade0eb5f9cefd4488b2d51fdb4a364fe1d12` |
+| B-package examples archive | `c4bb445cf00682205ae32e20f0cdade0eb5f9cefd4488b2d51fdb4a364fe1d12` |
 | Final cold harness | `aed494ba631991fe47c2faedda8240afd0c7a8452405539081f94b763d097711` |
 
 ## Repaired harness

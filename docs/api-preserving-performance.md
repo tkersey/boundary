@@ -6,7 +6,7 @@ installation and saved-response workloads. **BPI2 images are unchanged:** this
 work does not make the quadratic continuation-interface representation smaller.
 The attempted compiler reduction was rejected on measured cost.
 
-Draft delivery: [Boundary #150](https://github.com/tkersey/boundary/pull/150) and
+Delivery: [Boundary #150](https://github.com/tkersey/boundary/pull/150) and
 [World #52](https://github.com/tkersey/world/pull/52). The accepted September 14,
 2026 “Boundary 2 / World 5 — API-Preserving Performance Optimization v1” remains
 the scope. The [validation summary](performance/validation.md) identifies checked
@@ -43,7 +43,7 @@ The public layouts, ownership/deinitialization contracts, errors, admission,
 capacity semantics, ABI, protocols, BPI2/PST2 bytes and identities are preserved.
 Lifetime, aliasing, cycle, canonical-byte and allocation-failure regressions remain.
 World's retained direct ownership, scratch reuse and request preparation changes
-are explained once in the [companion report](https://github.com/tkersey/world/blob/perf/api-preserving-data-path/docs/api-preserving-performance.md).
+are explained once in the [companion report](https://github.com/tkersey/world/blob/main/docs/api-preserving-performance.md).
 Combined runtime gains belong to B1/W1 together; they do not isolate Boundary's codec contribution.
 
 ## Size and memory
@@ -70,7 +70,7 @@ admission; its PST2 SHA-256 is
 
 Final decoder and full-invocation observations, including the 128-installation
 capacity result and the large-constant scratch increase, are retained in the
-[World memory results](https://github.com/tkersey/world/blob/perf/api-preserving-data-path/docs/api-preserving-performance.md#memory).
+[World memory results](https://github.com/tkersey/world/blob/main/docs/api-preserving-performance.md#memory).
 Retained owner bytes, allocator-requested working peak, fixed reservations and
 RSS are different quantities. No RSS reduction or universal memory reduction was measured.
 
@@ -90,7 +90,7 @@ zig run -O ReleaseSafe --dep boundary_data_v2 \
 ## Timing and reproduction
 
 The two committed runtime windows and their raw observations live in the
-[World report](https://github.com/tkersey/world/blob/perf/api-preserving-data-path/docs/api-preserving-performance.md#runtime-results).
+[World report](https://github.com/tkersey/world/blob/main/docs/api-preserving-performance.md#runtime-results).
 They measure medians of batch-average full-call times (200 fresh public calls
 per batch), not individual-request latency distributions. They establish no p99
 behavior. Repeated advance and large constants are reported separately.
@@ -152,5 +152,5 @@ World's rejected exact handoff, continuation-view and collection-cadence
 experiments are recorded in its companion report. Losing prototypes remain only
 as identified reproduction material, outside production and active tests.
 Raw observations, unfavorable runs, counterexamples and original identities are
-retained. No format migration, consumer pin change, Agent change, PR #149 work,
-merge or release is part of this delivery.
+retained. No format migration, consumer pin change, Agent change or PR #149 work is
+part of the performance implementation.
