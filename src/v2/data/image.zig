@@ -33,7 +33,10 @@ fn directory(sizes: [section_count]usize, writer: *wire.Writer) Error!void {
 }
 
 pub fn encodedLength(program: p.Program) Error!usize {
-    const sizes = try lengths(program);
+    return totalLength(try lengths(program));
+}
+
+fn totalLength(sizes: [section_count]usize) Error!usize {
     var writer: wire.Writer = .{};
     try directory(sizes, &writer);
     var total = std.math.add(usize, wire.header_length, writer.position) catch return error.InvalidLength;
@@ -65,10 +68,10 @@ pub fn identity(program: p.Program) Error![32]u8 {
 /// The caller owns output. All checks and sizing precede the first write.
 pub fn encode(allocator: std.mem.Allocator, program: p.Program, output: []u8) Error![]const u8 {
     try @import("canonical.zig").require(allocator, program);
-    const length = try encodedLength(program);
+    const sizes = try lengths(program);
+    const length = try totalLength(sizes);
     if (output.len < length) return error.Capacity;
     if (record.overlaps(p.Program, program, output[0..length])) return error.InvalidBuffers;
-    const sizes = try lengths(program);
     var writer: wire.Writer = .{ .output = output[0..length] };
     try writer.put(wire.magic(.bpi));
     try writer.fixed(u16, 2);
@@ -114,6 +117,7 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8) Error!Decoded {
         try section.finish();
     }
     try reader.finish();
-    try @import("canonical.zig").require(arena.allocator(), program);
+    // Admission owns temporary scratch; it must not become decoded backing.
+    try @import("canonical.zig").require(allocator, program);
     return .{ .arena = arena, .program = program, .bytes = owned };
 }

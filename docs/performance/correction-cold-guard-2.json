@@ -1,0 +1,768 @@
+{
+  "status": "completed",
+  "method": "five paired AB/BA builds per workload, fresh local/global object caches; already-built emitter measured separately with five warmups and 21 paired process launches",
+  "limits": "Object caches are cold; OS filesystem caches are not flushed. Build-driver/analysis/codegen/link times are included together, not independently attributed. Emitter timing includes process startup.",
+  "environment": {
+    "date": "2026-09-14T22:28:05.046Z",
+    "cpu": "Apple M2 Pro",
+    "platform": "darwin",
+    "release": "27.0.0",
+    "arch": "arm64",
+    "versions": {
+      "git": "git version 2.55.0",
+      "zig": "0.16.0",
+      "node": "v26.8.2"
+    },
+    "tools": {
+      "git": "/opt/homebrew/bin/git",
+      "zig": "/opt/homebrew/bin/zig"
+    },
+    "toolSha256": {
+      "git": "f9d9ddc8cba6309af5606cdb7668b0fe703aba90b6a128c0b7d8fd601baf7fd4",
+      "zig": "71cc3995a7586753ebf82c66dfb8bef43df446517550678781834586a960f8c9"
+    },
+    "overrides": {}
+  },
+  "harnessSha256": "aed494ba631991fe47c2faedda8240afd0c7a8452405539081f94b763d097711",
+  "identities": {
+    "boundary": [
+      "55e8feedcae0b9ee1492da11f9fbd4a1ac7ff328",
+      "d05df6bd5ec6c322088ef57c36278db93d779b0b"
+    ],
+    "world": [
+      "87698f92ca7be4d5442e97ba27a2468aa3ff6a7c",
+      "a181646d8ef556b9f1be8187ba7c9f51b9c7fd74"
+    ]
+  },
+  "sources": {
+    "boundary": [
+      {
+        "root": "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/B0 checkout",
+        "origin": "git@github.com:tkersey/boundary.git",
+        "commit": "55e8feedcae0b9ee1492da11f9fbd4a1ac7ff328",
+        "tree": "cd247563fd6342deafdcb20f435b3b4015b65757",
+        "dirty": false
+      },
+      {
+        "root": "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/B1 checkout",
+        "origin": "git@github.com:tkersey/boundary.git",
+        "commit": "d05df6bd5ec6c322088ef57c36278db93d779b0b",
+        "tree": "0c64c41bd338f03ac804d5e8cf2d6aff62a953b4",
+        "dirty": false
+      }
+    ],
+    "world": [
+      {
+        "root": "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/W0 checkout",
+        "origin": "git@github.com:tkersey/world.git",
+        "commit": "87698f92ca7be4d5442e97ba27a2468aa3ff6a7c",
+        "tree": "b5c522802ad73bca5e067543c2151f9edd14da6c",
+        "dirty": false
+      },
+      {
+        "root": "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/W1 checkout",
+        "origin": "git@github.com:tkersey/world.git",
+        "commit": "a181646d8ef556b9f1be8187ba7c9f51b9c7fd74",
+        "tree": "c22da6d92a08235c7869ad7447a51c765dae7a14",
+        "dirty": false
+      }
+    ]
+  },
+  "output": "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2",
+  "rows": [
+    {
+      "kind": "boundary",
+      "sample": 0,
+      "order": "AB",
+      "side": 0,
+      "root": "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/B0 checkout",
+      "args": [
+        "build",
+        "emit-one-effect",
+        "-Doptimize=ReleaseSafe",
+        "--cache-dir",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/boundary-0-0/local",
+        "--global-cache-dir",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/boundary-0-0/global",
+        "--prefix",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/boundary-0-0/out"
+      ],
+      "milliseconds": 16387.669458,
+      "artifactBytes": 114,
+      "artifactSha256": "952ca3ae89c10f82ef6d11a6c6d7c829e2cd8d3aa85b9479d8e6a58e1e7224ea"
+    },
+    {
+      "kind": "boundary",
+      "sample": 0,
+      "order": "AB",
+      "side": 1,
+      "root": "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/B1 checkout",
+      "args": [
+        "build",
+        "emit-one-effect",
+        "-Doptimize=ReleaseSafe",
+        "--cache-dir",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/boundary-0-1/local",
+        "--global-cache-dir",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/boundary-0-1/global",
+        "--prefix",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/boundary-0-1/out"
+      ],
+      "milliseconds": 16407.520375,
+      "artifactBytes": 114,
+      "artifactSha256": "952ca3ae89c10f82ef6d11a6c6d7c829e2cd8d3aa85b9479d8e6a58e1e7224ea"
+    },
+    {
+      "kind": "boundary",
+      "sample": 1,
+      "order": "BA",
+      "side": 1,
+      "root": "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/B1 checkout",
+      "args": [
+        "build",
+        "emit-one-effect",
+        "-Doptimize=ReleaseSafe",
+        "--cache-dir",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/boundary-1-1/local",
+        "--global-cache-dir",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/boundary-1-1/global",
+        "--prefix",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/boundary-1-1/out"
+      ],
+      "milliseconds": 16388.536417000003,
+      "artifactBytes": 114,
+      "artifactSha256": "952ca3ae89c10f82ef6d11a6c6d7c829e2cd8d3aa85b9479d8e6a58e1e7224ea"
+    },
+    {
+      "kind": "boundary",
+      "sample": 1,
+      "order": "BA",
+      "side": 0,
+      "root": "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/B0 checkout",
+      "args": [
+        "build",
+        "emit-one-effect",
+        "-Doptimize=ReleaseSafe",
+        "--cache-dir",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/boundary-1-0/local",
+        "--global-cache-dir",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/boundary-1-0/global",
+        "--prefix",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/boundary-1-0/out"
+      ],
+      "milliseconds": 16347.197416999996,
+      "artifactBytes": 114,
+      "artifactSha256": "952ca3ae89c10f82ef6d11a6c6d7c829e2cd8d3aa85b9479d8e6a58e1e7224ea"
+    },
+    {
+      "kind": "boundary",
+      "sample": 2,
+      "order": "AB",
+      "side": 0,
+      "root": "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/B0 checkout",
+      "args": [
+        "build",
+        "emit-one-effect",
+        "-Doptimize=ReleaseSafe",
+        "--cache-dir",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/boundary-2-0/local",
+        "--global-cache-dir",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/boundary-2-0/global",
+        "--prefix",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/boundary-2-0/out"
+      ],
+      "milliseconds": 16498.383958000006,
+      "artifactBytes": 114,
+      "artifactSha256": "952ca3ae89c10f82ef6d11a6c6d7c829e2cd8d3aa85b9479d8e6a58e1e7224ea"
+    },
+    {
+      "kind": "boundary",
+      "sample": 2,
+      "order": "AB",
+      "side": 1,
+      "root": "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/B1 checkout",
+      "args": [
+        "build",
+        "emit-one-effect",
+        "-Doptimize=ReleaseSafe",
+        "--cache-dir",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/boundary-2-1/local",
+        "--global-cache-dir",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/boundary-2-1/global",
+        "--prefix",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/boundary-2-1/out"
+      ],
+      "milliseconds": 16473.41208299999,
+      "artifactBytes": 114,
+      "artifactSha256": "952ca3ae89c10f82ef6d11a6c6d7c829e2cd8d3aa85b9479d8e6a58e1e7224ea"
+    },
+    {
+      "kind": "boundary",
+      "sample": 3,
+      "order": "BA",
+      "side": 1,
+      "root": "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/B1 checkout",
+      "args": [
+        "build",
+        "emit-one-effect",
+        "-Doptimize=ReleaseSafe",
+        "--cache-dir",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/boundary-3-1/local",
+        "--global-cache-dir",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/boundary-3-1/global",
+        "--prefix",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/boundary-3-1/out"
+      ],
+      "milliseconds": 16357.388500000001,
+      "artifactBytes": 114,
+      "artifactSha256": "952ca3ae89c10f82ef6d11a6c6d7c829e2cd8d3aa85b9479d8e6a58e1e7224ea"
+    },
+    {
+      "kind": "boundary",
+      "sample": 3,
+      "order": "BA",
+      "side": 0,
+      "root": "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/B0 checkout",
+      "args": [
+        "build",
+        "emit-one-effect",
+        "-Doptimize=ReleaseSafe",
+        "--cache-dir",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/boundary-3-0/local",
+        "--global-cache-dir",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/boundary-3-0/global",
+        "--prefix",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/boundary-3-0/out"
+      ],
+      "milliseconds": 16484.069084000017,
+      "artifactBytes": 114,
+      "artifactSha256": "952ca3ae89c10f82ef6d11a6c6d7c829e2cd8d3aa85b9479d8e6a58e1e7224ea"
+    },
+    {
+      "kind": "boundary",
+      "sample": 4,
+      "order": "AB",
+      "side": 0,
+      "root": "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/B0 checkout",
+      "args": [
+        "build",
+        "emit-one-effect",
+        "-Doptimize=ReleaseSafe",
+        "--cache-dir",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/boundary-4-0/local",
+        "--global-cache-dir",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/boundary-4-0/global",
+        "--prefix",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/boundary-4-0/out"
+      ],
+      "milliseconds": 16517.790125,
+      "artifactBytes": 114,
+      "artifactSha256": "952ca3ae89c10f82ef6d11a6c6d7c829e2cd8d3aa85b9479d8e6a58e1e7224ea"
+    },
+    {
+      "kind": "boundary",
+      "sample": 4,
+      "order": "AB",
+      "side": 1,
+      "root": "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/B1 checkout",
+      "args": [
+        "build",
+        "emit-one-effect",
+        "-Doptimize=ReleaseSafe",
+        "--cache-dir",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/boundary-4-1/local",
+        "--global-cache-dir",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/boundary-4-1/global",
+        "--prefix",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/boundary-4-1/out"
+      ],
+      "milliseconds": 19505.789582999976,
+      "artifactBytes": 114,
+      "artifactSha256": "952ca3ae89c10f82ef6d11a6c6d7c829e2cd8d3aa85b9479d8e6a58e1e7224ea"
+    },
+    {
+      "kind": "world",
+      "sample": 0,
+      "order": "AB",
+      "side": 0,
+      "root": "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/W0 checkout",
+      "args": [
+        "build",
+        "build-v2-kernel",
+        "-Doptimize=ReleaseSafe",
+        "--cache-dir",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/world-0-0/local",
+        "--global-cache-dir",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/world-0-0/global",
+        "--prefix",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/world-0-0/out",
+        "-Dboundary-v2-source=/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/B0 checkout"
+      ],
+      "milliseconds": 10533.329749999975,
+      "artifactBytes": 395094,
+      "artifactSha256": "9afb0b65daa782064a729baa8846463f0660415fd9f098f715019cc6c2791d2b"
+    },
+    {
+      "kind": "world",
+      "sample": 0,
+      "order": "AB",
+      "side": 1,
+      "root": "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/W1 checkout",
+      "args": [
+        "build",
+        "build-v2-kernel",
+        "-Doptimize=ReleaseSafe",
+        "--cache-dir",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/world-0-1/local",
+        "--global-cache-dir",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/world-0-1/global",
+        "--prefix",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/world-0-1/out",
+        "-Dboundary-v2-source=/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/B1 checkout"
+      ],
+      "milliseconds": 9661.370167000015,
+      "artifactBytes": 393588,
+      "artifactSha256": "9545076f16482ccb346ab7792ae87f4d9a262c3fe08b4086b3c376ed2b218c06"
+    },
+    {
+      "kind": "world",
+      "sample": 1,
+      "order": "BA",
+      "side": 1,
+      "root": "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/W1 checkout",
+      "args": [
+        "build",
+        "build-v2-kernel",
+        "-Doptimize=ReleaseSafe",
+        "--cache-dir",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/world-1-1/local",
+        "--global-cache-dir",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/world-1-1/global",
+        "--prefix",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/world-1-1/out",
+        "-Dboundary-v2-source=/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/B1 checkout"
+      ],
+      "milliseconds": 11106.872082999995,
+      "artifactBytes": 393588,
+      "artifactSha256": "9545076f16482ccb346ab7792ae87f4d9a262c3fe08b4086b3c376ed2b218c06"
+    },
+    {
+      "kind": "world",
+      "sample": 1,
+      "order": "BA",
+      "side": 0,
+      "root": "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/W0 checkout",
+      "args": [
+        "build",
+        "build-v2-kernel",
+        "-Doptimize=ReleaseSafe",
+        "--cache-dir",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/world-1-0/local",
+        "--global-cache-dir",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/world-1-0/global",
+        "--prefix",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/world-1-0/out",
+        "-Dboundary-v2-source=/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/B0 checkout"
+      ],
+      "milliseconds": 9549.479208000004,
+      "artifactBytes": 395094,
+      "artifactSha256": "9afb0b65daa782064a729baa8846463f0660415fd9f098f715019cc6c2791d2b"
+    },
+    {
+      "kind": "world",
+      "sample": 2,
+      "order": "AB",
+      "side": 0,
+      "root": "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/W0 checkout",
+      "args": [
+        "build",
+        "build-v2-kernel",
+        "-Doptimize=ReleaseSafe",
+        "--cache-dir",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/world-2-0/local",
+        "--global-cache-dir",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/world-2-0/global",
+        "--prefix",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/world-2-0/out",
+        "-Dboundary-v2-source=/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/B0 checkout"
+      ],
+      "milliseconds": 9448.90512500002,
+      "artifactBytes": 395094,
+      "artifactSha256": "9afb0b65daa782064a729baa8846463f0660415fd9f098f715019cc6c2791d2b"
+    },
+    {
+      "kind": "world",
+      "sample": 2,
+      "order": "AB",
+      "side": 1,
+      "root": "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/W1 checkout",
+      "args": [
+        "build",
+        "build-v2-kernel",
+        "-Doptimize=ReleaseSafe",
+        "--cache-dir",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/world-2-1/local",
+        "--global-cache-dir",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/world-2-1/global",
+        "--prefix",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/world-2-1/out",
+        "-Dboundary-v2-source=/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/B1 checkout"
+      ],
+      "milliseconds": 9487.758166999993,
+      "artifactBytes": 393588,
+      "artifactSha256": "9545076f16482ccb346ab7792ae87f4d9a262c3fe08b4086b3c376ed2b218c06"
+    },
+    {
+      "kind": "world",
+      "sample": 3,
+      "order": "BA",
+      "side": 1,
+      "root": "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/W1 checkout",
+      "args": [
+        "build",
+        "build-v2-kernel",
+        "-Doptimize=ReleaseSafe",
+        "--cache-dir",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/world-3-1/local",
+        "--global-cache-dir",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/world-3-1/global",
+        "--prefix",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/world-3-1/out",
+        "-Dboundary-v2-source=/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/B1 checkout"
+      ],
+      "milliseconds": 9574.557832999999,
+      "artifactBytes": 393588,
+      "artifactSha256": "9545076f16482ccb346ab7792ae87f4d9a262c3fe08b4086b3c376ed2b218c06"
+    },
+    {
+      "kind": "world",
+      "sample": 3,
+      "order": "BA",
+      "side": 0,
+      "root": "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/W0 checkout",
+      "args": [
+        "build",
+        "build-v2-kernel",
+        "-Doptimize=ReleaseSafe",
+        "--cache-dir",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/world-3-0/local",
+        "--global-cache-dir",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/world-3-0/global",
+        "--prefix",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/world-3-0/out",
+        "-Dboundary-v2-source=/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/B0 checkout"
+      ],
+      "milliseconds": 9560.715083000017,
+      "artifactBytes": 395094,
+      "artifactSha256": "9afb0b65daa782064a729baa8846463f0660415fd9f098f715019cc6c2791d2b"
+    },
+    {
+      "kind": "world",
+      "sample": 4,
+      "order": "AB",
+      "side": 0,
+      "root": "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/W0 checkout",
+      "args": [
+        "build",
+        "build-v2-kernel",
+        "-Doptimize=ReleaseSafe",
+        "--cache-dir",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/world-4-0/local",
+        "--global-cache-dir",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/world-4-0/global",
+        "--prefix",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/world-4-0/out",
+        "-Dboundary-v2-source=/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/B0 checkout"
+      ],
+      "milliseconds": 9420.051625000022,
+      "artifactBytes": 395094,
+      "artifactSha256": "9afb0b65daa782064a729baa8846463f0660415fd9f098f715019cc6c2791d2b"
+    },
+    {
+      "kind": "world",
+      "sample": 4,
+      "order": "AB",
+      "side": 1,
+      "root": "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/W1 checkout",
+      "args": [
+        "build",
+        "build-v2-kernel",
+        "-Doptimize=ReleaseSafe",
+        "--cache-dir",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/world-4-1/local",
+        "--global-cache-dir",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/world-4-1/global",
+        "--prefix",
+        "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/world-4-1/out",
+        "-Dboundary-v2-source=/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/B1 checkout"
+      ],
+      "milliseconds": 9691.916167000018,
+      "artifactBytes": 393588,
+      "artifactSha256": "9545076f16482ccb346ab7792ae87f4d9a262c3fe08b4086b3c376ed2b218c06"
+    }
+  ],
+  "emitterRows": [
+    {
+      "sample": 0,
+      "side": 0,
+      "milliseconds": 2.291624999954365,
+      "imageSha256": "952ca3ae89c10f82ef6d11a6c6d7c829e2cd8d3aa85b9479d8e6a58e1e7224ea"
+    },
+    {
+      "sample": 0,
+      "side": 1,
+      "milliseconds": 2.5156670000287704,
+      "imageSha256": "952ca3ae89c10f82ef6d11a6c6d7c829e2cd8d3aa85b9479d8e6a58e1e7224ea"
+    },
+    {
+      "sample": 1,
+      "side": 1,
+      "milliseconds": 2.362749999971129,
+      "imageSha256": "952ca3ae89c10f82ef6d11a6c6d7c829e2cd8d3aa85b9479d8e6a58e1e7224ea"
+    },
+    {
+      "sample": 1,
+      "side": 0,
+      "milliseconds": 2.2237089999835007,
+      "imageSha256": "952ca3ae89c10f82ef6d11a6c6d7c829e2cd8d3aa85b9479d8e6a58e1e7224ea"
+    },
+    {
+      "sample": 2,
+      "side": 0,
+      "milliseconds": 2.0482080000219867,
+      "imageSha256": "952ca3ae89c10f82ef6d11a6c6d7c829e2cd8d3aa85b9479d8e6a58e1e7224ea"
+    },
+    {
+      "sample": 2,
+      "side": 1,
+      "milliseconds": 2.4144579999847338,
+      "imageSha256": "952ca3ae89c10f82ef6d11a6c6d7c829e2cd8d3aa85b9479d8e6a58e1e7224ea"
+    },
+    {
+      "sample": 3,
+      "side": 1,
+      "milliseconds": 2.4088750000228174,
+      "imageSha256": "952ca3ae89c10f82ef6d11a6c6d7c829e2cd8d3aa85b9479d8e6a58e1e7224ea"
+    },
+    {
+      "sample": 3,
+      "side": 0,
+      "milliseconds": 2.2280829999945126,
+      "imageSha256": "952ca3ae89c10f82ef6d11a6c6d7c829e2cd8d3aa85b9479d8e6a58e1e7224ea"
+    },
+    {
+      "sample": 4,
+      "side": 0,
+      "milliseconds": 2.600916000024881,
+      "imageSha256": "952ca3ae89c10f82ef6d11a6c6d7c829e2cd8d3aa85b9479d8e6a58e1e7224ea"
+    },
+    {
+      "sample": 4,
+      "side": 1,
+      "milliseconds": 2.6994159999885596,
+      "imageSha256": "952ca3ae89c10f82ef6d11a6c6d7c829e2cd8d3aa85b9479d8e6a58e1e7224ea"
+    },
+    {
+      "sample": 5,
+      "side": 1,
+      "milliseconds": 2.596042000048328,
+      "imageSha256": "952ca3ae89c10f82ef6d11a6c6d7c829e2cd8d3aa85b9479d8e6a58e1e7224ea"
+    },
+    {
+      "sample": 5,
+      "side": 0,
+      "milliseconds": 2.437999999965541,
+      "imageSha256": "952ca3ae89c10f82ef6d11a6c6d7c829e2cd8d3aa85b9479d8e6a58e1e7224ea"
+    },
+    {
+      "sample": 6,
+      "side": 0,
+      "milliseconds": 2.3048330000019632,
+      "imageSha256": "952ca3ae89c10f82ef6d11a6c6d7c829e2cd8d3aa85b9479d8e6a58e1e7224ea"
+    },
+    {
+      "sample": 6,
+      "side": 1,
+      "milliseconds": 2.1893329999875277,
+      "imageSha256": "952ca3ae89c10f82ef6d11a6c6d7c829e2cd8d3aa85b9479d8e6a58e1e7224ea"
+    },
+    {
+      "sample": 7,
+      "side": 1,
+      "milliseconds": 2.4654169999994338,
+      "imageSha256": "952ca3ae89c10f82ef6d11a6c6d7c829e2cd8d3aa85b9479d8e6a58e1e7224ea"
+    },
+    {
+      "sample": 7,
+      "side": 0,
+      "milliseconds": 2.547333999944385,
+      "imageSha256": "952ca3ae89c10f82ef6d11a6c6d7c829e2cd8d3aa85b9479d8e6a58e1e7224ea"
+    },
+    {
+      "sample": 8,
+      "side": 0,
+      "milliseconds": 2.650958999991417,
+      "imageSha256": "952ca3ae89c10f82ef6d11a6c6d7c829e2cd8d3aa85b9479d8e6a58e1e7224ea"
+    },
+    {
+      "sample": 8,
+      "side": 1,
+      "milliseconds": 2.388916000025347,
+      "imageSha256": "952ca3ae89c10f82ef6d11a6c6d7c829e2cd8d3aa85b9479d8e6a58e1e7224ea"
+    },
+    {
+      "sample": 9,
+      "side": 1,
+      "milliseconds": 2.249167000001762,
+      "imageSha256": "952ca3ae89c10f82ef6d11a6c6d7c829e2cd8d3aa85b9479d8e6a58e1e7224ea"
+    },
+    {
+      "sample": 9,
+      "side": 0,
+      "milliseconds": 2.7290410000132397,
+      "imageSha256": "952ca3ae89c10f82ef6d11a6c6d7c829e2cd8d3aa85b9479d8e6a58e1e7224ea"
+    },
+    {
+      "sample": 10,
+      "side": 0,
+      "milliseconds": 2.444499999983236,
+      "imageSha256": "952ca3ae89c10f82ef6d11a6c6d7c829e2cd8d3aa85b9479d8e6a58e1e7224ea"
+    },
+    {
+      "sample": 10,
+      "side": 1,
+      "milliseconds": 2.2698330000275746,
+      "imageSha256": "952ca3ae89c10f82ef6d11a6c6d7c829e2cd8d3aa85b9479d8e6a58e1e7224ea"
+    },
+    {
+      "sample": 11,
+      "side": 1,
+      "milliseconds": 2.4600000000209548,
+      "imageSha256": "952ca3ae89c10f82ef6d11a6c6d7c829e2cd8d3aa85b9479d8e6a58e1e7224ea"
+    },
+    {
+      "sample": 11,
+      "side": 0,
+      "milliseconds": 2.172334000002593,
+      "imageSha256": "952ca3ae89c10f82ef6d11a6c6d7c829e2cd8d3aa85b9479d8e6a58e1e7224ea"
+    },
+    {
+      "sample": 12,
+      "side": 0,
+      "milliseconds": 2.5766249999869615,
+      "imageSha256": "952ca3ae89c10f82ef6d11a6c6d7c829e2cd8d3aa85b9479d8e6a58e1e7224ea"
+    },
+    {
+      "sample": 12,
+      "side": 1,
+      "milliseconds": 2.4362079999991693,
+      "imageSha256": "952ca3ae89c10f82ef6d11a6c6d7c829e2cd8d3aa85b9479d8e6a58e1e7224ea"
+    },
+    {
+      "sample": 13,
+      "side": 1,
+      "milliseconds": 2.162458000006154,
+      "imageSha256": "952ca3ae89c10f82ef6d11a6c6d7c829e2cd8d3aa85b9479d8e6a58e1e7224ea"
+    },
+    {
+      "sample": 13,
+      "side": 0,
+      "milliseconds": 2.237833999970462,
+      "imageSha256": "952ca3ae89c10f82ef6d11a6c6d7c829e2cd8d3aa85b9479d8e6a58e1e7224ea"
+    },
+    {
+      "sample": 14,
+      "side": 0,
+      "milliseconds": 2.4284170000464655,
+      "imageSha256": "952ca3ae89c10f82ef6d11a6c6d7c829e2cd8d3aa85b9479d8e6a58e1e7224ea"
+    },
+    {
+      "sample": 14,
+      "side": 1,
+      "milliseconds": 2.3973750000004657,
+      "imageSha256": "952ca3ae89c10f82ef6d11a6c6d7c829e2cd8d3aa85b9479d8e6a58e1e7224ea"
+    },
+    {
+      "sample": 15,
+      "side": 1,
+      "milliseconds": 2.2712499999906868,
+      "imageSha256": "952ca3ae89c10f82ef6d11a6c6d7c829e2cd8d3aa85b9479d8e6a58e1e7224ea"
+    },
+    {
+      "sample": 15,
+      "side": 0,
+      "milliseconds": 2.437792000011541,
+      "imageSha256": "952ca3ae89c10f82ef6d11a6c6d7c829e2cd8d3aa85b9479d8e6a58e1e7224ea"
+    },
+    {
+      "sample": 16,
+      "side": 0,
+      "milliseconds": 2.1651249999995343,
+      "imageSha256": "952ca3ae89c10f82ef6d11a6c6d7c829e2cd8d3aa85b9479d8e6a58e1e7224ea"
+    },
+    {
+      "sample": 16,
+      "side": 1,
+      "milliseconds": 2.438166999956593,
+      "imageSha256": "952ca3ae89c10f82ef6d11a6c6d7c829e2cd8d3aa85b9479d8e6a58e1e7224ea"
+    },
+    {
+      "sample": 17,
+      "side": 1,
+      "milliseconds": 2.2571250000037253,
+      "imageSha256": "952ca3ae89c10f82ef6d11a6c6d7c829e2cd8d3aa85b9479d8e6a58e1e7224ea"
+    },
+    {
+      "sample": 17,
+      "side": 0,
+      "milliseconds": 2.3062499999650754,
+      "imageSha256": "952ca3ae89c10f82ef6d11a6c6d7c829e2cd8d3aa85b9479d8e6a58e1e7224ea"
+    },
+    {
+      "sample": 18,
+      "side": 0,
+      "milliseconds": 2.1694160000188276,
+      "imageSha256": "952ca3ae89c10f82ef6d11a6c6d7c829e2cd8d3aa85b9479d8e6a58e1e7224ea"
+    },
+    {
+      "sample": 18,
+      "side": 1,
+      "milliseconds": 2.177750000031665,
+      "imageSha256": "952ca3ae89c10f82ef6d11a6c6d7c829e2cd8d3aa85b9479d8e6a58e1e7224ea"
+    },
+    {
+      "sample": 19,
+      "side": 1,
+      "milliseconds": 2.4954579999903217,
+      "imageSha256": "952ca3ae89c10f82ef6d11a6c6d7c829e2cd8d3aa85b9479d8e6a58e1e7224ea"
+    },
+    {
+      "sample": 19,
+      "side": 0,
+      "milliseconds": 2.9082499999785796,
+      "imageSha256": "952ca3ae89c10f82ef6d11a6c6d7c829e2cd8d3aa85b9479d8e6a58e1e7224ea"
+    },
+    {
+      "sample": 20,
+      "side": 0,
+      "milliseconds": 2.447583000001032,
+      "imageSha256": "952ca3ae89c10f82ef6d11a6c6d7c829e2cd8d3aa85b9479d8e6a58e1e7224ea"
+    },
+    {
+      "sample": 20,
+      "side": 1,
+      "milliseconds": 2.568250000011176,
+      "imageSha256": "952ca3ae89c10f82ef6d11a6c6d7c829e2cd8d3aa85b9479d8e6a58e1e7224ea"
+    }
+  ],
+  "emitters": [
+    {
+      "executable": "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/boundary-0-0/local/o/9207b1c31386ba5476324fd6359efc96/one-effect",
+      "sha256": "5968b1b3320084e615438d7906b2286000c17d17bac5de3ebc90d9100a6df15b"
+    },
+    {
+      "executable": "/private/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary performance correction aVgfNn/cold results 2/boundary-0-1/local/o/40dee92f06b6baf0100085192245c23c/one-effect",
+      "sha256": "f78ae46b6e06ca518312ec70a046e9e437d28ed025e802c3a1be50fccf4cdd00"
+    }
+  ]
+}

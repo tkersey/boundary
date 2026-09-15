@@ -1,0 +1,140 @@
+{
+  "status": "exploratory, process startup and output checking included; not final cold-build evidence",
+  "batch": 10,
+  "warmups": 5,
+  "hashes": [
+    "08a18a9e85a2f470bb176adeec28ffd8ca1f23902365a9daa9a4f8325cfd9d6c",
+    "3f5deab43953c74edd85bc497396b9aabbd58f44f5308a2ce0d1e6788fcd390f"
+  ],
+  "rows": [
+    {
+      "order": "AB",
+      "referenceNs": 2289900,
+      "candidateNs": 2299633.4,
+      "ratio": 1.0042505786278877
+    },
+    {
+      "order": "BA",
+      "referenceNs": 2179604.1,
+      "candidateNs": 2230954.2,
+      "ratio": 1.023559370254442
+    },
+    {
+      "order": "AB",
+      "referenceNs": 2248508.3,
+      "candidateNs": 2332495.8,
+      "ratio": 1.037352541682857
+    },
+    {
+      "order": "BA",
+      "referenceNs": 2188154.1,
+      "candidateNs": 2281241.6,
+      "ratio": 1.0425415650570498
+    },
+    {
+      "order": "AB",
+      "referenceNs": 2247250,
+      "candidateNs": 2379150,
+      "ratio": 1.058693959283569
+    },
+    {
+      "order": "BA",
+      "referenceNs": 2221987.5,
+      "candidateNs": 2241954.1,
+      "ratio": 1.0089859191377089
+    },
+    {
+      "order": "AB",
+      "referenceNs": 2216083.3,
+      "candidateNs": 2257987.5,
+      "ratio": 1.0189091267462735
+    },
+    {
+      "order": "BA",
+      "referenceNs": 2239712.5,
+      "candidateNs": 2269837.5,
+      "ratio": 1.0134503870474447
+    },
+    {
+      "order": "AB",
+      "referenceNs": 2244966.6,
+      "candidateNs": 2291900,
+      "ratio": 1.0209060571324313
+    },
+    {
+      "order": "BA",
+      "referenceNs": 2205416.7,
+      "candidateNs": 2245908.4,
+      "ratio": 1.018360113079764
+    },
+    {
+      "order": "AB",
+      "referenceNs": 2202420.8,
+      "candidateNs": 2261462.5,
+      "ratio": 1.0268076382133697
+    },
+    {
+      "order": "BA",
+      "referenceNs": 2282141.7,
+      "candidateNs": 2270875,
+      "ratio": 0.9950631023481145
+    },
+    {
+      "order": "AB",
+      "referenceNs": 2234279.2,
+      "candidateNs": 2235491.7,
+      "ratio": 1.0005426806103732
+    },
+    {
+      "order": "BA",
+      "referenceNs": 2213695.8,
+      "candidateNs": 2243454.2,
+      "ratio": 1.0134428587703876
+    },
+    {
+      "order": "AB",
+      "referenceNs": 2170295.8,
+      "candidateNs": 2225229.1,
+      "ratio": 1.0253114345058403
+    },
+    {
+      "order": "BA",
+      "referenceNs": 2271145.9,
+      "candidateNs": 2272295.9,
+      "ratio": 1.000506352321971
+    },
+    {
+      "order": "AB",
+      "referenceNs": 2286720.9,
+      "candidateNs": 2201008.3,
+      "ratio": 0.9625172446711795
+    },
+    {
+      "order": "BA",
+      "referenceNs": 2359762.5,
+      "candidateNs": 2404037.5,
+      "ratio": 1.0187624813937843
+    },
+    {
+      "order": "AB",
+      "referenceNs": 2262362.5,
+      "candidateNs": 2212812.5,
+      "ratio": 0.9780981164601164
+    },
+    {
+      "order": "BA",
+      "referenceNs": 2247550,
+      "candidateNs": 2272279.1,
+      "ratio": 1.0110026918199817
+    },
+    {
+      "order": "AB",
+      "referenceNs": 2192162.5,
+      "candidateNs": 2313304.1,
+      "ratio": 1.0552612317745607
+    }
+  ],
+  "medianReferenceNs": 2239712.5,
+  "medianCandidateNs": 2269837.5,
+  "medianPairedRatio": 1.018360113079764
+}
