@@ -47,14 +47,16 @@ pub const Reader = struct {
 
     /// At most ten bytes are examined. Overlong and overflowing forms reject.
     pub fn natural(self: *Reader) Error!u64 {
-        var result: u64 = 0;
-        for (0..10) |index| {
+        const first = try self.byte();
+        if (first < 0x80) return first;
+        var result: u64 = first & 0x7f;
+        for (1..10) |index| {
             const next = try self.byte();
             if (index == 9 and next > 1) return error.InvalidLength;
             const shift: u6 = @intCast(index * 7);
             result |= @as(u64, next & 0x7f) << shift;
             if (next & 0x80 == 0) {
-                if (index != 0 and next == 0) return error.NonCanonical;
+                if (next == 0) return error.NonCanonical;
                 return result;
             }
         }

@@ -15,6 +15,12 @@ Import the Zig build module `boundary`. Its public namespaces are `effect`,
 An application implements `emit(builder)` using the checked staged builder.
 `boundary.program.lower(allocator, Application)` checks and lowers that source;
 `compiled.encode(allocator, destination)` emits BPI2 into caller-owned storage.
+
+For opt-in smaller images, use `boundary.data_v2.compact_image.encodedLength`
+and `encode` after the same compilation. The codec selects BPC1 only when smaller,
+with exact BPI2 fallback. BPC1 requires a compatible upgraded World kernel;
+ordinary encoding and saved-process identities are unchanged. See the
+[executable example](examples/compact_image.zig) and [wire specification](docs/bpc1-wire.md).
 Arbitrary native Zig function bodies and closures are not translated.
 
 `program.compileObserved(allocator, module, .{ .diagnostic = &diagnostic })`

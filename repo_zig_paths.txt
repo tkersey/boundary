@@ -102,3 +102,16 @@ test/v2/snapshot_retention.zig
 tools/v2/bpi1_lift.zig
 tools/v2/bpi2_inspect.zig
 tools/v2/examples/build.zig
+examples/compact_image.zig
+src/v2/data/compact_image.zig
+src/v2/data/compact_parameters.zig
+src/v2/data/compact_record.zig
+src/v2/data/compact_report.zig
+src/v2/data/compact_sequence.zig
+src/v2/data/compact_tests.zig
+test/v2/compact_fixtures.zig
+test/v2/compact_images.zig
+test/v2/compact_wasm.zig
+test/v2/codec_profile.zig
+test/v2/emit_compact.zig
+tools/v2/compact_image.zig

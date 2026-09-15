@@ -3,4 +3,5 @@ test {
     _ = @import("root.zig");
     _ = @import("tests.zig");
     _ = @import("adversarial_tests.zig");
+    _ = @import("compact_tests.zig");
 }

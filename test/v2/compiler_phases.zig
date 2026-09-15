@@ -5,6 +5,7 @@ const data = boundary.data_v2;
 const options = @import("phase_options");
 const Stage = boundary.computation.CompileStage;
 const Phases = struct {
+    source_to_image_ns: u64 = 0,
     authoring_ns: u64 = 0,
     source_copy_ns: u64 = 0,
     source_check_ns: u64 = 0,
@@ -54,6 +55,7 @@ fn measure(io: std.Io, storage: []u8) !Measurement {
     const a = scratch.allocator();
     var phases: Phases = .{};
     var start = std.Io.Clock.awake.now(io);
+    const source_start = start;
     var builder = boundary.computation.Builder.init(a);
     defer builder.deinit();
     const module = try switch (options.kind) {
@@ -65,6 +67,7 @@ fn measure(io: std.Io, storage: []u8) !Measurement {
         5 => boundary.computation.examples.installations(&builder, 1),
         6 => boundary.computation.examples.installations(&builder, 8),
         7 => boundary.computation.examples.installations(&builder, 64),
+        8 => boundary.computation.examples.installations(&builder, 128),
         else => return error.UnknownWorkload,
     };
     phases.authoring_ns = elapsed(io, start);
@@ -72,11 +75,18 @@ fn measure(io: std.Io, storage: []u8) !Measurement {
     var compiled = try boundary.program.compileObserved(a, module, .{ .observer = .{ .context = &observer, .enter = Observer.enter } });
     defer compiled.deinit();
     start = std.Io.Clock.awake.now(io);
-    const image = try a.alloc(u8, try data.image.encodedLength(compiled.program));
-    _ = try compiled.encode(a, image);
+    const compact = comptime @hasDecl(options, "compact") and options.compact;
+    const image = try a.alloc(u8, if (compact)
+        try data.compact_image.encodedLength(a, compiled.program)
+    else
+        try data.image.encodedLength(compiled.program));
+    if (compact) {
+        _ = try data.compact_image.encode(a, compiled.program, image);
+    } else _ = try compiled.encode(a, image);
     phases.image_emission_ns = elapsed(io, start);
+    phases.source_to_image_ns = elapsed(io, source_start);
     start = std.Io.Clock.awake.now(io);
-    var decoded = try data.image.decode(a, image);
+    var decoded = if (compact) try data.compact_image.decode(a, image) else try data.image.decode(a, image);
     defer decoded.deinit();
     phases.image_decode_ns = elapsed(io, start);
     // This is a fully admitted initial logical control State, built using pure

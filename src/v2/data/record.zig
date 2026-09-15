@@ -5,6 +5,24 @@ const std = @import("std");
 const wire = @import("wire.zig");
 pub const Error = wire.Error || std.mem.Allocator.Error;
 
+// A sizing sink can sum numeric sequence widths without generating each byte.
+// Hashing, comparison and real output always use the original writer below.
+fn measuredSequence(comptime T: type, values: []const T) wire.Error!usize {
+    var total: usize = 0;
+    for (values) |value| {
+        const length = if (T == u64) naturalLength(value) else switch (value) {
+            .slot => |id| naturalLength(@intFromEnum(std.meta.activeTag(value))) + naturalLength(id),
+            .returned => naturalLength(@intFromEnum(std.meta.activeTag(value))),
+        };
+        total = std.math.add(usize, total, length) catch return error.InvalidLength;
+    }
+    return total;
+}
+
+fn naturalLength(value: u64) usize {
+    return (@as(usize, 64 - @clz(value | 1)) + 6) / 7;
+}
+
 /// Traverses borrowed record storage, including nested arrays of slices, before
 /// a caller-owned encoder writes its first byte. Native bytes are never encoded.
 pub fn overlaps(comptime T: type, value: T, output: []const u8) bool {
@@ -51,6 +69,12 @@ pub fn write(comptime T: type, value: T, writer: *wire.Writer) wire.Error!void {
         .pointer => |info| {
             comptime std.debug.assert(info.size == .slice);
             try writer.natural(value.len);
+            if (info.child == u64 or info.child == @import("program.zig").Argument) {
+                if (writer.output == null and writer.expected == null and writer.hasher == null) {
+                    writer.position = std.math.add(usize, writer.position, try measuredSequence(info.child, value)) catch return error.InvalidLength;
+                    return;
+                }
+            }
             if (info.child == u8) return writer.put(value);
             for (value) |element| try write(info.child, element, writer);
         },
@@ -148,4 +172,44 @@ test "union decoding uses declared wire tags instead of field indexes" {
     try std.testing.expect(try read(Record, &reader, std.testing.allocator) == .later);
     reader = .{ .input = &.{0} };
     try std.testing.expectError(error.InvalidTag, read(Record, &reader, std.testing.allocator));
+}
+
+test "numeric sequence sizing agrees with emitted and hashed legacy bytes" {
+    const Argument = @import("program.zig").Argument;
+    const Row = struct { ids: []const u64, arguments: []const Argument };
+    for ([_]u64{ 0, 127, 128, 16383, 16384, std.math.maxInt(u64) }) |number| {
+        const value: Row = .{ .ids = &.{ number, 0, 128 }, .arguments = &.{ .{ .slot = number }, .returned, .{ .slot = 0 } } };
+        var measured: wire.Writer = .{};
+        try write(Row, value, &measured);
+        var buffer: [128]u8 = undefined;
+        var emitted: wire.Writer = .{ .output = &buffer };
+        try write(Row, value, &emitted);
+        try std.testing.expectEqual(emitted.position, measured.position);
+        var hash = std.crypto.hash.sha2.Sha256.init(.{});
+        var hashed: wire.Writer = .{ .hasher = &hash };
+        try write(Row, value, &hashed);
+        try std.testing.expectEqual(emitted.position, hashed.position);
+        try std.testing.expectEqual(wire.digest(buffer[0..emitted.position]), hash.finalResult());
+        var compared: wire.Writer = .{ .expected = buffer[0..emitted.position] };
+        try write(Row, value, &compared);
+    }
+}
+
+test "legacy sequence hashes preserve long full-width vectors" {
+    const Argument = @import("program.zig").Argument;
+    inline for (.{ u64, Argument }) |T| {
+        var values: [257]T = undefined;
+        for (&values, 0..) |*value, index| {
+            const id = std.math.maxInt(u64) - index;
+            value.* = if (T == u64) id else if (index % 3 == 0) .returned else .{ .slot = id };
+        }
+        var buffer: [4096]u8 = undefined;
+        var emitted: wire.Writer = .{ .output = &buffer };
+        try write([]const T, &values, &emitted);
+        var hash = std.crypto.hash.sha2.Sha256.init(.{});
+        var hashed: wire.Writer = .{ .hasher = &hash };
+        try write([]const T, &values, &hashed);
+        try std.testing.expectEqual(emitted.position, hashed.position);
+        try std.testing.expectEqual(wire.digest(buffer[0..emitted.position]), hash.finalResult());
+    }
 }
