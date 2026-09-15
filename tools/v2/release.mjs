@@ -13,7 +13,7 @@ if(process.argv.length!==5)throw new Error('expected emitted fixtures, release o
 const root=resolve(import.meta.dirname,'../..'),fixtures=resolve(fixturesArg),output=resolve(outputArg);
 const zon=await readFile(join(root,'build.zig.zon'),'utf8');
 const version=/\.version\s*=\s*"([^"]+)"/.exec(zon)?.[1];
-if(!/^2\.0\.1(?:-dev\.0)?$/.test(version??''))throw new Error('unexpected Boundary release version');
+if(!/^2\.0\.2(?:-dev\.0)?$/.test(version??''))throw new Error('unexpected Boundary release version');
 const entries=[],sources=new Map(),programs=[];
 for(const name of programNames) {
   const source=await readFile(join(fixtures,`source-${name}.json`));
