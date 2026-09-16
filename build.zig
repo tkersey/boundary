@@ -48,6 +48,40 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .imports = &.{.{ .name = "boundary_data_v2", .module = data }},
     });
+    const linker = b.addExecutable(.{ .name = "boundary-link", .root_module = b.createModule(.{
+        .root_source_file = b.path("tools/component_link.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "boundary_data_v2", .module = data }},
+    }) });
+    b.step("build-compiler", "Build the source-independent BMO1 linker")
+        .dependOn(&b.addInstallArtifact(linker, .{}).step);
+    const component_example = b.addExecutable(.{ .name = "component-example", .root_module = b.createModule(.{
+        .root_source_file = b.path("tools/component_example.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "boundary", .module = boundary }},
+    }) });
+    const component_checks = b.addSystemCommand(&.{"node"});
+    component_checks.addFileArg(b.path("test/components.mjs"));
+    component_checks.addArtifactArg(linker);
+    component_checks.addArtifactArg(component_example);
+    component_checks.has_side_effects = true;
+    const component_step = b.step("check-components", "Check object admission and source-independent composition");
+    component_step.dependOn(&component_checks.step);
+    const component_data_tests = b.addTest(.{ .root_module = b.createModule(.{
+        .root_source_file = b.path("src/v2/data/component_tests.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+    }) });
+    component_step.dependOn(&b.addRunArtifact(component_data_tests).step);
+    const component_source_tests = b.addTest(.{ .root_module = b.createModule(.{
+        .root_source_file = b.path("src/v2/test_root.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "boundary_data_v2", .module = data }},
+    }), .filters = &.{ "component", "public linker", "combinator" } });
+    component_step.dependOn(&b.addRunArtifact(component_source_tests).step);
     const authoring = b.addTest(.{ .root_module = b.createModule(.{
         .root_source_file = b.path("src/v2/test_root.zig"),
         .target = b.graph.host,

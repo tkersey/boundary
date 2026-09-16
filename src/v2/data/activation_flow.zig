@@ -51,7 +51,11 @@ pub const View = struct {
 };
 
 pub fn analyze(allocator: std.mem.Allocator, image: ir.Program) Error!Facts {
-    try structure.validate(allocator, image);
+    return analyzeComponent(allocator, image, &.{});
+}
+
+pub fn analyzeComponent(allocator: std.mem.Allocator, image: ir.Program, imports: []const p.Id) Error!Facts {
+    try structure.validateComponent(allocator, image, imports);
     const arena = try allocator.create(std.heap.ArenaAllocator);
     arena.* = std.heap.ArenaAllocator.init(allocator);
     errdefer {
@@ -75,7 +79,8 @@ pub fn analyze(allocator: std.mem.Allocator, image: ir.Program) Error!Facts {
     @memset(analysis.entries, null);
     @memset(analysis.positions, &.{});
     @memset(analysis.queued, false);
-    for (image.functions) |function| {
+    for (image.functions, 0..) |function, id| {
+        if (std.mem.indexOfScalar(p.Id, imports, id) != null) continue;
         var inputs = sets.empty;
         var obligations = sets.empty;
         for (function.inputs) |input| {

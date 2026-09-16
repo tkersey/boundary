@@ -5,5 +5,6 @@ test {
     _ = @import("source/capture_tests.zig");
     _ = @import("source/projection_tests.zig");
     _ = @import("source/activation_tests.zig");
+    _ = @import("source/component_tests.zig");
     _ = @import("source/activation_admission_tests.zig");
 }

@@ -68,6 +68,14 @@ pub fn analyze(allocator: std.mem.Allocator, source: ast.Module) Error!Facts {
 }
 
 pub fn analyzeDiagnosed(allocator: std.mem.Allocator, source: ast.Module, diagnostic: ?*@import("diagnostic.zig").Diagnostic) Error!Facts {
+    return analyzeComponent(allocator, source, &.{}, diagnostic);
+}
+
+pub fn analyzeComponent(allocator: std.mem.Allocator, source: ast.Module, imports: []const p.Id, diagnostic: ?*@import("diagnostic.zig").Diagnostic) Error!Facts {
+    for (imports, 0..) |id, at| {
+        if (id >= source.functions.len or std.mem.indexOfScalar(p.Id, imports[0..at], id) != null) return error.InvalidReference;
+        if (source.functions[@intCast(id)].body != null) return error.InvalidSource;
+    }
     if (source.entry >= source.functions.len) return error.InvalidReference;
     _ = try data.admission.schemas(allocator, source.schemas);
     try declarationSchemas(source, diagnostic);
@@ -182,12 +190,12 @@ pub fn analyzeDiagnosed(allocator: std.mem.Allocator, source: ast.Module, diagno
             d.function = id;
             d.term = function.body;
         }
-        const body = function.body orelse return error.UndefinedFunction;
-        if (body >= source.terms.len) return error.InvalidReference;
+        if (function.body == null and std.mem.indexOfScalar(p.Id, imports, id) == null) return error.UndefinedFunction;
+        if (function.body) |body| if (body >= source.terms.len) return error.InvalidReference;
         for (function.parameters, 0..) |variable, index| {
             if (variable >= source.variables.len or std.mem.indexOfScalar(p.Id, function.parameters[0..index], variable) != null) return error.InvalidSource;
         }
-        _ = try compatible(facts.results[@intCast(body)], function.result);
+        if (function.body) |body| _ = try compatible(facts.results[@intCast(body)], function.result);
     }
     // Monotone least fixed point: every changed root adds a member.
     var changed = true;
@@ -195,7 +203,7 @@ pub fn analyzeDiagnosed(allocator: std.mem.Allocator, source: ast.Module, diagno
         changed = try valueVariables(source, facts, function_roots);
         changed = try termVariables(source, facts, term_references, function_roots) or changed;
         for (source.functions, 0..) |function, id| {
-            changed = try pool.merge(&function_roots[id], facts.terms[@intCast(function.body.?)], function.parameters) or changed;
+            if (function.body) |body| changed = try pool.merge(&function_roots[id], facts.terms[@intCast(body)], function.parameters) or changed;
         }
     }
     for (facts.functions, function_roots) |*set, root| {

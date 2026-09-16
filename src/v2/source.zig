@@ -2,6 +2,8 @@
 //! Staged source construction. Zig emit functions build terms and lexical lambdas;
 //! their native bodies are never inspected or translated.
 const std = @import("std");
+pub const component = @import("source/component.zig");
+pub const component_examples = @import("source/component_examples.zig");
 const data = @import("boundary_data_v2");
 const p = data.program;
 pub const ast = @import("source/ast.zig");

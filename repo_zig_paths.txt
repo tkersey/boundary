@@ -141,3 +141,13 @@ src/v2/data/state_image.zig
 src/v2/data/state_image_tests.zig
 src/v2/data/invocation.zig
 src/v2/data/invocation_tests.zig
+src/v2/data/component.zig
+src/v2/data/component_tests.zig
+src/v2/data/linker.zig
+src/v2/data/relocation.zig
+src/v2/library/combinators.zig
+src/v2/source/component.zig
+src/v2/source/component_examples.zig
+src/v2/source/component_tests.zig
+tools/component_link.zig
+tools/component_example.zig

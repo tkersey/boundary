@@ -14,8 +14,15 @@ pub const Error = types.Error || flow.Error;
 /// All facts are derived inside this call from the same immutable input. A caller
 /// cannot supply a live map or a weaker capture summary as proof of the program.
 pub fn analyze(allocator: std.mem.Allocator, image: ir.Program) Error!flow.Facts {
-    try types.validate(allocator, image);
-    var facts = try flow.analyze(allocator, image);
+    return analyzeInternal(allocator, image, &.{}, false);
+}
+
+pub fn analyzeComponent(allocator: std.mem.Allocator, image: ir.Program, imports: []const p.Id) Error!flow.Facts {
+    return analyzeInternal(allocator, image, imports, true);
+}
+fn analyzeInternal(allocator: std.mem.Allocator, image: ir.Program, imports: []const p.Id, component: bool) Error!flow.Facts {
+    if (component) try types.validateComponent(allocator, image, imports) else try types.validate(allocator, image);
+    var facts = try flow.analyzeComponent(allocator, image, imports);
     errdefer facts.deinit();
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
@@ -24,7 +31,7 @@ pub fn analyze(allocator: std.mem.Allocator, image: ir.Program) Error!flow.Facts
         .image = image,
         .facts = &facts,
         .uses = try @import("traits.zig").derive(scratch, image.schemas),
-        .effects = try effect_scope.derive(scratch, image),
+        .effects = try effect_scope.deriveComponent(scratch, image, imports),
     };
     for (image.blocks, 0..) |block, id| {
         if (facts.entries[id] == null) continue;

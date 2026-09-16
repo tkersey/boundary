@@ -33,13 +33,20 @@ pub const Construction = struct {
 /// No analysis scratch or authoring AST survives in the result arena. This
 /// construction does not grant executable/trusted status.
 pub fn lower(allocator: std.mem.Allocator, input: ast.Module) Error!Construction {
+    return lowerInternal(allocator, input, &.{}, false);
+}
+
+pub fn lowerComponent(allocator: std.mem.Allocator, input: ast.Module, imports: []const p.Id) Error!Construction {
+    return lowerInternal(allocator, input, imports, true);
+}
+fn lowerInternal(allocator: std.mem.Allocator, input: ast.Module, imports: []const p.Id, component: bool) Error!Construction {
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     const a = arena.allocator();
     const owned = input;
     // The source checker is independent of both lowering representations.
     // Only genuine captures are enumerated; intermediate free sets share roots.
-    const facts = try check.analyzeDiagnosed(a, owned, null);
+    const facts = try check.analyzeComponent(a, owned, imports, null);
     const traits = try data.traits.derive(a, owned.schemas);
     var compiler: Compiler = .{
         .allocator = a,
@@ -80,7 +87,7 @@ pub fn lower(allocator: std.mem.Allocator, input: ast.Module) Error!Construction
     var output = std.heap.ArenaAllocator.init(allocator);
     errdefer output.deinit();
     const result = try source.own(ir.Program, output.allocator(), program);
-    const flow = try data.activation_ownership.analyze(allocator, result);
+    const flow = if (component) try data.activation_ownership.analyzeComponent(allocator, result, imports) else try data.activation_ownership.analyze(allocator, result);
     return .{ .arena = output, .program = result, .flow = flow };
 }
 
@@ -163,7 +170,7 @@ const Function = struct {
             environment = try self.bind(environment, name);
             inputs[free.len + index] = try self.resolve(environment, name);
         }
-        const entry = try self.schedule(definition.body.?, environment, null, 0);
+        const entry = if (definition.body) |body| try self.schedule(body, environment, null, 0) else data.relocation.missing;
         while (self.tasks.pop()) |task| try self.emit(task);
         return .{
             .entry = entry,

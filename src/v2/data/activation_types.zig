@@ -12,13 +12,20 @@ const effect_scope = @import("effect_scope.zig");
 pub const Error = a.Error || structure.Error;
 
 pub fn validate(allocator: std.mem.Allocator, image: ir.Program) Error!void {
-    try structure.validate(allocator, image);
+    return validateInternal(allocator, image, &.{}, false);
+}
+
+pub fn validateComponent(allocator: std.mem.Allocator, image: ir.Program, imports: []const p.Id) Error!void {
+    return validateInternal(allocator, image, imports, true);
+}
+fn validateInternal(allocator: std.mem.Allocator, image: ir.Program, imports: []const p.Id, component: bool) Error!void {
+    try structure.validateComponent(allocator, image, imports);
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     const scratch = arena.allocator();
-    try catalogs(scratch, image);
+    try catalogs(scratch, image, component);
     const uses = try contracts.validate(scratch, image);
-    const effects = try effect_scope.derive(scratch, image);
+    const effects = try effect_scope.deriveComponent(scratch, image, imports);
     for (image.blocks) |block| {
         const layout = image.functions[@intCast(block.function)].layout.slots;
         for (block.instructions) |instruction| {
@@ -38,17 +45,19 @@ pub fn validate(allocator: std.mem.Allocator, image: ir.Program) Error!void {
     }
     try @import("region_admission.zig").validate(scratch, image);
     const schema_facts = try a.schemas(scratch, image.schemas);
-    try @import("borrow_flow.zig").validate(scratch, image, schema_facts.exportable, null);
+    // Whole-code interprocedural borrow constraints are link obligations when
+    // an implementation is absent. No object is executable/trusted on this basis.
+    if (imports.len == 0) try @import("borrow_flow.zig").validate(scratch, image, schema_facts.exportable, null);
 }
 
-fn catalogs(allocator: std.mem.Allocator, image: ir.Program) Error!void {
+fn catalogs(allocator: std.mem.Allocator, image: ir.Program, component: bool) Error!void {
     const facts = try a.schemas(allocator, image.schemas);
-    if (!facts.exportable[@intCast(image.roots.result)] or
+    if ((!component and !facts.exportable[@intCast(image.roots.result)]) or
         !facts.exportable[@intCast(image.roots.failure)]) return error.InvalidSchema;
     const entry = image.functions[@intCast(image.roots.entry)];
     const parameters = @import("function_inputs.zig").of(entry);
     for (0..parameters.len) |index| {
-        if (!facts.exportable[@intCast(parameters.at(index))]) return error.InvalidSchema;
+        if (!component and !facts.exportable[@intCast(parameters.at(index))]) return error.InvalidSchema;
     }
     for (image.constants) |literal| try a.value(allocator, image.schemas, facts, literal);
     for (image.effects) |effect| {

@@ -15,8 +15,17 @@ pub const Facts = struct {
 };
 
 pub fn derive(allocator: std.mem.Allocator, image: anytype) Error!Facts {
+    return deriveComponent(allocator, image, &.{});
+}
+
+pub fn deriveComponent(allocator: std.mem.Allocator, image: anytype, imports: []const p.Id) Error!Facts {
     const ambient = try allocator.alloc(bool, image.effects.len);
     @memset(ambient, false);
+    // An unknown implementation is not evidence of local-only interpretation.
+    for (imports) |function| for (image.functions[@intCast(function)].effects) |effect| {
+        if (effect >= ambient.len) return error.InvalidEffect;
+        ambient[@intCast(effect)] = true;
+    };
     for (image.blocks) |block| if (block.terminator == .perform) {
         const operation = block.terminator.perform;
         if (operation.effect >= image.effects.len) return error.InvalidEffect;

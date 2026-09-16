@@ -171,7 +171,8 @@ The [current invocation envelopes](invocation-wire.md) define PKI3/PKO3 and
 ERQ3/ERS3 with owned decoding and State-bound typed replies. Fresh native invocation
 uses the stable evaluator and agrees with resident/restored execution at matching
 quanta. Independent wasm32 fixtures cover envelope bytes and request identity.
-The ordinary public cutover and runtime ABI remain pending.
+World's generic ABI 3 and browser-neutral embedding now exercise these envelopes;
+the ordinary public cutover remains pending.
 
 The Builder's Module receiver now reads by reference: adding a declaration while
 evaluating a module argument no longer captures a stale catalog. The former
@@ -185,7 +186,8 @@ second decoded graph copy. World exports these records at its native safepoints.
 Program-relative State admission now checks actual stable slots, instruction
 positions, dynamic effects, borrow provenance, ownership and cleanup against the
 matching Program. Native executable restoration passes the source corpus at
-matched quanta. Envelopes and cross-host execution remain required.
+matched quanta. World also exercises the current envelopes across native, Node,
+Wasmtime and real browser Workers.
 
 The [BPI3 codec](bpi3-wire.md) now writes stable records directly, admits owned
 input, enforces a physical expansion budget and hashes the canonical bytes in
@@ -207,18 +209,25 @@ codec, with no predecessor expansion in the successor codec.
 World now executes the native stable-control slice through `source.construct`,
 including deep multi-shot/reentrant cases and retained loop-slot versions. The
 analysis owner now keeps its arena at a stable address so runtime-derived set
-operations cannot allocate through an escaped stack pointer. The next seam is
-portable Program/State integration and whole-Session failure atomicity. World now
+operations cannot allocate through an escaped stack pointer. World now
 also executes borrowed/resource cases using the stable borrow/context admission.
 The current source conformance includes 24 older/fresh return-clause cases,
 pre-instruction rebind counterexamples, loop/permutation summaries, clause payload
-rejections, and protected-loan escape rejection. The M1
-runtime slice must include non-tail handling, an external request, a join, escaping
-one-shot control, retained loop versions and reentrant multi-shot behavior before
-the main migration is accepted. Static admission is not a substitute for that slice.
+rejections, and protected-loan escape rejection. Runtime witnesses include
+non-tail handling, external requests, joins, escaping one-shot control, retained
+loop versions and reentrant multi-shot behavior. Static admission is not a
+substitute for those executed witnesses.
 
-Public protocol cutover, independently checked BMO1 linking, selective execution,
-efficient values, transaction performance qualification, browser byte embedding, Agent's
+The [BMO1 component path](bmo1-components.md) now compiles independent effectful
+objects and links from first-order artifacts using a data-only executable. Tests
+cover nominal sharing/separation, interface mismatches, capture bounds, forged
+resource authority, allocation failures and mutually recursive implementations.
+World executes the linked private-state/owned-suspension composition in two
+Programs and transfers their checkpoints through Wasmtime. Local imported-borrow
+contract checking still needs completion; full closed-link admission is mandatory.
+
+Public protocol cutover, completion of component contracts, selective execution,
+efficient values, transaction performance qualification, Agent's
 complete migration and compiled-tool transfer, performance comparisons, retirement,
 package validation and publication/review closeout remain mandatory. The current
 public compiler/runtime still use the predecessor. The internal construction is
