@@ -23,6 +23,19 @@ pub const scalarContracts = @import("scalar_contract_example.zig").build;
 pub const yieldingCleanup = @import("unwind_example.zig").yielding;
 pub const borrowOperands = @import("borrow_operand_example.zig").build;
 
+pub fn custodyOrder(builder: *source.Builder, mode: u8) Error!source.Module {
+    const example = @import("custody_order_example.zig");
+    const integer = try builder.scalar(u64);
+    const release = try builder.effect(.{
+        .identity = "custody/release",
+        .payload = integer,
+        .result = try builder.scalar(void),
+    });
+    const fixtures = try example.define(builder, release);
+    const entry = try example.build(builder, fixtures, mode);
+    return builder.module(entry, integer);
+}
+
 pub fn boundedValues(builder: *source.Builder) Error!source.ast.Module {
     const byte = try builder.scalar(u8);
     const enumeration = try builder.schema(.{ .enumeration = &.{ 2, 7 } });

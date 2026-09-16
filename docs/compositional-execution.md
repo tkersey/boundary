@@ -153,8 +153,10 @@ World now executes the native stable-control slice through `source.construct`,
 including deep multi-shot/reentrant cases and retained loop-slot versions. The
 analysis owner now keeps its arena at a stable address so runtime-derived set
 operations cannot allocate through an escaped stack pointer. The next seam is
-remaining borrow/context provenance, cleanup and shallow-control support, and
-portable codec integration. The M1
+remaining borrow/context provenance and portable codec integration. World now
+also exercises shallow/injected control and unborrowed cleanup/cancellation with
+lexical custody; borrowed/resource execution remains blocked by the unfinished
+provenance layer. The M1
 runtime slice must include non-tail handling, an external request, a join, escaping
 one-shot control, retained loop versions and reentrant multi-shot behavior before
 the main migration is accepted. Static admission is not a substitute for that slice.
