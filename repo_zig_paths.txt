@@ -115,3 +115,10 @@ test/v2/compact_wasm.zig
 test/v2/codec_profile.zig
 test/v2/emit_compact.zig
 tools/v2/compact_image.zig
+src/v2/data/activation.zig
+src/v2/data/activation_structure.zig
+src/v2/data/activation_structure_tests.zig
+src/v2/source/activation_lower.zig
+src/v2/source/activation_tests.zig
+src/v2/source/binding_scope.zig
+src/v2/source/value_cache.zig

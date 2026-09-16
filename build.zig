@@ -54,6 +54,17 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .imports = &.{.{ .name = "boundary_data_v2", .module = data }},
     }) });
+    const stable_lowering = b.addTest(.{ .root_module = b.createModule(.{
+        .root_source_file = b.path("src/v2/test_root.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "boundary_data_v2", .module = data }},
+    }), .filters = &.{
+        "installation lowering", "stable join",   "stable bindings", "construction owns",
+        "staged examples lower", "lexical scope", "stable lowering",
+    } });
+    b.step("check-stable-lowering", "Check direct stable-slot construction")
+        .dependOn(&b.addRunArtifact(stable_lowering).step);
     const compact_tests = b.addTest(.{ .root_module = b.createModule(.{
         .root_source_file = b.path("test/v2/compact_images.zig"),
         .target = b.graph.host,

@@ -185,7 +185,13 @@ pub fn lowerObserved(allocator: std.mem.Allocator, source: ast.Module, options: 
     const source_facts = try check.analyzeDiagnosed(storage, owned, options.diagnostic);
     options.stage(.lowering);
     const use_facts = try data.traits.derive(storage, owned.schemas);
-    var compiler: Compiler = .{ .allocator = storage, .source = owned, .facts = source_facts, .cacheable = try cacheableValues(storage, owned, use_facts), .traits = use_facts };
+    var compiler: Compiler = .{
+        .allocator = storage,
+        .source = owned,
+        .facts = source_facts,
+        .cacheable = try @import("value_cache.zig").derive(storage, owned, use_facts),
+        .traits = use_facts,
+    };
     try compiler.prepare();
     const functions = try storage.alloc(p.Function, owned.functions.len);
     for (owned.functions, 0..) |function, id| {
@@ -879,25 +885,3 @@ const BuildBlock = struct {
         return .{ .id = id, .variables = self.variables };
     }
 };
-
-fn cacheableValues(allocator: std.mem.Allocator, source: ast.Module, traits: data.traits.Facts) Error![]bool {
-    const cacheable = try allocator.alloc(bool, source.values.len);
-    for (source.values, 0..) |value, id| cacheable[id] = switch (value.expression) {
-        .variable, .literal => true,
-        .lambda => traits.copy[@intCast(value.schema)],
-        .primitive => |primitive| blk: {
-            if (!traits.copy[@intCast(value.schema)]) break :blk false;
-            switch (primitive.opcode) {
-                .cell_new, .cell_get, .cell_set, .clone_resumption, .package, .unpack, .resource_pack, .resource_unpack => break :blk false,
-                else => {},
-            }
-            for (primitive.operands) |operand| {
-                if (!cacheable[@intCast(operand)]) break :blk false;
-                // Even a borrow requires its owner to remain live at this occurrence.
-                if (!traits.copy[@intCast(source.values[@intCast(operand)].schema)]) break :blk false;
-            }
-            break :blk true;
-        },
-    };
-    return cacheable;
-}

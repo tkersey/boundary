@@ -4,4 +4,5 @@ test {
     _ = @import("source/tests.zig");
     _ = @import("source/capture_tests.zig");
     _ = @import("source/projection_tests.zig");
+    _ = @import("source/activation_tests.zig");
 }

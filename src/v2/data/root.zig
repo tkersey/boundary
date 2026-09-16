@@ -2,6 +2,8 @@
 //! Portable definitions and pure admission. This module never executes programs.
 pub const wire = @import("wire.zig");
 pub const program = @import("program.zig");
+pub const activation = @import("activation.zig");
+pub const activation_structure = @import("activation_structure.zig");
 pub const admission = @import("admission.zig");
 pub const image = @import("image.zig");
 pub const compact_image = @import("compact_image.zig");
