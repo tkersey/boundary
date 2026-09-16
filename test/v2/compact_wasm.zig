@@ -21,6 +21,16 @@ export fn program_encode(length: usize) usize {
     return encoded.len;
 }
 
+export fn state_encode(length: usize) usize {
+    if (length > input.len) return 0;
+    var storage = std.heap.FixedBufferAllocator.init(&scratch);
+    const allocator = storage.allocator();
+    var decoded = data.state_image.decodeGraph(allocator, input[0..length]) catch return 0;
+    defer decoded.deinit();
+    const encoded = data.state_image.encode(allocator, decoded.state, &output) catch return 0;
+    return encoded.len;
+}
+
 export fn compact_input_ptr() usize {
     return @intFromPtr(&input);
 }

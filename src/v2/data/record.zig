@@ -101,6 +101,11 @@ pub fn write(comptime T: type, value: T, writer: *wire.Writer) wire.Error!void {
 /// Allocations and decoded slices belong to allocator; use an invocation arena.
 /// Counts are bounded by remaining bytes before allocating, including empty rows.
 pub fn read(comptime T: type, reader: *wire.Reader, allocator: std.mem.Allocator) Error!T {
+    var remaining: usize = std.math.maxInt(usize);
+    return readBounded(T, reader, allocator, &remaining);
+}
+
+pub fn readBounded(comptime T: type, reader: *wire.Reader, allocator: std.mem.Allocator, remaining: *usize) Error!T {
     return switch (@typeInfo(T)) {
         .void => {},
         .bool => switch (try reader.byte()) {
@@ -118,7 +123,7 @@ pub fn read(comptime T: type, reader: *wire.Reader, allocator: std.mem.Allocator
         },
         .optional => |info| switch (try reader.byte()) {
             0 => null,
-            1 => try read(info.child, reader, allocator),
+            1 => try readBounded(info.child, reader, allocator, remaining),
             else => error.InvalidTag,
         },
         .pointer => |info| blk: {
@@ -126,8 +131,11 @@ pub fn read(comptime T: type, reader: *wire.Reader, allocator: std.mem.Allocator
             const count = try reader.count();
             if (count > reader.input.len - reader.position) return error.Truncated;
             if (info.child == u8) break :blk try reader.take(count);
+            const bytes = std.math.mul(usize, @sizeOf(info.child), count) catch return error.InvalidLength;
+            if (bytes > remaining.*) return error.Capacity;
+            remaining.* -= bytes;
             const result = try allocator.alloc(info.child, count);
-            for (result) |*element| element.* = try read(info.child, reader, allocator);
+            for (result) |*element| element.* = try readBounded(info.child, reader, allocator, remaining);
             break :blk result;
         },
         .array => |info| blk: {
@@ -136,13 +144,13 @@ pub fn read(comptime T: type, reader: *wire.Reader, allocator: std.mem.Allocator
                 @memcpy(&result, try reader.take(info.len));
                 break :blk result;
             }
-            for (&result) |*element| element.* = try read(info.child, reader, allocator);
+            for (&result) |*element| element.* = try readBounded(info.child, reader, allocator, remaining);
             break :blk result;
         },
         .@"struct" => |info| blk: {
             var result: T = undefined;
             inline for (info.fields) |field| {
-                @field(result, field.name) = try read(field.type, reader, allocator);
+                @field(result, field.name) = try readBounded(field.type, reader, allocator, remaining);
             }
             break :blk result;
         },
@@ -150,7 +158,7 @@ pub fn read(comptime T: type, reader: *wire.Reader, allocator: std.mem.Allocator
             const tag = try reader.natural();
             inline for (info.fields) |field| {
                 const declared_tag = @intFromEnum(@field(info.tag_type.?, field.name));
-                if (tag == declared_tag) break :blk @unionInit(T, field.name, try read(field.type, reader, allocator));
+                if (tag == declared_tag) break :blk @unionInit(T, field.name, try readBounded(field.type, reader, allocator, remaining));
             }
             break :blk error.InvalidTag;
         },

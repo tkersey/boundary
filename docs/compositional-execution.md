@@ -159,6 +159,13 @@ compact-image-size or end-to-end performance requirements.
 
 ## Remaining work
 
+The [PST3 graph codec](pst3-wire.md) now owns canonical stable activation views
+and lexical owner order with each control node. It preserves graph aliases and
+cycles, removes unreachable state, and validates canonical numbering without a
+second decoded graph copy. World exports these records at its native safepoints.
+This is graph/codec integration only; full Program-relative State admission and
+executable restore remain required.
+
 The [BPI3 codec](bpi3-wire.md) now writes stable records directly, admits owned
 input, enforces a physical expansion budget and hashes the canonical bytes in
 the new `boundary.program/v3` domain. Goldens and allocation-failure sweeps pass;
