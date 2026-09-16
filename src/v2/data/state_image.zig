@@ -85,11 +85,15 @@ pub fn encode(allocator: std.mem.Allocator, state: s.State, output: []u8) Error!
 }
 
 pub fn emit(allocator: std.mem.Allocator, state: s.State) Error![]u8 {
+    return emitWith(allocator, state, allocator);
+}
+
+pub fn emitWith(allocator: std.mem.Allocator, state: s.State, output_allocator: std.mem.Allocator) Error![]u8 {
     var normalized = try canonicalize(allocator, state);
     defer normalized.deinit();
     const size = try length(normalized.state);
-    const output = try allocator.alloc(u8, size);
-    errdefer allocator.free(output);
+    const output = try output_allocator.alloc(u8, size);
+    errdefer output_allocator.free(output);
     var writer: wire.Writer = .{ .output = output };
     try write(normalized.state, size, &writer);
     return output;
