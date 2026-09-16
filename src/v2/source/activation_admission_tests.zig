@@ -202,3 +202,37 @@ test "stable admission rejects corrupt custody trees and block scope references"
     }
     return error.TestUnexpectedResult;
 }
+
+test "stable clause payload admission distinguishes an older capability from its own delimiter" {
+    inline for (.{ false, true }) |older| inline for (.{ false, true }) |delegated| {
+        var builder = source.Builder.init(testing.allocator);
+        defer builder.deinit();
+        const module = try @import("clause_payload_example.zig").variant(&builder, older, delegated);
+        if (older) {
+            var compiled = try lower(testing.allocator, module);
+            defer compiled.deinit();
+        } else try testing.expectError(error.InvalidOwnership, lower(testing.allocator, module));
+    };
+}
+
+test "stable resource borrow cannot escape a protected body for an immediate caller read" {
+    var b = source.Builder.init(testing.allocator);
+    defer b.deinit();
+    const original = try source.examples.resourceScalar(&b);
+    const main_bind = b.terms.items[@intCast(b.functions.items[@intCast(original.entry)].body.?)].bind;
+    const protected = main_bind.next;
+    const body_value = b.terms.items[@intCast(protected)].protect.body;
+    const body_function = b.values.items[@intCast(body_value)].expression.lambda;
+    const parameter = b.parameter(body_function, 0);
+    const borrowed = b.variables.items[@intCast(parameter)];
+    var signature = b.schemas.items[@intCast(b.values.items[@intCast(body_value)].schema)].internal.computation;
+    signature.result = borrowed;
+    b.values.items[@intCast(body_value)].schema = try b.schema(.{ .internal = .{ .computation = signature } });
+    b.functions.items[@intCast(body_function)].result = borrowed;
+    b.functions.items[@intCast(body_function)].body = try b.pure(try b.reference(parameter));
+    const escaped = try b.variable(borrowed);
+    const read = try b.term(.{ .call = .{ .function = b.resources.items[0].eliminators[0], .arguments = &.{try b.reference(escaped)} } });
+    const next = try b.bind(escaped, protected, read);
+    b.functions.items[@intCast(original.entry)].body = try b.bind(main_bind.variable, main_bind.value, next);
+    try testing.expectError(error.InvalidOwnership, lower(testing.allocator, b.module(original.entry, original.failure)));
+}

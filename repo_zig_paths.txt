@@ -131,3 +131,4 @@ src/v2/data/activation_types.zig
 src/v2/data/activation_ownership.zig
 src/v2/data/function_inputs.zig
 src/v2/source/activation_admission_tests.zig
+src/v2/data/activation_borrow_tests.zig

@@ -70,9 +70,18 @@ The twelve existing custody-edge scenarios now retain this normal/failure distin
 under stable lowering. A successor handler's answer remains distinct from the
 captured resumption's answer.
 
-These layers still do not confer executable status. Dynamic borrow/context
-provenance, canonical image/State admission and actual runtime custody transitions
-remain required. Stable direct-clause flags reject until their own CFG proof and
+The shared borrow/context solver now reads stable slots at explicit instruction
+positions. A later rebinding cannot change the provenance of an earlier store.
+Incoming control edges transport only changed assignments; unchanged bindings keep
+their identity. Function-input ordinals are distinct from slot numbers, including
+non-prefix and permuted inputs. Reachability uses a worklist over actual edges.
+No predecessor block interfaces are materialized for this analysis.
+
+The stable analysis currently summarizes whole function entry interfaces; requests
+for a non-entry stable summary reject rather than mislabel local slots as inputs.
+Portable State provenance is a separate remaining obligation. The compiler and
+native runtime now enforce declared borrow/resource contracts, but canonical
+image/State admission and portable runtime custody still remain required. Stable direct-clause flags reject until their own CFG proof and
 selective execution implementation exist; they do not enter the predecessor path.
 
 ## Evidence and limits
@@ -153,10 +162,11 @@ World now executes the native stable-control slice through `source.construct`,
 including deep multi-shot/reentrant cases and retained loop-slot versions. The
 analysis owner now keeps its arena at a stable address so runtime-derived set
 operations cannot allocate through an escaped stack pointer. The next seam is
-remaining borrow/context provenance and portable codec integration. World now
-also exercises shallow/injected control and unborrowed cleanup/cancellation with
-lexical custody; borrowed/resource execution remains blocked by the unfinished
-provenance layer. The M1
+portable Program/State integration and whole-Session failure atomicity. World now
+also executes borrowed/resource cases using the stable borrow/context admission.
+The current source conformance includes 24 older/fresh return-clause cases,
+pre-instruction rebind counterexamples, loop/permutation summaries, clause payload
+rejections, and protected-loan escape rejection. The M1
 runtime slice must include non-tail handling, an external request, a join, escaping
 one-shot control, retained loop versions and reentrant multi-shot behavior before
 the main migration is accepted. Static admission is not a substitute for that slice.

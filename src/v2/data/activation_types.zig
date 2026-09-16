@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
 //! Type, effect and nominal resource contracts over stable activation records.
-//! This layer is necessary but not sufficient for executable admission: dynamic
-//! borrow provenance and capture/ownership flow have their own checks.
+//! Includes position-sensitive borrow/context provenance. Capture/ownership flow
+//! and portable State admission have their own checks.
 const std = @import("std");
 const p = @import("program.zig");
 const ir = @import("activation.zig");
@@ -37,6 +37,8 @@ pub fn validate(allocator: std.mem.Allocator, image: ir.Program) Error!void {
         try terminator(image, block, layout, effects);
     }
     try @import("region_admission.zig").validate(scratch, image);
+    const schema_facts = try a.schemas(scratch, image.schemas);
+    try @import("borrow_flow.zig").validate(scratch, image, schema_facts.exportable, null);
 }
 
 fn catalogs(allocator: std.mem.Allocator, image: ir.Program) Error!void {
