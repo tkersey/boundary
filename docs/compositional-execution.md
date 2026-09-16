@@ -21,7 +21,7 @@ predecessor-view semantics; admission now checks source consumption before any
 writes. Each function also has an acyclic lexical custody tree; each block names
 its active scope. Normal scope exits transfer surviving owners into their parent
 before an edge establishes new bindings. This is separate from nominal regions.
-Runtime execution of these contracts remains pending.
+World's native stable controller now executes these contracts.
 
 `source/activation_lower.zig` lowers staged terms directly into those records.
 It does not call the predecessor compiler or translate an old Program. Real
@@ -81,7 +81,8 @@ The stable analysis currently summarizes whole function entry interfaces; reques
 for a non-entry stable summary reject rather than mislabel local slots as inputs.
 Portable State provenance is a separate remaining obligation. The compiler and
 native runtime now enforce declared borrow/resource contracts, but canonical
-image/State admission and portable runtime custody still remain required. Stable direct-clause flags reject until their own CFG proof and
+State admission and portable runtime custody still remain required. BPI3 now
+performs full stable image admission. Stable direct-clause flags reject until their own CFG proof and
 selective execution implementation exist; they do not enter the predecessor path.
 
 ## Evidence and limits
@@ -116,7 +117,7 @@ The predecessor lowering temporarily enumerates term sets to build its old block
 interfaces. The stable compiler never calls that adapter. This adapter leaves with
 the predecessor backend; it is not an accepted successor path.
 
-Construction and structure checks cover 36 existing generalized-effect examples,
+Construction and structure checks cover 37 existing generalized-effect examples,
 heterogeneous join destinations, shadowed names, expression DAG sharing, malformed
 slot/edge references, permutations, repeated copyable inputs, answer transformation,
 source-owner release and allocation-failure sweeps. New adversarial cases reject
@@ -158,6 +159,23 @@ compact-image-size or end-to-end performance requirements.
 
 ## Remaining work
 
+The [BPI3 codec](bpi3-wire.md) now writes stable records directly, admits owned
+input, enforces a physical expansion budget and hashes the canonical bytes in
+the new `boundary.program/v3` domain. Goldens and allocation-failure sweeps pass;
+all 37 staged semantic examples round-trip with exact record/identity equality.
+The source construction exposes this encoder, and World's stable source suite
+now loads it and destroys the input bytes before execution. The default public
+compiler still awaits the coordinated cutover.
+
+`zig build check-program-image-wasm -Doptimize=ReleaseSafe` compares native and
+import-free, unshared wasm32 decoding/re-encoding and identity for 12 installation,
+mixed and irregular images. All agree. On the unchanged installation inputs,
+complete BPI3 sizes for 64/128/256 are **2,640 / 5,462 / 11,350 bytes**, versus
+freshly emitted BPC1 **2,805 / 5,574 / 12,102 bytes**. This is a byte-count result,
+not execution, preparation-memory or compiler-time acceptance. The probe emits
+every size and image identity; it includes the actual native emitter and WASM
+codec, with no predecessor expansion in the successor codec.
+
 World now executes the native stable-control slice through `source.construct`,
 including deep multi-shot/reentrant cases and retained loop-slot versions. The
 analysis owner now keeps its arena at a stable address so runtime-derived set
@@ -171,7 +189,7 @@ runtime slice must include non-tail handling, an external request, a join, escap
 one-shot control, retained loop versions and reentrant multi-shot behavior before
 the main migration is accepted. Static admission is not a substitute for that slice.
 
-BPI3/PST3/current protocols, independently checked BMO1 linking, selective execution,
+PST3/current protocols, independently checked BMO1 linking, selective execution,
 efficient values, prepared/resident transactions, browser byte embedding, Agent's
 complete migration and compiled-tool transfer, performance comparisons, retirement,
 package validation and publication/review closeout remain mandatory. The current

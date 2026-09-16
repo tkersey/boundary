@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
 //! Direct lowering into function-local stable slots. No block-parameter program
-//! is built. The returned construction still requires successor target admission,
-//! disposition insertion, and canonicalization before it may become executable.
+//! is built. The returned construction owns admitted records and flow facts;
+//! encoding checks the current records again before producing canonical BPI3.
 const std = @import("std");
 const data = @import("boundary_data_v2");
 const p = data.program;
@@ -17,6 +17,10 @@ pub const Construction = struct {
     arena: std.heap.ArenaAllocator,
     program: ir.Program,
     flow: data.activation_flow.Facts,
+
+    pub fn encode(self: *const Construction, allocator: std.mem.Allocator, output: []u8) data.program_image.Error![]const u8 {
+        return data.program_image.encode(allocator, self.program, output);
+    }
 
     pub fn deinit(self: *Construction) void {
         self.flow.deinit();

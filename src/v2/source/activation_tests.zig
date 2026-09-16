@@ -246,8 +246,7 @@ test "stable lowering distinguishes the successor handler answer from the resump
     return error.TestUnexpectedResult;
 }
 
-test "generalized-effect staged examples lower directly without predecessor code" {
-    // These checks establish construction, not runtime or target admission.
+test "generalized-effect staged examples round-trip directly through BPI3 admission" {
     inline for (.{
         "lexical",            "deep",                "recursive",      "choicesAll",         "choicesFirst",
         "generator",          "stateLocal",          "stateShared",    "ownership",          "answers",
@@ -256,7 +255,7 @@ test "generalized-effect staged examples lower directly without predecessor code
         "nested",             "shallow",             "injection",      "indexed",            "abortCustody",
         "unwind",             "reentrant",           "cloned",         "shallowResumptions", "shallowInjection",
         "handleOperandOrder", "protectOperandOrder", "successorState", "clausePayload",      "clauseAbort",
-        "blobCapture",
+        "blobCapture",        "scalarContracts",
     }) |name| {
         var builder = source.Builder.init(testing.allocator);
         defer builder.deinit();
@@ -265,5 +264,30 @@ test "generalized-effect staged examples lower directly without predecessor code
         try data.activation_structure.validate(testing.allocator, compiled.program);
 
         try testing.expect(compiled.program.blocks.len != 0);
+        const bytes = try testing.allocator.alloc(u8, try data.program_image.encodedLength(compiled.program));
+        defer testing.allocator.free(bytes);
+        _ = try compiled.encode(testing.allocator, bytes);
+        var decoded = try data.program_image.decode(testing.allocator, bytes);
+        defer decoded.deinit();
+        try testing.expectEqualDeep(compiled.program, decoded.program);
+        try testing.expectEqual(try data.program_image.identity(testing.allocator, compiled.program), decoded.identity);
+    }
+}
+
+test "complete BPI3 installation images stay within the fixed BPC1 anchors" {
+    for ([_]usize{ 64, 128, 256 }, [_]usize{ 2805, 5574, 12102 }) |count, baseline| {
+        var builder = source.Builder.init(testing.allocator);
+        defer builder.deinit();
+        var compiled = try source.construct(testing.allocator, try source.examples.installations(&builder, count));
+        defer compiled.deinit();
+        const length = try data.program_image.encodedLength(compiled.program);
+        if (length > baseline) std.debug.print("BPI3 installations {d}: {d} > {d}\n", .{ count, length, baseline });
+        try testing.expect(length <= baseline);
+        const bytes = try testing.allocator.alloc(u8, length);
+        defer testing.allocator.free(bytes);
+        _ = try compiled.encode(testing.allocator, bytes);
+        var decoded = try data.program_image.decode(testing.allocator, bytes);
+        defer decoded.deinit();
+        try testing.expectEqualDeep(compiled.program, decoded.program);
     }
 }

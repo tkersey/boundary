@@ -132,3 +132,6 @@ src/v2/data/activation_ownership.zig
 src/v2/data/function_inputs.zig
 src/v2/source/activation_admission_tests.zig
 src/v2/data/activation_borrow_tests.zig
+src/v2/data/program_record.zig
+src/v2/data/program_image.zig
+src/v2/data/program_image_tests.zig

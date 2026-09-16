@@ -8,6 +8,7 @@ pub const activation_structure = @import("activation_structure.zig");
 pub const activation_flow = @import("activation_flow.zig");
 pub const activation_types = @import("activation_types.zig");
 pub const activation_ownership = @import("activation_ownership.zig");
+pub const program_image = @import("program_image.zig");
 pub const admission = @import("admission.zig");
 pub const image = @import("image.zig");
 pub const compact_image = @import("compact_image.zig");
