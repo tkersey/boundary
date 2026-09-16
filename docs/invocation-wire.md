@@ -40,13 +40,18 @@ failure or stop request.
 
 | PKO3 tag | Outcome | Payload |
 | --- | --- | --- |
-| 0 | progressed | PST3:B |
-| 1 | requested | PST3:B, ERQ3:B |
-| 2 | yielded | PST3:B |
+| 0 | progressed | checkpoint:?B |
+| 1 | requested | checkpoint:?B, ERQ3:B |
+| 2 | yielded | checkpoint:?B |
 | 3 | completed | typed result:B |
 | 4 | failed | typed failure:B, cleanup_failures:B, cancellation:?Reason |
 | 5 | cancelled | Reason, cleanup_failures:B |
 | 6 | needs_capacity | Capacity |
+
+A present checkpoint is complete canonical PST3. Fresh invocation always supplies
+it on incomplete outcomes. Resident drive omits it by default, and supplies it
+when explicitly requested. Absence is not a portable recovery unit or a promise
+of durability; the resident owner remains required until checkpoint export.
 
 Cleanup failures contain N(count) followed by each typed failure as B, in order,
 under the Program's root failure schema. Capacity is `(arena:N, input:Bound,
@@ -106,6 +111,7 @@ World compares fresh, resident and restored execution at matching quanta, retain
 the source corpus's independent expectations. Tests distinguish identical visible
 requests with different captures, stale replies, explicit yields, zero quanta and
 cancellation during pending cleanup. Fresh allocation-failure sweeps preserve
-commands and output. Native prepared lifetimes now retain immutable admitted data
-across sequential starts and restores. Resident rollback, ABI 3, cross-host
+commands and output. Native prepared lifetimes retain immutable admitted data
+across sequential starts and restores. Resident transactions preserve entry State
+on drive/output failure, with checkpoint publication optional. ABI 3, cross-host
 execution, Agent migration and final public cutover remain mandatory.

@@ -54,6 +54,17 @@ test "current envelope golden tags and owned decode" {
     try testing.expectError(error.InvalidFlags, protocol.decode(protocol.Input, testing.allocator, &changed));
 }
 
+test "resident progress explicitly omits a portable checkpoint" {
+    const value: protocol.Outcome = .{ .progressed = null };
+    const golden = "ABL_PKO3".* ++ [_]u8{ 3, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+    const bytes = try protocol.encodeOwned(protocol.Outcome, testing.allocator, value);
+    defer testing.allocator.free(bytes);
+    try testing.expectEqualSlices(u8, &golden, bytes);
+    var decoded = try protocol.decode(protocol.Outcome, testing.allocator, bytes);
+    defer decoded.deinit();
+    try testing.expect(decoded.value == .progressed and decoded.value.progressed == null);
+}
+
 test "current envelopes reject initial replies and malformed outcomes atomically" {
     var output = [_]u8{0xa5} ** 256;
     const input: protocol.Input = .{ .image = &.{}, .instance = .{ .initial_args = &.{} }, .control = .{ .reply = &.{} } };

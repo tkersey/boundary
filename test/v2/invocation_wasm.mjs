@@ -13,12 +13,13 @@ const binding = new Uint8Array([
 ]);
 const identity = createHash("sha256").update("boundary.effect-request/v3\0").update(binding).digest();
 const cases = [
-  ["PKI3", [0, 0, 0, 0, 1, 0]],
-  ["PKO3", [3, ...field(scalar)]],
-  ["ERQ3", [...binding, ...identity]],
-  ["ERS3", [...identity, ...field([1])]],
+  [0, "PKI3", [0, 0, 0, 0, 1, 0]],
+  [1, "PKO3", [3, ...field(scalar)]],
+  [2, "ERQ3", [...binding, ...identity]],
+  [3, "ERS3", [...identity, ...field([1])]],
+  [1, "PKO3", [0, 0]],
 ];
-for (const [kind, [family, body]] of cases.entries()) {
+for (const [kind, family, body] of cases) {
   const bytes = new Uint8Array(20 + body.length);
   bytes.set(new TextEncoder().encode(`ABL_${family}`));
   const header = new DataView(bytes.buffer);

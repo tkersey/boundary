@@ -218,7 +218,7 @@ one-shot control, retained loop versions and reentrant multi-shot behavior befor
 the main migration is accepted. Static admission is not a substitute for that slice.
 
 Public protocol cutover, independently checked BMO1 linking, selective execution,
-efficient values, resident transactions, browser byte embedding, Agent's
+efficient values, transaction performance qualification, browser byte embedding, Agent's
 complete migration and compiled-tool transfer, performance comparisons, retirement,
 package validation and publication/review closeout remain mandatory. The current
 public compiler/runtime still use the predecessor. The internal construction is

@@ -35,9 +35,9 @@ pub const Capacity = struct {
     memory_pages: Bound = .{},
 };
 pub const Outcome = union(enum(u8)) {
-    progressed: []const u8,
-    requested: struct { state: []const u8, request: []const u8 },
-    yielded: []const u8,
+    progressed: ?[]const u8,
+    requested: struct { state: ?[]const u8, request: []const u8 },
+    yielded: ?[]const u8,
     completed: []const u8,
     failed: struct { value: []const u8, cleanup_failures: []const u8 = &.{0}, cancellation: ?Reason = null },
     cancelled: struct { reason: Reason, cleanup_failures: []const u8 = &.{0} },
