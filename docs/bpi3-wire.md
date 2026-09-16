@@ -243,3 +243,17 @@ cover truncations, wrong framing, redundant-default rejection, compressed
 expansion limits, output overlap/capacity, allocation failures and all 37 staged
 generalized-effects example round trips. World source agreement executes images
 after their input storage has been overwritten and released.
+
+`Admitted.decode` provides a separate opaque immutable admission owner for
+reusable preparation. It retains the same decoding pass's control-flow facts,
+plus read-only schema, use and effect facts. It accepts bytes only; callers cannot
+install a mutable Program/facts pair or assert trusted status. Ordinary `decode`
+still returns record ownership and releases its temporary analysis.
+
+An admitted owner creates private analysis overlays that borrow its original
+maps. Lookup crosses at most one immutable base, and new set nodes belong to the
+consumer; no whole-pool copy or chain of predecessor versions is introduced.
+The owner must outlive these borrowed overlays. World establishes that lifetime
+through strong session references. `validateAdmitted` checks State against that
+opaque owner without re-admitting or re-hashing its Program. State graph, scope,
+borrow and ownership checks remain required on every incoming checkpoint.

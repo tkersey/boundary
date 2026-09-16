@@ -16,7 +16,7 @@ pub const Error = wire.Error || std.mem.Allocator.Error || error{
     InvalidOwnership,
 };
 
-pub const SchemaFacts = struct { minimum: []u64, exportable: []bool };
+pub const SchemaFacts = struct { minimum: []const u64, exportable: []const bool };
 
 pub fn schemaAt(catalog: []const p.Schema, id: p.Id) Error!p.Schema {
     if (id >= catalog.len) return error.InvalidSchema;

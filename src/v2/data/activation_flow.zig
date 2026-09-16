@@ -33,11 +33,21 @@ pub const Facts = struct {
     live: []const []const sets.Root,
     liveness_visits: usize,
 
+    pub fn view(self: *Facts) View {
+        return .{ .pool = self.pool, .positions = self.positions, .live = self.live };
+    }
+
     pub fn deinit(self: *Facts) void {
         self.arena.deinit();
         self.parent_allocator.destroy(self.arena);
         self.* = undefined;
     }
+};
+
+pub const View = struct {
+    pool: *sets.Pool,
+    positions: []const []const State,
+    live: []const []const sets.Root,
 };
 
 pub fn analyze(allocator: std.mem.Allocator, image: ir.Program) Error!Facts {

@@ -25,6 +25,53 @@ const golden = "ABL_BPI3".* ++ [_]u8{
     0, 0, 0, 0, 0, // handlers, captures, regions, resources, constructors
 };
 
+test "immutable admitted images share facts without accepting mutable lookalikes" {
+    var bytes = golden;
+    const admitted = try image.Admitted.decode(testing.allocator, &bytes);
+    defer admitted.deinit();
+    @memset(&bytes, 0xff);
+    try testing.expectEqualDeep(example, admitted.program());
+    const retained = admitted.storageBytes();
+    var first = try admitted.analysis(testing.allocator);
+    defer first.deinit();
+    var second = try admitted.analysis(testing.allocator);
+    defer second.deinit();
+    try testing.expect(first.facts.live.ptr == second.facts.live.ptr);
+    try testing.expect(first.facts.pool != second.facts.pool);
+    const root = first.facts.live[0][1];
+    try testing.expect(first.facts.pool.contains(root, 0));
+    try testing.expectEqual(@import("analysis_sets.zig").empty, try first.facts.pool.remove(root, 0));
+    try testing.expect(second.facts.pool.contains(root, 0));
+    try testing.expectEqual(retained, admitted.storageBytes());
+    const state: @import("process_state.zig").State = .{
+        .program_identity = admitted.identity(),
+        .status = .active,
+        .roots = .{ .current = .{ .id = 0 } },
+        .nodes = &.{.{ .record = .{ .control = .{ .block = 0, .arguments = &.{} } }, .activation = .{
+            .position = 1,
+            .scope = 0,
+            .owners = &.{},
+            .bindings = &.{.{ .slot = 0, .value = .{ .schema = 0, .body = .{ .scalar = .{ 42, 0, 0, 0, 0, 0, 0, 0 } } } }},
+        } }},
+    };
+    try @import("state_admission.zig").validateAdmitted(testing.allocator, admitted, state);
+    var lookalike = admitted.program();
+    lookalike.roots.entry = 999;
+    try testing.expectError(error.InvalidReference, @import("state_admission.zig").validateStable(testing.allocator, lookalike, state));
+    try @import("state_admission.zig").validateAdmitted(testing.allocator, admitted, state);
+}
+
+fn admittedFailure(allocator: std.mem.Allocator) !void {
+    const owner = try image.Admitted.decode(allocator, &golden);
+    defer owner.deinit();
+    var analysis = try owner.analysis(allocator);
+    defer analysis.deinit();
+    try testing.expectEqualDeep(example, owner.program());
+}
+test "immutable admitted image allocation failures release records and facts" {
+    try testing.checkAllAllocationFailures(testing.allocator, admittedFailure, .{});
+}
+
 test "BPI3 scalar and unit golden encodings" {
     var bytes: [256]u8 = undefined;
     try testing.expectEqualSlices(u8, &golden, try image.encode(testing.allocator, example, &bytes));

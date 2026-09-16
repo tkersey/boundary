@@ -26,6 +26,20 @@ pub const Pool = struct {
     nodes: std.ArrayList(Node) = .empty,
     interned: std.AutoHashMapUnmanaged(Node, Root) = .empty,
     visits: usize = 0,
+    base: ?*const ReadOnly = null,
+
+    /// The owner must keep this root pool immutable and alive while borrowed.
+    /// Only one base is permitted; lookup never walks a version chain.
+    pub fn readOnly(self: *const Pool) Error!*const ReadOnly {
+        if (self.base != null) return error.InvalidReference;
+        return @ptrCast(self);
+    }
+    pub fn overlay(allocator: std.mem.Allocator, base: *const ReadOnly) Pool {
+        return .{ .allocator = allocator, .limit = base.pool().limit, .base = base };
+    }
+    fn baseCount(self: *const Pool) usize {
+        return if (self.base) |base| base.pool().nodes.items.len else 0;
+    }
 
     pub fn deinit(self: *Pool) void {
         self.nodes.deinit(self.allocator);
@@ -34,14 +48,18 @@ pub const Pool = struct {
     }
 
     fn node(self: *const Pool, root: Root) Node {
-        std.debug.assert(root != empty and root <= self.nodes.items.len);
-        return self.nodes.items[root - 1];
+        const count_ = self.baseCount();
+        std.debug.assert(root != empty and root <= count_ + self.nodes.items.len);
+        if (root <= count_) return self.base.?.pool().nodes.items[root - 1];
+        return self.nodes.items[root - count_ - 1];
     }
 
     fn intern(self: *Pool, value: Node) Error!Root {
+        if (self.base) |base| if (base.pool().interned.get(value)) |root| return root;
         if (self.interned.get(value)) |root| return root;
         std.debug.assert(value.low < value.high and value.high <= self.limit);
-        const root = std.math.add(usize, self.nodes.items.len, 1) catch
+        const local = std.math.add(usize, self.nodes.items.len, 1) catch return error.OutOfMemory;
+        const root = std.math.add(usize, self.baseCount(), local) catch
             return error.OutOfMemory;
         try self.nodes.ensureUnusedCapacity(self.allocator, 1);
         try self.interned.ensureUnusedCapacity(self.allocator, 1);
@@ -81,7 +99,7 @@ pub const Pool = struct {
     }
 
     pub fn unite(self: *Pool, a: Root, b: Root) Error!Root {
-        self.visits += 1;
+        self.visits +|= 1;
         if (a == empty or a == b) return b;
         if (b == empty) return a;
         const left = self.node(a);
@@ -100,7 +118,7 @@ pub const Pool = struct {
     }
 
     pub fn intersect(self: *Pool, a: Root, b: Root) Error!Root {
-        self.visits += 1;
+        self.visits +|= 1;
         if (a == empty or b == empty) return empty;
         if (a == b) return a;
         const left = self.node(a);
@@ -119,7 +137,7 @@ pub const Pool = struct {
     }
 
     pub fn difference(self: *Pool, a: Root, b: Root) Error!Root {
-        self.visits += 1;
+        self.visits +|= 1;
         if (a == empty or a == b) return empty;
         if (b == empty) return a;
         const left = self.node(a);
@@ -140,7 +158,7 @@ pub const Pool = struct {
     }
 
     pub fn remove(self: *Pool, root: Root, member: Member) Error!Root {
-        self.visits += 1;
+        self.visits +|= 1;
         if (root == empty) return empty;
         const value = self.node(root);
         if (member < value.low or member >= value.high) return root;
@@ -216,6 +234,16 @@ pub const Pool = struct {
             result.length = 1;
         }
         return result;
+    }
+};
+
+/// No mutable pool fields escape through an admitted owner's shared base.
+pub const ReadOnly = opaque {
+    pub fn nodeCount(self: *const ReadOnly) usize {
+        return self.pool().nodes.items.len;
+    }
+    fn pool(self: *const ReadOnly) *const Pool {
+        return @ptrCast(@alignCast(self));
     }
 };
 

@@ -6,6 +6,8 @@ const wire = @import("wire.zig");
 const record = @import("record.zig");
 const body_record = @import("program_record.zig");
 const admission = @import("activation_ownership.zig");
+const flow = @import("activation_flow.zig");
+const sets = @import("analysis_sets.zig");
 pub const Error = admission.Error || body_record.Error;
 pub const magic = "ABL_BPI3";
 pub const identity_domain = "boundary.program/v3\x00";
@@ -69,6 +71,20 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8) Error!Decoded {
 }
 
 pub fn decodeLimited(allocator: std.mem.Allocator, input: []const u8, limits: Limits) Error!Decoded {
+    var checked = try decodeChecked(allocator, input, limits);
+    checked.analysis.deinit();
+    return checked.decoded;
+}
+
+const Checked = struct {
+    decoded: Decoded,
+    analysis: flow.Facts,
+    fn deinit(self: *Checked) void {
+        self.analysis.deinit();
+        self.decoded.deinit();
+    }
+};
+fn decodeChecked(allocator: std.mem.Allocator, input: []const u8, limits: Limits) Error!Checked {
     if (input.len < wire.header_length) return error.Truncated;
     if (input.len > limits.max_decoded_bytes) return error.Capacity;
     var arena = std.heap.ArenaAllocator.init(allocator);
@@ -84,7 +100,7 @@ pub fn decodeLimited(allocator: std.mem.Allocator, input: []const u8, limits: Li
     const program = try body_record.read(ir.Program, &reader, arena.allocator(), &budget, &context);
     try reader.finish();
     var checked = try admission.analyze(allocator, program);
-    defer checked.deinit();
+    errdefer checked.deinit();
     // Re-emission checks every omitted default and compressed spelling. The hash
     // receives those same bytes; neither path expands old live interfaces.
     var hash = std.crypto.hash.sha2.Sha256.init(.{});
@@ -92,5 +108,77 @@ pub fn decodeLimited(allocator: std.mem.Allocator, input: []const u8, limits: Li
     var canonical: wire.Writer = .{ .expected = owned, .hasher = &hash };
     try write(program, owned.len, &canonical);
     if (canonical.position != owned.len) return error.NonCanonical;
-    return .{ .arena = arena, .program = program, .bytes = owned, .identity = hash.finalResult(), .decoded_bytes = budget.used };
+    return .{ .decoded = .{ .arena = arena, .program = program, .bytes = owned, .identity = hash.finalResult(), .decoded_bytes = budget.used }, .analysis = checked };
 }
+
+pub const Analysis = struct {
+    allocator: std.mem.Allocator,
+    facts: flow.View,
+    pub fn deinit(self: *Analysis) void {
+        self.facts.pool.deinit();
+        self.allocator.destroy(self.facts.pool);
+        self.* = undefined;
+    }
+};
+const AdmittedStorage = struct {
+    allocator: std.mem.Allocator,
+    decoded: Decoded,
+    analysis: flow.Facts,
+    schemas: @import("admission.zig").SchemaFacts,
+    uses: @import("traits.zig").Facts,
+    effects: @import("effect_scope.zig").Facts,
+};
+
+/// Immutable reusable admission owner. Construction accepts bytes only, never
+/// caller-supplied facts, identity, or a mutable Decoded lookalike.
+pub const Admitted = opaque {
+    fn storage(self: *const Admitted) *const AdmittedStorage {
+        return @ptrCast(@alignCast(self));
+    }
+    pub fn decode(allocator: std.mem.Allocator, input: []const u8) Error!*Admitted {
+        var checked = try decodeChecked(allocator, input, .{});
+        errdefer checked.deinit();
+        const derived = checked.analysis.arena.allocator();
+        const schemas = try @import("admission.zig").schemas(derived, checked.decoded.program.schemas);
+        const uses = try @import("traits.zig").derive(derived, checked.decoded.program.schemas);
+        const effects = try @import("effect_scope.zig").derive(derived, checked.decoded.program);
+        const owner = try allocator.create(AdmittedStorage);
+        owner.* = .{ .allocator = allocator, .decoded = checked.decoded, .analysis = checked.analysis, .schemas = schemas, .uses = uses, .effects = effects };
+        return @ptrCast(owner);
+    }
+    pub fn deinit(self: *Admitted) void {
+        const owner: *AdmittedStorage = @ptrCast(@alignCast(self));
+        const allocator = owner.allocator;
+        owner.analysis.deinit();
+        owner.decoded.deinit();
+        allocator.destroy(owner);
+    }
+    pub fn program(self: *const Admitted) ir.Program {
+        return self.storage().decoded.program;
+    }
+    pub fn identity(self: *const Admitted) [32]u8 {
+        return self.storage().decoded.identity;
+    }
+    pub fn schemaFacts(self: *const Admitted) @import("admission.zig").SchemaFacts {
+        return self.storage().schemas;
+    }
+    pub fn traits(self: *const Admitted) @import("traits.zig").Facts {
+        return self.storage().uses;
+    }
+    pub fn effectFacts(self: *const Admitted) @import("effect_scope.zig").Facts {
+        return self.storage().effects;
+    }
+    pub fn storageBytes(self: *const Admitted) usize {
+        const owner = self.storage();
+        return @sizeOf(AdmittedStorage) + owner.decoded.arena.queryCapacity() + owner.analysis.arena.queryCapacity();
+    }
+    /// Per-consumer mutable set nodes; all original maps remain shared read-only.
+    /// This analysis borrows the admitted owner for its entire lifetime.
+    pub fn analysis(self: *const Admitted, allocator: std.mem.Allocator) Error!Analysis {
+        const original = &self.storage().analysis;
+        const pool = try allocator.create(sets.Pool);
+        errdefer allocator.destroy(pool);
+        pool.* = sets.Pool.overlay(allocator, try original.pool.readOnly());
+        return .{ .allocator = allocator, .facts = .{ .pool = pool, .positions = original.positions, .live = original.live } };
+    }
+};

@@ -6,8 +6,8 @@ const std = @import("std");
 const p = @import("program.zig");
 const Error = @import("admission.zig").Error;
 pub const Facts = struct {
-    ambient: []bool,
-    dependencies: []bool,
+    ambient: []const bool,
+    dependencies: []const bool,
     width: usize,
     pub fn contains(self: Facts, schema: p.Id, effect: p.Id) bool {
         return self.dependencies[@as(usize, @intCast(schema)) * self.width + @as(usize, @intCast(effect))];

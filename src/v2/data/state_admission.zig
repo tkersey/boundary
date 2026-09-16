@@ -74,13 +74,26 @@ pub fn validate(allocator: std.mem.Allocator, program: p.Program, state: g.State
         .roots = state.roots,
         .nodes = state.nodes,
         .blobs = state.blobs,
-    }, &.{}, null);
+    }, &.{}, null, null);
 }
 
 pub fn validateStable(allocator: std.mem.Allocator, program: stable_ir.Program, state: ps.State) Error!void {
     var flow = try @import("activation_ownership.zig").analyze(allocator, program);
     defer flow.deinit();
     if (!std.mem.eql(u8, &state.program_identity, &try @import("program_image.zig").identity(allocator, program))) return error.InvalidState;
+    var view = flow.view();
+    return validateStableRecords(allocator, program, state, &view, null);
+}
+
+/// Only the opaque immutable byte-admitted owner can supply reusable facts.
+pub fn validateAdmitted(allocator: std.mem.Allocator, admitted: *const @import("program_image.zig").Admitted, state: ps.State) Error!void {
+    if (!std.mem.eql(u8, &state.program_identity, &admitted.identity())) return error.InvalidState;
+    var analysis = try admitted.analysis(allocator);
+    defer analysis.deinit();
+    return validateStableRecords(allocator, admitted.program(), state, &analysis.facts, admitted);
+}
+
+fn validateStableRecords(allocator: std.mem.Allocator, program: stable_ir.Program, state: ps.State, view: *@import("activation_flow.zig").View, admitted: ?*const @import("program_image.zig").Admitted) Error!void {
     try @import("state_image.zig").checkGraph(allocator, state);
     var scratch = std.heap.ArenaAllocator.init(allocator);
     defer scratch.deinit();
@@ -96,10 +109,10 @@ pub fn validateStable(allocator: std.mem.Allocator, program: stable_ir.Program, 
         .roots = state.roots,
         .nodes = records,
         .blobs = state.blobs,
-    }, frames, &flow);
+    }, frames, view, admitted);
 }
 
-fn validateInternal(allocator: std.mem.Allocator, program: anytype, state: StateView, activations: []const ?ps.Activation, flow: ?*@import("activation_flow.zig").Facts) Error!void {
+fn validateInternal(allocator: std.mem.Allocator, program: anytype, state: StateView, activations: []const ?ps.Activation, flow: ?*@import("activation_flow.zig").View, admitted: ?*const @import("program_image.zig").Admitted) Error!void {
     const Context = ContextFor(@TypeOf(program));
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
@@ -110,8 +123,8 @@ fn validateInternal(allocator: std.mem.Allocator, program: anytype, state: State
         .state = state,
         .activations = activations,
         .flow = flow,
-        .facts = try a.schemas(temporary, program.schemas),
-        .uses = try traits.derive(temporary, program.schemas),
+        .facts = if (admitted) |owner| owner.schemaFacts() else try a.schemas(temporary, program.schemas),
+        .uses = if (admitted) |owner| owner.traits() else try traits.derive(temporary, program.schemas),
         .custody = try temporary.alloc(usize, state.nodes.len),
         .owned = try temporary.alloc(usize, state.nodes.len),
         .environments = try temporary.alloc(usize, state.nodes.len),
@@ -213,6 +226,7 @@ fn validateInternal(allocator: std.mem.Allocator, program: anytype, state: State
         context.frame_children,
         context.enter,
         context.leave,
+        if (admitted) |owner| owner.effectFacts() else null,
     );
     context.effect_check.?.activations = activations;
     for (state.blobs) |blob| try a.value(temporary, program.schemas, context.facts, .{ .schema = blob.schema, .bytes = blob.bytes });
@@ -255,7 +269,7 @@ fn ContextFor(comptime Program: type) type {
         program: Program,
         state: StateView,
         activations: []const ?ps.Activation,
-        flow: ?*@import("activation_flow.zig").Facts,
+        flow: ?*@import("activation_flow.zig").View,
         facts: a.SchemaFacts,
         uses: traits.Facts,
         custody: []usize,

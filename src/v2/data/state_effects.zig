@@ -33,6 +33,7 @@ pub fn CheckFor(comptime Program: type, comptime State: type) type {
             children: []const ?g.NodeRef,
             enter: []const usize,
             leave: []const usize,
+            prepared_facts: ?effect_scope.Facts,
         ) Error!Self {
             return .{
                 .allocator = allocator,
@@ -42,7 +43,7 @@ pub fn CheckFor(comptime Program: type, comptime State: type) type {
                 .children = children,
                 .enter = enter,
                 .leave = leave,
-                .facts = try effect_scope.derive(allocator, program),
+                .facts = prepared_facts orelse try effect_scope.derive(allocator, program),
             };
         }
 

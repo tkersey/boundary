@@ -106,5 +106,6 @@ World compares fresh, resident and restored execution at matching quanta, retain
 the source corpus's independent expectations. Tests distinguish identical visible
 requests with different captures, stale replies, explicit yields, zero quanta and
 cancellation during pending cleanup. Fresh allocation-failure sweeps preserve
-commands and output. Prepared lifetimes, resident rollback, ABI 3, cross-host
+commands and output. Native prepared lifetimes now retain immutable admitted data
+across sequential starts and restores. Resident rollback, ABI 3, cross-host
 execution, Agent migration and final public cutover remain mandatory.

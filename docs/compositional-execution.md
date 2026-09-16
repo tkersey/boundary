@@ -158,6 +158,15 @@ compact-image-size or end-to-end performance requirements.
 
 ## Remaining work
 
+Opaque admitted BPI3 owners now retain immutable Program facts for World
+preparation. Each execution or State admission gets a private set overlay over
+one read-only base; lookups never follow a chain of earlier versions. Exhaustive
+eight-bit set operations, allocation failures and sibling-overlay tests preserve
+the base. Schema/use/effect views are read-only. This removes repeated Program
+admission from prepared starts/restores, without adding a caller-supplied proof flag.
+The earlier checker timings above remain bound to their recorded source revisions;
+they are not measurements of these later representation changes.
+
 The [current invocation envelopes](invocation-wire.md) define PKI3/PKO3 and
 ERQ3/ERS3 with owned decoding and State-bound typed replies. Fresh native invocation
 uses the stable evaluator and agrees with resident/restored execution at matching
@@ -208,8 +217,8 @@ runtime slice must include non-tail handling, an external request, a join, escap
 one-shot control, retained loop versions and reentrant multi-shot behavior before
 the main migration is accepted. Static admission is not a substitute for that slice.
 
-PST3/current protocols, independently checked BMO1 linking, selective execution,
-efficient values, prepared/resident transactions, browser byte embedding, Agent's
+Public protocol cutover, independently checked BMO1 linking, selective execution,
+efficient values, resident transactions, browser byte embedding, Agent's
 complete migration and compiled-tool transfer, performance comparisons, retirement,
 package validation and publication/review closeout remain mandatory. The current
 public compiler/runtime still use the predecessor. The internal construction is

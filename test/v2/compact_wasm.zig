@@ -21,6 +21,26 @@ export fn program_encode(length: usize) usize {
     return encoded.len;
 }
 
+export fn admitted_probe(length: usize) u32 {
+    if (length > input.len) return 0;
+    var storage = std.heap.FixedBufferAllocator.init(&scratch);
+    const allocator = storage.allocator();
+    const owner = data.program_image.Admitted.decode(allocator, input[0..length]) catch return 0;
+    defer owner.deinit();
+    var first = owner.analysis(allocator) catch return 0;
+    defer first.deinit();
+    var second = owner.analysis(allocator) catch return 0;
+    defer second.deinit();
+    const base = first.facts.pool.base.?;
+    const count = base.nodeCount();
+    if (first.facts.pool == second.facts.pool or first.facts.live.ptr != second.facts.live.ptr or
+        base != second.facts.pool.base.?) return 0;
+    if (first.facts.pool.limit != 0) _ = first.facts.pool.run(0, 1) catch return 0;
+    if (base.nodeCount() != count or second.facts.pool.nodes.items.len != 0) return 0;
+    program_identity = owner.identity();
+    return 1;
+}
+
 export fn state_encode(length: usize) usize {
     if (length > input.len) return 0;
     var storage = std.heap.FixedBufferAllocator.init(&scratch);

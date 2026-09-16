@@ -3,6 +3,49 @@ const std = @import("std");
 const sets = @import("analysis_sets.zig");
 const testing = std.testing;
 
+test "set overlays share immutable roots and isolate all eight-bit operations" {
+    var base: sets.Pool = .{ .allocator = testing.allocator, .limit = 8 };
+    defer base.deinit();
+    const prefix = try base.run(0, 4);
+    const frozen = try base.readOnly();
+    const count = frozen.nodeCount();
+    const visits = base.visits;
+    var overlay = sets.Pool.overlay(testing.allocator, frozen);
+    defer overlay.deinit();
+    var roots: [256]sets.Root = @splat(sets.empty);
+    for (&roots, 0..) |*root, bits| for (0..8) |member| {
+        if ((bits & (@as(usize, 1) << @intCast(member))) != 0) root.* = try overlay.insert(root.*, member);
+    };
+    try testing.expectEqual(prefix, roots[15]);
+    for (roots, 0..) |left, a| for (roots, 0..) |right, b| {
+        try testing.expectEqual(roots[a | b], try overlay.unite(left, right));
+        try testing.expectEqual(roots[a & b], try overlay.intersect(left, right));
+        try testing.expectEqual(roots[a & (~b & 255)], try overlay.difference(left, right));
+    };
+    try testing.expectEqual(count, frozen.nodeCount());
+    try testing.expectEqual(visits, base.visits);
+    try testing.expectError(error.InvalidReference, overlay.readOnly());
+    var sibling = sets.Pool.overlay(testing.allocator, frozen);
+    defer sibling.deinit();
+    try testing.expectEqual(0, sibling.nodes.items.len);
+    try testing.expectEqual(@as(u8, 15), mask(&sibling, prefix));
+}
+
+test "set overlay reuse needs no allocation and failure leaves the base intact" {
+    var base: sets.Pool = .{ .allocator = testing.allocator, .limit = 8 };
+    defer base.deinit();
+    const prefix = try base.run(0, 4);
+    var empty_buffer: [0]u8 = .{};
+    var buffer = std.heap.FixedBufferAllocator.init(&empty_buffer);
+    var overlay = sets.Pool.overlay(buffer.allocator(), try base.readOnly());
+    defer overlay.deinit();
+    try testing.expectEqual(prefix, try overlay.run(0, 4));
+    try testing.expectError(error.OutOfMemory, overlay.insert(prefix, 7));
+    try testing.expectEqual(0, overlay.nodes.items.len);
+    try testing.expectEqual(@as(u8, 15), mask(&overlay, prefix));
+    try testing.expectEqual(@as(u8, 15), mask(&base, prefix));
+}
+
 fn mask(pool: *sets.Pool, root: sets.Root) u8 {
     var result: u8 = 0;
     var iterator = pool.iterator(root);
