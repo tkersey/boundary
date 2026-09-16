@@ -24,7 +24,7 @@ pub const Step = union(enum) {
 };
 const Path = struct { step: Step, tail: usize };
 pub const Ambient = enum { evidence, region };
-pub const Source = struct { parameter: p.Id = 0, path: usize = 0, ambient: ?Ambient = null };
+pub const Source = struct { stable_slot: bool = false, parameter: p.Id = 0, path: usize = 0, ambient: ?Ambient = null };
 const Trace = struct {
     block: p.Id,
     slot: p.Id = 0,
@@ -34,10 +34,10 @@ const Trace = struct {
     // Null means before the terminator; otherwise read before this instruction.
     position: ?usize = null,
 };
-const Query = struct { start: p.Id, path: usize, target: ?Trace = null, writes: ?p.Id = null, sources: std.ArrayList(Source) = .empty };
+const Query = struct { start: p.Id, position: ?usize = null, path: usize, target: ?Trace = null, writes: ?p.Id = null, sources: std.ArrayList(Source) = .empty };
 pub const Bound = enum { region, clause, capture };
 pub const Constraint = struct { value: Source, owner: Source, bound: Bound };
-const Requirements = struct { start: p.Id, constraints: std.ArrayList(Constraint) = .empty };
+const Requirements = struct { start: p.Id, position: ?usize = null, constraints: std.ArrayList(Constraint) = .empty };
 const Mapped = struct {
     fresh: ?Ambient = null,
     items: [2]Trace = undefined,
@@ -52,8 +52,7 @@ const Mapped = struct {
 };
 
 pub const Flow = FlowFor(p.Program);
-/// Stable queries currently describe whole function entry interfaces. A stable
-/// State/code-position query must not reinterpret a local slot as an input ordinal.
+/// Function summaries use input ordinals; position queries explicitly use stable slots.
 pub const StableFlow = FlowFor(activation.Program);
 
 fn FlowFor(comptime Program: type) type {
@@ -218,9 +217,11 @@ fn FlowFor(comptime Program: type) type {
             return result;
         }
 
-        fn checkStart(self: Self, start: p.Id) a.Error!void {
+        fn checkStart(self: Self, start: p.Id, position: ?usize) a.Error!void {
             if (start >= self.program.blocks.len) return error.InvalidReference;
-            if (stable) {
+            if (stable and position != null) {
+                if (position.? > self.program.blocks[@intCast(start)].instructions.len) return error.InvalidReference;
+            } else if (stable) {
                 const owner = self.program.blocks[@intCast(start)].function;
                 if (self.program.functions[@intCast(owner)].entry != start)
                     return error.InvalidProgram;
@@ -228,11 +229,15 @@ fn FlowFor(comptime Program: type) type {
         }
 
         fn query(self: *Self, start: p.Id, path: usize) a.Error!usize {
-            try self.checkStart(start);
+            return self.queryFrom(start, path, null);
+        }
+
+        fn queryFrom(self: *Self, start: p.Id, path: usize, position: ?usize) a.Error!usize {
+            try self.checkStart(start, position);
             const function = self.program.functions[@intCast(self.program.blocks[@intCast(start)].function)];
             const selected = try self.normalizePath(function.result, path);
-            for (self.queries.items, 0..) |item, index| if (item.start == start and item.path == selected and item.target == null and item.writes == null) return index;
-            try self.queries.append(self.allocator, .{ .start = start, .path = selected });
+            for (self.queries.items, 0..) |item, index| if (item.start == start and item.position == position and item.path == selected and item.target == null and item.writes == null) return index;
+            try self.queries.append(self.allocator, .{ .start = start, .position = position, .path = selected });
             self.changed = true;
             return self.queries.items.len - 1;
         }
@@ -247,17 +252,21 @@ fn FlowFor(comptime Program: type) type {
             return self.queries.items[index].sources.items;
         }
 
-        fn origin(self: *Self, start: p.Id, target: Trace) a.Error!usize {
-            for (self.queries.items, 0..) |item, index| if (item.start == start and item.target != null and std.meta.eql(item.target.?, target)) return index;
-            try self.queries.append(self.allocator, .{ .start = start, .path = 0, .target = target });
+        fn origin(self: *Self, start: p.Id, target: Trace, position: ?usize) a.Error!usize {
+            for (self.queries.items, 0..) |item, index| if (item.start == start and item.position == position and item.target != null and std.meta.eql(item.target.?, target)) return index;
+            try self.queries.append(self.allocator, .{ .start = start, .position = position, .path = 0, .target = target });
             self.changed = true;
             return self.queries.items.len - 1;
         }
 
         fn writeQuery(self: *Self, start: p.Id, schema: p.Id, path: usize) a.Error!usize {
-            try self.checkStart(start);
-            for (self.queries.items, 0..) |item, index| if (item.start == start and item.writes == schema and item.path == path) return index;
-            try self.queries.append(self.allocator, .{ .start = start, .path = path, .writes = schema });
+            return self.writeQueryFrom(start, schema, path, null);
+        }
+
+        fn writeQueryFrom(self: *Self, start: p.Id, schema: p.Id, path: usize, position: ?usize) a.Error!usize {
+            try self.checkStart(start, position);
+            for (self.queries.items, 0..) |item, index| if (item.start == start and item.position == position and item.writes == schema and item.path == path) return index;
+            try self.queries.append(self.allocator, .{ .start = start, .position = position, .path = path, .writes = schema });
             self.changed = true;
             return self.queries.items.len - 1;
         }
@@ -282,9 +291,13 @@ fn FlowFor(comptime Program: type) type {
         }
 
         fn requirementsQuery(self: *Self, start: p.Id) a.Error!usize {
-            try self.checkStart(start);
-            for (self.requirements.items, 0..) |item, index| if (item.start == start) return index;
-            try self.requirements.append(self.allocator, .{ .start = start });
+            return self.requirementsQueryFrom(start, null);
+        }
+
+        fn requirementsQueryFrom(self: *Self, start: p.Id, position: ?usize) a.Error!usize {
+            try self.checkStart(start, position);
+            for (self.requirements.items, 0..) |item, index| if (item.start == start and item.position == position) return index;
+            try self.requirements.append(self.allocator, .{ .start = start, .position = position });
             self.changed = true;
             return self.requirements.items.len - 1;
         }
@@ -293,6 +306,25 @@ fn FlowFor(comptime Program: type) type {
             const index = try self.requirementsQuery(start);
             try self.settle();
             return self.requirements.items[index].constraints.items;
+        }
+
+        pub fn requiredFrom(self: *Self, start: p.Id, position: usize) a.Error![]const Constraint {
+            const index = try self.requirementsQueryFrom(start, position);
+            try self.settle();
+            return self.requirements.items[index].constraints.items;
+        }
+        pub fn returnedFrom(self: *Self, start: p.Id, position: usize, path: usize) a.Error![]const Source {
+            const index = try self.queryFrom(start, path, position);
+            try self.settle();
+            return self.queries.items[index].sources.items;
+        }
+
+        fn reenters(self: Self, start: p.Id, live: []const bool) bool {
+            for (self.incoming[@intCast(start)].items) |incoming| if (live[@intCast(incoming.block)]) return true;
+            return false;
+        }
+        fn futureInstruction(self: Self, start: p.Id, position: ?usize, block: usize, ordinal: usize, live: []const bool) bool {
+            return position == null or block != start or ordinal >= position.? or self.reenters(start, live);
         }
 
         fn addConstraint(self: *Self, index: usize, value: Source, owner: Source, bound: Bound) a.Error!void {
@@ -308,8 +340,8 @@ fn FlowFor(comptime Program: type) type {
         fn relationAt(self: *Self, index: usize, block: p.Id, value: p.Id, owner: p.Id, bound: Bound, position: ?usize) a.Error!void {
             if (self.exportable[@intCast(self.slotType(block, value))]) return;
             const start = self.requirements.items[index].start;
-            const values = try self.origin(start, .{ .block = block, .slot = value, .path = 0, .position = position });
-            const owners = try self.origin(start, .{ .block = block, .slot = owner, .path = 0, .position = position });
+            const values = try self.origin(start, .{ .block = block, .slot = value, .path = 0, .position = position }, self.requirements.items[index].position);
+            const owners = try self.origin(start, .{ .block = block, .slot = owner, .path = 0, .position = position }, self.requirements.items[index].position);
             for (self.queries.items[values].sources.items) |source| for (self.queries.items[owners].sources.items) |destination| try self.addConstraint(index, source, destination, bound);
         }
 
@@ -391,8 +423,8 @@ fn FlowFor(comptime Program: type) type {
                     }
                 }
                 for (values.items[0..values.len]) |value_trace| for (owners.items[0..owners.len]) |owner_trace| {
-                    const v = try self.origin(start, value_trace);
-                    const o = try self.origin(start, owner_trace);
+                    const v = try self.origin(start, value_trace, self.requirements.items[index].position);
+                    const o = try self.origin(start, owner_trace, self.requirements.items[index].position);
                     for (self.queries.items[v].sources.items) |value| for (self.queries.items[o].sources.items) |owner| try self.addConstraint(index, value, owner, pair.bound);
                 };
             }
@@ -473,13 +505,13 @@ fn FlowFor(comptime Program: type) type {
             }
         }
 
-        fn returnInputs(self: *Self, start: p.Id, block: p.Id, source: Source) a.Error!std.ArrayList(Source) {
+        fn returnInputs(self: *Self, start: p.Id, block: p.Id, source: Source, position: ?usize) a.Error!std.ArrayList(Source) {
             var pending: std.ArrayList(Trace) = .empty;
             defer pending.deinit(self.allocator);
             try self.returnInput(&pending, block, source);
             var result: std.ArrayList(Source) = .empty;
             for (pending.items) |trace| {
-                const query_id = try self.origin(start, trace);
+                const query_id = try self.origin(start, trace, position);
                 try result.appendSlice(self.allocator, self.queries.items[query_id].sources.items);
             }
             return result;
@@ -495,9 +527,9 @@ fn FlowFor(comptime Program: type) type {
             const constraints = try self.allocator.dupe(Constraint, self.requirements.items[query_id].constraints.items);
             defer self.allocator.free(constraints);
             for (constraints) |constraint| {
-                var values = try self.returnInputs(self.requirements.items[index].start, block, constraint.value);
+                var values = try self.returnInputs(self.requirements.items[index].start, block, constraint.value, self.requirements.items[index].position);
                 defer values.deinit(self.allocator);
-                var owners = try self.returnInputs(self.requirements.items[index].start, block, constraint.owner);
+                var owners = try self.returnInputs(self.requirements.items[index].start, block, constraint.owner, self.requirements.items[index].position);
                 defer owners.deinit(self.allocator);
                 for (values.items) |value| for (owners.items) |owner| try self.addConstraint(index, value, owner, constraint.bound);
             }
@@ -508,7 +540,7 @@ fn FlowFor(comptime Program: type) type {
             defer arena.deinit();
             const live = try self.reachable(self.requirements.items[index].start, arena.allocator());
             for (self.program.blocks, 0..) |block, id| if (live[id]) {
-                for (block.instructions, 0..) |op, position| switch (op.opcode) {
+                for (block.instructions, 0..) |op, position| if (self.futureInstruction(self.requirements.items[index].start, self.requirements.items[index].position, id, position, live)) switch (op.opcode) {
                     .cell_new, .cell_set => try self.relationAt(index, id, op.operands[1], op.operands[0], .region, if (stable) position else null),
                     else => {},
                 };
@@ -619,7 +651,7 @@ fn FlowFor(comptime Program: type) type {
             } else if (query_writes) |schema| {
                 for (self.program.blocks, 0..) |block, id| if (live[id]) {
                     for (block.instructions, 0..) |op, position|
-                        if (op.opcode == .cell_set and self.slotType(id, op.operands[0]) == schema)
+                        if (self.futureInstruction(query_start, self.queries.items[query_index].position, id, position, live) and op.opcode == .cell_set and self.slotType(id, op.operands[0]) == schema)
                             try self.pushAt(&pending, id, op.operands[1], query_path, if (stable) position else null);
                     try self.calledWrites(&pending, id, schema, query_path);
                 };
@@ -652,7 +684,7 @@ fn FlowFor(comptime Program: type) type {
                         const op = code.instructions[@intCast(trace.slot - code.parameters.len)];
                         try self.instruction(&pending, trace, op);
                         if (op.opcode == .cell_get) {
-                            const writes = try self.writeQuery(query_start, self.slotType(trace.block, op.operands[0]), trace.path);
+                            const writes = try self.writeQueryFrom(query_start, self.slotType(trace.block, op.operands[0]), trace.path, self.queries.items[query_index].position);
                             const sources = try allocator.dupe(Source, self.queries.items[writes].sources.items);
                             for (sources) |source| try self.addSource(query_index, source);
                         }
@@ -682,7 +714,13 @@ fn FlowFor(comptime Program: type) type {
         fn stableTrace(self: *Self, pending: *std.ArrayList(Trace), trace: Trace, query_index: usize, query_start: p.Id, live: []const bool, allocator: std.mem.Allocator) a.Error!void {
             const code = self.program.blocks[@intCast(trace.block)];
             var position = trace.position orelse code.instructions.len;
-            while (position != 0) {
+            const cut = self.queries.items[query_index].position;
+            while (true) {
+                if (trace.block == query_start and cut != null and position == cut.?) {
+                    try self.addSource(query_index, .{ .stable_slot = true, .parameter = trace.slot, .path = trace.path });
+                    if (!self.reenters(query_start, live)) return;
+                }
+                if (position == 0) break;
                 position -= 1;
                 const op = code.instructions[position];
                 if (op.destination != trace.slot) continue;
@@ -690,13 +728,13 @@ fn FlowFor(comptime Program: type) type {
                 definition.position = position;
                 try self.instruction(pending, definition, op);
                 if (op.opcode == .cell_get) {
-                    const writes = try self.writeQuery(query_start, self.slotType(trace.block, op.operands[0]), trace.path);
+                    const writes = try self.writeQueryFrom(query_start, self.slotType(trace.block, op.operands[0]), trace.path, self.queries.items[query_index].position);
                     const sources = try allocator.dupe(Source, self.queries.items[writes].sources.items);
                     for (sources) |source| try self.addSource(query_index, source);
                 }
                 return;
             }
-            if (trace.block == query_start) {
+            if (trace.block == query_start and cut == null) {
                 const function = self.program.functions[@intCast(code.function)];
                 if (std.mem.indexOfScalar(p.Id, function.inputs, trace.slot)) |parameter|
                     try self.addSource(query_index, .{ .parameter = parameter, .path = trace.path });

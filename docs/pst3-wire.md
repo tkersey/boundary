@@ -3,9 +3,11 @@
 This development grammar is implemented by `process_state.zig`, `state_image.zig`
 and the shared ordered graph traversal. The codec establishes framing, bounded
 record decoding, references, canonical graph order and activation record shape.
-**It does not yet establish Program-relative State admission or authorize restore.**
-World currently exports it from the stable controller; executable import remains
-required before this is a complete portable runtime contract.
+`state_admission.validateStable` separately checks the graph against the admitted
+Program, including identity, code position, slot availability, ownership, effects,
+borrow lifetimes and cleanup custody. World now restores these checked records
+into its native stable controller. Portable envelopes, ABI 3 and cross-host
+execution remain required before this is a complete portable runtime contract.
 
 ## Framing and primitive grammar
 
@@ -138,6 +140,17 @@ stable source suite checkpoints after drive boundaries and verifies identical
 repeated export and decode/re-encode. Its export allocation-failure sweep checks
 that the original resident boundary remains byte-for-byte unchanged.
 
-Program identity matching, slot availability, scope/borrow/ownership admission,
-pending-response binding, executable restore and cross-host execution are still
-mandatory work. Structural graph success is not a substitute for those checks.
+The Program-relative checker shares the existing type/scope/custody rules, with
+stable activation values participating directly in capability and ownership
+analysis. Its borrow queries distinguish function-input ordinals from stable
+slots at a specific instruction position, excluding completed writes while
+retaining possible loop reentry. Continuations map future slot projections
+through simultaneous assignments and their returned-result hole. No predecessor
+block interfaces are reconstructed.
+
+Restore tests reject wrong Program identity, invalid positions, unavailable
+slots, forged cleanup status and aliased unique packages after canonical graph
+renumbering. Fresh native restoration agrees with resident execution after the
+same next quantum on the source corpus. Pending-response binding, current
+envelopes and cross-host execution remain mandatory. Structural graph success
+alone still grants no executable authority.

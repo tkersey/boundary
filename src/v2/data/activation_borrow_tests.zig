@@ -36,6 +36,17 @@ test "stable borrow requirements use the value and owner versions at a store" {
         try testing.expectEqual(@as(p.Id, if (before) 0 else 1), required[0].value.parameter);
         try testing.expectEqual(@as(p.Id, if (before) 3 else 2), required[0].owner.parameter);
         try testing.expectEqual(borrows.Bound.region, required[0].bound);
+        const suffix = try flow.requiredFrom(0, 1);
+        try testing.expectEqual(@as(usize, if (before) 1 else 0), suffix.len);
+        if (before) {
+            try testing.expect(suffix[0].value.stable_slot and suffix[0].owner.stable_slot);
+            try testing.expectEqual(1, suffix[0].value.parameter);
+            try testing.expectEqual(4, suffix[0].owner.parameter);
+            const at_store = try flow.requiredFrom(0, 2);
+            try testing.expectEqual(1, at_store.len);
+            try testing.expectEqual(2, at_store[0].owner.parameter);
+        }
+        try testing.expectEqual(0, (try flow.requiredFrom(0, 3)).len);
     }
 }
 
@@ -78,4 +89,12 @@ test "stable borrow tracing follows simultaneous loop transfers and non-prefix i
     }
     try testing.expect(found[0] and found[1]);
     try testing.expectError(error.InvalidProgram, flow.returned(1));
+    const resumed = try flow.returnedFrom(1, 0, 0);
+    try testing.expectEqual(2, resumed.len);
+    found = .{ false, false };
+    for (resumed) |source| {
+        try testing.expect(source.stable_slot and source.parameter <= 1);
+        found[@intCast(source.parameter)] = true;
+    }
+    try testing.expect(found[0] and found[1]);
 }

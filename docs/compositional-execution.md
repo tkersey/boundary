@@ -77,11 +77,10 @@ their identity. Function-input ordinals are distinct from slot numbers, includin
 non-prefix and permuted inputs. Reachability uses a worklist over actual edges.
 No predecessor block interfaces are materialized for this analysis.
 
-The stable analysis currently summarizes whole function entry interfaces; requests
-for a non-entry stable summary reject rather than mislabel local slots as inputs.
-Portable State provenance is a separate remaining obligation. The compiler and
-native runtime now enforce declared borrow/resource contracts, but canonical
-State admission and portable runtime custody still remain required. BPI3 now
+Function summaries retain input ordinals, while explicit position queries now
+describe actual stable slots at a checkpoint. Completed writes are excluded;
+reachable loop reentry still contributes future requirements. The compiler and
+native State checker enforce declared borrow/resource contracts. BPI3 now
 performs full stable image admission. Stable direct-clause flags reject until their own CFG proof and
 selective execution implementation exist; they do not enter the predecessor path.
 
@@ -163,8 +162,10 @@ The [PST3 graph codec](pst3-wire.md) now owns canonical stable activation views
 and lexical owner order with each control node. It preserves graph aliases and
 cycles, removes unreachable state, and validates canonical numbering without a
 second decoded graph copy. World exports these records at its native safepoints.
-This is graph/codec integration only; full Program-relative State admission and
-executable restore remain required.
+Program-relative State admission now checks actual stable slots, instruction
+positions, dynamic effects, borrow provenance, ownership and cleanup against the
+matching Program. Native executable restoration passes the source corpus at
+matched quanta. Envelopes and cross-host execution remain required.
 
 The [BPI3 codec](bpi3-wire.md) now writes stable records directly, admits owned
 input, enforces a physical expansion budget and hashes the canonical bytes in

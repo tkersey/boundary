@@ -55,6 +55,11 @@ pub fn canonicalize(allocator: std.mem.Allocator, state: s.State) Error!Owned {
     return result;
 }
 
+pub fn checkGraph(allocator: std.mem.Allocator, state: s.State) Error!void {
+    try order.checkCanonical(allocator, state);
+    try shape(state, allocator);
+}
+
 fn length(state: s.State) Error!usize {
     var writer: wire.Writer = .{ .position = wire.header_length };
     try record.write(s.State, state, &writer);

@@ -81,32 +81,39 @@ pub fn slotSchema(block: p.Block, slot: p.Id) a.Error!p.Id {
     return block.instructions[@intCast(index)].result_type;
 }
 
+pub fn programSlotSchema(program: anytype, block: anytype, slot: p.Id) a.Error!p.Id {
+    if (comptime @hasField(@TypeOf(block), "parameters")) return slotSchema(block, slot);
+    const slots = program.functions[@intCast(block.function)].layout.slots;
+    if (slot >= slots.len) return error.InvalidReference;
+    return slots[@intCast(slot)];
+}
+
 /// Effects admitted while producing the result awaited by a saved call edge.
 pub fn invocationEffect(
-    image: p.Program,
-    block: p.Block,
+    image: anytype,
+    block: anytype,
     facts: effect_scope.Facts,
     effect: p.Id,
 ) a.Error!bool {
     return switch (block.terminator) {
         .call => |v| containsEffect(image.functions[@intCast(v.function)].effects, effect),
         .apply => |v| containsEffect(
-            (try computation(image, try slotSchema(block, v.computation))).effects,
+            (try computation(image, try programSlotSchema(image, block, v.computation))).effects,
             effect,
         ),
         .handle => |v| blk: {
             const handler = image.handlers[@intCast(v.handler)];
-            const body = try computation(image, try slotSchema(block, v.body));
+            const body = try computation(image, try programSlotSchema(image, block, v.body));
             break :blk containsEffect(handler.effects, effect) or
                 (containsEffect(body.effects, effect) and
                     !effect_scope.discharged(image, facts, handler, body, effect));
         },
         inline .resume_value, .resume_computation => |v| containsEffect(
-            (try resumption(image, try slotSchema(block, v.resumption))).effects,
+            (try resumption(image, try programSlotSchema(image, block, v.resumption))).effects,
             effect,
         ),
         .resume_with => |v| blk: {
-            const signature = try resumption(image, try slotSchema(block, v.resumption));
+            const signature = try resumption(image, try programSlotSchema(image, block, v.resumption));
             const handler = image.handlers[@intCast(v.handler)];
             break :blk containsEffect(handler.effects, effect) or
                 (containsEffect(signature.effects, effect) and
@@ -114,18 +121,18 @@ pub fn invocationEffect(
         },
         .perform => |v| containsEffect(image.effects[@intCast(v.effect)].use_site_effects, effect),
         .with_region => |v| containsEffect(
-            (try computation(image, try slotSchema(block, v.body))).effects,
+            (try computation(image, try programSlotSchema(image, block, v.body))).effects,
             effect,
         ),
         .protect => |v| containsEffect(
-            (try computation(image, try slotSchema(block, v.body))).effects,
+            (try computation(image, try programSlotSchema(image, block, v.body))).effects,
             effect,
         ) or containsEffect(
-            (try computation(image, try slotSchema(block, v.cleanup))).effects,
+            (try computation(image, try programSlotSchema(image, block, v.cleanup))).effects,
             effect,
         ),
         .dispose => |v| containsEffect(
-            (try resumption(image, try slotSchema(block, v.owned))).effects,
+            (try resumption(image, try programSlotSchema(image, block, v.owned))).effects,
             effect,
         ),
         else => false,
