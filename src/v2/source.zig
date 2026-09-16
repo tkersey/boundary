@@ -12,8 +12,10 @@ pub const Module = ast.Module;
 pub const Compiled = @import("source/compiled.zig").Compiled;
 pub const examples = @import("source/examples.zig");
 pub const lower = @import("source/lower.zig").lower;
-/// Successor construction during migration; portable admission is not yet complete.
+/// Direct stable-slot construction with BPI3 encoding and pure admission.
+pub const Construction = @import("source/activation_lower.zig").Construction;
 pub const construct = @import("source/activation_lower.zig").lower;
+pub const constructObserved = @import("source/activation_lower.zig").lowerObserved;
 pub const lowerObserved = @import("source/lower.zig").lowerObserved;
 pub const Diagnostic = @import("source/diagnostic.zig").Diagnostic;
 pub const CompileOptions = @import("source/diagnostic.zig").Options;

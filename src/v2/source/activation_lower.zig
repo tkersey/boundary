@@ -33,21 +33,31 @@ pub const Construction = struct {
 /// No analysis scratch or authoring AST survives in the result arena. This
 /// construction does not grant executable/trusted status.
 pub fn lower(allocator: std.mem.Allocator, input: ast.Module) Error!Construction {
-    return lowerInternal(allocator, input, &.{}, false);
+    return lowerObserved(allocator, input, .{});
+}
+
+pub fn lowerObserved(allocator: std.mem.Allocator, input: ast.Module, options: source.CompileOptions) Error!Construction {
+    return lowerInternal(allocator, input, &.{}, false, options);
 }
 
 pub fn lowerComponent(allocator: std.mem.Allocator, input: ast.Module, imports: []const p.Id) Error!Construction {
-    return lowerInternal(allocator, input, imports, true);
+    return lowerInternal(allocator, input, imports, true, .{});
 }
-fn lowerInternal(allocator: std.mem.Allocator, input: ast.Module, imports: []const p.Id, component: bool) Error!Construction {
+fn lowerInternal(allocator: std.mem.Allocator, input: ast.Module, imports: []const p.Id, component: bool, options: source.CompileOptions) Error!Construction {
+    if (options.diagnostic) |diagnostic| diagnostic.* = .{};
+    errdefer |err| if (options.diagnostic) |diagnostic| {
+        diagnostic.code = err;
+    };
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     const a = arena.allocator();
     const owned = input;
     // The source checker is independent of both lowering representations.
     // Only genuine captures are enumerated; intermediate free sets share roots.
-    const facts = try check.analyzeComponent(a, owned, imports, null);
+    options.stage(.source_check);
+    const facts = try check.analyzeComponent(a, owned, imports, options.diagnostic);
     const traits = try data.traits.derive(a, owned.schemas);
+    options.stage(.lowering);
     var compiler: Compiler = .{
         .allocator = a,
         .source = owned,
@@ -58,6 +68,7 @@ fn lowerInternal(allocator: std.mem.Allocator, input: ast.Module, imports: []con
     try compiler.constants.appendSlice(a, owned.constants);
     const functions = try a.alloc(ir.Function, owned.functions.len);
     for (functions, 0..) |*function, id| {
+        if (options.diagnostic) |diagnostic| diagnostic.function = id;
         var lowering: Function = .{
             .compiler = &compiler,
             .id = id,
@@ -84,10 +95,14 @@ fn lowerInternal(allocator: std.mem.Allocator, input: ast.Module, imports: []con
         },
         .constructors = compiler.constructors.items,
     };
+    if (options.diagnostic) |diagnostic| diagnostic.function = null;
+    options.stage(.source_copy);
     var output = std.heap.ArenaAllocator.init(allocator);
     errdefer output.deinit();
     const result = try source.own(ir.Program, output.allocator(), program);
+    options.stage(.target_check);
     const flow = if (component) try data.activation_ownership.analyzeComponent(allocator, result, imports) else try data.activation_ownership.analyze(allocator, result);
+    options.stage(.complete);
     return .{ .arena = output, .program = result, .flow = flow };
 }
 
