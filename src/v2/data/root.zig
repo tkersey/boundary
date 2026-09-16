@@ -3,7 +3,9 @@
 pub const wire = @import("wire.zig");
 pub const program = @import("program.zig");
 pub const activation = @import("activation.zig");
+pub const analysis_sets = @import("analysis_sets.zig");
 pub const activation_structure = @import("activation_structure.zig");
+pub const activation_flow = @import("activation_flow.zig");
 pub const admission = @import("admission.zig");
 pub const image = @import("image.zig");
 pub const compact_image = @import("compact_image.zig");

@@ -122,3 +122,8 @@ src/v2/source/activation_lower.zig
 src/v2/source/activation_tests.zig
 src/v2/source/binding_scope.zig
 src/v2/source/value_cache.zig
+src/v2/data/analysis_sets.zig
+src/v2/data/analysis_sets_tests.zig
+src/v2/data/activation_flow.zig
+src/v2/data/activation_flow_tests.zig
+src/v2/facts_profile.zig

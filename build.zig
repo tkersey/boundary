@@ -61,10 +61,18 @@ pub fn build(b: *std.Build) void {
         .imports = &.{.{ .name = "boundary_data_v2", .module = data }},
     }), .filters = &.{
         "installation lowering", "stable join",   "stable bindings", "construction owns",
-        "staged examples lower", "lexical scope", "stable lowering",
+        "staged examples lower", "lexical scope", "stable lowering", "stable source analysis",
     } });
     b.step("check-stable-lowering", "Check direct stable-slot construction")
         .dependOn(&b.addRunArtifact(stable_lowering).step);
+    const facts_profile = b.addExecutable(.{ .name = "source-facts-profile", .root_module = b.createModule(.{
+        .root_source_file = b.path("src/v2/facts_profile.zig"),
+        .target = b.graph.host,
+        .optimize = .ReleaseSafe,
+        .imports = &.{.{ .name = "boundary_data_v2", .module = data }},
+    }) });
+    b.step("profile-source-facts", "Measure source checking with compact set counters")
+        .dependOn(&b.addRunArtifact(facts_profile).step);
     const compact_tests = b.addTest(.{ .root_module = b.createModule(.{
         .root_source_file = b.path("test/v2/compact_images.zig"),
         .target = b.graph.host,

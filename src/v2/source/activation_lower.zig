@@ -9,15 +9,17 @@ const ir = data.activation;
 const ast = @import("ast.zig");
 const source = @import("../source.zig");
 const check = @import("check.zig");
-const Error = source.Error;
+const Error = source.Error || data.activation_flow.Error;
 const scope = @import("binding_scope.zig");
 const none = scope.empty;
 
 pub const Construction = struct {
     arena: std.heap.ArenaAllocator,
     program: ir.Program,
+    flow: data.activation_flow.Facts,
 
     pub fn deinit(self: *Construction) void {
+        self.flow.deinit();
         self.arena.deinit();
         self.* = undefined;
     }
@@ -32,7 +34,7 @@ pub fn lower(allocator: std.mem.Allocator, input: ast.Module) Error!Construction
     const a = arena.allocator();
     const owned = input;
     // The source checker is independent of both lowering representations.
-    // Its flat free-variable sets still need the compact-analysis migration.
+    // Only genuine captures are enumerated; intermediate free sets share roots.
     const facts = try check.analyzeDiagnosed(a, owned, null);
     const traits = try data.traits.derive(a, owned.schemas);
     var compiler: Compiler = .{
@@ -73,7 +75,8 @@ pub fn lower(allocator: std.mem.Allocator, input: ast.Module) Error!Construction
     var output = std.heap.ArenaAllocator.init(allocator);
     errdefer output.deinit();
     const result = try source.own(ir.Program, output.allocator(), program);
-    return .{ .arena = output, .program = result };
+    const flow = try data.activation_flow.analyze(allocator, result);
+    return .{ .arena = output, .program = result, .flow = flow };
 }
 
 const ConstructorKey = struct { function: p.Id, schema: p.Id };

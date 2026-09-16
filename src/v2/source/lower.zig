@@ -127,7 +127,7 @@ const Request = struct {
     ) Error!Request {
         const environment = try self.environment.enter(
             compiler,
-            compiler.facts.terms[@intCast(id)].items,
+            try compiler.facts.termVariables(compiler.allocator, id),
             bound,
         );
         const ordering = try liveOrder(compiler, environment, next);
@@ -387,7 +387,7 @@ const Function = struct {
     fn expression(self: *Function, id: p.Id, next: ?Continuation) Error!Block {
         var pending: std.ArrayList(Request) = .empty;
         defer pending.deinit(self.compiler.allocator);
-        const free = self.compiler.facts.terms[@intCast(id)].items;
+        const free = try self.compiler.facts.termVariables(self.compiler.allocator, id);
         var order: check.Set = .empty;
         for (self.compiler.facts.functions[@intCast(self.id)].items) |variable| {
             if (!self.compiler.traits.drop[@intCast(self.compiler.variables.items[@intCast(variable)])])

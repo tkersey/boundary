@@ -1,0 +1,235 @@
+// Copyright (c) 2026 Boundary contributors. MIT license.
+//! Immutable sets of bounded IDs used by analysis, not serialized authority.
+//! Contiguous runs are one node. Irregular sets share canonical binary subtrees;
+//! a path splits at a strictly decreasing bit, never at a previous set version.
+const std = @import("std");
+pub const Member = u64;
+pub const Root = usize;
+pub const empty: Root = 0;
+pub const Error = std.mem.Allocator.Error || error{InvalidReference};
+
+const Node = struct {
+    low: Member,
+    high: Member,
+    count: Member,
+    left: Root = empty,
+    right: Root = empty,
+
+    fn isRun(self: Node) bool {
+        return self.left == empty;
+    }
+};
+
+pub const Pool = struct {
+    allocator: std.mem.Allocator,
+    limit: Member,
+    nodes: std.ArrayList(Node) = .empty,
+    interned: std.AutoHashMapUnmanaged(Node, Root) = .empty,
+    visits: usize = 0,
+
+    pub fn deinit(self: *Pool) void {
+        self.nodes.deinit(self.allocator);
+        self.interned.deinit(self.allocator);
+        self.* = undefined;
+    }
+
+    fn node(self: *const Pool, root: Root) Node {
+        std.debug.assert(root != empty and root <= self.nodes.items.len);
+        return self.nodes.items[root - 1];
+    }
+
+    fn intern(self: *Pool, value: Node) Error!Root {
+        if (self.interned.get(value)) |root| return root;
+        std.debug.assert(value.low < value.high and value.high <= self.limit);
+        const root = std.math.add(usize, self.nodes.items.len, 1) catch
+            return error.OutOfMemory;
+        try self.nodes.ensureUnusedCapacity(self.allocator, 1);
+        try self.interned.ensureUnusedCapacity(self.allocator, 1);
+        self.nodes.appendAssumeCapacity(value);
+        self.interned.putAssumeCapacity(value, root);
+        return root;
+    }
+
+    pub fn run(self: *Pool, low: Member, high: Member) Error!Root {
+        if (low > high or high > self.limit) return error.InvalidReference;
+        if (low == high) return empty;
+        return self.intern(.{ .low = low, .high = high, .count = high - low });
+    }
+
+    pub fn insert(self: *Pool, root: Root, member: Member) Error!Root {
+        if (member >= self.limit) return error.InvalidReference;
+        return self.unite(root, try self.run(member, member + 1));
+    }
+
+    pub fn count(self: *const Pool, root: Root) Member {
+        return if (root == empty) 0 else self.node(root).count;
+    }
+
+    pub fn first(self: *const Pool, root: Root) ?Member {
+        return if (root == empty) null else self.node(root).low;
+    }
+
+    pub fn contains(self: *const Pool, root: Root, member: Member) bool {
+        var current = root;
+        while (current != empty) {
+            const value = self.node(current);
+            if (member < value.low or member >= value.high) return false;
+            if (value.isRun()) return true;
+            current = if (member < split(value.low, value.high)) value.left else value.right;
+        }
+        return false;
+    }
+
+    pub fn unite(self: *Pool, a: Root, b: Root) Error!Root {
+        self.visits += 1;
+        if (a == empty or a == b) return b;
+        if (b == empty) return a;
+        const left = self.node(a);
+        const right = self.node(b);
+        if (left.isRun() and left.low <= right.low and left.high >= right.high) return a;
+        if (right.isRun() and right.low <= left.low and right.high >= left.high) return b;
+        if (left.isRun() and right.isRun() and
+            left.low <= right.high and right.low <= left.high)
+            return self.run(@min(left.low, right.low), @max(left.high, right.high));
+        const middle = split(@min(left.low, right.low), @max(left.high, right.high));
+        const x = try self.partition(a, middle);
+        const y = try self.partition(b, middle);
+        const low = try self.unite(x[0], y[0]);
+        const high = try self.unite(x[1], y[1]);
+        return self.join(low, high);
+    }
+
+    pub fn intersect(self: *Pool, a: Root, b: Root) Error!Root {
+        self.visits += 1;
+        if (a == empty or b == empty) return empty;
+        if (a == b) return a;
+        const left = self.node(a);
+        const right = self.node(b);
+        if (left.high <= right.low or right.high <= left.low) return empty;
+        if (left.isRun() and left.low <= right.low and left.high >= right.high) return b;
+        if (right.isRun() and right.low <= left.low and right.high >= left.high) return a;
+        if (left.isRun() and right.isRun())
+            return self.run(@max(left.low, right.low), @min(left.high, right.high));
+        const middle = split(@min(left.low, right.low), @max(left.high, right.high));
+        const x = try self.partition(a, middle);
+        const y = try self.partition(b, middle);
+        const low = try self.intersect(x[0], y[0]);
+        const high = try self.intersect(x[1], y[1]);
+        return self.join(low, high);
+    }
+
+    pub fn remove(self: *Pool, root: Root, member: Member) Error!Root {
+        self.visits += 1;
+        if (root == empty) return empty;
+        const value = self.node(root);
+        if (member < value.low or member >= value.high) return root;
+        if (value.isRun()) {
+            const left = try self.run(value.low, member);
+            const right = try self.run(member + 1, value.high);
+            return self.unite(left, right);
+        }
+        if (member < split(value.low, value.high))
+            return self.join(try self.remove(value.left, member), value.right);
+        return self.join(value.left, try self.remove(value.right, member));
+    }
+
+    pub fn excluding(self: *Pool, root: Root, members: []const Member) Error!Root {
+        var result = root;
+        for (members) |member| result = try self.remove(result, member);
+        return result;
+    }
+
+    pub fn merge(self: *Pool, target: *Root, other: Root, excluded: []const Member) Error!bool {
+        const result = try self.unite(target.*, try self.excluding(other, excluded));
+        const changed = result != target.*;
+        target.* = result;
+        return changed;
+    }
+
+    fn partition(self: *Pool, root: Root, middle: Member) Error![2]Root {
+        if (root == empty) return .{ empty, empty };
+        const value = self.node(root);
+        if (value.high <= middle) return .{ root, empty };
+        if (value.low >= middle) return .{ empty, root };
+        if (value.isRun()) return .{
+            try self.run(value.low, middle), try self.run(middle, value.high),
+        };
+        // The caller splits at the highest differing bit of the combined span.
+        // Any crossing non-run has that same split; no version-chain traversal.
+        std.debug.assert(split(value.low, value.high) == middle);
+        return .{ value.left, value.right };
+    }
+
+    fn join(self: *Pool, left: Root, right: Root) Error!Root {
+        if (left == empty) return right;
+        if (right == empty) return left;
+        const a = self.node(left);
+        const b = self.node(right);
+        const middle = split(a.low, b.high);
+        std.debug.assert(a.high <= middle and b.low >= middle);
+        if (a.isRun() and b.isRun() and a.high == b.low) return self.run(a.low, b.high);
+        return self.intern(.{
+            .low = a.low,
+            .high = b.high,
+            .count = a.count + b.count,
+            .left = left,
+            .right = right,
+        });
+    }
+
+    /// Materialize only when an actual consumer needs the individual members.
+    /// Caller owns the slice; no slice into reallocating pool storage escapes.
+    pub fn materialize(self: *const Pool, allocator: std.mem.Allocator, root: Root) Error![]Member {
+        const length = std.math.cast(usize, self.count(root)) orelse return error.OutOfMemory;
+        const result = try allocator.alloc(Member, length);
+        var traversal = self.iterator(root);
+        for (result) |*member| member.* = traversal.next().?;
+        std.debug.assert(traversal.next() == null);
+        return result;
+    }
+
+    pub fn iterator(self: *const Pool, root: Root) Iterator {
+        var result: Iterator = .{ .pool = self };
+        if (root != empty) {
+            result.pending[0] = root;
+            result.length = 1;
+        }
+        return result;
+    }
+};
+
+fn split(low: Member, high: Member) Member {
+    std.debug.assert(high - low >= 2);
+    const last = high - 1;
+    const bit: u6 = @intCast(63 - @clz(low ^ last));
+    const width = @as(Member, 1) << bit;
+    return last & ~(width - 1);
+}
+
+pub const Iterator = struct {
+    pool: *const Pool,
+    pending: [65]Root = undefined,
+    length: usize = 0,
+    cursor: Member = 0,
+    end: Member = 0,
+
+    pub fn next(self: *Iterator) ?Member {
+        while (self.cursor == self.end) {
+            if (self.length == 0) return null;
+            self.length -= 1;
+            const value = self.pool.node(self.pending[self.length]);
+            if (value.isRun()) {
+                self.cursor = value.low;
+                self.end = value.high;
+            } else {
+                std.debug.assert(self.length + 2 <= self.pending.len);
+                self.pending[self.length] = value.right;
+                self.pending[self.length + 1] = value.left;
+                self.length += 2;
+            }
+        }
+        const result = self.cursor;
+        self.cursor += 1;
+        return result;
+    }
+};
