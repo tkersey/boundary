@@ -158,6 +158,17 @@ compact-image-size or end-to-end performance requirements.
 
 ## Remaining work
 
+The [current invocation envelopes](invocation-wire.md) define PKI3/PKO3 and
+ERQ3/ERS3 with owned decoding and State-bound typed replies. Fresh native invocation
+uses the stable evaluator and agrees with resident/restored execution at matching
+quanta. Independent wasm32 fixtures cover envelope bytes and request identity.
+The ordinary public cutover and runtime ABI remain pending.
+
+The Builder's Module receiver now reads by reference: adding a declaration while
+evaluating a module argument no longer captures a stale catalog. The former
+`builder.module(main, try builder.scalar(void))` failure is covered by an authoring
+regression and the explicit-yield invocation case.
+
 The [PST3 graph codec](pst3-wire.md) now owns canonical stable activation views
 and lexical owner order with each control node. It preserves graph aliases and
 cycles, removes unreachable state, and validates canonical numbering without a

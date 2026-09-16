@@ -8,6 +8,17 @@ const p = data.program;
 const testing = std.testing;
 const check = @import("check.zig");
 
+test "module observes declarations made while evaluating its arguments" {
+    var builder = source.Builder.init(testing.allocator);
+    defer builder.deinit();
+    const integer = try builder.scalar(u64);
+    const main = try builder.declare(&.{}, integer, &.{}, &.{});
+    try builder.define(main, try builder.pure(try builder.constant(u64, 42)));
+    var compiled = try source.construct(testing.allocator, builder.module(main, try builder.scalar(void)));
+    defer compiled.deinit();
+    try testing.expect(compiled.program.schemas[@intCast(compiled.program.roots.failure)] == .unit);
+}
+
 test "installation lowering establishes each result once without pass-through interfaces" {
     for ([_]usize{ 1, 8, 64, 128, 256 }) |count| {
         var builder = source.Builder.init(testing.allocator);

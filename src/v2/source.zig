@@ -191,7 +191,7 @@ pub const Builder = struct {
         descriptor.introducers = try self.allocator().dupe(p.Id, introducers);
         descriptor.eliminators = try self.allocator().dupe(p.Id, eliminators);
     }
-    pub fn module(self: Builder, entry: p.Id, failure: p.Id) ast.Module {
+    pub fn module(self: *const Builder, entry: p.Id, failure: p.Id) ast.Module {
         return .{ .entry = entry, .failure = failure, .schemas = self.schemas.items, .constants = self.constants.items, .effects = self.effects.items, .handlers = self.handlers.items, .region_count = self.region_count, .resources = self.resources.items, .variables = self.variables.items, .values = self.values.items, .terms = self.terms.items, .functions = self.functions.items };
     }
 };

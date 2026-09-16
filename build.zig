@@ -148,6 +148,11 @@ pub fn build(b: *std.Build) void {
     state_wasm_run.addFileArg(compact_wasm.getEmittedBin());
     b.step("check-state-image-wasm", "Check PST3 canonical graph bytes on wasm32")
         .dependOn(&state_wasm_run.step);
+    const invocation_wasm_run = b.addSystemCommand(&.{"node"});
+    invocation_wasm_run.addFileArg(b.path("test/v2/invocation_wasm.mjs"));
+    invocation_wasm_run.addFileArg(compact_wasm.getEmittedBin());
+    b.step("check-invocation-wasm", "Check current envelope bytes and request identity on wasm32")
+        .dependOn(&invocation_wasm_run.step);
     const compact_wasm_run = b.addSystemCommand(&.{"node"});
     compact_wasm_run.addFileArg(b.path("test/v2/compact_wasm.mjs"));
     compact_wasm_run.addFileArg(compact_wasm.getEmittedBin());

@@ -31,6 +31,24 @@ export fn state_encode(length: usize) usize {
     return encoded.len;
 }
 
+fn envelope(comptime T: type, length: usize) usize {
+    if (length > input.len) return 0;
+    var storage = std.heap.FixedBufferAllocator.init(&scratch);
+    var decoded = data.invocation.decode(T, storage.allocator(), input[0..length]) catch return 0;
+    defer decoded.deinit();
+    const encoded = data.invocation.encode(T, storage.allocator(), decoded.value, &output) catch return 0;
+    return encoded.len;
+}
+export fn invocation_encode(kind: u32, length: usize) usize {
+    return switch (kind) {
+        0 => envelope(data.invocation.Input, length),
+        1 => envelope(data.invocation.Outcome, length),
+        2 => envelope(data.invocation.Request, length),
+        3 => envelope(data.invocation.Result, length),
+        else => 0,
+    };
+}
+
 export fn compact_input_ptr() usize {
     return @intFromPtr(&input);
 }

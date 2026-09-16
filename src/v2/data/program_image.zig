@@ -69,6 +69,7 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8) Error!Decoded {
 }
 
 pub fn decodeLimited(allocator: std.mem.Allocator, input: []const u8, limits: Limits) Error!Decoded {
+    if (input.len < wire.header_length) return error.Truncated;
     if (input.len > limits.max_decoded_bytes) return error.Capacity;
     var arena = std.heap.ArenaAllocator.init(allocator);
     errdefer arena.deinit();

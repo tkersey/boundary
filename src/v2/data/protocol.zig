@@ -8,8 +8,8 @@ pub const Error = schema.Error || error{ InvalidRequest, InvalidResult, InvalidC
 pub const Mode = enum(u8) { advance = 0, run = 1 };
 pub const InstanceTag = enum(u8) { initial_args = 0, state = 1 };
 pub const Instance = union(InstanceTag) { initial_args: []const u8, state: []const u8 };
-pub const ReasonTag = enum(u8) { text = 0, bytes = 1 };
-pub const Reason = union(ReasonTag) { text: []const u8, bytes: []const u8 };
+pub const ReasonTag = @import("invocation.zig").ReasonTag;
+pub const Reason = @import("invocation.zig").Reason;
 pub const ControlTag = enum(u8) { continue_value = 0, cancel = 1 };
 pub const Control = union(ControlTag) { continue_value: ?[]const u8, cancel: Reason };
 pub const Input = struct { mode: Mode, image: []const u8, instance: Instance, control: Control };

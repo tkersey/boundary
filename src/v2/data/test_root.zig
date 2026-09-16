@@ -10,4 +10,5 @@ test {
     _ = @import("activation_borrow_tests.zig");
     _ = @import("program_image_tests.zig");
     _ = @import("state_image_tests.zig");
+    _ = @import("invocation_tests.zig");
 }

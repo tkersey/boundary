@@ -11,6 +11,7 @@ pub const activation_ownership = @import("activation_ownership.zig");
 pub const program_image = @import("program_image.zig");
 pub const process_state = @import("process_state.zig");
 pub const state_image = @import("state_image.zig");
+pub const invocation = @import("invocation.zig");
 pub const admission = @import("admission.zig");
 pub const image = @import("image.zig");
 pub const compact_image = @import("compact_image.zig");
