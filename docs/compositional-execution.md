@@ -224,7 +224,9 @@ cover nominal sharing/separation, interface mismatches, capture bounds, forged
 resource authority, allocation failures and mutually recursive implementations.
 World executes the linked private-state/owned-suspension composition in two
 Programs and transfers their checkpoints through Wasmtime. Local imported-borrow
-contract checking still needs completion; full closed-link admission is mandatory.
+contract checking still needs completion; queries that do not reach an import
+now run locally, including independent definitions in an object with unresolved
+calls. Full closed-link admission is mandatory.
 
 Public protocol cutover, completion of component contracts, selective execution,
 efficient values, transaction performance qualification, Agent's

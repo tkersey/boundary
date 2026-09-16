@@ -86,6 +86,10 @@ fn FlowFor(comptime Program: type) type {
         requirements: std.ArrayList(Requirements) = .empty,
         changed: bool = false,
         diagnostic: ?*a.Diagnostic = null,
+        // Component-only analysis can encounter a bodyless declaration. This
+        // observation invalidates that query, never a closed admission result.
+        observe_open_entries: bool = false,
+        encountered_open_entry: bool = false,
 
         fn rejected(self: Self, binding: Binding) a.Error {
             if (self.diagnostic) |diagnostic| diagnostic.* = .{ .phase = .block, .function = self.program.blocks[@intCast(binding.block)].function, .block = binding.block, .callee = binding.function, .handler = binding.handler };
@@ -217,7 +221,11 @@ fn FlowFor(comptime Program: type) type {
             return result;
         }
 
-        fn checkStart(self: Self, start: p.Id, position: ?usize) a.Error!void {
+        fn checkStart(self: *Self, start: p.Id, position: ?usize) a.Error!void {
+            if (self.observe_open_entries and start == @import("relocation.zig").missing) {
+                self.encountered_open_entry = true;
+                return error.InvalidReference;
+            }
             if (start >= self.program.blocks.len) return error.InvalidReference;
             if (stable and position != null) {
                 if (position.? > self.program.blocks[@intCast(start)].instructions.len) return error.InvalidReference;
@@ -1006,7 +1014,37 @@ pub fn validate(allocator: std.mem.Allocator, program: anytype, exportable: []co
     flow.diagnostic = diagnostic;
     for (program.functions) |function| _ = try flow.requirementsQuery(function.entry);
     try flow.settle();
+    try validateScopes(&flow, null);
+}
+
+/// Check every implementation whose borrow queries close over local code.
+/// An absent implementation invalidates only its dependent analysis. Its open
+/// constraints must still be discharged by independent closed-link admission.
+pub fn validateComponent(allocator: std.mem.Allocator, program: activation.Program, imports: []const p.Id, exportable: []const bool) a.Error!void {
+    if (imports.len == 0) return validate(allocator, program, exportable, null);
+    for (program.functions, 0..) |function, id| {
+        if (std.mem.indexOfScalar(p.Id, imports, id) != null) continue;
+        var arena = std.heap.ArenaAllocator.init(allocator);
+        defer arena.deinit();
+        var flow = try StableFlow.init(arena.allocator(), program, exportable);
+        flow.observe_open_entries = true;
+        validateLocalFunction(&flow, function.entry, id) catch |err| {
+            if (err == error.InvalidReference and flow.encountered_open_entry) continue;
+            return err;
+        };
+    }
+}
+
+fn validateLocalFunction(flow: *StableFlow, start: p.Id, owner: p.Id) a.Error!void {
+    _ = try flow.requirementsQuery(start);
+    try flow.settle();
+    try validateScopes(flow, owner);
+}
+
+fn validateScopes(flow: anytype, owner: ?p.Id) a.Error!void {
+    const program = flow.program;
     for (program.blocks, 0..) |block, block_id| {
+        if (owner) |function| if (block.function != function) continue;
         const body_slot, const arguments, const supplied = switch (block.terminator) {
             .handle => |v| .{ v.body, v.arguments, program.handlers[@intCast(v.handler)].clauses.len },
             .with_region => |v| .{ v.body, v.arguments, @as(usize, 1) },

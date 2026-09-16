@@ -201,3 +201,58 @@ test "mutually recursive component implementations link as one closed group" {
     defer linked.deinit();
     try testing.expectEqual(2, linked.program.functions.len);
 }
+
+test "an unrelated component import cannot hide a local protected borrow escape" {
+    var b = source.Builder.init(testing.allocator);
+    defer b.deinit();
+    const original = try source.examples.resourceScalar(&b);
+    const main_bind = b.terms.items[@intCast(b.functions.items[@intCast(original.entry)].body.?)].bind;
+    const protected = main_bind.next;
+    const body_value = b.terms.items[@intCast(protected)].protect.body;
+    const body_function = b.values.items[@intCast(body_value)].expression.lambda;
+    const parameter = b.parameter(body_function, 0);
+    const borrowed = b.variables.items[@intCast(parameter)];
+    var signature = b.schemas.items[@intCast(b.values.items[@intCast(body_value)].schema)].internal.computation;
+    signature.result = borrowed;
+    b.values.items[@intCast(body_value)].schema = try b.schema(.{ .internal = .{ .computation = signature } });
+    b.functions.items[@intCast(body_function)].result = borrowed;
+    b.functions.items[@intCast(body_function)].body = try b.pure(try b.reference(parameter));
+    const escaped = try b.variable(borrowed);
+    const read = try b.term(.{ .call = .{ .function = b.resources.items[0].eliminators[0], .arguments = &.{try b.reference(escaped)} } });
+    const next = try b.bind(escaped, protected, read);
+    b.functions.items[@intCast(original.entry)].body = try b.bind(main_bind.variable, main_bind.value, next);
+    const imported = try b.declare(&.{}, original.failure, &.{}, &.{});
+    if (source.component.compile(testing.allocator, b.module(original.entry, original.failure), .{
+        .imports = &.{.{ .name = "unused", .reference = .{ .kind = .function, .id = imported } }},
+        .exports = &.{.{ .name = "main", .reference = .{ .kind = .function, .id = original.entry } }},
+    })) |value| {
+        var accepted = value;
+        accepted.deinit();
+        return error.AcceptedProtectedBorrowEscape;
+    } else |err| try testing.expectEqual(error.InvalidOwnership, err);
+}
+
+test "component local clause borrowing distinguishes older and fresh capabilities despite imports" {
+    inline for (.{ false, true }) |older| inline for (.{ false, true }) |delegated| {
+        var b = source.Builder.init(testing.allocator);
+        defer b.deinit();
+        const original = try @import("clause_payload_example.zig").variant(&b, older, delegated);
+        const imported = try b.declare(&.{}, original.failure, &.{}, &.{});
+        // A separate, valid implementation really reaches the unknown callee.
+        // Deferring it must not defer the locally decidable clause violation.
+        const independent = try b.declare(&.{}, original.failure, &.{}, &.{});
+        try b.define(independent, try b.term(.{ .call = .{ .function = imported, .arguments = &.{} } }));
+        const result = source.component.compile(testing.allocator, b.module(original.entry, original.failure), .{
+            .imports = &.{.{ .name = "external", .reference = .{ .kind = .function, .id = imported } }},
+            .exports = &.{.{ .name = "main", .reference = .{ .kind = .function, .id = original.entry } }},
+        });
+        if (older) {
+            var compiled = try result;
+            compiled.deinit();
+        } else if (result) |value| {
+            var compiled = value;
+            compiled.deinit();
+            return error.AcceptedFreshCapabilityInOuterClause;
+        } else |err| try testing.expectEqual(error.InvalidOwnership, err);
+    };
+}

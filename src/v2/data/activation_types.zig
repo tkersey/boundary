@@ -45,9 +45,9 @@ fn validateInternal(allocator: std.mem.Allocator, image: ir.Program, imports: []
     }
     try @import("region_admission.zig").validate(scratch, image);
     const schema_facts = try a.schemas(scratch, image.schemas);
-    // Whole-code interprocedural borrow constraints are link obligations when
-    // an implementation is absent. No object is executable/trusted on this basis.
-    if (imports.len == 0) try @import("borrow_flow.zig").validate(scratch, image, schema_facts.exportable, null);
+    if (component) {
+        try @import("borrow_flow.zig").validateComponent(scratch, image, imports, schema_facts.exportable);
+    } else try @import("borrow_flow.zig").validate(scratch, image, schema_facts.exportable, null);
 }
 
 fn catalogs(allocator: std.mem.Allocator, image: ir.Program, component: bool) Error!void {

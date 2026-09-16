@@ -75,9 +75,15 @@ identities receive those rights. Full closed type/effect/use/borrow admission
 runs after relocation. Names, hashes and interface summaries do not bypass it.
 
 The current object checker validates local types, effects, regions, ownership
-and capture bounds, but defers interprocedural borrow provenance when function
-imports exist. Closed-link admission performs that check against actual code.
-Strengthening local checking under imported borrow contracts remains an open
+and capture bounds. Borrow analysis runs separately for each local function; only
+queries that actually reach a bodyless import remain deferred. An independent
+unresolved call cannot suppress a locally decidable borrow violation. A regression
+distinguishes older-capability clause payloads from invalid fresh-capability
+payloads, both directly and through local helper calls. Removing local checking
+causes that test to accept an invalid fresh-capability payload.
+
+Closed-link admission checks the complete code. Discharging the remaining local
+queries under explicit imported borrow contracts remains an open
 successor requirement; this component implementation is not full migration
 completion.
 
