@@ -19,11 +19,14 @@ fn less(_: void, a: data.component.Symbol, b: data.component.Symbol) bool {
     return std.mem.lessThan(u8, a.name, b.name);
 }
 pub fn compile(allocator: std.mem.Allocator, module: source.Module, interface: Interface) !Compiled {
+    return compileObserved(allocator, module, interface, .{});
+}
+pub fn compileObserved(allocator: std.mem.Allocator, module: source.Module, interface: Interface, options: source.CompileOptions) !Compiled {
     var temporary = std.heap.ArenaAllocator.init(allocator);
     defer temporary.deinit();
     var functions: std.ArrayList(data.program.Id) = .empty;
     for (interface.imports) |symbol| if (symbol.reference.kind == .function) try functions.append(temporary.allocator(), symbol.reference.id);
-    var construction = try lower.lowerComponent(allocator, module, functions.items);
+    var construction = try lower.lowerComponentObserved(allocator, module, functions.items, options);
     errdefer construction.deinit();
     const a = construction.arena.allocator();
     const imports = try source.own([]const data.component.Symbol, a, interface.imports);

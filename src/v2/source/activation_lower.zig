@@ -41,7 +41,10 @@ pub fn lowerObserved(allocator: std.mem.Allocator, input: ast.Module, options: s
 }
 
 pub fn lowerComponent(allocator: std.mem.Allocator, input: ast.Module, imports: []const p.Id) Error!Construction {
-    return lowerInternal(allocator, input, imports, true, .{});
+    return lowerComponentObserved(allocator, input, imports, .{});
+}
+pub fn lowerComponentObserved(allocator: std.mem.Allocator, input: ast.Module, imports: []const p.Id, options: source.CompileOptions) Error!Construction {
+    return lowerInternal(allocator, input, imports, true, options);
 }
 fn lowerInternal(allocator: std.mem.Allocator, input: ast.Module, imports: []const p.Id, component: bool, options: source.CompileOptions) Error!Construction {
     if (options.diagnostic) |diagnostic| diagnostic.* = .{};
