@@ -4,7 +4,8 @@ Boundary checks staged Zig computations and handlers and compiles them into
 complete, portable BPI2 program data. World 5 executes that data with one generic
 native/WASM interpreter. Boundary contains no production evaluator.
 
-Boundary `2.0.2` uses Zig `0.16.0`.
+Boundary `3.0.0-dev.0` uses Zig `0.16.0`. This successor branch is still completing
+the coordinated World/Agent migration; see [current status](docs/compositional-execution.md).
 
 ## Author and compile
 
