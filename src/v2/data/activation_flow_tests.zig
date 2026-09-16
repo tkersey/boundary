@@ -247,3 +247,25 @@ test "activation flow rejects multiplying a unique returned value" {
     var facts = try flow.analyze(testing.allocator, image);
     defer facts.deinit();
 }
+
+test "activation flow keeps conditional cleanup custody without granting a read" {
+    var definition: ir.Function = undefined;
+    const blocks = [_]ir.Block{
+        .{ .function = 0, .instructions = &.{}, .terminator = .{ .branch = .{
+            .condition = 0,
+            .when_true = .{ .block = 1 },
+            .when_false = .{ .block = 2 },
+        } } },
+        .{ .function = 0, .instructions = &.{}, .terminator = .{ .dispose = .{
+            .owned = 1,
+            .next = .{ .block = 2 },
+        } } },
+        .{ .function = 0, .instructions = &.{}, .terminator = .{ .fail = 2 } },
+    };
+    var facts = try flow.analyze(testing.allocator, program(&blocks, &.{ 2, 3, 1 }, &.{ 0, 1, 2 }, &definition));
+    defer facts.deinit();
+    const entry = facts.entries[2].?;
+    try testing.expect(!facts.pool.contains(entry.available, 1));
+    try testing.expect(facts.pool.contains(entry.obligations, 1));
+    try testing.expect(facts.pool.contains(facts.live[2][0], 1));
+}

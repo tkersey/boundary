@@ -4,13 +4,13 @@ const std = @import("std");
 const p = @import("program.zig");
 const a = @import("admission.zig");
 
-pub fn descriptor(image: p.Program, schema: p.Id) a.Error!p.Resource {
+pub fn descriptor(image: anytype, schema: p.Id) a.Error!p.Resource {
     const shape = try a.schemaAt(image.schemas, schema);
     if (shape != .internal or shape.internal != .abstract_resource or shape.internal.abstract_resource >= image.scopes.resources.len) return error.TypeMismatch;
     return image.scopes.resources[@intCast(shape.internal.abstract_resource)];
 }
 
-pub fn validate(allocator: std.mem.Allocator, image: p.Program) a.Error!void {
+pub fn validate(allocator: std.mem.Allocator, image: anytype) a.Error!void {
     const facts = try a.schemas(allocator, image.schemas);
     for (image.scopes.resources) |resource| {
         _ = try a.schemaAt(image.schemas, resource.representation);
@@ -22,7 +22,7 @@ pub fn validate(allocator: std.mem.Allocator, image: p.Program) a.Error!void {
     }
 }
 
-pub fn instruction(image: p.Program, function: p.Id, op: p.Instruction, slots: []const p.Id) a.Error!void {
+pub fn instruction(image: anytype, function: p.Id, op: anytype, slots: []const p.Id) a.Error!void {
     if (op.operands.len != 1 or op.immediate != 0) return error.InvalidProgram;
     const input = slots[@intCast(op.operands[0])];
     const shape = image.schemas[@intCast(input)];

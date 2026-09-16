@@ -12,7 +12,7 @@ pub fn element(shape: p.Schema) a.Error!p.Id {
     };
 }
 
-pub fn instruction(image: p.Program, op: p.Instruction, slots: []const p.Id) a.Error!void {
+pub fn instruction(image: anytype, op: anytype, slots: []const p.Id) a.Error!void {
     const result = image.schemas[@intCast(op.result_type)];
     const operands = op.operands;
     if (op.opcode != .field and op.opcode != .variant and op.opcode != .variant_payload and op.immediate != 0) return error.InvalidProgram;
@@ -95,6 +95,6 @@ pub fn instruction(image: p.Program, op: p.Instruction, slots: []const p.Id) a.E
     }
 }
 
-pub fn optional(image: p.Program, shape: p.Schema, item: p.Id) a.Error!void {
+pub fn optional(image: anytype, shape: p.Schema, item: p.Id) a.Error!void {
     if (shape != .sum or shape.sum.len != 2 or image.schemas[@intCast(shape.sum[0])] != .unit or shape.sum[1] != item) return error.TypeMismatch;
 }

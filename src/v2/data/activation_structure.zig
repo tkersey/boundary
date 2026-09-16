@@ -24,6 +24,12 @@ pub fn validate(allocator: std.mem.Allocator, image: ir.Program) Error!void {
         return error.TypeMismatch;
     for (image.functions, 0..) |function, id| {
         try checker.target(id, function.entry);
+        if (function.custody.len == 0 or function.custody[0].parent != null or
+            image.blocks[@intCast(function.entry)].custody != 0) return error.InvalidProgram;
+        for (function.custody[1..], 1..) |scope, scope_id| {
+            const parent = scope.parent orelse return error.InvalidProgram;
+            if (parent >= scope_id) return error.InvalidReference;
+        }
         try checker.schema(function.result);
         for (function.layout.slots) |schema| try checker.schema(schema);
         for (function.effects) |effect| if (effect >= image.effects.len)
@@ -112,6 +118,8 @@ const Checker = struct {
     fn block(self: *Checker, code: ir.Block) Error!void {
         if (code.function >= self.image.functions.len) return error.InvalidReference;
         const owner = code.function;
+        if (code.custody >= self.image.functions[@intCast(owner)].custody.len)
+            return error.InvalidReference;
         for (code.instructions) |instruction| {
             _ = try self.slot(owner, instruction.destination);
             try self.slots(owner, instruction.operands);

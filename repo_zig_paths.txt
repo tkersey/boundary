@@ -127,3 +127,7 @@ src/v2/data/analysis_sets_tests.zig
 src/v2/data/activation_flow.zig
 src/v2/data/activation_flow_tests.zig
 src/v2/facts_profile.zig
+src/v2/data/activation_types.zig
+src/v2/data/activation_ownership.zig
+src/v2/data/function_inputs.zig
+src/v2/source/activation_admission_tests.zig

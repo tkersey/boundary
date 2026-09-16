@@ -359,7 +359,20 @@ pub fn arguments(slots: []const p.Id, supplied: []const p.Id, expected: []const 
     for (supplied, expected) |slot, schema| if (try slotType(slots, slot) != schema) return error.TypeMismatch;
 }
 
-pub fn edge(image: p.Program, owner: p.Id, slots: []const p.Id, next: p.Edge, returned: ?p.Id) Error!void {
+pub fn edge(image: anytype, owner: p.Id, slots: []const p.Id, next: anytype, returned: ?p.Id) Error!void {
+    if (comptime @hasField(@TypeOf(next), "assignments")) {
+        if (next.block >= image.blocks.len) return error.InvalidReference;
+        if (image.blocks[@intCast(next.block)].function != owner) return error.TypeMismatch;
+        for (next.assignments) |assignment| {
+            const expected = try slotType(slots, assignment.destination);
+            const actual = switch (assignment.source) {
+                .slot => |slot| try slotType(slots, slot),
+                .returned => returned orelse return error.TypeMismatch,
+            };
+            if (actual != expected) return error.TypeMismatch;
+        }
+        return;
+    }
     if (next.block >= image.blocks.len) return error.InvalidReference;
     const target = image.blocks[@intCast(next.block)];
     if (target.function != owner or next.arguments.len != target.parameters.len) return error.TypeMismatch;
@@ -372,7 +385,7 @@ pub fn edge(image: p.Program, owner: p.Id, slots: []const p.Id, next: p.Edge, re
     }
 }
 
-fn validateInstruction(image: p.Program, function: p.Id, instruction: p.Instruction, slots: []const p.Id, uses: @import("traits.zig").Facts) Error!void {
+pub fn validateInstruction(image: anytype, function: p.Id, instruction: anytype, slots: []const p.Id, uses: @import("traits.zig").Facts) Error!void {
     try instructionFailures(image, instruction, slots);
     const operands = instruction.operands;
     const result = instruction.result_type;
@@ -434,7 +447,7 @@ fn validateInstruction(image: p.Program, function: p.Id, instruction: p.Instruct
     }
 }
 
-fn instructionFailures(image: p.Program, instruction: p.Instruction, slots: []const p.Id) Error!void {
+fn instructionFailures(image: anytype, instruction: anytype, slots: []const p.Id) Error!void {
     const needed: []const p.Fault = switch (instruction.opcode) {
         .integer_add, .integer_sub, .integer_mul => &.{.arithmetic_overflow},
         .integer_convert => if (instruction.operands.len == 1 and !@import("scalar.zig").conversionCanFail(image.schemas[@intCast(slots[@intCast(instruction.operands[0])])], image.schemas[@intCast(instruction.result_type)])) &.{} else &.{.arithmetic_overflow},

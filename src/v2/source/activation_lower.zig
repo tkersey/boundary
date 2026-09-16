@@ -9,7 +9,7 @@ const ir = data.activation;
 const ast = @import("ast.zig");
 const source = @import("../source.zig");
 const check = @import("check.zig");
-const Error = source.Error || data.activation_flow.Error;
+const Error = source.Error || data.activation_flow.Error || data.activation_types.Error;
 const scope = @import("binding_scope.zig");
 const none = scope.empty;
 
@@ -42,6 +42,7 @@ pub fn lower(allocator: std.mem.Allocator, input: ast.Module) Error!Construction
         .source = owned,
         .facts = facts,
         .cacheable = try @import("value_cache.zig").derive(a, owned, traits),
+        .uses = traits,
     };
     try compiler.constants.appendSlice(a, owned.constants);
     const functions = try a.alloc(ir.Function, owned.functions.len);
@@ -75,7 +76,7 @@ pub fn lower(allocator: std.mem.Allocator, input: ast.Module) Error!Construction
     var output = std.heap.ArenaAllocator.init(allocator);
     errdefer output.deinit();
     const result = try source.own(ir.Program, output.allocator(), program);
-    const flow = try data.activation_flow.analyze(allocator, result);
+    const flow = try data.activation_ownership.analyze(allocator, result);
     return .{ .arena = output, .program = result, .flow = flow };
 }
 
@@ -85,6 +86,7 @@ const Compiler = struct {
     source: ast.Module,
     facts: check.Facts,
     cacheable: []const bool,
+    uses: data.traits.Facts,
     constants: std.ArrayList(p.Literal) = .empty,
     blocks: std.ArrayList(ir.Block) = .empty,
     captures: std.ArrayList(p.Capture) = .empty,
@@ -129,13 +131,14 @@ const Compiler = struct {
 };
 
 const Continuation = struct { block: p.Id, destination: p.Id };
-const Task = struct { block: p.Id, term: p.Id, environment: p.Id, next: ?Continuation };
-const TaskKey = struct { term: p.Id, environment: p.Id, next: p.Id, destination: p.Id };
+const Task = struct { block: p.Id, term: p.Id, environment: p.Id, next: ?Continuation, custody: p.Id };
+const TaskKey = struct { term: p.Id, environment: p.Id, next: p.Id, destination: p.Id, custody: p.Id };
 
 const Function = struct {
     compiler: *Compiler,
     id: p.Id,
     slots: std.ArrayList(p.Id) = .empty,
+    custody: std.ArrayList(ir.CustodyScope) = .empty,
     bindings: scope.Scopes,
     tasks: std.ArrayList(Task) = .empty,
     memo: std.AutoHashMapUnmanaged(TaskKey, p.Id) = .empty,
@@ -144,6 +147,7 @@ const Function = struct {
     fn lower(self: *Function) Error!ir.Function {
         const compiler = self.compiler;
         const definition = compiler.source.functions[@intCast(self.id)];
+        try self.custody.append(compiler.allocator, .{});
         const free = compiler.facts.functions[@intCast(self.id)].items;
         const inputs = try compiler.allocator.alloc(p.Id, free.len + definition.parameters.len);
         var environment: p.Id = none;
@@ -155,12 +159,13 @@ const Function = struct {
             environment = try self.bind(environment, name);
             inputs[free.len + index] = try self.resolve(environment, name);
         }
-        const entry = try self.schedule(definition.body.?, environment, null);
+        const entry = try self.schedule(definition.body.?, environment, null, 0);
         while (self.tasks.pop()) |task| try self.emit(task);
         return .{
             .entry = entry,
             .inputs = inputs,
             .layout = .{ .slots = self.slots.items },
+            .custody = self.custody.items,
             .result = definition.result,
             .effects = definition.effects,
             .regions = definition.regions,
@@ -178,6 +183,17 @@ const Function = struct {
         return self.bindings.bind(parent, name, destination);
     }
 
+    fn bindingCustody(self: *Function, parent: p.Id, names: []const p.Id) Error!p.Id {
+        for (names) |name| {
+            const schema = self.compiler.source.variables[@intCast(name)];
+            if (self.compiler.uses.copy[@intCast(schema)]) continue;
+            const id = self.custody.items.len;
+            try self.custody.append(self.compiler.allocator, .{ .parent = parent });
+            return id;
+        }
+        return parent;
+    }
+
     fn resolve(self: *const Function, environment: p.Id, name: p.Id) Error!p.Id {
         return self.bindings.resolve(environment, name);
     }
@@ -192,10 +208,11 @@ const Function = struct {
         return id;
     }
 
-    fn schedule(self: *Function, term_id: p.Id, env: p.Id, next: ?Continuation) Error!p.Id {
+    fn schedule(self: *Function, term_id: p.Id, env: p.Id, next: ?Continuation, custody: p.Id) Error!p.Id {
         const key: TaskKey = .{
             .term = term_id,
             .environment = env,
+            .custody = custody,
             .next = if (next) |n| n.block else none,
             .destination = if (next) |n| n.destination else none,
         };
@@ -206,6 +223,7 @@ const Function = struct {
             .block = block,
             .term = term_id,
             .environment = env,
+            .custody = custody,
             .next = next,
         });
         return block;
@@ -234,6 +252,7 @@ const Function = struct {
         const terminator = try self.term(&block, task);
         self.compiler.blocks.items[@intCast(task.block)] = .{
             .function = self.id,
+            .custody = task.custody,
             .instructions = block.instructions.items,
             .terminator = terminator,
         };
@@ -244,13 +263,14 @@ const Function = struct {
         switch (expression) {
             .bind => |binding| {
                 const env = try self.bind(task.environment, binding.variable);
-                const rest = try self.schedule(binding.next, env, task.next);
+                const custody = try self.bindingCustody(task.custody, &.{binding.variable});
+                const rest = try self.schedule(binding.next, env, task.next, custody);
                 const next: Continuation = .{
                     .block = rest,
                     .destination = try self.resolve(env, binding.variable),
                 };
                 return .{ .jump = .{
-                    .block = try self.schedule(binding.value, task.environment, next),
+                    .block = try self.schedule(binding.value, task.environment, next, task.custody),
                 } };
             },
             .value => |value| {
@@ -262,15 +282,15 @@ const Function = struct {
             },
             .fail => |value| return .{ .fail = try block.value(value) },
             .yield_then => |body| return .{ .yield_value = .{
-                .block = try self.schedule(body, task.environment, task.next),
+                .block = try self.schedule(body, task.environment, task.next, task.custody),
             } },
             .conditional => |branch| return .{ .branch = .{
                 .condition = try block.value(branch.condition),
                 .when_true = .{
-                    .block = try self.schedule(branch.when_true, task.environment, task.next),
+                    .block = try self.schedule(branch.when_true, task.environment, task.next, task.custody),
                 },
                 .when_false = .{
-                    .block = try self.schedule(branch.when_false, task.environment, task.next),
+                    .block = try self.schedule(branch.when_false, task.environment, task.next, task.custody),
                 },
             } },
             .match_sum => return self.match(block, task),
@@ -286,8 +306,9 @@ const Function = struct {
         const cases = try self.compiler.allocator.alloc(ir.Edge, selected.cases.len);
         for (cases, selected.cases) |*edge_value, case| {
             const env = try self.bind(task.environment, case.variable);
+            const custody = try self.bindingCustody(task.custody, &.{case.variable});
             edge_value.* = try self.edge(.{
-                .block = try self.schedule(case.body, env, task.next),
+                .block = try self.schedule(case.body, env, task.next, custody),
                 .destination = try self.resolve(env, case.variable),
             }, .returned);
         }
@@ -303,10 +324,11 @@ const Function = struct {
             env = try self.bind(env, name);
             destination.* = try self.resolve(env, name);
         }
+        const custody = try self.bindingCustody(task.custody, unpacking.variables);
         return .{ .unpack_product = .{
             .value = value,
             .destinations = destinations,
-            .next = .{ .block = try self.schedule(unpacking.body, env, task.next) },
+            .next = .{ .block = try self.schedule(unpacking.body, env, task.next, custody) },
         } };
     }
 
@@ -323,6 +345,7 @@ const Function = struct {
         const id = try self.reserveBlock();
         self.compiler.blocks.items[@intCast(id)] = .{
             .function = self.id,
+            .custody = task.custody,
             .instructions = adapter.instructions.items,
             .terminator = .{ .jump = try self.edge(next, .{ .slot = unit }) },
         };

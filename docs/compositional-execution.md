@@ -18,7 +18,10 @@ instruction destinations, and changed-only continuation assignments. It has no
 block parameter catalogs or pass-through argument vectors. Destinations obtain
 their types from the function layout. Branch assignments have simultaneous
 predecessor-view semantics; admission now checks source consumption before any
-writes. Runtime execution of that contract remains pending.
+writes. Each function also has an acyclic lexical custody tree; each block names
+its active scope. Normal scope exits transfer surviving owners into their parent
+before an edge establishes new bindings. This is separate from nominal regions.
+Runtime execution of these contracts remains pending.
 
 `source/activation_lower.zig` lowers staged terms directly into those records.
 It does not call the predecessor compiler or translate an old Program. Real
@@ -42,16 +45,35 @@ function-local edges and result-site types. It deliberately grants no trusted
 executable status. `data/activation_flow.zig` separately derives initialization,
 availability after moves, and liveness at every instruction/terminator position.
 Its worklists converge before reachable reads and ownership transfers are checked.
-Simultaneous edges reject duplicate unique sources and unique returned results;
+Definite initialization/availability meet at joins, while possible nondroppable
+custody joins by union. A conditional cleanup obligation therefore survives even
+when the slot cannot be read on every path. Simultaneous edges reject duplicate
+unique sources, unique returned results and omitted nondroppable returned values;
 existing nondroppable owners cannot be overwritten. Unreachable continuations have
 no entry state and cannot be mistaken for initialized code.
 
 Backward liveness retains nondroppable custody even after its last ordinary read.
 Ordinary dead slots stop belonging to the live map. This is static root analysis,
-not evidence that the runtime has reclaimed memory. Lexical disposition insertion,
-capture bounds, region/borrow flow, full instruction typing, effect checking and
-canonical admission remain required before executable status. A successor handler's
-answer remains distinct from the captured resumption's answer.
+not evidence that the runtime has reclaimed memory.
+
+`data/activation_types.zig` now applies the existing instruction, signature, effect,
+resource-authority and region-dependency rules directly to stable records. Function
+call interfaces are views of ordered input destinations and their layout types;
+no old block interfaces or schema vectors are reconstructed. Existing semantic
+rules are shared with the predecessor during migration.
+
+`data/activation_ownership.zig` derives its own facts from the same input and checks
+continuation capture bounds, multi-shot clone safety and ordinary-return custody.
+It does not accept caller-provided analysis claims. Normal return with a remaining
+nondroppable owner rejects; failure retains that owner for authored unwinding.
+The twelve existing custody-edge scenarios now retain this normal/failure distinction
+under stable lowering. A successor handler's answer remains distinct from the
+captured resumption's answer.
+
+These layers still do not confer executable status. Dynamic borrow/context
+provenance, canonical image/State admission and actual runtime custody transitions
+remain required. Stable direct-clause flags reject until their own CFG proof and
+selective execution implementation exist; they do not enter the predecessor path.
 
 ## Evidence and limits
 
@@ -88,7 +110,11 @@ the predecessor backend; it is not an accepted successor path.
 Construction and structure checks cover 36 existing generalized-effect examples,
 heterogeneous join destinations, shadowed names, expression DAG sharing, malformed
 slot/edge references, permutations, repeated copyable inputs, answer transformation,
-source-owner release and allocation-failure sweeps. Flow tests additionally cover
+source-owner release and allocation-failure sweeps. New adversarial cases reject
+forged operation types, missing arithmetic failure contracts, hidden effects,
+weakened callable capture bounds, unauthorized resource elimination and corrupted
+custody trees. The nested-scope witness records exit into the parent before a
+sibling binding scope begins. Flow tests additionally cover
 partially initialized joins, use after move, loop fixed points, dead ordinary data,
 retained cleanup custody and unreachable continuations. The existing data/authoring
 expectations remain enabled. These checks do not establish behavior under World.
@@ -123,11 +149,11 @@ compact-image-size or end-to-end performance requirements.
 
 ## Remaining work
 
-The next implementation seam is lexical disposition insertion and the remaining
-target type/effect/capture/region admission, followed by integration into World's
-evaluator and activation store. The M1 runtime slice must include non-tail handling, an external
-request, a join, escaping one-shot control, retained loop versions and reentrant
-multi-shot behavior before the main migration is accepted.
+The next implementation seam is World integration of stable activation views and
+lexical custody, alongside remaining borrow/context provenance admission. The M1
+runtime slice must include non-tail handling, an external request, a join, escaping
+one-shot control, retained loop versions and reentrant multi-shot behavior before
+the main migration is accepted. Static admission is not a substitute for that slice.
 
 BPI3/PST3/current protocols, independently checked BMO1 linking, selective execution,
 efficient values, prepared/resident transactions, browser byte embedding, Agent's

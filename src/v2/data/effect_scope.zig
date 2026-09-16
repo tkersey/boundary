@@ -14,7 +14,7 @@ pub const Facts = struct {
     }
 };
 
-pub fn derive(allocator: std.mem.Allocator, image: p.Program) Error!Facts {
+pub fn derive(allocator: std.mem.Allocator, image: anytype) Error!Facts {
     const ambient = try allocator.alloc(bool, image.effects.len);
     @memset(ambient, false);
     for (image.blocks) |block| if (block.terminator == .perform) {
@@ -44,7 +44,7 @@ fn any(facts: Facts, fields: []const p.Id, effect: p.Id) bool {
     for (fields) |field| if (facts.contains(field, effect)) return true;
     return false;
 }
-fn dependency(image: p.Program, facts: Facts, schema: p.Schema, effect: p.Id) bool {
+fn dependency(image: anytype, facts: Facts, schema: p.Schema, effect: p.Id) bool {
     return switch (schema) {
         .product, .sum => |fields| any(facts, fields, effect),
         .seq => |element| facts.contains(element, effect),
@@ -75,7 +75,7 @@ fn dependency(image: p.Program, facts: Facts, schema: p.Schema, effect: p.Id) bo
     };
 }
 
-pub fn discharged(image: p.Program, facts: Facts, handler: p.Handler, body: p.ComputationType, effect: p.Id) bool {
+pub fn discharged(image: anytype, facts: Facts, handler: p.Handler, body: p.ComputationType, effect: p.Id) bool {
     if (facts.ambient[@intCast(effect)] or any(facts, body.capture_bound, effect)) return false;
     if (any(facts, body.parameters[handler.clauses.len..], effect)) return false;
     for (handler.clauses) |clause| if (clause.effect == effect) return true;

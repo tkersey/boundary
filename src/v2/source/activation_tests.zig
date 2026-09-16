@@ -21,6 +21,7 @@ test "installation lowering establishes each result once without pass-through in
         try testing.expect(flow.block_visits <= image.blocks.len * 2);
         try testing.expect(flow.liveness_visits <= image.blocks.len * 4);
         const entry = image.functions[@intCast(image.roots.entry)];
+        try testing.expectEqual(1, entry.custody.len);
         try testing.expectEqual(4 * count + 1, entry.layout.slots.len);
         try testing.expectEqual(0, entry.inputs.len);
         var blocks: usize = 0;

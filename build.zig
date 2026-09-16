@@ -62,6 +62,7 @@ pub fn build(b: *std.Build) void {
     }), .filters = &.{
         "installation lowering", "stable join",   "stable bindings", "construction owns",
         "staged examples lower", "lexical scope", "stable lowering", "stable source analysis",
+        "stable admission",
     } });
     b.step("check-stable-lowering", "Check direct stable-slot construction")
         .dependOn(&b.addRunArtifact(stable_lowering).step);

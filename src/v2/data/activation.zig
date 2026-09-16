@@ -10,11 +10,17 @@ pub const Layout = struct {
     slots: []const Id,
 };
 
+/// Lexical custody is not a nominal region or a physical allocation identity.
+/// A normal exit prepends surviving owners to the parent; abrupt exit unwinds
+/// the active scopes inside-out. Each scope keeps establishment order.
+pub const CustodyScope = struct { parent: ?Id = null };
+
 pub const Function = struct {
     entry: Id,
     /// Ordered destinations for actual call arguments, never a live environment.
     inputs: []const Id,
     layout: Layout,
+    custody: []const CustodyScope = &.{.{}},
     result: Id,
     effects: []const Id = &.{},
     regions: []const Id = &.{},
@@ -88,6 +94,9 @@ pub const Terminator = union(contract.TerminatorTag) {
 
 pub const Block = struct {
     function: Id,
+    /// Scope active before each instruction and this block's control operation.
+    /// An edge enters the target scope before establishing returned/bound values.
+    custody: Id = 0,
     instructions: []const Instruction,
     terminator: Terminator,
 };

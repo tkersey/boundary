@@ -16,6 +16,9 @@ pub const Error = structure.Error || @import("admission.zig").Error || error{
 pub const State = struct {
     initialized: sets.Root = sets.empty,
     available: sets.Root = sets.empty,
+    /// Nondroppable custody present on any incoming path. This is not permission
+    /// to read a slot; only definite availability grants that permission.
+    obligations: sets.Root = sets.empty,
 };
 
 pub const Facts = struct {
@@ -58,8 +61,18 @@ pub fn analyze(allocator: std.mem.Allocator, image: ir.Program) Error!Facts {
     @memset(analysis.queued, false);
     for (image.functions) |function| {
         var inputs = sets.empty;
-        for (function.inputs) |input| inputs = try pool.insert(inputs, input);
-        try analysis.merge(function.entry, .{ .initialized = inputs, .available = inputs });
+        var obligations = sets.empty;
+        for (function.inputs) |input| {
+            inputs = try pool.insert(inputs, input);
+            const schema = function.layout.slots[@intCast(input)];
+            if (!analysis.uses.drop[@intCast(schema)])
+                obligations = try pool.insert(obligations, input);
+        }
+        try analysis.merge(function.entry, .{
+            .initialized = inputs,
+            .available = inputs,
+            .obligations = obligations,
+        });
     }
     var index: usize = 0;
     while (index < analysis.work.items.len) : (index += 1) {
@@ -100,6 +113,7 @@ const Analysis = struct {
         const next: State = if (old) |previous| .{
             .initialized = try self.pool.intersect(previous.initialized, incoming.initialized),
             .available = try self.pool.intersect(previous.available, incoming.available),
+            .obligations = try self.pool.unite(previous.obligations, incoming.obligations),
         } else incoming;
         if (old != null and std.meta.eql(old.?, next)) return;
         self.entries[index] = next;
@@ -150,8 +164,10 @@ const Flow = struct {
         const pool = self.analysis.pool;
         if (self.checking and (!pool.contains(self.state.initialized, slot) or
             !pool.contains(self.state.available, slot))) return error.UnavailableSlot;
-        if (consuming and !self.analysis.uses.copy[@intCast(self.layout[@intCast(slot)])])
+        if (consuming and !self.analysis.uses.copy[@intCast(self.layout[@intCast(slot)])]) {
             self.state.available = try pool.remove(self.state.available, slot);
+            self.state.obligations = try pool.remove(self.state.obligations, slot);
+        }
     }
 
     fn readAll(self: *Flow, slots: []const p.Id) Error!void {
@@ -160,11 +176,12 @@ const Flow = struct {
 
     fn write(self: *Flow, slot: p.Id) Error!void {
         const pool = self.analysis.pool;
-        if (self.checking and pool.contains(self.state.available, slot) and
-            !self.analysis.uses.drop[@intCast(self.layout[@intCast(slot)])])
+        if (self.checking and pool.contains(self.state.obligations, slot))
             return error.OverwrittenOwner;
         self.state.initialized = try pool.insert(self.state.initialized, slot);
         self.state.available = try pool.insert(self.state.available, slot);
+        if (!self.analysis.uses.drop[@intCast(self.layout[@intCast(slot)])])
+            self.state.obligations = try pool.insert(self.state.obligations, slot);
     }
 
     fn edge(self: *Flow, next: ir.Edge, returned: ?p.Id) Error!void {
@@ -180,6 +197,10 @@ const Flow = struct {
                 returned_used = true;
             },
         };
+        if (self.checking and !returned_used) {
+            if (returned) |schema| if (!self.analysis.uses.drop[@intCast(schema)])
+                return error.InvalidOwnership;
+        }
         for (next.assignments) |assignment| try self.write(assignment.destination);
     }
 };
@@ -239,7 +260,6 @@ const Liveness = struct {
     analysis: *Analysis,
     entries: []sets.Root,
     positions: [][]sets.Root,
-    owners: []sets.Root,
     parents: []std.ArrayList(p.Id),
     queued: []bool,
     work: std.ArrayList(p.Id) = .empty,
@@ -252,21 +272,13 @@ const Liveness = struct {
             .analysis = analysis,
             .entries = try a.alloc(sets.Root, image.blocks.len),
             .positions = try a.alloc([]sets.Root, image.blocks.len),
-            .owners = try a.alloc(sets.Root, image.functions.len),
             .parents = try a.alloc(std.ArrayList(p.Id), image.blocks.len),
             .queued = try a.alloc(bool, image.blocks.len),
         };
         @memset(result.entries, sets.empty);
         @memset(result.positions, &.{});
-        @memset(result.owners, sets.empty);
         @memset(result.parents, .empty);
         @memset(result.queued, false);
-        for (image.functions, 0..) |function, id| {
-            for (function.layout.slots, 0..) |schema, slot| {
-                if (!analysis.uses.drop[@intCast(schema)])
-                    result.owners[id] = try analysis.pool.insert(result.owners[id], slot);
-            }
-        }
         for (image.blocks, 0..) |code, id| {
             if (analysis.entries[id] == null) continue;
             var successors: Successors = .{ .image = image, .code = code };
@@ -299,9 +311,7 @@ const Liveness = struct {
     }
 
     fn pinOwners(self: *Liveness, id: p.Id, position: usize, root: sets.Root) Error!sets.Root {
-        const owner = self.analysis.image.blocks[@intCast(id)].function;
-        const available = self.analysis.positions[@intCast(id)][position].available;
-        const obligations = try self.analysis.pool.intersect(available, self.owners[@intCast(owner)]);
+        const obligations = self.analysis.positions[@intCast(id)][position].obligations;
         return self.analysis.pool.unite(root, obligations);
     }
 

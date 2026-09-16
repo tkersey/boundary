@@ -5,13 +5,14 @@ const p = @import("program.zig");
 const a = @import("admission.zig");
 const traits = @import("traits.zig");
 const effect_scope = @import("effect_scope.zig");
+const inputs = @import("function_inputs.zig");
 
-pub fn computation(image: p.Program, schema: p.Id) a.Error!p.ComputationType {
+pub fn computation(image: anytype, schema: p.Id) a.Error!p.ComputationType {
     const shape = try a.schemaAt(image.schemas, schema);
     if (shape != .internal or shape.internal != .computation) return error.TypeMismatch;
     return shape.internal.computation;
 }
-pub fn resumption(image: p.Program, schema: p.Id) a.Error!p.ResumptionType {
+pub fn resumption(image: anytype, schema: p.Id) a.Error!p.ResumptionType {
     const shape = try a.schemaAt(image.schemas, schema);
     if (shape != .internal or shape.internal != .resumption) return error.TypeMismatch;
     return shape.internal.resumption;
@@ -19,7 +20,7 @@ pub fn resumption(image: p.Program, schema: p.Id) a.Error!p.ResumptionType {
 
 /// Conversion changes only use permission. Target schema admission separately
 /// proves every captured type CloneSafe and excludes exit obligations.
-pub fn cloneCompatible(image: p.Program, from: p.Id, to: p.Id) a.Error!bool {
+pub fn cloneCompatible(image: anytype, from: p.Id, to: p.Id) a.Error!bool {
     const owned = try resumption(image, from);
     const template = try resumption(image, to);
     if ((owned.use != .linear and owned.use != .affine) or template.use != .multi) return false;
@@ -33,14 +34,14 @@ pub fn cloneCompatible(image: p.Program, from: p.Id, to: p.Id) a.Error!bool {
     }
     return true;
 }
-pub fn capability(image: p.Program, schema: p.Id, effect: p.Id) a.Error!void {
+pub fn capability(image: anytype, schema: p.Id, effect: p.Id) a.Error!void {
     const shape = try a.schemaAt(image.schemas, schema);
     if (shape != .internal or shape.internal != .capability or shape.internal.capability != effect) return error.TypeMismatch;
 }
 pub fn subset(small: []const p.Id, large: []const p.Id) a.Error!void {
     for (small) |id| if (std.mem.indexOfScalar(p.Id, large, id) == null) return error.InvalidEffect;
 }
-fn row(image: p.Program, ids: []const p.Id) a.Error!void {
+fn row(image: anytype, ids: []const p.Id) a.Error!void {
     for (ids, 0..) |id, index| {
         if (id >= image.effects.len) return error.InvalidEffect;
         if (index > 0 and ids[index - 1] >= id) return error.NonCanonical;
@@ -48,7 +49,7 @@ fn row(image: p.Program, ids: []const p.Id) a.Error!void {
 }
 /// Capability evidence is positional: its order also orders body parameters.
 /// Catalog renumbering must preserve those positions, not sort them by new IDs.
-fn evidence(image: p.Program, ids: []const p.Id) a.Error!void {
+fn evidence(image: anytype, ids: []const p.Id) a.Error!void {
     for (ids, 0..) |id, index| {
         if (id >= image.effects.len) return error.InvalidEffect;
         if (std.mem.indexOfScalar(p.Id, ids[0..index], id) != null) return error.InvalidEffect;
@@ -59,7 +60,7 @@ fn covers(handler: p.Handler, effect: p.Id) bool {
     return false;
 }
 
-fn continuationEffect(image: p.Program, handler: p.Handler, effect: p.Id, escapes: bool) a.Error!void {
+fn continuationEffect(image: anytype, handler: p.Handler, effect: p.Id, escapes: bool) a.Error!void {
     for (handler.clauses) |clause| {
         const signature = try resumption(image, clause.resumption);
         if (handler.mode == .shallow or escapes) try subset(&.{effect}, signature.effects);
@@ -67,7 +68,7 @@ fn continuationEffect(image: p.Program, handler: p.Handler, effect: p.Id, escape
     }
 }
 
-fn deepHandlerEffects(image: p.Program, handler: p.Handler) a.Error!void {
+fn deepHandlerEffects(image: anytype, handler: p.Handler) a.Error!void {
     if (handler.mode != .deep) return;
     for (handler.clauses) |clause|
         try subset(handler.effects, (try resumption(image, clause.resumption)).effects);
@@ -135,7 +136,7 @@ pub fn containsEffect(row_: []const p.Id, effect: p.Id) bool {
     return std.mem.indexOfScalar(p.Id, row_, effect) != null;
 }
 
-fn capturedRegion(image: p.Program, effects: []const p.Id, region: p.Id) a.Error!void {
+fn capturedRegion(image: anytype, effects: []const p.Id, region: p.Id) a.Error!void {
     for (effects) |effect| for (image.handlers) |handler| for (handler.clauses) |clause| {
         if (clause.effect != effect or clause.direct) continue;
         const signature = try resumption(image, clause.resumption);
@@ -143,11 +144,11 @@ fn capturedRegion(image: p.Program, effects: []const p.Id, region: p.Id) a.Error
     };
 }
 
-pub fn validate(allocator: std.mem.Allocator, image: p.Program) a.Error!traits.Facts {
+pub fn validate(allocator: std.mem.Allocator, image: anytype) a.Error!traits.Facts {
     return validateDiagnosed(allocator, image, null);
 }
 
-pub fn validateDiagnosed(allocator: std.mem.Allocator, image: p.Program, diagnostic: ?*a.Diagnostic) a.Error!traits.Facts {
+pub fn validateDiagnosed(allocator: std.mem.Allocator, image: anytype, diagnostic: ?*a.Diagnostic) a.Error!traits.Facts {
     const facts = try traits.derive(allocator, image.schemas);
     try @import("resource_admission.zig").validate(allocator, image);
     for (image.effects, 0..) |effect, index| {
@@ -211,22 +212,8 @@ pub fn validateDiagnosed(allocator: std.mem.Allocator, image: p.Program, diagnos
         }
         if (capture.owned_regions.len != 0 or capture.borrowed_regions.len != 0) return error.UnsupportedInstruction;
     }
-    for (image.constructors) |constructor| {
-        if (diagnostic) |d| d.* = .{ .phase = .constructor, .function = constructor.function, .capture = constructor.capture, .schema = constructor.schema };
-        if (constructor.function >= image.functions.len or constructor.capture >= image.scopes.captures.len) return error.InvalidReference;
-        const signature = try computation(image, constructor.schema);
-        const function = image.functions[@intCast(constructor.function)];
-        const capture = image.scopes.captures[@intCast(constructor.capture)];
-        if (function.parameters.len != capture.fields.len + signature.parameters.len or function.result != signature.result or capture.use != signature.use) return error.TypeMismatch;
-        if (!std.mem.eql(p.Id, capture.fields, function.parameters[0..capture.fields.len]) or
-            !std.mem.eql(p.Id, signature.parameters, function.parameters[capture.fields.len..])) return error.TypeMismatch;
-        try subset(function.effects, signature.effects);
-        if (!std.mem.eql(p.Id, function.regions, signature.regions)) return error.TypeMismatch;
-        for (capture.fields, 0..) |schema, field| {
-            if (diagnostic) |d| d.field = field;
-            if (std.mem.indexOfScalar(p.Id, signature.capture_bound, schema) == null) return error.InvalidOwnership;
-        }
-    }
+    for (image.constructors) |constructor|
+        try validateConstructor(image, constructor, diagnostic);
     for (image.handlers, 0..) |handler, index| {
         if (diagnostic) |d| d.* = .{ .phase = .handler, .handler = index, .function = handler.return_function };
         _ = try a.schemaAt(image.schemas, handler.input);
@@ -239,8 +226,11 @@ pub fn validateDiagnosed(allocator: std.mem.Allocator, image: p.Program, diagnos
         if (handler.forward_function != null) return error.UnsupportedInstruction;
         if (handler.return_function >= image.functions.len) return error.InvalidReference;
         const returns = image.functions[@intCast(handler.return_function)];
-        if (returns.parameters.len != handler.state.len + 1 or returns.result != handler.answer) return error.TypeMismatch;
-        if (!std.mem.eql(p.Id, handler.state, returns.parameters[0..handler.state.len]) or returns.parameters[handler.state.len] != handler.input) return error.TypeMismatch;
+        const returned_inputs = inputs.of(returns);
+        if (returned_inputs.len == 0 or returned_inputs.len - 1 != handler.state.len or
+            returns.result != handler.answer) return error.TypeMismatch;
+        if (!returned_inputs.matches(0, handler.state) or
+            returned_inputs.at(handler.state.len) != handler.input) return error.TypeMismatch;
         try subset(returns.effects, handler.effects);
         for (handler.clauses, 0..) |clause, clause_index| {
             if (diagnostic) |d| {
@@ -252,28 +242,56 @@ pub fn validateDiagnosed(allocator: std.mem.Allocator, image: p.Program, diagnos
             for (handler.clauses[0..clause_index]) |previous| if (previous.effect == clause.effect) return error.InvalidEffect;
             const effect = image.effects[@intCast(clause.effect)];
             const function = image.functions[@intCast(clause.function)];
+            const parameters = inputs.of(function);
             const continuation = try resumption(image, clause.resumption);
             if (continuation.effect != clause.effect or continuation.mode != handler.mode or continuation.answer != (if (handler.mode == .deep) handler.answer else handler.input)) return error.TypeMismatch;
             if (continuation.handled.len != handler.clauses.len) return error.InvalidEffect;
             for (continuation.handled, handler.clauses) |id, handled| if (id != handled.effect) return error.InvalidEffect;
             if (clause.direct) {
                 if (handler.mode != .deep or continuation.use != .linear or effect.bodies.len != 0) return error.InvalidProgram;
-                if (function.result != effect.result or function.parameters.len != handler.state.len + 1) return error.TypeMismatch;
-                if (!std.mem.eql(p.Id, handler.state, function.parameters[0..handler.state.len]) or function.parameters[handler.state.len] != effect.payload) return error.TypeMismatch;
+                if (function.result != effect.result or parameters.len != handler.state.len + 1) return error.TypeMismatch;
+                if (!parameters.matches(0, handler.state) or parameters.at(handler.state.len) != effect.payload) return error.TypeMismatch;
                 if (function.effects.len != 0) return error.InvalidEffect;
-                if (function.entry >= image.blocks.len or !@import("direct_clause.zig").block(image.blocks[@intCast(function.entry)])) return error.InvalidProgram;
+                if (function.entry >= image.blocks.len) return error.InvalidProgram;
+                if (comptime @hasField(@TypeOf(function), "layout")) {
+                    // Stable selective clauses require their own CFG proof.
+                    return error.UnsupportedInstruction;
+                } else if (!@import("direct_clause.zig").block(image.blocks[@intCast(function.entry)]))
+                    return error.InvalidProgram;
                 continue;
             }
-            if (function.result != handler.answer or function.parameters.len != handler.state.len + 2 + effect.bodies.len) return error.TypeMismatch;
-            if (!std.mem.eql(p.Id, handler.state, function.parameters[0..handler.state.len]) or function.parameters[handler.state.len] != effect.payload or
-                !std.mem.eql(p.Id, effect.bodies, function.parameters[handler.state.len + 1 ..][0..effect.bodies.len]) or function.parameters[function.parameters.len - 1] != clause.resumption) return error.TypeMismatch;
+            if (function.result != handler.answer or parameters.len != handler.state.len + 2 + effect.bodies.len) return error.TypeMismatch;
+            if (!parameters.matches(0, handler.state) or parameters.at(handler.state.len) != effect.payload or
+                !parameters.matches(handler.state.len + 1, effect.bodies) or
+                parameters.at(parameters.len - 1) != clause.resumption) return error.TypeMismatch;
             try subset(function.effects, handler.effects);
         }
     }
     return facts;
 }
 
-pub fn terminator(image: p.Program, block: p.Block, slots: []const p.Id, effect_facts: effect_scope.Facts) a.Error!void {
+fn validateConstructor(image: anytype, constructor: p.Constructor, diagnostic: ?*a.Diagnostic) a.Error!void {
+    if (diagnostic) |d| d.* = .{ .phase = .constructor, .function = constructor.function, .capture = constructor.capture, .schema = constructor.schema };
+    if (constructor.function >= image.functions.len or constructor.capture >= image.scopes.captures.len) return error.InvalidReference;
+    const signature = try computation(image, constructor.schema);
+    const function = image.functions[@intCast(constructor.function)];
+    const capture = image.scopes.captures[@intCast(constructor.capture)];
+    const parameters = inputs.of(function);
+    if (parameters.len < capture.fields.len or
+        parameters.len - capture.fields.len != signature.parameters.len or
+        function.result != signature.result or capture.use != signature.use)
+        return error.TypeMismatch;
+    if (!parameters.matches(0, capture.fields) or
+        !parameters.matches(capture.fields.len, signature.parameters)) return error.TypeMismatch;
+    try subset(function.effects, signature.effects);
+    if (!std.mem.eql(p.Id, function.regions, signature.regions)) return error.TypeMismatch;
+    for (capture.fields, 0..) |schema, field| {
+        if (diagnostic) |d| d.field = field;
+        if (std.mem.indexOfScalar(p.Id, signature.capture_bound, schema) == null) return error.InvalidOwnership;
+    }
+}
+
+pub fn terminator(image: anytype, block: anytype, slots: []const p.Id, effect_facts: effect_scope.Facts) a.Error!void {
     const function = image.functions[@intCast(block.function)];
     switch (block.terminator) {
         .protect => |protection| {

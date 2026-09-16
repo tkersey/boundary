@@ -5,7 +5,7 @@ const a = @import("admission.zig");
 pub const Types = struct { primary: p.Id, reason: p.Id, optional_reason: p.Id, failures: p.Id, unit: p.Id, text: p.Id, bytes: p.Id };
 
 /// (Normal | Failure<E> | Cancelled<Reason> | Abandoned, Option<Reason>, Seq<E>).
-pub fn types(image: p.Program, schema: p.Id) a.Error!Types {
+pub fn types(image: anytype, schema: p.Id) a.Error!Types {
     const shape = try a.schemaAt(image.schemas, schema);
     if (shape != .product or shape.product.len != 3) return error.TypeMismatch;
     const primary = try a.schemaAt(image.schemas, shape.product[0]);
