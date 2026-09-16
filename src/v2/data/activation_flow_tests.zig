@@ -269,3 +269,18 @@ test "activation flow keeps conditional cleanup custody without granting a read"
     try testing.expect(facts.pool.contains(entry.obligations, 1));
     try testing.expect(facts.pool.contains(facts.live[2][0], 1));
 }
+
+test "activation flow keeps its allocator alive for later derived-set allocations" {
+    var definition: ir.Function = undefined;
+    const blocks = [_]ir.Block{.{
+        .function = 0,
+        .instructions = &.{},
+        .terminator = .{ .return_value = 0 },
+    }};
+    var facts = try flow.analyze(testing.allocator, program(&blocks, &([_]p.Id{0} ** 257), &.{0}, &definition));
+    defer facts.deinit();
+    var root = facts.entries[0].?.initialized;
+    for (1..257) |slot| root = try facts.pool.insert(root, slot);
+    try testing.expectEqual(257, facts.pool.count(root));
+    try testing.expectEqual(1, facts.pool.count(facts.entries[0].?.initialized));
+}

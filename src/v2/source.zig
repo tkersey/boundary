@@ -10,6 +10,8 @@ pub const Module = ast.Module;
 pub const Compiled = @import("source/compiled.zig").Compiled;
 pub const examples = @import("source/examples.zig");
 pub const lower = @import("source/lower.zig").lower;
+/// Successor construction during migration; portable admission is not yet complete.
+pub const construct = @import("source/activation_lower.zig").lower;
 pub const lowerObserved = @import("source/lower.zig").lowerObserved;
 pub const Diagnostic = @import("source/diagnostic.zig").Diagnostic;
 pub const CompileOptions = @import("source/diagnostic.zig").Options;

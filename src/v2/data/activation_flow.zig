@@ -22,7 +22,8 @@ pub const State = struct {
 };
 
 pub const Facts = struct {
-    arena: std.heap.ArenaAllocator,
+    arena: *std.heap.ArenaAllocator,
+    parent_allocator: std.mem.Allocator,
     pool: *sets.Pool,
     entries: []const ?State,
     block_visits: usize,
@@ -34,14 +35,19 @@ pub const Facts = struct {
 
     pub fn deinit(self: *Facts) void {
         self.arena.deinit();
+        self.parent_allocator.destroy(self.arena);
         self.* = undefined;
     }
 };
 
 pub fn analyze(allocator: std.mem.Allocator, image: ir.Program) Error!Facts {
     try structure.validate(allocator, image);
-    var arena = std.heap.ArenaAllocator.init(allocator);
-    errdefer arena.deinit();
+    const arena = try allocator.create(std.heap.ArenaAllocator);
+    arena.* = std.heap.ArenaAllocator.init(allocator);
+    errdefer {
+        arena.deinit();
+        allocator.destroy(arena);
+    }
     const a = arena.allocator();
     const pool = try a.create(sets.Pool);
     var limit: usize = 0;
@@ -91,6 +97,7 @@ pub fn analyze(allocator: std.mem.Allocator, image: ir.Program) Error!Facts {
         .live = liveness.positions,
         .liveness_visits = liveness.visits,
         .arena = arena,
+        .parent_allocator = allocator,
         .pool = pool,
         .entries = analysis.entries,
         .block_visits = index,

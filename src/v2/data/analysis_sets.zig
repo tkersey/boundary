@@ -118,6 +118,27 @@ pub const Pool = struct {
         return self.join(low, high);
     }
 
+    pub fn difference(self: *Pool, a: Root, b: Root) Error!Root {
+        self.visits += 1;
+        if (a == empty or a == b) return empty;
+        if (b == empty) return a;
+        const left = self.node(a);
+        const right = self.node(b);
+        if (left.high <= right.low or right.high <= left.low) return a;
+        if (right.isRun() and right.low <= left.low and right.high >= left.high) return empty;
+        if (left.isRun() and right.isRun()) {
+            const low = try self.run(left.low, @max(left.low, right.low));
+            const high = try self.run(@min(left.high, right.high), left.high);
+            return self.unite(low, high);
+        }
+        const middle = split(@min(left.low, right.low), @max(left.high, right.high));
+        const x = try self.partition(a, middle);
+        const y = try self.partition(b, middle);
+        const low = try self.difference(x[0], y[0]);
+        const high = try self.difference(x[1], y[1]);
+        return self.join(low, high);
+    }
+
     pub fn remove(self: *Pool, root: Root, member: Member) Error!Root {
         self.visits += 1;
         if (root == empty) return empty;

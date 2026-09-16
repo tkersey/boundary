@@ -149,8 +149,12 @@ compact-image-size or end-to-end performance requirements.
 
 ## Remaining work
 
-The next implementation seam is World integration of stable activation views and
-lexical custody, alongside remaining borrow/context provenance admission. The M1
+World now executes the native stable-control slice through `source.construct`,
+including deep multi-shot/reentrant cases and retained loop-slot versions. The
+analysis owner now keeps its arena at a stable address so runtime-derived set
+operations cannot allocate through an escaped stack pointer. The next seam is
+remaining borrow/context provenance, cleanup and shallow-control support, and
+portable codec integration. The M1
 runtime slice must include non-tail handling, an external request, a join, escaping
 one-shot control, retained loop versions and reentrant multi-shot behavior before
 the main migration is accepted. Static admission is not a substitute for that slice.

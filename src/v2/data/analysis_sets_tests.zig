@@ -24,6 +24,7 @@ test "analysis sets agree with every pair of eight-bit sets" {
         for (roots, 0..) |right, b| {
             try testing.expectEqual(roots[a | b], try pool.unite(left, right));
             try testing.expectEqual(roots[a & b], try pool.intersect(left, right));
+            try testing.expectEqual(roots[a & (~b & 255)], try pool.difference(left, right));
         }
         for (0..8) |member| {
             const bit = @as(usize, 1) << @intCast(member);
