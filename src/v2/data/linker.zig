@@ -15,7 +15,9 @@ pub const Error = component.Error || error{ DuplicateInstance, MissingInstance, 
 pub const Linked = struct {
     arena: std.heap.ArenaAllocator,
     program: ir.Program,
+    flow: @import("activation_flow.zig").Facts,
     pub fn deinit(self: *Linked) void {
+        self.flow.deinit();
         self.arena.deinit();
         self.* = undefined;
     }
@@ -130,9 +132,8 @@ pub fn link(allocator: std.mem.Allocator, input: []const Instance, bindings: []c
         if (try mapper.id(.schema, unit.object.program.roots.failure) != result.roots.failure) return error.IncompatibleFailure;
         for (unit.object.imports) |symbol| try compatible(mapper, unit.object.program, result, symbol.reference);
     }
-    var checked = try @import("activation_ownership.zig").analyze(allocator, result);
-    checked.deinit();
-    return .{ .arena = arena, .program = result };
+    const checked = try @import("activation_ownership.zig").analyze(allocator, result);
+    return .{ .arena = arena, .program = result, .flow = checked };
 }
 
 fn catalog(comptime T: type, comptime kind: Kind, allocator: std.mem.Allocator, units: []const Unit, imported: []const bool, count: usize, comptime method: anytype) Error![]const T {
