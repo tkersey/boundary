@@ -81,8 +81,65 @@ Function summaries retain input ordinals, while explicit position queries now
 describe actual stable slots at a checkpoint. Completed writes are excluded;
 reachable loop reentry still contributes future requirements. The compiler and
 native State checker enforce declared borrow/resource contracts. BPI3 now
-performs full stable image admission. Stable direct-clause flags reject until their own CFG proof and
-selective execution implementation exist; they do not enter the predecessor path.
+performs full stable image admission. Stable clauses use their own strategy record and independent CFG admission;
+the predecessor direct-clause flag never enters the successor path.
+
+## Immediate callable selection
+
+An immediately applied source lambda with copyable lexical captures now lowers
+to the existing stable `call` terminator. Captures precede the explicit arguments
+in the callee's normal input layout. No `computation` instruction or runtime
+closure is created. Callable constructor metadata remains for independent target
+admission of the original signature, effects, regions, use and capture bound;
+specialization cannot erase a falsely declared capture contract.
+
+Argument evaluation remains in source order before the call. Noncopyable captures
+retain closure construction because moving an owner into the closure before
+evaluating later arguments is a custody boundary. Retained callable values also
+keep the general `apply` representation. Tests cover the direct scalar capture,
+invalid capture annotations, and an immediately applied lambda capturing a linear
+resumption. This is a bounded selection rule, not general escape analysis.
+
+World's `immediate lexical calls` test runs both direct and retained forms of the
+same checked addition, including overflow and yield/checkpoint/restore. With
+Zig 0.16.0 native ReleaseSafe on an Apple M2 Pro, the unchanged compiler at
+`adf3c7e102fead43f32f1c850fa7d27ac417fdb6` added five graph nodes during either
+execution. This lowering adds one for the immediate form and five for the
+retained form. Both return 42 for input 40. These are deterministic Store node
+counts after Session initialization, not allocator counts or latency measurements.
+The branching tail-resumptive witness is described below.
+
+## Total branching clauses
+
+Stable Handler/Clause records now belong to `activation`, with a distinct
+`tail` strategy (wire tag 2). The compiler retains the general source function
+for ordinary calls and creates a specialized function with no token input.
+Both conditional branches return the operation result; the actual handler return
+clause and the suspended body's checked arithmetic remain in their original
+positions. Region, effect and callable contracts continue through final admission.
+
+`data/total_clause.zig` independently checks the selected function: copyable slots,
+total instructions, ordinary returns, and an acyclic branch/jump/sum/product CFG.
+It rejects suspension, calls, resumption operations, authored failures and loops.
+The existing contract checker also requires deep linear handling, no operation
+bodies, the exact state/payload inputs and operation result, and no residual
+clause effects. Effects belonging to the resumed body stay on the original
+resumption interface; they are not effects of this total function.
+
+World executes the selected function through its existing evaluator with an
+ordinary saved continuation. The delimiter remains active, so checkpointing and
+cancellation retain body cleanup without a first-class resumption. The branching
+fixture returns 60 or 100 after body/return arithmetic. Its general form creates
+one one-shot token and 14 graph nodes; the selected form creates zero tokens and
+11 graph nodes (native ReleaseSafe, Zig 0.16.0, same inputs, excluding Session
+initialization). These are work counts, not a latency or peak-memory claim.
+
+Checks cover every instruction checkpoint, cancellation at multiple clause
+positions with one external cleanup, BMO1 encode/link/relocation, rejection of
+cycles and yielding/shallow forgeries, and the independently specified wire tag.
+Non-tail, shallow, escaping-generator and reentrant examples retain general
+clauses. Node/native and independent Wasmtime run the branching fixture through
+fresh/resident checkpoints; broader workload performance acceptance remains open.
 
 ## Evidence and limits
 

@@ -84,7 +84,7 @@ fn dependency(image: anytype, facts: Facts, schema: p.Schema, effect: p.Id) bool
     };
 }
 
-pub fn discharged(image: anytype, facts: Facts, handler: p.Handler, body: p.ComputationType, effect: p.Id) bool {
+pub fn discharged(image: anytype, facts: Facts, handler: anytype, body: p.ComputationType, effect: p.Id) bool {
     if (facts.ambient[@intCast(effect)] or any(facts, body.capture_bound, effect)) return false;
     if (any(facts, body.parameters[handler.clauses.len..], effect)) return false;
     for (handler.clauses) |clause| if (clause.effect == effect) return true;

@@ -3,6 +3,37 @@ const source = @import("../source.zig");
 const data = @import("boundary_data_v2");
 const testing = std.testing;
 
+test "BMO1 preserves independently admitted tail clauses through relocation" {
+    const bytes = blk: {
+        var builder = source.Builder.init(testing.allocator);
+        defer builder.deinit();
+        const module = try source.examples.branchingTail(&builder);
+        var compiled = try source.component.compile(testing.allocator, module, .{
+            .exports = &.{.{ .name = "main", .reference = .{
+                .kind = .function,
+                .id = module.entry,
+            } }},
+        });
+        defer compiled.deinit();
+        const output = try testing.allocator.alloc(u8, try data.component.encodedLength(compiled.object));
+        errdefer testing.allocator.free(output);
+        _ = try compiled.encode(testing.allocator, output);
+        break :blk output;
+    };
+    defer testing.allocator.free(bytes);
+    var linked = try data.linker.link(testing.allocator, &.{ .{ .key = "a", .object = bytes }, .{ .key = "b", .object = bytes } }, &.{}, .{ .instance = "b", .symbol = "main" });
+    defer linked.deinit();
+    @memset(bytes, 0xff);
+    try testing.expectEqual(2, linked.program.handlers.len);
+    for (linked.program.handlers) |handler| {
+        const clause = handler.clauses[0];
+        try testing.expect(clause.strategy == .tail);
+        const function = linked.program.functions[@intCast(clause.function)];
+        try testing.expectEqual(clause.function, linked.program.blocks[@intCast(function.entry)].function);
+    }
+    _ = try data.program_image.identity(testing.allocator, linked.program);
+}
+
 fn object(provider: bool, boolean: bool) ![]u8 {
     var b = source.Builder.init(testing.allocator);
     defer b.deinit();

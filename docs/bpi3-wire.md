@@ -51,7 +51,7 @@ Use tags: reusable=0, affine=1, linear=2, multi=3. Mode: deep=0, shallow=1.
 | Record | Fields in order |
 | --- | --- |
 | Effect | identity:Text, payload:N, result:N, use_site_effects:IDs, bodies:IDs, control_use:Use, external:Bool |
-| Clause | effect:N, function:N, resumption:N, direct:Bool |
+| Clause | effect:N, function:N, resumption:N, strategy:N |
 | Handler | mode:Mode, input:N, answer:N, return_function:N, clauses:[Clause], forward_function:?N, state:IDs, effects:IDs |
 | Capture | fields:IDs, owned_regions:IDs, borrowed_regions:IDs, use:Use |
 | Resource | representation:N, introducers:IDs, eliminators:IDs |
@@ -59,8 +59,14 @@ Use tags: reusable=0, affine=1, linear=2, multi=3. Mode: deep=0, shallow=1.
 
 Effect identities are nonempty UTF-8, but text equality grants no nominal
 authority. Admission derives ownership, effect, region and borrow facts from
-these records and code. A stored flag is not proof. Stable direct-clause flags
-currently reject pending implementation of their own selective-execution proof.
+these records and code. Clause strategy is general=0 or total-tail=2; the
+predecessor straight-line flag 1 rejects. Total-tail requires deep, linear
+handling with no higher-order operation bodies. Its function receives state and
+payload, returns the operation result, has only copyable slots and no residual
+effects, and has an acyclic CFG of total instructions, branches, product/sum
+elimination and returns. Admission derives these properties from the actual code;
+a stored strategy is not proof. The independent Clause golden is `03 04 05 02`
+(effect 3, function 4, resumption schema 5, total-tail).
 
 ### Schemas
 

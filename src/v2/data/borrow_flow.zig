@@ -568,7 +568,7 @@ fn FlowFor(comptime Program: type) type {
                     },
                     .perform, .forward => |v| if (v.capability) |capability| {
                         var captures = false;
-                        for (self.program.handlers) |handler| for (handler.clauses) |clause| if (clause.effect == v.effect and !clause.direct) {
+                        for (self.program.handlers) |handler| for (handler.clauses) |clause| if (clause.effect == v.effect and @import("contracts.zig").retainsResumption(clause)) {
                             captures = true;
                         };
                         if (captures) {
@@ -964,7 +964,7 @@ fn FlowFor(comptime Program: type) type {
                     // A clause can return state or a borrow arriving from the body's
                     // older inputs. Fresh body capabilities are checked separately.
                     for (handler.clauses) |clause| {
-                        if (clause.direct) continue;
+                        if (!@import("contracts.zig").retainsResumption(clause)) continue;
                         const index = try self.query(self.program.functions[@intCast(clause.function)].entry, path);
                         for (self.queries.items[index].sources.items) |source| {
                             if (source.ambient) |ambient| {

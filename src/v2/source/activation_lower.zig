@@ -90,7 +90,7 @@ fn lowerInternal(allocator: std.mem.Allocator, input: ast.Module, imports: []con
         .effects = owned.effects,
         .functions = functions,
         .blocks = compiler.blocks.items,
-        .handlers = owned.handlers,
+        .handlers = try stableHandlers(a, owned.handlers),
         .scopes = .{
             .captures = compiler.captures.items,
             .region_count = owned.region_count,
@@ -102,7 +102,8 @@ fn lowerInternal(allocator: std.mem.Allocator, input: ast.Module, imports: []con
     options.stage(.source_copy);
     var output = std.heap.ArenaAllocator.init(allocator);
     errdefer output.deinit();
-    const result = try source.own(ir.Program, output.allocator(), program);
+    const selected = try @import("tail_clauses.zig").optimize(a, program, traits);
+    const result = try source.own(ir.Program, output.allocator(), selected);
     options.stage(.target_check);
     const flow = if (component) try data.activation_ownership.analyzeComponent(allocator, result, imports) else try data.activation_ownership.analyze(allocator, result);
     options.stage(.complete);
@@ -158,6 +159,19 @@ const Compiler = struct {
         return error.TypeMismatch;
     }
 };
+
+fn stableHandlers(allocator: std.mem.Allocator, input: []const p.Handler) Error![]const ir.Handler {
+    const output = try allocator.alloc(ir.Handler, input.len);
+    for (output, input) |*target, handler| {
+        const clauses = try allocator.alloc(ir.Clause, handler.clauses.len);
+        for (clauses, handler.clauses) |*clause, original| {
+            if (original.direct) return error.UnsupportedInstruction;
+            clause.* = .{ .effect = original.effect, .function = original.function, .resumption = original.resumption };
+        }
+        target.* = .{ .mode = handler.mode, .input = handler.input, .answer = handler.answer, .return_function = handler.return_function, .clauses = clauses, .forward_function = handler.forward_function, .state = handler.state, .effects = handler.effects };
+    }
+    return output;
+}
 
 const Continuation = struct { block: p.Id, destination: p.Id };
 const Task = struct { block: p.Id, term: p.Id, environment: p.Id, next: ?Continuation, custody: p.Id };
@@ -394,11 +408,7 @@ const Function = struct {
                 .arguments = try block.callArguments(call.function, call.arguments),
                 .next = next,
             } },
-            .apply => |apply| .{ .apply = .{
-                .computation = try block.value(apply.computation),
-                .arguments = try block.values(apply.arguments),
-                .next = next,
-            } },
+            .apply => |apply| try block.application(apply, next),
             .perform => |perform| .{ .perform = .{
                 .effect = perform.effect,
                 .capability = try block.optional(perform.capability),
@@ -562,6 +572,33 @@ const Block = struct {
         const captured = try self.captures(function);
         const arguments = try self.values(supplied);
         return std.mem.concat(self.function.compiler.allocator, p.Id, &.{ captured, arguments });
+    }
+
+    fn application(self: *Block, apply: anytype, next: ir.Edge) Error!ir.Terminator {
+        const compiler = self.function.compiler;
+        const value_definition = compiler.source.values[@intCast(apply.computation)];
+        if (value_definition.expression == .lambda) direct: {
+            const function = value_definition.expression.lambda;
+            // Moving an owner into a closure precedes argument evaluation. Keep
+            // that custody boundary unless all captures can remain in the caller.
+            for (compiler.facts.functions[@intCast(function)].items) |name| {
+                const schema = compiler.source.variables[@intCast(name)];
+                if (!compiler.uses.copy[@intCast(schema)]) break :direct;
+            }
+            // Keep the source callable's signature/capture contract in target
+            // admission even though execution needs no closure object.
+            _ = try compiler.constructor(function, value_definition.schema);
+            return .{ .call = .{
+                .function = function,
+                .arguments = try self.callArguments(function, apply.arguments),
+                .next = next,
+            } };
+        }
+        return .{ .apply = .{
+            .computation = try self.value(apply.computation),
+            .arguments = try self.values(apply.arguments),
+            .next = next,
+        } };
     }
 
     fn values(self: *Block, supplied: []const p.Id) Error![]const p.Id {

@@ -12,6 +12,37 @@ fn check(image: ir.Program) !void {
     defer facts.deinit();
 }
 
+test "tail clause admission rejects cycles suspension and shallow forgery" {
+    var builder = source.Builder.init(testing.allocator);
+    defer builder.deinit();
+    var compiled = try lower(testing.allocator, try source.examples.branchingTail(&builder));
+    defer compiled.deinit();
+    var image = compiled.program;
+    const clause = image.handlers[0].clauses[0];
+    const entry = image.functions[@intCast(clause.function)].entry;
+    const blocks = try testing.allocator.dupe(ir.Block, image.blocks);
+    defer testing.allocator.free(blocks);
+    image.blocks = blocks;
+    const original = blocks[@intCast(entry)];
+    blocks[@intCast(entry)].terminator = .{ .jump = .{ .block = entry } };
+    try testing.expectError(error.InvalidProgram, check(image));
+    blocks[@intCast(entry)].terminator = .{ .yield_value = .{ .block = entry } };
+    try testing.expectError(error.InvalidProgram, check(image));
+    blocks[@intCast(entry)] = original;
+    const handlers = try testing.allocator.dupe(ir.Handler, image.handlers);
+    defer testing.allocator.free(handlers);
+    image.handlers = handlers;
+    handlers[0].mode = .shallow;
+    try testing.expectError(error.TypeMismatch, check(image));
+    // A matching forged signature must still fail the tail-strategy law, not
+    // merely the earlier handler/signature consistency check.
+    const schemas = try testing.allocator.dupe(p.Schema, image.schemas);
+    defer testing.allocator.free(schemas);
+    image.schemas = schemas;
+    schemas[@intCast(clause.resumption)].internal.resumption.mode = .shallow;
+    try testing.expectError(error.InvalidProgram, check(image));
+}
+
 test "stable admission rejects forged operation types and missing arithmetic failures" {
     var builder = source.Builder.init(testing.allocator);
     defer builder.deinit();

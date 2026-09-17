@@ -151,3 +151,5 @@ src/v2/source/component_examples.zig
 src/v2/source/component_tests.zig
 tools/component_link.zig
 tools/component_example.zig
+src/v2/data/total_clause.zig
+src/v2/source/tail_clauses.zig

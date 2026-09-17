@@ -52,7 +52,7 @@ pub fn CheckFor(comptime Program: type, comptime State: type) type {
             return self.state.nodes[@intCast(ref.id)];
         }
 
-        fn handler(self: Self, ref: g.NodeRef) Error!p.Handler {
+        fn handler(self: Self, ref: g.NodeRef) Error!std.meta.Elem(@FieldType(Program, "handlers")) {
             const activation = try self.node(ref);
             if (activation != .handler or activation.handler.definition >= self.program.handlers.len)
                 return error.InvalidState;

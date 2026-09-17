@@ -101,6 +101,25 @@ pub const Block = struct {
     terminator: Terminator,
 };
 
+pub const Clause = struct {
+    effect: Id,
+    function: Id,
+    resumption: Id,
+    /// Tag 1 belonged to the predecessor's straight-line direct flag and rejects.
+    strategy: enum(u8) { general = 0, tail = 2 } = .general,
+};
+
+pub const Handler = struct {
+    mode: contract.Mode,
+    input: Id,
+    answer: Id,
+    return_function: Id,
+    clauses: []const Clause,
+    forward_function: ?Id = null,
+    state: []const Id = &.{},
+    effects: []const Id = &.{},
+};
+
 pub const Program = struct {
     roots: contract.Roots,
     schemas: []const contract.Schema,
@@ -108,7 +127,7 @@ pub const Program = struct {
     effects: []const contract.Effect,
     functions: []const Function,
     blocks: []const Block,
-    handlers: []const contract.Handler = &.{},
+    handlers: []const Handler = &.{},
     scopes: contract.ScopeCatalog = .{},
     constructors: []const contract.Constructor = &.{},
 };

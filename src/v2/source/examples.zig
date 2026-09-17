@@ -94,6 +94,95 @@ pub fn deep(builder: *source.Builder) Error!source.ast.Module {
     return builder.module(main, unit);
 }
 
+/// A total branching clause resumes exactly once; body and return still do
+/// checked arithmetic after that resumption, preserving their failure positions.
+pub fn branchingTail(b: *source.Builder) Error!source.Module {
+    const unit = try b.scalar(void);
+    const boolean = try b.scalar(bool);
+    const integer = try b.scalar(u64);
+    const fault = try b.constant(void, {});
+    const effect = try b.effect(.{ .identity = "example/branching-tail", .payload = boolean, .result = integer, .external = false });
+    const capability = try b.schema(.{ .internal = .{ .capability = effect } });
+    const token = try b.schema(.{ .internal = .{ .resumption = .{
+        .effect = effect,
+        .input = integer,
+        .answer = integer,
+        .handled = &.{effect},
+        .mode = .deep,
+        .use = .linear,
+    } } });
+    const main = try b.declare(&.{boolean}, integer, &.{}, &.{});
+    const body = try b.declare(&.{capability}, integer, &.{effect}, &.{});
+    const returns = try b.declare(&.{integer}, integer, &.{}, &.{});
+    const clause = try b.declare(&.{ boolean, token }, integer, &.{}, &.{});
+    const computation = try b.schema(.{ .internal = .{ .computation = .{
+        .parameters = &.{capability},
+        .result = integer,
+        .effects = &.{effect},
+        .capture_bound = &.{boolean},
+    } } });
+    const performed = try b.term(.{ .perform = .{ .effect = effect, .capability = try b.reference(b.parameter(body, 0)), .payload = try b.reference(b.parameter(main, 0)) } });
+    const result = try b.variable(integer);
+    try b.define(body, try b.bind(result, performed, try b.pure(try binary(b, .integer_add, integer, try b.reference(result), try b.constant(u64, 1), fault))));
+    try b.define(returns, try b.pure(try binary(b, .integer_mul, integer, try b.reference(b.parameter(returns, 0)), try b.constant(u64, 10), fault)));
+    const resumption = try b.reference(b.parameter(clause, 1));
+    try b.define(clause, try b.term(.{ .conditional = .{
+        .condition = try b.reference(b.parameter(clause, 0)),
+        .when_true = try b.term(.{ .resume_value = .{ .resumption = resumption, .argument = try b.constant(u64, 5) } }),
+        .when_false = try b.term(.{ .resume_value = .{ .resumption = resumption, .argument = try b.constant(u64, 9) } }),
+    } }));
+    const handler = try b.handler(.{ .mode = .deep, .input = integer, .answer = integer, .return_function = returns, .clauses = &.{.{ .effect = effect, .function = clause, .resumption = token }} });
+    try b.define(main, try b.term(.{ .handle = .{ .handler = handler, .body = try b.lambda(body, computation) } }));
+    return b.module(main, unit);
+}
+
+/// The selected delimiter contains an unfinished cleanup obligation.
+pub fn branchingTailProtected(b: *source.Builder) Error!source.Module {
+    const original = try branchingTail(b);
+    const integer = b.functions.items[@intCast(original.entry)].result;
+    const unit = original.failure;
+    const cleanup_effect = try b.effect(.{ .identity = "example/tail-cleanup", .payload = unit, .result = unit });
+    const main_body = b.functions.items[@intCast(original.entry)].body.?;
+    const body_value = b.terms.items[@intCast(main_body)].handle.body;
+    const body = b.values.items[@intCast(body_value)].expression.lambda;
+    const body_type = b.values.items[@intCast(body_value)].schema;
+    const old = b.functions.items[@intCast(body)];
+    const inner = try b.declare(&.{}, integer, old.effects, &.{});
+    try b.define(inner, old.body.?);
+    const boolean = b.variables.items[@intCast(b.parameter(original.entry, 0))];
+    const capability = b.variables.items[@intCast(b.parameter(body, 0))];
+    const inner_type = try b.schema(.{ .internal = .{ .computation = .{
+        .parameters = &.{},
+        .result = integer,
+        .effects = old.effects,
+        .capture_bound = &.{ boolean, capability },
+    } } });
+    const exit_info = try @import("../library/cleanup.zig").exitInfo(b, unit);
+    const cleanup = try b.declare(&.{exit_info}, unit, &.{cleanup_effect}, &.{});
+    try b.define(cleanup, try b.term(.{ .perform = .{ .effect = cleanup_effect, .payload = try b.constant(void, {}) } }));
+    const cleanup_type = try b.schema(.{ .internal = .{ .computation = .{
+        .parameters = &.{exit_info},
+        .result = unit,
+        .effects = &.{cleanup_effect},
+    } } });
+    b.functions.items[@intCast(body)].body = try b.term(.{ .protect = .{
+        .body = try b.lambda(inner, inner_type),
+        .cleanup = try b.lambda(cleanup, cleanup_type),
+    } });
+    const effects = try b.allocator().dupe(p.Id, &.{ old.effects[0], cleanup_effect });
+    b.functions.items[@intCast(body)].effects = effects;
+    b.schemas.items[@intCast(body_type)].internal.computation.effects = effects;
+    const cleanup_effects = try b.allocator().dupe(p.Id, &.{cleanup_effect});
+    b.functions.items[@intCast(original.entry)].effects = cleanup_effects;
+    const token = b.handlers.items[0].clauses[0].resumption;
+    b.schemas.items[@intCast(token)].internal.resumption.effects = cleanup_effects;
+    b.schemas.items[@intCast(token)].internal.resumption.obligations = true;
+    const clause = b.handlers.items[0].clauses[0].function;
+    b.functions.items[@intCast(clause)].effects = cleanup_effects;
+    b.handlers.items[0].effects = cleanup_effects;
+    return b.module(original.entry, original.failure);
+}
+
 pub fn recursive(builder: *source.Builder) Error!source.ast.Module {
     const integer = try builder.scalar(u64);
     const boolean = try builder.scalar(bool);

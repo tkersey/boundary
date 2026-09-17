@@ -3,6 +3,7 @@
 pub const wire = @import("wire.zig");
 pub const program = @import("program.zig");
 pub const activation = @import("activation.zig");
+pub const total_clause = @import("total_clause.zig");
 pub const analysis_sets = @import("analysis_sets.zig");
 pub const activation_structure = @import("activation_structure.zig");
 pub const activation_flow = @import("activation_flow.zig");
@@ -30,6 +31,7 @@ pub const direct_clause = @import("direct_clause.zig");
 pub const canonical = @import("canonical.zig");
 
 test {
+    _ = total_clause;
     _ = wire;
     _ = snapshot;
     _ = scalar;

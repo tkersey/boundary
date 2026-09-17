@@ -8,6 +8,92 @@ const p = data.program;
 const testing = std.testing;
 const check = @import("check.zig");
 
+test "total branching tail clauses are distinct from general control" {
+    var builder = source.Builder.init(testing.allocator);
+    defer builder.deinit();
+    var compiled = try lower(testing.allocator, try source.examples.branchingTail(&builder));
+    defer compiled.deinit();
+    const clause = compiled.program.handlers[0].clauses[0];
+    try testing.expect(clause.strategy == .tail);
+    const function = compiled.program.functions[@intCast(clause.function)];
+    try testing.expectEqual(1, function.inputs.len);
+    var branches: usize = 0;
+    var returns: usize = 0;
+    for (compiled.program.blocks) |block| {
+        if (block.function != clause.function) continue;
+        if (block.terminator == .branch) branches += 1;
+        if (block.terminator == .return_value) returns += 1;
+        try testing.expect(block.terminator != .resume_value);
+    }
+    try testing.expectEqual(1, branches);
+    try testing.expectEqual(2, returns);
+    inline for (.{ source.examples.deep, source.examples.shallow, source.examples.generator, source.examples.reentrant }) |example| {
+        var sibling = source.Builder.init(testing.allocator);
+        defer sibling.deinit();
+        var general = try lower(testing.allocator, try example(&sibling));
+        defer general.deinit();
+        try testing.expect(general.program.handlers[0].clauses[0].strategy == .general);
+    }
+}
+
+test "immediate lexical application uses direct calls without erasing callable contracts" {
+    var builder = source.Builder.init(testing.allocator);
+    defer builder.deinit();
+    const original = try source.examples.lexical(&builder);
+    const main = &builder.functions.items[@intCast(original.entry)];
+    const binding = builder.terms.items[@intCast(main.body.?)].bind;
+    var application = builder.terms.items[@intCast(binding.next)].apply;
+    application.computation = builder.terms.items[@intCast(binding.value)].value;
+    main.body = try builder.term(.{ .apply = application });
+    var compiled = try lower(testing.allocator, builder.module(original.entry, original.failure));
+    defer compiled.deinit();
+    var calls: usize = 0;
+    for (compiled.program.blocks) |block| {
+        for (block.instructions) |instruction| try testing.expect(instruction.opcode != .computation);
+        try testing.expect(block.terminator != .apply);
+        if (block.terminator == .call) {
+            calls += 1;
+            try testing.expectEqual(2, block.terminator.call.arguments.len);
+        }
+    }
+    try testing.expectEqual(1, calls);
+    // The original lambda's capture bound is still checked after specialization.
+    const schema = builder.values.items[@intCast(application.computation)].schema;
+    builder.schemas.items[@intCast(schema)].internal.computation.capture_bound = &.{};
+    try testing.expectError(error.InvalidOwnership, lower(testing.allocator, builder.module(original.entry, original.failure)));
+}
+
+test "immediate application retains the capture boundary for an owned resumption" {
+    var builder = source.Builder.init(testing.allocator);
+    defer builder.deinit();
+    const original = try source.examples.deep(&builder);
+    const clause = builder.handlers.items[0].clauses[0];
+    const definition = builder.functions.items[@intCast(clause.function)];
+    const inner = try builder.declare(&.{}, definition.result, definition.effects, &.{});
+    try builder.define(inner, definition.body.?);
+    const signature = try builder.schema(.{ .internal = .{ .computation = .{
+        .parameters = &.{},
+        .result = definition.result,
+        .effects = definition.effects,
+        .capture_bound = &.{clause.resumption},
+        .use = .linear,
+    } } });
+    builder.functions.items[@intCast(clause.function)].body = try builder.term(.{ .apply = .{
+        .computation = try builder.lambda(inner, signature),
+        .arguments = &.{},
+    } });
+    var compiled = try lower(testing.allocator, builder.module(original.entry, original.failure));
+    defer compiled.deinit();
+    var found = false;
+    for (compiled.program.blocks) |block| {
+        if (block.function != clause.function or block.terminator != .apply) continue;
+        found = true;
+        try testing.expectEqual(1, block.instructions.len);
+        try testing.expectEqual(p.Opcode.computation, block.instructions[0].opcode);
+    }
+    try testing.expect(found);
+}
+
 test "module observes declarations made while evaluating its arguments" {
     var builder = source.Builder.init(testing.allocator);
     defer builder.deinit();

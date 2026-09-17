@@ -55,12 +55,12 @@ fn evidence(image: anytype, ids: []const p.Id) a.Error!void {
         if (std.mem.indexOfScalar(p.Id, ids[0..index], id) != null) return error.InvalidEffect;
     }
 }
-fn covers(handler: p.Handler, effect: p.Id) bool {
+fn covers(handler: anytype, effect: p.Id) bool {
     for (handler.clauses) |clause| if (clause.effect == effect) return true;
     return false;
 }
 
-fn continuationEffect(image: anytype, handler: p.Handler, effect: p.Id, escapes: bool) a.Error!void {
+fn continuationEffect(image: anytype, handler: anytype, effect: p.Id, escapes: bool) a.Error!void {
     for (handler.clauses) |clause| {
         const signature = try resumption(image, clause.resumption);
         if (handler.mode == .shallow or escapes) try subset(&.{effect}, signature.effects);
@@ -68,7 +68,7 @@ fn continuationEffect(image: anytype, handler: p.Handler, effect: p.Id, escapes:
     }
 }
 
-fn deepHandlerEffects(image: anytype, handler: p.Handler) a.Error!void {
+fn deepHandlerEffects(image: anytype, handler: anytype) a.Error!void {
     if (handler.mode != .deep) return;
     for (handler.clauses) |clause|
         try subset(handler.effects, (try resumption(image, clause.resumption)).effects);
@@ -139,13 +139,18 @@ pub fn invocationEffect(
     };
 }
 
+pub fn retainsResumption(clause: anytype) bool {
+    if (comptime @hasField(@TypeOf(clause), "strategy")) return clause.strategy == .general;
+    return !clause.direct;
+}
+
 pub fn containsEffect(row_: []const p.Id, effect: p.Id) bool {
     return std.mem.indexOfScalar(p.Id, row_, effect) != null;
 }
 
 fn capturedRegion(image: anytype, effects: []const p.Id, region: p.Id) a.Error!void {
     for (effects) |effect| for (image.handlers) |handler| for (handler.clauses) |clause| {
-        if (clause.effect != effect or clause.direct) continue;
+        if (clause.effect != effect or !retainsResumption(clause)) continue;
         const signature = try resumption(image, clause.resumption);
         if (std.mem.indexOfScalar(p.Id, signature.owned_regions, region) == null) return error.InvalidOwnership;
     };
@@ -254,15 +259,14 @@ pub fn validateDiagnosed(allocator: std.mem.Allocator, image: anytype, diagnosti
             if (continuation.effect != clause.effect or continuation.mode != handler.mode or continuation.answer != (if (handler.mode == .deep) handler.answer else handler.input)) return error.TypeMismatch;
             if (continuation.handled.len != handler.clauses.len) return error.InvalidEffect;
             for (continuation.handled, handler.clauses) |id, handled| if (id != handled.effect) return error.InvalidEffect;
-            if (clause.direct) {
+            if (!retainsResumption(clause)) {
                 if (handler.mode != .deep or continuation.use != .linear or effect.bodies.len != 0) return error.InvalidProgram;
                 if (function.result != effect.result or parameters.len != handler.state.len + 1) return error.TypeMismatch;
                 if (!parameters.matches(0, handler.state) or parameters.at(handler.state.len) != effect.payload) return error.TypeMismatch;
                 if (function.effects.len != 0) return error.InvalidEffect;
                 if (function.entry >= image.blocks.len) return error.InvalidProgram;
                 if (comptime @hasField(@TypeOf(function), "layout")) {
-                    // Stable selective clauses require their own CFG proof.
-                    return error.UnsupportedInstruction;
+                    try @import("total_clause.zig").validate(allocator, image, clause.function, facts);
                 } else if (!@import("direct_clause.zig").block(image.blocks[@intCast(function.entry)]))
                     return error.InvalidProgram;
                 continue;

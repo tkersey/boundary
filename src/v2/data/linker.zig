@@ -154,7 +154,7 @@ fn slice(comptime kind: Kind, program: ir.Program) switch (kind) {
     .effect => []const p.Effect,
     .function => []const ir.Function,
     .block => []const ir.Block,
-    .handler => []const p.Handler,
+    .handler => []const ir.Handler,
     .capture => []const p.Capture,
     .resource => []const p.Resource,
     .constructor => []const p.Constructor,
@@ -181,7 +181,7 @@ fn assemble(a: std.mem.Allocator, units: []const Unit, imported: [relocate.kind_
         .effects = try catalog(p.Effect, .effect, a, units, imported[2], counts[2], relocate.Mapper.effect),
         .functions = try catalog(ir.Function, .function, a, units, imported[3], counts[3], relocate.Mapper.function),
         .blocks = try catalog(ir.Block, .block, a, units, imported[4], counts[4], relocate.Mapper.block),
-        .handlers = try catalog(p.Handler, .handler, a, units, imported[5], counts[5], relocate.Mapper.handler),
+        .handlers = try catalog(ir.Handler, .handler, a, units, imported[5], counts[5], relocate.Mapper.handler),
         .scopes = .{ .captures = try catalog(p.Capture, .capture, a, units, imported[6], counts[6], relocate.Mapper.capture), .region_count = counts[7], .resources = try catalog(p.Resource, .resource, a, units, imported[8], counts[8], relocate.Mapper.resource) },
         .constructors = try catalog(p.Constructor, .constructor, a, units, imported[9], counts[9], relocate.Mapper.constructor),
     };
@@ -282,13 +282,13 @@ fn compatible(mapper: relocate.Mapper, local: ir.Program, linked: ir.Program, re
             if (expected.clauses.len != actual.clauses.len) break :blk false;
             if (!sameFunction(linked.functions[@intCast(expected.return_function)], linked.functions[@intCast(actual.return_function)])) break :blk false;
             expected.return_function = actual.return_function;
-            const clauses = try mapper.allocator.dupe(p.Clause, expected.clauses);
+            const clauses = try mapper.allocator.dupe(ir.Clause, expected.clauses);
             for (clauses, actual.clauses) |*clause, supplied| {
                 if (!sameFunction(linked.functions[@intCast(clause.function)], linked.functions[@intCast(supplied.function)])) break :blk false;
                 clause.function = supplied.function;
             }
             expected.clauses = clauses;
-            break :blk equal(p.Handler, expected, actual);
+            break :blk equal(ir.Handler, expected, actual);
         },
         else => return error.InvalidImport,
     };
