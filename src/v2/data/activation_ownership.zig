@@ -14,7 +14,11 @@ pub const Error = types.Error || flow.Error;
 /// All facts are derived inside this call from the same immutable input. A caller
 /// cannot supply a live map or a weaker capture summary as proof of the program.
 pub fn analyze(allocator: std.mem.Allocator, image: ir.Program) Error!flow.Facts {
-    return analyzeInternal(allocator, image, &.{}, false, &.{});
+    return analyzeDiagnosed(allocator, image, null);
+}
+
+pub fn analyzeDiagnosed(allocator: std.mem.Allocator, image: ir.Program, diagnostic: ?*@import("admission.zig").Diagnostic) Error!flow.Facts {
+    return analyzeInternal(allocator, image, &.{}, false, &.{}, diagnostic);
 }
 
 pub fn analyzeComponent(
@@ -23,7 +27,7 @@ pub fn analyzeComponent(
     imports: []const p.Id,
     borrows: []const @import("borrow_contract.zig").Summary,
 ) Error!flow.Facts {
-    return analyzeInternal(allocator, image, imports, true, borrows);
+    return analyzeInternal(allocator, image, imports, true, borrows, null);
 }
 fn analyzeInternal(
     allocator: std.mem.Allocator,
@@ -31,8 +35,9 @@ fn analyzeInternal(
     imports: []const p.Id,
     component: bool,
     borrows: []const @import("borrow_contract.zig").Summary,
+    diagnostic: ?*@import("admission.zig").Diagnostic,
 ) Error!flow.Facts {
-    if (component) try types.validateComponent(allocator, image, imports, borrows) else try types.validate(allocator, image);
+    if (component) try types.validateComponent(allocator, image, imports, borrows) else try types.validateDiagnosed(allocator, image, diagnostic);
     var facts = try flow.analyzeComponent(allocator, image, imports);
     errdefer facts.deinit();
     var arena = std.heap.ArenaAllocator.init(allocator);
@@ -40,12 +45,14 @@ fn analyzeInternal(
     const scratch = arena.allocator();
     var checker: Check = .{
         .image = image,
+        .diagnostic = diagnostic,
         .facts = &facts,
         .uses = try @import("traits.zig").derive(scratch, image.schemas),
         .effects = try effect_scope.deriveComponent(scratch, image, imports),
     };
     for (image.blocks, 0..) |block, id| {
         if (facts.entries[id] == null) continue;
+        if (diagnostic) |d| d.* = .{ .phase = .block, .function = block.function, .block = id, .callee = if (block.terminator == .call) block.terminator.call.function else null };
         if (block.terminator == .return_value) {
             var obligations = facts.positions[id][block.instructions.len].obligations;
             obligations = try facts.pool.remove(obligations, block.terminator.return_value);
@@ -58,6 +65,7 @@ fn analyzeInternal(
 
 const Check = struct {
     image: ir.Program,
+    diagnostic: ?*@import("admission.zig").Diagnostic = null,
     facts: *flow.Facts,
     uses: @import("traits.zig").Facts,
     effects: effect_scope.Facts,
@@ -141,6 +149,10 @@ const Check = struct {
     }
 
     fn capture(self: Check, slots: []const p.Id, effect: p.Id, slot: p.Id) Error!void {
+        if (self.diagnostic) |d| {
+            d.slot = slot;
+            d.effect = effect;
+        }
         const schema = slots[@intCast(slot)];
         if (self.image.effects[@intCast(effect)].control_use == .multi and
             !self.uses.clone[@intCast(schema)]) return error.InvalidOwnership;

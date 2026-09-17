@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
 //! Owners survive completed successor interfaces, including unnamed values.
 const source = @import("../source.zig");
-const p = @import("boundary_data_v2").program;
+const p = @import("boundary_data").program;
 const Error = source.Error;
 pub const count = 12;
 const Kind = enum { binding, branch, call, apply, temporary_binding, temporary_branch, temporary_call, temporary_apply, returned_owner, match_payload, unpack_payload, unpack_operand };

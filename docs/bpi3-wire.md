@@ -2,7 +2,7 @@
 
 This development format directly encodes `activation.Program`. The implementation
 is `src/v2/data/program_image.zig` and `program_record.zig`; it neither builds nor
-accepts predecessor Programs. The default public compiler is still being migrated.
+accepts predecessor Programs. The ordinary public compiler emits this format.
 
 ## Framing, primitives and identity
 

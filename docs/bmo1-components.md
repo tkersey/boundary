@@ -1,8 +1,8 @@
 # BMO1 components and source-independent linking
 
 `source.component.compile` uses the stable-activation compiler to produce a
-relocatable object. `boundary_data_v2.component.decode` checks its first-order
-records. `boundary_data_v2.linker.link` binds objects and independently admits a
+relocatable object. `boundary_data.component.decode` checks its first-order
+records. `boundary_data.linker.link` binds objects and independently admits a
 closed BPI3 Program. The linker neither runs source emitters nor executes code.
 These development APIs remain under the current migration namespace until the
 coordinated default cutover.

@@ -4,23 +4,21 @@
 const std = @import("std");
 pub const component = @import("source/component.zig");
 pub const component_examples = @import("source/component_examples.zig");
-const data = @import("boundary_data_v2");
+const data = @import("boundary_data");
 const p = data.program;
 pub const ast = @import("source/ast.zig");
 pub const Id = p.Id;
 pub const Module = ast.Module;
-pub const Compiled = @import("source/compiled.zig").Compiled;
+pub const Compiled = @import("source/activation_lower.zig").Construction;
 pub const examples = @import("source/examples.zig");
-pub const lower = @import("source/lower.zig").lower;
+pub const lower = @import("source/activation_lower.zig").lower;
 /// Direct stable-slot construction with BPI3 encoding and pure admission.
-pub const Construction = @import("source/activation_lower.zig").Construction;
-pub const construct = @import("source/activation_lower.zig").lower;
-pub const constructObserved = @import("source/activation_lower.zig").lowerObserved;
-pub const lowerObserved = @import("source/lower.zig").lowerObserved;
+pub const lowerObserved = @import("source/activation_lower.zig").lowerObserved;
 pub const Diagnostic = @import("source/diagnostic.zig").Diagnostic;
 pub const CompileOptions = @import("source/diagnostic.zig").Options;
 pub const CompileStage = @import("source/diagnostic.zig").Stage;
-pub const Error = data.admission.Error || error{ UndefinedFunction, InvalidSource, UnboundVariable };
+pub const Error = data.admission.Error || data.activation_flow.Error ||
+    error{ UndefinedFunction, InvalidSource, UnboundVariable };
 
 /// Application.emit constructs a checked source Module. Its Zig body runs only
 /// while authoring; the result contains all executable code as portable data.

@@ -2,7 +2,7 @@
 //! Exact first-order value translation from an admitted BPI1 schema table.
 //! This converts data encodings only; it never evaluates an application.
 const std = @import("std");
-const data = @import("boundary_data_v2");
+const data = @import("boundary_data");
 const legacy = @import("value.zig");
 const p = data.program;
 

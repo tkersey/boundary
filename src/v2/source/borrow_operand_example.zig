@@ -2,7 +2,7 @@
 //! Borrowing an evaluated operand preserves the remaining owned values on failure.
 const std = @import("std");
 const source = @import("../source.zig");
-const p = @import("boundary_data_v2").program;
+const p = @import("boundary_data").program;
 const Error = source.Error;
 const Kind = enum { length, tag, get, owned_length, owned_tag };
 const edges = @import("custody_edge_example.zig");

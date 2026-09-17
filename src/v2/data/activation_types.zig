@@ -12,7 +12,11 @@ const effect_scope = @import("effect_scope.zig");
 pub const Error = a.Error || structure.Error;
 
 pub fn validate(allocator: std.mem.Allocator, image: ir.Program) Error!void {
-    return validateInternal(allocator, image, &.{}, false, &.{});
+    return validateDiagnosed(allocator, image, null);
+}
+
+pub fn validateDiagnosed(allocator: std.mem.Allocator, image: ir.Program, diagnostic: ?*a.Diagnostic) Error!void {
+    return validateInternal(allocator, image, &.{}, false, &.{}, diagnostic);
 }
 
 pub fn validateComponent(
@@ -21,7 +25,7 @@ pub fn validateComponent(
     imports: []const p.Id,
     borrows: []const @import("borrow_contract.zig").Summary,
 ) Error!void {
-    return validateInternal(allocator, image, imports, true, borrows);
+    return validateInternal(allocator, image, imports, true, borrows, null);
 }
 fn validateInternal(
     allocator: std.mem.Allocator,
@@ -29,15 +33,17 @@ fn validateInternal(
     imports: []const p.Id,
     component: bool,
     borrows: []const @import("borrow_contract.zig").Summary,
+    diagnostic: ?*a.Diagnostic,
 ) Error!void {
     try structure.validateComponent(allocator, image, imports);
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     const scratch = arena.allocator();
     try catalogs(scratch, image, component);
-    const uses = try contracts.validate(scratch, image);
+    const uses = try contracts.validateDiagnosed(scratch, image, diagnostic);
     const effects = try effect_scope.deriveComponent(scratch, image, imports);
-    for (image.blocks) |block| {
+    for (image.blocks, 0..) |block, block_id| {
+        if (diagnostic) |d| d.* = .{ .phase = .block, .function = block.function, .block = block_id };
         const layout = image.functions[@intCast(block.function)].layout.slots;
         for (block.instructions) |instruction| {
             // A single-operation typing view, not a predecessor Program or block.
@@ -69,7 +75,7 @@ fn validateInternal(
                 continue;
             try @import("borrow_contract.zig").check(&solver, summary);
         }
-    } else try @import("borrow_flow.zig").validate(scratch, image, schema_facts.exportable, null);
+    } else try @import("borrow_flow.zig").validate(scratch, image, schema_facts.exportable, diagnostic);
 }
 
 fn catalogs(allocator: std.mem.Allocator, image: ir.Program, component: bool) Error!void {

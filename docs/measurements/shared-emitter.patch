@@ -1,0 +1,214 @@
+diff --git a/build.zig b/build.zig
+index e8764cc..7384cb8 100644
+--- a/build.zig
++++ b/build.zig
+@@ -20 +20 @@ pub fn build(b: *std.Build) void {
+-    const data_step = b.step("check-v2-data", "Check v2 canonical records and pure admission");
++    const data_step = b.step("check-data", "Check v2 canonical records and pure admission");
+@@ -111,40 +111 @@ pub fn build(b: *std.Build) void {
+-    const compact_tests = b.addTest(.{ .root_module = b.createModule(.{
+-        .root_source_file = b.path("test/v2/compact_images.zig"),
+-        .target = b.graph.host,
+-        .optimize = optimize,
+-        .imports = &.{.{ .name = "boundary", .module = boundary }},
+-    }) });
+-    const compact_step = b.step("check-v2-compact", "Check lossless compact program images");
+-    compact_step.dependOn(&b.addRunArtifact(compact_tests).step);
+-    const codec_profile = b.addExecutable(.{ .name = "compact-codec-profile", .root_module = b.createModule(.{
+-        .root_source_file = b.path("test/v2/codec_profile.zig"),
+-        .target = b.graph.host,
+-        .optimize = .ReleaseSafe,
+-        .imports = &.{.{ .name = "boundary_data", .module = data }},
+-    }) });
+-    b.step("build-v2-codec-profile", "Measure already-built legacy and compact codec phases")
+-        .dependOn(&b.addInstallArtifact(codec_profile, .{}).step);
+-    const compact_example = b.addExecutable(.{ .name = "compact-image-example", .root_module = b.createModule(.{
+-        .root_source_file = b.path("examples/compact_image.zig"),
+-        .target = b.graph.host,
+-        .optimize = optimize,
+-        .imports = &.{.{ .name = "boundary", .module = boundary }},
+-    }) });
+-    b.step("emit-compact-image", "Emit the public compact codec example")
+-        .dependOn(&b.addRunArtifact(compact_example).step);
+-    const compact_tool = b.addExecutable(.{ .name = "compact-image", .root_module = b.createModule(.{
+-        .root_source_file = b.path("tools/v2/compact_image.zig"),
+-        .target = target,
+-        .optimize = optimize,
+-        .imports = &.{.{ .name = "boundary_data", .module = data }},
+-    }) });
+-    b.step("build-compact-image", "Build the pure compact image converter")
+-        .dependOn(&b.addInstallArtifact(compact_tool, .{}).step);
+-    const compact_report = b.addExecutable(.{ .name = "compact-image-report", .root_module = b.createModule(.{
+-        .root_source_file = b.path("src/v2/data/compact_report.zig"),
+-        .target = target,
+-        .optimize = optimize,
+-    }) });
+-    b.step("build-compact-image-report", "Build compact image byte attribution")
+-        .dependOn(&b.addInstallArtifact(compact_report, .{}).step);
+-    const compact_fixtures = b.step("emit-v2-compact-fixtures", "Emit compact size and transfer witnesses");
++    const compact_fixtures = b.step("emit-program-images", "Emit current compact Program images");
+@@ -190,19 +151,5 @@ pub fn build(b: *std.Build) void {
+-    const compact_wasm_run = b.addSystemCommand(&.{"node"});
+-    compact_wasm_run.addFileArg(b.path("test/v2/compact_wasm.mjs"));
+-    compact_wasm_run.addFileArg(compact_wasm.getEmittedBin());
+-    compact_wasm_run.addFileArg(compact_tool.getEmittedBin());
+-    compact_wasm_run.addArg(b.getInstallPath(.prefix, ""));
+-    compact_wasm_run.step.dependOn(compact_fixtures);
+-    const compact_wasm_step = b.step("check-v2-compact-wasm", "Compare native and wasm32 compact writer bytes");
+-    compact_wasm_step.dependOn(&compact_wasm_run.step);
+-    for ([_]usize{ 8, 64, 127, 128, 256 }) |count| {
+-        for ([_]bool{ false, true }) |mixed| {
+-            for ([_]bool{ false, true }) |legacy| {
+-                const name = b.fmt("{s}-{d}.{s}", .{
+-                    if (mixed) "mixed" else "install", count, if (legacy) "bpi2" else "bpc1",
+-                });
+-                const run = b.addRunArtifact(compact_emit);
+-                run.addArgs(&.{ b.fmt("{d}", .{count}), if (mixed) "mixed" else "install", if (legacy) "bpi2" else "bpc1" });
+-                const bytes = run.captureStdOut(.{});
+-                compact_fixtures.dependOn(&b.addInstallFileWithDir(bytes, .prefix, name).step);
+-            }
++    for ([_][]const u8{ "install", "mixed", "irregular" }) |kind| {
++        for ([_]usize{ 8, 64, 128, 256 }) |count| {
++            const run = b.addRunArtifact(compact_emit);
++            run.addArgs(&.{ b.fmt("{d}", .{count}), kind });
++            compact_fixtures.dependOn(&b.addInstallFileWithDir(run.captureStdOut(.{}), .prefix, b.fmt("{s}-{d}.bpi3", .{ kind, count })).step);
+@@ -211,12 +157,0 @@ pub fn build(b: *std.Build) void {
+-    for ([_]bool{ false, true }) |legacy| {
+-        const run = b.addRunArtifact(compact_emit);
+-        const extension = if (legacy) "bpi2" else "bpc1";
+-        run.addArgs(&.{ "64", "constant", extension });
+-        compact_fixtures.dependOn(&b.addInstallFileWithDir(run.captureStdOut(.{}), .prefix, b.fmt("constant-64k.{s}", .{extension})).step);
+-    }
+-    for ([_]usize{ 64, 128, 256 }) |count| for ([_]bool{ false, true }) |legacy| {
+-        const run = b.addRunArtifact(compact_emit);
+-        const extension = if (legacy) "bpi2" else "bpc1";
+-        run.addArgs(&.{ b.fmt("{d}", .{count}), "irregular", extension });
+-        compact_fixtures.dependOn(&b.addInstallFileWithDir(run.captureStdOut(.{}), .prefix, b.fmt("irregular-{d}.{s}", .{ count, extension })).step);
+-    };
+@@ -230 +165 @@ pub fn build(b: *std.Build) void {
+-    b.step("check-v2-authoring", "Check staged typed construction and lowering")
++    b.step("check-authoring", "Check staged typed construction and lowering")
+@@ -232 +167 @@ pub fn build(b: *std.Build) void {
+-    const economy = b.step("check-v2-economy", "Check code and constant sharing and emit executable economy workloads");
++    const economy = b.step("check-economy", "Check code and constant sharing and emit executable economy workloads");
+@@ -234,8 +168,0 @@ pub fn build(b: *std.Build) void {
+-    economy.dependOn(&b.addRunArtifact(historical_corpus).step);
+-    const sizes = b.addExecutable(.{ .name = "economy-image-sizes", .root_module = b.createModule(.{
+-        .root_source_file = b.path("test/v2/bpi1_admission.zig"),
+-        .target = b.graph.host,
+-        .optimize = optimize,
+-        .imports = &.{ .{ .name = "boundary_bpi1", .module = historical }, .{ .name = "boundary_data", .module = data } },
+-    }) });
+-    economy.dependOn(&b.addInstallFileWithDir(b.addRunArtifact(sizes).captureStdOut(.{}), .prefix, "economy-image-sizes.json").step);
+@@ -248,7 +174,0 @@ pub fn build(b: *std.Build) void {
+-    const phase_options = b.addOptions();
+-    phase_options.addOption(usize, "kind", b.option(usize, "compiler-phase-kind", "Compiler/codec workload ordinal 0 through 8") orelse 0);
+-    phase_options.addOption(bool, "compact", b.option(bool, "compiler-phase-compact", "Measure opt-in compact image production") orelse false);
+-    const phase_module = b.createModule(.{ .root_source_file = b.path("test/v2/compiler_phases.zig"), .target = b.graph.host, .optimize = optimize, .imports = &.{.{ .name = "boundary", .module = boundary }} });
+-    phase_module.addOptions("phase_options", phase_options);
+-    const phase_executable = b.addExecutable(.{ .name = "compiler-phases", .root_module = phase_module });
+-    b.step("build-v2-compiler-phases", "Build the standalone compiler and codec phase observer").dependOn(&b.addInstallArtifact(phase_executable, .{}).step);
+@@ -262 +182 @@ pub fn build(b: *std.Build) void {
+-        economy.dependOn(&b.addInstallFileWithDir(bytes, .prefix, b.fmt("economy-{d}.bpi2", .{count})).step);
++        economy.dependOn(&b.addInstallFileWithDir(bytes, .prefix, b.fmt("economy-{d}.bpi3", .{count})).step);
+@@ -274 +194 @@ pub fn build(b: *std.Build) void {
+-    b.step("emit-v2-scalar", "Emit a typed scalar BPI2 example to stdout")
++    b.step("emit-scalar", "Emit a typed scalar BPI3 example to stdout")
+@@ -276,2 +196 @@ pub fn build(b: *std.Build) void {
+-    const source_fixtures = b.step("emit-v2-source-fixtures", "Emit higher-order source examples and their portable images");
+-    compact_wasm_run.step.dependOn(source_fixtures);
++    const source_fixtures = b.step("emit-examples", "Emit higher-order source examples and BPI3 images");
+@@ -279,0 +199,6 @@ pub fn build(b: *std.Build) void {
++    const source_emitter = b.addExecutable(.{ .name = "source-example", .root_module = b.createModule(.{
++        .root_source_file = b.path("test/v2/emit_source.zig"),
++        .target = b.graph.host,
++        .optimize = optimize,
++        .imports = &.{.{ .name = "boundary", .module = boundary }},
++    }) });
+@@ -281,15 +206,6 @@ pub fn build(b: *std.Build) void {
+-        for ([_]bool{ true, false }) |source| {
+-            const source_options = b.addOptions();
+-            source_options.addOption(usize, "example", index);
+-            source_options.addOption(bool, "source", source);
+-            const source_module = b.createModule(.{
+-                .root_source_file = b.path("test/v2/emit_source.zig"),
+-                .target = b.graph.host,
+-                .optimize = optimize,
+-                .imports = &.{.{ .name = "boundary", .module = boundary }},
+-            });
+-            source_module.addOptions("source_options", source_options);
+-            const emit = b.addExecutable(.{ .name = b.fmt("source-{s}-{s}", .{ name, if (source) "json" else "bpi2" }), .root_module = source_module });
+-            const file = b.addRunArtifact(emit).captureStdOut(.{});
+-            source_fixtures.dependOn(&b.addInstallFileWithDir(file, .prefix, b.fmt("source-{s}.{s}", .{ name, if (source) "json" else "bpi2" })).step);
+-            if (source) oracle.addFileArg(file);
++        for ([_][]const u8{ "json", "bpi3" }) |format| {
++            const run = b.addRunArtifact(source_emitter);
++            run.addArgs(&.{ b.fmt("{d}", .{index}), format });
++            const file = run.captureStdOut(.{});
++            source_fixtures.dependOn(&b.addInstallFileWithDir(file, .prefix, b.fmt("source-{s}.{s}", .{ name, format })).step);
++            if (std.mem.eql(u8, format, "json")) oracle.addFileArg(file);
+@@ -299 +215 @@ pub fn build(b: *std.Build) void {
+-    const semantics = b.step("check-v2-semantics", "Check higher-order source semantics without World");
++    const semantics = b.step("check-semantics", "Check higher-order source semantics without World");
+@@ -311,2 +227,2 @@ pub fn build(b: *std.Build) void {
+-    semantics.dependOn(&trust.step);
+-    const aggregate = b.step("check-v2", "Check compiler, source semantics, formal core, data and economy without a runtime");
++    b.step("check-formal", "Check the independent source semantic model").dependOn(&trust.step);
++    const aggregate = b.step("check", "Check current authoring, data, source semantics and component linking");
+@@ -314,3 +230,4 @@ pub fn build(b: *std.Build) void {
+-    aggregate.dependOn(compact_step);
+-    aggregate.dependOn(compact_wasm_step);
+-    aggregate.dependOn(historical_step);
++    aggregate.dependOn(component_step);
++    aggregate.dependOn(&program_wasm_run.step);
++    aggregate.dependOn(&state_wasm_run.step);
++    aggregate.dependOn(&invocation_wasm_run.step);
+@@ -320,4 +236,0 @@ pub fn build(b: *std.Build) void {
+-    const assets_tests = b.addSystemCommand(&.{ "node", "--test" });
+-    assets_tests.addFileArg(b.path("test/v2/assets.test.mjs"));
+-    assets_tests.has_side_effects = true;
+-    aggregate.dependOn(&assets_tests.step);
+@@ -331,2 +244,2 @@ pub fn build(b: *std.Build) void {
+-    const capacity_install = b.addInstallFileWithDir(capacity_bytes, .prefix, "capacity.bpi2");
+-    b.step("emit-v2-capacity-fixture", "Emit the public typed arena-exhaustion program").dependOn(&capacity_install.step);
++    const capacity_install = b.addInstallFileWithDir(capacity_bytes, .prefix, "capacity.bpi3");
++    b.step("emit-capacity-fixture", "Emit the public typed arena-exhaustion program").dependOn(&capacity_install.step);
+@@ -334,15 +246,0 @@ pub fn build(b: *std.Build) void {
+-    const release = b.addSystemCommand(&.{"node"});
+-    const inspect = b.addExecutable(.{ .name = "bpi2-inspect", .root_module = b.createModule(.{
+-        .root_source_file = b.path("tools/v2/bpi2_inspect.zig"),
+-        .target = b.graph.host,
+-        .optimize = optimize,
+-        .imports = &.{.{ .name = "boundary_data", .module = data }},
+-    }) });
+-    b.step("build-bpi2-inspect", "Build the pure BPI2 admission and inspection command").dependOn(&b.addInstallArtifact(inspect, .{}).step);
+-    release.addFileArg(b.path("tools/v2/release.mjs"));
+-    release.addArg(b.getInstallPath(.prefix, "."));
+-    release.addArg(b.getInstallPath(.prefix, "release"));
+-    release.addFileArg(inspect.getEmittedBin());
+-    release.step.dependOn(source_fixtures);
+-    release.has_side_effects = true;
+-    b.step("emit-boundary-v2-release", "Emit deterministic compiler/data assets without publishing").dependOn(&release.step);
+diff --git a/test/v2/emit_source.zig b/test/v2/emit_source.zig
+index 4817644..ee8bf6a 100644
+--- a/test/v2/emit_source.zig
++++ b/test/v2/emit_source.zig
+@@ -4 +3,0 @@ const boundary = @import("boundary");
+-const options = @import("source_options");
+@@ -6,0 +6,7 @@ pub fn main(init: std.process.Init) !void {
++    var args = std.process.Args.Iterator.init(init.minimal.args);
++    _ = args.next();
++    const example = try std.fmt.parseInt(usize, args.next() orelse return error.MissingExample, 10);
++    const format = args.next() orelse return error.MissingFormat;
++    const emit_source = std.mem.eql(u8, format, "json");
++    if (args.next() != null or (!emit_source and !std.mem.eql(u8, format, "bpi3")))
++        return error.InvalidArguments;
+@@ -9 +15 @@ pub fn main(init: std.process.Init) !void {
+-    const module = try switch (options.example) {
++    const module = try switch (example) {
+@@ -51 +57 @@ pub fn main(init: std.process.Init) !void {
+-        else => @compileError("unknown source example"),
++        else => error.UnknownExample,
+@@ -55 +61 @@ pub fn main(init: std.process.Init) !void {
+-    if (options.source) {
++    if (emit_source) {

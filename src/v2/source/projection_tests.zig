@@ -20,7 +20,7 @@ fn program(b: *source.Builder, mode: Mode) !source.Module {
     const output = try b.schema(.{ .product = &.{ integer, integer } });
     const variable = try b.variable(pair);
     const reference = try b.reference(variable);
-    const opcode: boundary.data_v2.program.Opcode = if (mode == .borrowed)
+    const opcode: boundary.data.program.Opcode = if (mode == .borrowed)
         .sequence_length
     else
         .field;
@@ -50,7 +50,7 @@ test "consuming projections cannot hide repeated owned uses behind an expression
         defer b.deinit();
         const module = try program(&b, mode);
         try std.testing.expectError(
-            error.InvalidOwnership,
+            error.UnavailableSlot,
             boundary.program.compile(std.testing.allocator, module),
         );
     }
@@ -112,7 +112,7 @@ test "borrow expression sharing cannot conceal use after consumption" {
         defer b.deinit();
         const module = try borrowProgram(&b, mode);
         try std.testing.expectError(
-            error.InvalidOwnership,
+            error.UnavailableSlot,
             boundary.program.compile(std.testing.allocator, module),
         );
     }

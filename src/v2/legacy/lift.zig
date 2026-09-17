@@ -3,7 +3,7 @@
 //! Constructor retention becomes block parameters; no legacy execution state
 //! or instruction dispatch table survives in the resulting program.
 const std = @import("std");
-const data = @import("boundary_data_v2");
+const data = @import("boundary_data");
 const legacy = @import("root.zig");
 const p = data.program;
 const Op = legacy.contract.WireOperation;

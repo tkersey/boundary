@@ -1,6 +1,6 @@
 const std = @import("std");
 const source = @import("../source.zig");
-const data = @import("boundary_data_v2");
+const data = @import("boundary_data");
 const testing = std.testing;
 
 test "BMO1 preserves independently admitted tail clauses through relocation" {

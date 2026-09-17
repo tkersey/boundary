@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
 //! Sharing permission for value expressions within one uninterrupted code block.
 const std = @import("std");
-const data = @import("boundary_data_v2");
+const data = @import("boundary_data");
 const ast = @import("ast.zig");
 const Error = @import("../source.zig").Error;
 

@@ -4,11 +4,11 @@ pub const computation = @import("source.zig");
 pub const source = computation;
 pub const effect = @import("effect.zig");
 pub const handler = struct {
-    pub const Definition = data_v2.program.Handler;
-    pub const Clause = data_v2.program.Clause;
-    pub const Mode = data_v2.program.Mode;
-    pub const Resumption = data_v2.program.ResumptionType;
-    pub const Use = data_v2.program.Use;
+    pub const Definition = data.program.Handler;
+    pub const Clause = data.program.Clause;
+    pub const Mode = data.program.Mode;
+    pub const Resumption = data.program.ResumptionType;
+    pub const Use = data.program.Use;
     pub const define = computation.Builder.handler;
 };
 pub const region = struct {
@@ -34,10 +34,7 @@ pub const program = struct {
     pub const Diagnostic = source.Diagnostic;
     pub const CompileOptions = source.CompileOptions;
 };
-pub const data_v2 = @import("boundary_data_v2");
-pub const image_v2 = data_v2.image;
-pub const snapshot_v2 = data_v2.snapshot;
-pub const protocol_v2 = data_v2.protocol;
+pub const data = @import("boundary_data");
 
 test {
     _ = computation;

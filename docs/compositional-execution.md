@@ -169,9 +169,9 @@ checker has `2n+4` nodes and `18n+58` set-operation visits in the measured matri
 regression tests enforce linear bounds through 1,024 installations. Recursive
 closures still use a monotone least fixed point and preserve lexical binding.
 
-The predecessor lowering temporarily enumerates term sets to build its old block
-interfaces. The stable compiler never calls that adapter. This adapter leaves with
-the predecessor backend; it is not an accepted successor path.
+The predecessor compiler, its retained-interface materialization adapter,
+closure/custody lowering helpers and old compiled owner have been removed.
+All existing authoring regressions now run through the stable compiler.
 
 Construction and structure checks cover 37 existing generalized-effect examples,
 heterogeneous join destinations, shadowed names, expression DAG sharing, malformed
@@ -251,19 +251,18 @@ input, enforces a physical expansion budget and hashes the canonical bytes in
 the new `boundary.program/v3` domain. Goldens and allocation-failure sweeps pass;
 all 37 staged semantic examples round-trip with exact record/identity equality.
 The source construction exposes this encoder, and World's stable source suite
-now loads it and destroys the input bytes before execution. The default public
-compiler still awaits the coordinated cutover.
+now loads it and destroys the input bytes before execution. The ordinary public compiler now uses this path.
 
 `zig build check-program-image-wasm -Doptimize=ReleaseSafe` compares native and
 import-free, unshared wasm32 decoding/re-encoding and identity for 12 installation,
 mixed and irregular images. All agree. On the unchanged installation inputs,
-complete BPI3 sizes for 64/128/256 are **2,640 / 5,462 / 11,350 bytes**, versus
-freshly emitted BPC1 **2,805 / 5,574 / 12,102 bytes**. This is a byte-count result,
+complete BPI3 sizes for 64/128/256 are **2,658 / 5,480 / 11,368 bytes**, versus
+the accepted optimized-predecessor budgets **2,805 / 5,574 / 12,102 bytes**. This is a byte-count result,
 not execution, preparation-memory or compiler-time acceptance. The probe emits
-every size and image identity; it includes the actual native emitter and WASM
+every size and image identity; it includes the actual current native emitter and WASM
 codec, with no predecessor expansion in the successor codec.
 
-World now executes the native stable-control slice through `source.construct`,
+World now executes the native stable-control slice through `boundary.program.compile`,
 including deep multi-shot/reentrant cases and retained loop-slot versions. The
 analysis owner now keeps its arena at a stable address so runtime-derived set
 operations cannot allocate through an escaped stack pointer. World now
@@ -288,12 +287,10 @@ against the actual relocated implementations, including functions reached throug
 handler/constructor imports, then independently admits the closed Program. The
 contract's whole-result precision limit is described in the component format.
 
-Public protocol cutover, completion of component contracts, selective execution,
-efficient values, transaction performance qualification, Agent's
-complete migration and compiled-tool transfer, performance comparisons, retirement,
-package validation and publication/review closeout remain mandatory. The current
-public compiler/runtime still use the predecessor. The internal construction is
-not a second supported production pipeline or a completed successor.
+The public compiler now emits BPI3, and the current World/Agent paths consume it.
+Full performance acceptance, remaining legacy data/runtime/build retirement,
+package validation on the final coordinated inputs and serial review closeout
+remain mandatory. This is not a completed successor.
 
 ## Retained scoped interaction
 
@@ -316,3 +313,45 @@ references, restores it and its pending cleanup, and compares every instruction
 checkpoint through fresh, resident and restored execution. Both the selected
 read clauses and their general resumption forms produce the same observations.
 Native/Node/Wasmtime and real Chromium/Firefox Worker transfers cover this witness.
+
+## Public compiler cutover and fixture build
+
+`boundary.program.compile`, `compileObserved` and staged `program.lower` now use
+one stable compiler and emit BPI3. The predecessor compiler and its owner,
+continuation/custody and direct-clause helpers are deleted. The separate data
+build module is `boundary_data`; the facade is `boundary.data`. Versioned facade
+aliases and the experimental `source.construct` entry points are removed.
+World and Agent call the same current surface.
+
+The migrated authoring suite preserves all 86 cases. Target diagnostics now
+report the responsible function, call, slot and handler. Sparse region ordinals
+are compacted through the typed relocator without allocating by their maximum
+value; distinct nominal names remain distinct. Local cell reads/writes retain
+their capture-free total-tail specialization, with type/region/borrow checks
+still required. A second consuming read rejects as `UnavailableSlot`.
+
+Original target admission precedes specialization, and final target admission
+follows normalization. Phase observations report both checks and real
+normalization/selection work; no synthetic legacy pass is reported.
+
+The current `check` aggregate passes in ReleaseSafe: 216 build steps and 240
+Zig tests, plus six archive/source-identity tests, the independent source oracle
+over 41 fixtures, BMO1 source-independent linking, and BPI3/PST3/invocation wasm32
+agreement. The formal model remains available separately through `check-formal`.
+
+The source-fixture build now compiles one reusable emitter for 41 JSON and 41
+BPI3 outputs. Against the same current compiler with the previous per-example
+build graph, all 82 outputs are byte-identical. One cold pair with fresh Zig
+caches and four jobs measured 250.4 seconds before and 19.6 seconds after; native
+emitter compilations fell from 82 to 1. Three alternating warm no-change pairs
+measured medians of 2.863 seconds and 0.277 seconds. These are fixture-build
+observations, not a full compiler/runtime performance claim. Raw timings, every
+fixture digest, reconstruction patches and limits are in
+[shared-emitter.json](measurements/shared-emitter.json).
+
+The removed BPC1 writer wrappers and comparison drivers are replaced on the
+current path by native/wasm32 BPI3 re-encoding and identity checks over installation,
+mixed and irregular inputs. Installation byte budgets remain independently tied
+to the accepted 2.0.2 reference. Historical samples remain in Git and the retained
+measurement records. Legacy data decoders, remaining old runtime/build surfaces,
+the full performance matrix and serial reviews still require retirement or closure.

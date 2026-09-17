@@ -2,7 +2,7 @@
 //! A higher-order operation runs retained work under a new interpretation while
 //! its definition-site capability remains independently meaningful.
 const source = @import("../source.zig");
-const p = @import("boundary_data_v2").program;
+const p = @import("boundary_data").program;
 const cleanup = @import("../library/cleanup.zig");
 const Error = source.Error;
 const Context = struct {

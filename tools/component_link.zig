@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
 //! This executable imports pure data only: no source compiler or emitter.
 const std = @import("std");
-const data = @import("boundary_data_v2");
+const data = @import("boundary_data");
 const Manifest = struct {
     instances: []const struct { key: []const u8, path: []const u8 },
     bindings: []const data.linker.Binding,

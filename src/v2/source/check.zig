@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
 //! Source scopes and result types, including mutually recursive lexical captures.
 const std = @import("std");
-const data = @import("boundary_data_v2");
+const data = @import("boundary_data");
 const p = data.program;
 const ast = @import("ast.zig");
 const Error = @import("../source.zig").Error;
@@ -15,12 +15,6 @@ pub const Facts = struct {
     terms: []compact.Root,
     functions: []Set,
     results: []?p.Id,
-
-    /// Transitional predecessor lowering needs explicit block interfaces. The
-    /// stable-activation compiler never calls this materialization adapter.
-    pub fn termVariables(self: Facts, allocator: std.mem.Allocator, id: p.Id) Error![]p.Id {
-        return self.sets.materialize(allocator, self.terms[@intCast(id)]);
-    }
 };
 
 fn roots(allocator: std.mem.Allocator, length: usize) Error![]compact.Root {

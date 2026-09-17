@@ -17,13 +17,14 @@ pub const Application = struct {
 pub fn main(init: std.process.Init) !void {
     var compiled = try boundary.program.lower(init.gpa, Application);
     defer compiled.deinit();
-    const bytes = try init.gpa.alloc(u8, try boundary.image_v2.encodedLength(compiled.program));
+    const bytes = try init.gpa.alloc(u8, try boundary.data.program_image.encodedLength(compiled.program));
     defer init.gpa.free(bytes);
     _ = try compiled.encode(init.gpa, bytes);
     // A compiler-only consumer can decode, inspect and admit the emitted image.
-    var decoded = try boundary.image_v2.decode(init.gpa, bytes);
+    var decoded = try boundary.data.program_image.decode(init.gpa, bytes);
     defer decoded.deinit();
-    try boundary.data_v2.admission.program(init.gpa, decoded.program);
+    var checked = try boundary.data.activation_ownership.analyze(init.gpa, decoded.program);
+    defer checked.deinit();
     var buffer: [4096]u8 = undefined;
     var output = std.Io.File.stdout().writer(init.io, &buffer);
     try output.interface.writeAll(bytes);

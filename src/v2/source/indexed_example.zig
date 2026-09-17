@@ -4,7 +4,7 @@
 const source = @import("../source.zig");
 const effects = @import("../effect.zig");
 const choice = @import("../library/choice.zig");
-const p = @import("boundary_data_v2").program;
+const p = @import("boundary_data").program;
 
 pub fn build(b: *source.Builder) source.Error!source.Module {
     const unit = try b.scalar(void);

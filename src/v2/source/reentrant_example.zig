@@ -2,7 +2,7 @@
 //! One template is stored in a cell that it captures, then reentered while its
 //! first activation is still live. The outer counter breaks the recursion.
 const source = @import("../source.zig");
-const p = @import("boundary_data_v2").program;
+const p = @import("boundary_data").program;
 
 fn add(b: *source.Builder, value: p.Id, amount: u64) source.Error!p.Id {
     return b.value(.{ .schema = try b.scalar(u64), .expression = .{ .primitive = .{ .opcode = .integer_add, .operands = &.{ value, try b.constant(u64, amount) }, .failures = &.{.{ .kind = .arithmetic_overflow, .value = try b.failureLiteral(try b.constant(void, {})) }} } } });

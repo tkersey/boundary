@@ -1,12 +1,18 @@
 //! Emit one source term tree or its compiled data, without linking an evaluator.
 const std = @import("std");
 const boundary = @import("boundary");
-const options = @import("source_options");
 
 pub fn main(init: std.process.Init) !void {
+    var args = std.process.Args.Iterator.init(init.minimal.args);
+    _ = args.next();
+    const example = try std.fmt.parseInt(usize, args.next() orelse return error.MissingExample, 10);
+    const format = args.next() orelse return error.MissingFormat;
+    const emit_source = std.mem.eql(u8, format, "json");
+    if (args.next() != null or (!emit_source and !std.mem.eql(u8, format, "bpi3")))
+        return error.InvalidArguments;
     var builder = boundary.source.Builder.init(init.gpa);
     defer builder.deinit();
-    const module = try switch (options.example) {
+    const module = try switch (example) {
         0 => boundary.source.examples.lexical(&builder),
         1 => boundary.source.examples.deep(&builder),
         2 => boundary.source.examples.recursive(&builder),
@@ -48,17 +54,17 @@ pub fn main(init: std.process.Init) !void {
         38 => CleanupDisposal.build(&builder, .running),
         39 => CleanupDisposal.build(&builder, .failure),
         40 => CleanupDisposal.ownedResult(&builder),
-        else => @compileError("unknown source example"),
+        else => error.UnknownExample,
     };
     var buffer: [4096]u8 = undefined;
     var output = std.Io.File.stdout().writer(init.io, &buffer);
-    if (options.source) {
+    if (emit_source) {
         try std.json.Stringify.value(module, .{ .emit_strings_as_arrays = true }, &output.interface);
         try output.interface.writeByte('\n');
     } else {
         var compiled = try boundary.program.compile(init.gpa, module);
         defer compiled.deinit();
-        const bytes = try init.gpa.alloc(u8, try boundary.image_v2.encodedLength(compiled.program));
+        const bytes = try init.gpa.alloc(u8, try boundary.data.program_image.encodedLength(compiled.program));
         defer init.gpa.free(bytes);
         _ = try compiled.encode(init.gpa, bytes);
         try output.interface.writeAll(bytes);
@@ -69,7 +75,7 @@ pub fn main(init: std.process.Init) !void {
 // Kept in the shipped emitter so its archive has no unlisted source dependency.
 const CleanupDisposal = struct {
     const source = boundary.source;
-    const p = boundary.data_v2.program;
+    const p = boundary.data.program;
 
     pub const Mode = enum { always, running, failure };
 

@@ -10,6 +10,9 @@ pub fn instruction(operation: ir.Instruction) bool {
     if (operation.failures.len != 0) return false;
     return switch (operation.opcode) {
         .constant, .move, .equal, .less, .boolean_not, .product, .field, .variant, .variant_tag, .sequence, .sequence_length, .sequence_get, .sequence_append, .sequence_concat, .sequence_pop, .integer_bit_not, .integer_bit_and, .integer_bit_or, .integer_bit_xor, .integer_convert, .enum_tag, .blob_length, .blob_compare, .blob_byte, .text_integer, .blob_from_byte, .sequence_take, .sequence_pop_last, .select => true,
+        // Existing local cell operations neither suspend nor have authored
+        // failures. Type/region/borrow admission still checks their authority.
+        .cell_get, .cell_set => true,
         else => false,
     };
 }

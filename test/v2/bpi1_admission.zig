@@ -1,6 +1,6 @@
 const std = @import("std");
 const legacy = @import("boundary_bpi1");
-const data = @import("boundary_data_v2");
+const data = @import("boundary_data");
 
 const fixtures = [_][]const u8{
     @embedFile("legacy/authored-failure-v1.bpi1"),

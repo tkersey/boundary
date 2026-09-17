@@ -3,7 +3,7 @@
 //! is built. The returned construction owns admitted records and flow facts;
 //! encoding checks the current records again before producing canonical BPI3.
 const std = @import("std");
-const data = @import("boundary_data_v2");
+const data = @import("boundary_data");
 const p = data.program;
 const ir = data.activation;
 const ast = @import("ast.zig");
@@ -117,15 +117,41 @@ fn lowerInternal(
         .constructors = compiler.constructors.items,
     };
     if (options.diagnostic) |diagnostic| diagnostic.function = null;
-    options.stage(.source_copy);
+    options.stage(.target_check);
+    var original_facts = try checkTarget(allocator, &compiler, program, imports, component, borrows, options);
+    original_facts.deinit();
+    options.stage(.direct_optimization);
+    const selected = try @import("tail_clauses.zig").optimize(a, program, traits);
     var output = std.heap.ArenaAllocator.init(allocator);
     errdefer output.deinit();
-    const selected = try @import("tail_clauses.zig").optimize(a, program, traits);
-    const result = try source.own(ir.Program, output.allocator(), selected);
+    options.stage(if (component) .source_copy else .canonicalization);
+    const result = if (component) try source.own(ir.Program, output.allocator(), selected) else try data.relocation.ownDenseRegions(output.allocator(), a, selected);
     options.stage(.target_check);
-    const flow = if (component) try data.activation_ownership.analyzeComponent(allocator, result, imports, borrows) else try data.activation_ownership.analyze(allocator, result);
+    const flow = try checkTarget(allocator, &compiler, result, imports, component, borrows, options);
     options.stage(.complete);
+    if (options.diagnostic) |diagnostic| diagnostic.* = .{ .phase = .complete };
     return .{ .arena = output, .program = result, .flow = flow };
+}
+
+fn checkTarget(allocator: std.mem.Allocator, compiler: *Compiler, program: ir.Program, imports: []const p.Id, component: bool, borrows: []const data.borrow_contract.Summary, options: source.CompileOptions) Error!data.activation_flow.Facts {
+    if (component) return data.activation_ownership.analyzeComponent(allocator, program, imports, borrows);
+    return data.activation_ownership.analyzeDiagnosed(allocator, program, if (options.diagnostic) |diagnostic| &diagnostic.target else null) catch |err|
+        {
+            if (options.diagnostic) |diagnostic| {
+                diagnostic.function = diagnostic.target.function;
+                if (diagnostic.target.capture) |capture| {
+                    for (program.constructors) |constructor| if (constructor.capture == capture) {
+                        diagnostic.function = constructor.function;
+                        if (diagnostic.target.field) |field| {
+                            const free = compiler.facts.functions[@intCast(constructor.function)].items;
+                            if (field < free.len) diagnostic.variable = free[@intCast(field)];
+                        }
+                        break;
+                    };
+                }
+            }
+            return err;
+        };
 }
 
 const ConstructorKey = struct { function: p.Id, schema: p.Id };

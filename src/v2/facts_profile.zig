@@ -3,7 +3,7 @@
 const std = @import("std");
 const source = @import("source.zig");
 const check = @import("source/check.zig");
-const Id = @import("boundary_data_v2").program.Id;
+const Id = @import("boundary_data").program.Id;
 
 const Sample = struct {
     nanoseconds: u64,

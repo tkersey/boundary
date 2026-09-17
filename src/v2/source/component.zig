@@ -2,7 +2,7 @@
 const std = @import("std");
 const source = @import("../source.zig");
 const lower = @import("activation_lower.zig");
-const data = @import("boundary_data_v2");
+const data = @import("boundary_data");
 pub const Interface = struct {
     imports: []const data.component.Symbol = &.{},
     exports: []const data.component.Symbol,

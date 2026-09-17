@@ -3,7 +3,7 @@
 const source = @import("../source.zig");
 const gen = @import("../library/generator.zig");
 const cleanup = @import("../library/cleanup.zig");
-const p = @import("boundary_data_v2").program;
+const p = @import("boundary_data").program;
 const Error = source.Error;
 
 pub fn build(b: *source.Builder) Error!source.ast.Module {

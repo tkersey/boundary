@@ -2,7 +2,7 @@
 //! Persistent lexical lookup. Extending one scope copies only a binary search
 //! path; a lookup never walks the history of preceding source bindings.
 const std = @import("std");
-const Id = @import("boundary_data_v2").program.Id;
+const Id = @import("boundary_data").program.Id;
 pub const empty = std.math.maxInt(Id);
 const Node = struct { left: Id, right: Id };
 pub const Error = std.mem.Allocator.Error || error{UnboundVariable};

@@ -2,7 +2,7 @@
 //! Two private representations satisfy one unchanged resource client.
 const source = @import("../source.zig");
 const cleanup = @import("../library/cleanup.zig");
-const p = @import("boundary_data_v2").program;
+const p = @import("boundary_data").program;
 const Error = source.Error;
 pub fn scalar(b: *source.Builder) Error!source.ast.Module {
     return build(b, false);

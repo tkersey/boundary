@@ -2,7 +2,7 @@
 const std = @import("std");
 const source = @import("../source.zig");
 const lower = @import("activation_lower.zig").lower;
-const data = @import("boundary_data_v2");
+const data = @import("boundary_data");
 const ir = data.activation;
 const p = data.program;
 const testing = std.testing;
@@ -100,7 +100,7 @@ test "module observes declarations made while evaluating its arguments" {
     const integer = try builder.scalar(u64);
     const main = try builder.declare(&.{}, integer, &.{}, &.{});
     try builder.define(main, try builder.pure(try builder.constant(u64, 42)));
-    var compiled = try source.construct(testing.allocator, builder.module(main, try builder.scalar(void)));
+    var compiled = try source.lower(testing.allocator, builder.module(main, try builder.scalar(void)));
     defer compiled.deinit();
     try testing.expect(compiled.program.schemas[@intCast(compiled.program.roots.failure)] == .unit);
 }
@@ -375,7 +375,7 @@ test "complete BPI3 installation images stay within the fixed BPC1 anchors" {
     for ([_]usize{ 64, 128, 256 }, [_]usize{ 2805, 5574, 12102 }) |count, baseline| {
         var builder = source.Builder.init(testing.allocator);
         defer builder.deinit();
-        var compiled = try source.construct(testing.allocator, try source.examples.installations(&builder, count));
+        var compiled = try source.lower(testing.allocator, try source.examples.installations(&builder, count));
         defer compiled.deinit();
         const length = try data.program_image.encodedLength(compiled.program);
         if (length > baseline) std.debug.print("BPI3 installations {d}: {d} > {d}\n", .{ count, length, baseline });
@@ -390,7 +390,7 @@ test "complete BPI3 installation images stay within the fixed BPC1 anchors" {
 }
 test "stable construction observations preserve bytes and report source failures" {
     const Trace = struct {
-        stages: [5]source.CompileStage = undefined,
+        stages: [7]source.CompileStage = undefined,
         count: usize = 0,
         fn enter(context: *anyopaque, stage: source.CompileStage) void {
             const self: *@This() = @ptrCast(@alignCast(context));
@@ -401,21 +401,21 @@ test "stable construction observations preserve bytes and report source failures
     var builder = source.Builder.init(testing.allocator);
     defer builder.deinit();
     const module = try source.examples.installations(&builder, 2);
-    var plain = try source.construct(testing.allocator, module);
+    var plain = try source.lower(testing.allocator, module);
     defer plain.deinit();
     var trace: Trace = .{};
     var diagnostic: source.Diagnostic = .{};
-    var observed = try source.constructObserved(testing.allocator, module, .{
+    var observed = try source.lowerObserved(testing.allocator, module, .{
         .diagnostic = &diagnostic,
         .observer = .{ .context = &trace, .enter = Trace.enter },
     });
     defer observed.deinit();
-    try testing.expectEqualSlices(source.CompileStage, &.{ .source_check, .lowering, .source_copy, .target_check, .complete }, trace.stages[0..trace.count]);
+    try testing.expectEqualSlices(source.CompileStage, &.{ .source_check, .lowering, .target_check, .direct_optimization, .canonicalization, .target_check, .complete }, trace.stages[0..trace.count]);
     try testing.expectEqual(@as(?anyerror, null), diagnostic.code);
     try testing.expectEqual(try data.program_image.identity(testing.allocator, plain.program), try data.program_image.identity(testing.allocator, observed.program));
     builder.functions.items[@intCast(module.entry)].body = null;
     trace.count = 0;
-    try testing.expectError(error.UndefinedFunction, source.constructObserved(testing.allocator, builder.module(module.entry, module.failure), .{
+    try testing.expectError(error.UndefinedFunction, source.lowerObserved(testing.allocator, builder.module(module.entry, module.failure), .{
         .diagnostic = &diagnostic,
         .observer = .{ .context = &trace, .enter = Trace.enter },
     }));

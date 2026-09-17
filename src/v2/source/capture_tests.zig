@@ -3,7 +3,7 @@ const boundary = @import("../root.zig");
 const source = boundary.computation;
 const choice = boundary.library.choice;
 const cleanup = boundary.library.cleanup;
-const Id = boundary.data_v2.program.Id;
+const Id = boundary.data.program.Id;
 const Mode = enum { handler_state, edge, unit_state };
 const Resource = struct { owned: Id, borrowed: Id, loan: Id, acquire: Id, finalizer: Id, info: Id };
 

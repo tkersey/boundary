@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
 //! Public staged authoring of scalar/collection success and authored-fault paths.
 const source = @import("../source.zig");
-const p = @import("boundary_data_v2").program;
+const p = @import("boundary_data").program;
 const Error = source.Error;
 
 fn operation(b: *source.Builder, result: p.Id, opcode: p.Opcode, operands: []const p.Id, immediate: p.Id, roles: []const p.Fault) Error!p.Id {

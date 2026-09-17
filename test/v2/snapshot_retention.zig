@@ -1,5 +1,5 @@
 const std = @import("std");
-const d = @import("boundary_data_v2");
+const d = @import("boundary_data");
 pub fn main(init: std.process.Init) !void {
     var nodes: [128]d.graph.Node = undefined;
     const value: d.graph.Value = .{ .schema = 0, .body = .{ .blob = .{ .id = 0 } } };

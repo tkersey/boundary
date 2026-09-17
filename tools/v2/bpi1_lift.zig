@@ -2,7 +2,7 @@
 //! Pure build-time CLI: one BPI1 on stdin, one canonical BPI2 on stdout.
 const std = @import("std");
 const legacy = @import("boundary_bpi1");
-const data = @import("boundary_data_v2");
+const data = @import("boundary_data");
 
 pub fn main(init: std.process.Init) !void {
     var arguments = std.process.Args.Iterator.init(init.minimal.args);

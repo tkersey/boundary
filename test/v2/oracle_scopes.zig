@@ -3,7 +3,7 @@
 const std = @import("std");
 const boundary = @import("boundary");
 const Builder = boundary.source.Builder;
-const Id = boundary.data_v2.program.Id;
+const Id = boundary.data.program.Id;
 const Mode = enum { yielding, requesting, disposing };
 const Handler = struct { id: Id, capability: Id };
 

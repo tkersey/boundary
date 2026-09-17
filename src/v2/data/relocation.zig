@@ -10,6 +10,19 @@ pub const missing = std.math.maxInt(p.Id);
 pub const Error = @import("admission.zig").Error;
 pub const Maps = [kind_count][]const p.Id;
 
+const RegionNames = struct {
+    allocator: std.mem.Allocator,
+    declared: p.Id,
+    ids: std.AutoHashMapUnmanaged(p.Id, p.Id) = .empty,
+
+    fn id(self: *RegionNames, old: p.Id) Error!p.Id {
+        if (old >= self.declared) return error.InvalidReference;
+        const entry = try self.ids.getOrPut(self.allocator, old);
+        if (!entry.found_existing) entry.value_ptr.* = self.ids.count() - 1;
+        return entry.value_ptr.*;
+    }
+};
+
 pub fn sizes(program: ir.Program) Error![kind_count]usize {
     const regions = std.math.cast(usize, program.scopes.region_count) orelse return error.Capacity;
     return .{ program.schemas.len, program.constants.len, program.effects.len, program.functions.len, program.blocks.len, program.handlers.len, program.scopes.captures.len, regions, program.scopes.resources.len, program.constructors.len };
@@ -17,8 +30,10 @@ pub fn sizes(program: ir.Program) Error![kind_count]usize {
 pub const Mapper = struct {
     allocator: std.mem.Allocator,
     maps: Maps,
+    region_names: ?*RegionNames = null,
 
     pub fn id(self: Mapper, kind: Kind, value: p.Id) Error!p.Id {
+        if (kind == .region) if (self.region_names) |names| return names.id(value);
         const map = self.maps[@intFromEnum(kind)];
         if (value >= map.len or map[@intCast(value)] == missing) return error.InvalidReference;
         return map[@intCast(value)];
@@ -147,3 +162,32 @@ pub const Mapper = struct {
         return .{ .function = try self.id(.function, value.function), .capture = try self.id(.capture, value.capture), .schema = try self.id(.schema, value.schema) };
     }
 };
+
+/// Copy an admitted closed Program while compacting referenced nominal regions.
+/// Sparse source names never determine an allocation size. Other catalog IDs,
+/// slot identities and control topology remain unchanged.
+pub fn ownDenseRegions(output: std.mem.Allocator, scratch: std.mem.Allocator, input: ir.Program) Error!ir.Program {
+    var maps: Maps = undefined;
+    const counts = [_]usize{ input.schemas.len, input.constants.len, input.effects.len, input.functions.len, input.blocks.len, input.handlers.len, input.scopes.captures.len, 0, input.scopes.resources.len, input.constructors.len };
+    for (&maps, counts) |*map, count| {
+        const ids = try scratch.alloc(p.Id, count);
+        for (ids, 0..) |*value, index| value.* = index;
+        map.* = ids;
+    }
+    var names: RegionNames = .{ .allocator = scratch, .declared = input.scopes.region_count };
+    const mapper: Mapper = .{ .allocator = output, .maps = maps, .region_names = &names };
+    var result = input;
+    inline for (.{ .{ "schemas", Mapper.schema }, .{ "constants", Mapper.literal }, .{ "effects", Mapper.effect }, .{ "functions", Mapper.function }, .{ "blocks", Mapper.block }, .{ "handlers", Mapper.handler }, .{ "constructors", Mapper.constructor } }) |item| {
+        const T = std.meta.Elem(@TypeOf(@field(input, item[0])));
+        const values = try output.alloc(T, @field(input, item[0]).len);
+        for (values, @field(input, item[0])) |*target, value|
+            target.* = try item[1](mapper, value);
+        @field(result, item[0]) = values;
+    }
+    const captures = try output.alloc(p.Capture, input.scopes.captures.len);
+    for (captures, input.scopes.captures) |*target, value| target.* = try mapper.capture(value);
+    const resources = try output.alloc(p.Resource, input.scopes.resources.len);
+    for (resources, input.scopes.resources) |*target, value| target.* = try mapper.resource(value);
+    result.scopes = .{ .captures = captures, .resources = resources, .region_count = names.ids.count() };
+    return result;
+}
