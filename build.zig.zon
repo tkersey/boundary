@@ -8,7 +8,6 @@
         "README.md",
         "build.zig",
         "build.zig.zon",
-        "conformance",
         "docs",
         "examples",
         "repo_zig_paths.txt",

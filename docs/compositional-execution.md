@@ -405,3 +405,11 @@ dispatches the current instruction directly with its layout-resolved result
 schema, rather than constructing an old instruction record. Graph-only helper
 cleanup, qualified dependency updates, full performance acceptance and serial
 reviews remain open.
+
+Historical RNF/v1.5 reification comparison and acquisition scripts, BPI1 repair
+inputs and the old protected-delivery tuple are removed from the maintained
+source package. They had no callers in the current build. Current source-oracle,
+malformed-state, ownership, capacity and consumer checks replace their semantic
+obligations; exact old-format replay is retired. The optimized 2.0.2 comparison
+anchor and the retained raw performance measurements are unchanged. Historical
+reconstruction uses Git history rather than a normal package dependency.
