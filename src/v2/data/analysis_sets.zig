@@ -54,6 +54,19 @@ pub const Pool = struct {
         return self.nodes.items[root - count_ - 1];
     }
 
+    /// Membership projection for IDs 0 through 63. Higher IDs are intentionally
+    /// omitted; the caller must not use this as a complete mask for larger layouts.
+    pub fn lowWord(self: *const Pool, root: Root) u64 {
+        if (root == empty) return 0;
+        const value = self.node(root);
+        if (value.low >= 64) return 0;
+        if (!value.isRun()) return self.lowWord(value.left) | self.lowWord(value.right);
+        const high = @min(value.high, 64);
+        const upper: u64 = if (high == 64) std.math.maxInt(u64) else (@as(u64, 1) << @intCast(high)) - 1;
+        const lower = (@as(u64, 1) << @intCast(value.low)) - 1;
+        return upper & ~lower;
+    }
+
     fn intern(self: *Pool, value: Node) Error!Root {
         if (self.base) |base| if (base.pool().interned.get(value)) |root| return root;
         if (self.interned.get(value)) |root| return root;

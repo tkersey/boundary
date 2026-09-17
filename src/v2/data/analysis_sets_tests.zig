@@ -126,3 +126,46 @@ fn failureCase(allocator: std.mem.Allocator) !void {
 test "analysis sets preserve prior roots and ownership through allocation failures" {
     try testing.checkAllAllocationFailures(testing.allocator, failureCase, .{});
 }
+
+test "low-word projection matches membership without allocating or changing shared roots" {
+    var failing = testing.FailingAllocator.init(testing.allocator, .{});
+    var base: sets.Pool = .{ .allocator = failing.allocator(), .limit = std.math.maxInt(u64) };
+    defer base.deinit();
+    for (0..81) |low| for (low..81) |high| {
+        const root = try base.run(low, high);
+        var expected: u64 = 0;
+        for (0..64) |bit| if (low <= bit and bit < high) {
+            expected |= @as(u64, 1) << @intCast(bit);
+        };
+        try testing.expectEqual(expected, base.lowWord(root));
+    };
+    const far = try base.run(60, std.math.maxInt(u64));
+    const frozen = try base.readOnly();
+    const base_nodes = frozen.nodeCount();
+    var overlay = sets.Pool.overlay(failing.allocator(), frozen);
+    defer overlay.deinit();
+    const members = [_]u64{ 0, 1, 7, 31, 32, 63, 64, std.math.maxInt(u64) - 1 };
+    var roots: [256]sets.Root = undefined;
+    for (&roots, 0..) |*root, subset| {
+        root.* = sets.empty;
+        for (members, 0..) |member, bit| if (subset & (@as(usize, 1) << @intCast(bit)) != 0) {
+            root.* = try overlay.insert(root.*, member);
+        };
+    }
+    var ladder = try overlay.insert(sets.empty, 0);
+    for (0..64) |bit| ladder = try overlay.insert(ladder, @as(u64, 1) << @intCast(bit));
+    const overlay_nodes = overlay.nodes.items.len;
+    failing.fail_index = failing.alloc_index;
+    try testing.expectEqual(@as(u64, 0x100010117), overlay.lowWord(ladder));
+    try testing.expectEqual(@as(u64, 0xf000000000000000), overlay.lowWord(far));
+    for (roots) |root| {
+        var expected: u64 = 0;
+        for (0..64) |bit| if (overlay.contains(root, bit)) {
+            expected |= @as(u64, 1) << @intCast(bit);
+        };
+        try testing.expectEqual(expected, overlay.lowWord(root));
+    }
+    try testing.expect(!failing.has_induced_failure);
+    try testing.expectEqual(base_nodes, frozen.nodeCount());
+    try testing.expectEqual(overlay_nodes, overlay.nodes.items.len);
+}
