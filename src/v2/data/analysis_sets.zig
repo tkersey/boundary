@@ -1,7 +1,8 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
 //! Immutable sets of bounded IDs used by analysis, not serialized authority.
-//! Contiguous runs are one node. Irregular sets share canonical binary subtrees;
-//! a path splits at a strictly decreasing bit, never at a previous set version.
+//! Contiguous runs are one node; sparse subsets of an aligned 64-ID word use a
+//! bitmap leaf. Larger sets share canonical binary subtrees. A path splits at a
+//! strictly decreasing bit, never at a previous set version.
 const std = @import("std");
 pub const Member = u64;
 pub const Root = usize;
@@ -12,11 +13,57 @@ const Node = struct {
     low: Member,
     high: Member,
     count: Member,
-    left: Root = empty,
-    right: Root = empty,
+    // Canonical bounds and cardinality determine the payload kind: an interval,
+    // an aligned-word subset, or a split tree. No independently mutable tag.
+    payload: extern union { word: u64, tree: extern struct { left: Root, right: Root } } = .{ .tree = .{ .left = empty, .right = empty } },
 
     fn isRun(self: Node) bool {
-        return self.left == empty;
+        return self.count == self.high - self.low;
+    }
+    fn isWord(self: Node) bool {
+        return !self.isRun() and (self.low >> 6) == ((self.high - 1) >> 6);
+    }
+    fn wordBits(self: Node) u64 {
+        if (self.isWord()) return self.payload.word;
+        std.debug.assert(self.isRun() and (self.low >> 6) == ((self.high - 1) >> 6));
+        const base = self.low & ~@as(u64, 63);
+        const high = self.high - base;
+        const upper: u64 = if (high == 64) std.math.maxInt(u64) else (@as(u64, 1) << @intCast(high)) - 1;
+        return upper & ~((@as(u64, 1) << @intCast(self.low - base)) - 1);
+    }
+};
+
+const NodeContext = struct {
+    pub fn hash(_: NodeContext, node_: Node) u64 {
+        const payload: [2]u64 = if (node_.isRun()) .{ 0, 0 } else if (node_.isWord()) .{ node_.payload.word, 0 } else .{ node_.payload.tree.left, node_.payload.tree.right };
+        const key = [_]u64{ node_.low, node_.high, node_.count, payload[0], payload[1] };
+        return std.hash.Wyhash.hash(0, std.mem.asBytes(&key));
+    }
+    pub fn eql(_: NodeContext, a: Node, b: Node) bool {
+        if (a.low != b.low or a.high != b.high or a.count != b.count) return false;
+        if (a.isRun()) return true;
+        if (a.isWord()) return a.payload.word == b.payload.word;
+        return a.payload.tree.left == b.payload.tree.left and a.payload.tree.right == b.payload.tree.right;
+    }
+};
+
+// Keys are stable node IDs; the canonical node has one physical owner.
+const RootContext = struct {
+    pool: *const Pool,
+    pub fn hash(self: RootContext, root: Root) u64 {
+        return LookupContext.hash(.{ .pool = self.pool }, self.pool.node(root));
+    }
+    pub fn eql(_: RootContext, a: Root, b: Root) bool {
+        return a == b;
+    }
+};
+const LookupContext = struct {
+    pool: *const Pool,
+    pub fn hash(_: LookupContext, value: Node) u64 {
+        return NodeContext.hash(.{}, value);
+    }
+    pub fn eql(self: LookupContext, value: Node, root: Root) bool {
+        return NodeContext.eql(.{}, value, self.pool.node(root));
     }
 };
 
@@ -24,7 +71,7 @@ pub const Pool = struct {
     allocator: std.mem.Allocator,
     limit: Member,
     nodes: std.ArrayList(Node) = .empty,
-    interned: std.AutoHashMapUnmanaged(Node, Root) = .empty,
+    interned: std.HashMapUnmanaged(Root, void, RootContext, 80) = .empty,
     visits: usize = 0,
     base: ?*const ReadOnly = null,
 
@@ -60,7 +107,8 @@ pub const Pool = struct {
         if (root == empty) return 0;
         const value = self.node(root);
         if (value.low >= 64) return 0;
-        if (!value.isRun()) return self.lowWord(value.left) | self.lowWord(value.right);
+        if (value.isWord()) return value.payload.word;
+        if (!value.isRun()) return self.lowWord(value.payload.tree.left) | self.lowWord(value.payload.tree.right);
         const high = @min(value.high, 64);
         const upper: u64 = if (high == 64) std.math.maxInt(u64) else (@as(u64, 1) << @intCast(high)) - 1;
         const lower = (@as(u64, 1) << @intCast(value.low)) - 1;
@@ -68,16 +116,16 @@ pub const Pool = struct {
     }
 
     fn intern(self: *Pool, value: Node) Error!Root {
-        if (self.base) |base| if (base.pool().interned.get(value)) |root| return root;
-        if (self.interned.get(value)) |root| return root;
+        if (self.base) |base| if (base.pool().interned.getKeyAdapted(value, LookupContext{ .pool = base.pool() })) |root| return root;
+        if (self.interned.getKeyAdapted(value, LookupContext{ .pool = self })) |root| return root;
         std.debug.assert(value.low < value.high and value.high <= self.limit);
         const local = std.math.add(usize, self.nodes.items.len, 1) catch return error.OutOfMemory;
         const root = std.math.add(usize, self.baseCount(), local) catch
             return error.OutOfMemory;
         try self.nodes.ensureUnusedCapacity(self.allocator, 1);
-        try self.interned.ensureUnusedCapacity(self.allocator, 1);
+        try self.interned.ensureUnusedCapacityContext(self.allocator, 1, .{ .pool = self });
         self.nodes.appendAssumeCapacity(value);
-        self.interned.putAssumeCapacity(value, root);
+        self.interned.putAssumeCapacityNoClobberContext(root, {}, .{ .pool = self });
         return root;
     }
 
@@ -85,6 +133,17 @@ pub const Pool = struct {
         if (low > high or high > self.limit) return error.InvalidReference;
         if (low == high) return empty;
         return self.intern(.{ .low = low, .high = high, .count = high - low });
+    }
+
+    // One canonical leaf for each noncontiguous subset of an aligned word.
+    // Full intervals still use run nodes, including intervals spanning words.
+    fn word(self: *Pool, base: Member, bits: u64) Error!Root {
+        if (bits == 0) return empty;
+        const low = base + @ctz(bits);
+        const high = base + (64 - @as(u64, @clz(bits)));
+        const count_: u64 = @popCount(bits);
+        if (count_ == high - low) return self.run(low, high);
+        return self.intern(.{ .low = low, .high = high, .count = count_, .payload = .{ .word = bits } });
     }
 
     pub fn insert(self: *Pool, root: Root, member: Member) Error!Root {
@@ -105,8 +164,9 @@ pub const Pool = struct {
         while (current != empty) {
             const value = self.node(current);
             if (member < value.low or member >= value.high) return false;
+            if (value.isWord()) return value.payload.word & (@as(u64, 1) << @intCast(member & 63)) != 0;
             if (value.isRun()) return true;
-            current = if (member < split(value.low, value.high)) value.left else value.right;
+            current = if (member < split(value.low, value.high)) value.payload.tree.left else value.payload.tree.right;
         }
         return false;
     }
@@ -122,6 +182,9 @@ pub const Pool = struct {
         if (left.isRun() and right.isRun() and
             left.low <= right.high and right.low <= left.high)
             return self.run(@min(left.low, right.low), @max(left.high, right.high));
+        const low_bound = @min(left.low, right.low);
+        if ((low_bound >> 6) == ((@max(left.high, right.high) - 1) >> 6))
+            return self.word(low_bound & ~@as(u64, 63), left.wordBits() | right.wordBits());
         const middle = split(@min(left.low, right.low), @max(left.high, right.high));
         const x = try self.partition(a, middle);
         const y = try self.partition(b, middle);
@@ -141,6 +204,9 @@ pub const Pool = struct {
         if (right.isRun() and right.low <= left.low and right.high >= left.high) return a;
         if (left.isRun() and right.isRun())
             return self.run(@max(left.low, right.low), @min(left.high, right.high));
+        const low_bound = @min(left.low, right.low);
+        if ((low_bound >> 6) == ((@max(left.high, right.high) - 1) >> 6))
+            return self.word(low_bound & ~@as(u64, 63), left.wordBits() & right.wordBits());
         const middle = split(@min(left.low, right.low), @max(left.high, right.high));
         const x = try self.partition(a, middle);
         const y = try self.partition(b, middle);
@@ -162,6 +228,9 @@ pub const Pool = struct {
             const high = try self.run(@min(left.high, right.high), left.high);
             return self.unite(low, high);
         }
+        const low_bound = @min(left.low, right.low);
+        if ((low_bound >> 6) == ((@max(left.high, right.high) - 1) >> 6))
+            return self.word(low_bound & ~@as(u64, 63), left.wordBits() & ~right.wordBits());
         const middle = split(@min(left.low, right.low), @max(left.high, right.high));
         const x = try self.partition(a, middle);
         const y = try self.partition(b, middle);
@@ -175,14 +244,15 @@ pub const Pool = struct {
         if (root == empty) return empty;
         const value = self.node(root);
         if (member < value.low or member >= value.high) return root;
+        if (value.isWord()) return self.word(value.low & ~@as(u64, 63), value.payload.word & ~(@as(u64, 1) << @intCast(member & 63)));
         if (value.isRun()) {
             const left = try self.run(value.low, member);
             const right = try self.run(member + 1, value.high);
             return self.unite(left, right);
         }
         if (member < split(value.low, value.high))
-            return self.join(try self.remove(value.left, member), value.right);
-        return self.join(value.left, try self.remove(value.right, member));
+            return self.join(try self.remove(value.payload.tree.left, member), value.payload.tree.right);
+        return self.join(value.payload.tree.left, try self.remove(value.payload.tree.right, member));
     }
 
     pub fn excluding(self: *Pool, root: Root, members: []const Member) Error!Root {
@@ -209,7 +279,7 @@ pub const Pool = struct {
         // The caller splits at the highest differing bit of the combined span.
         // Any crossing non-run has that same split; no version-chain traversal.
         std.debug.assert(split(value.low, value.high) == middle);
-        return .{ value.left, value.right };
+        return .{ value.payload.tree.left, value.payload.tree.right };
     }
 
     fn join(self: *Pool, left: Root, right: Root) Error!Root {
@@ -220,12 +290,12 @@ pub const Pool = struct {
         const middle = split(a.low, b.high);
         std.debug.assert(a.high <= middle and b.low >= middle);
         if (a.isRun() and b.isRun() and a.high == b.low) return self.run(a.low, b.high);
+        if ((a.low >> 6) == ((b.high - 1) >> 6)) return self.word(a.low & ~@as(u64, 63), a.wordBits() | b.wordBits());
         return self.intern(.{
             .low = a.low,
             .high = b.high,
             .count = a.count + b.count,
-            .left = left,
-            .right = right,
+            .payload = .{ .tree = .{ .left = left, .right = right } },
         });
     }
 
@@ -274,19 +344,29 @@ pub const Iterator = struct {
     length: usize = 0,
     cursor: Member = 0,
     end: Member = 0,
+    bits: u64 = 0,
+    word_base: Member = 0,
 
     pub fn next(self: *Iterator) ?Member {
         while (self.cursor == self.end) {
+            if (self.bits != 0) {
+                const bit = @ctz(self.bits);
+                self.bits &= self.bits - 1;
+                return self.word_base + bit;
+            }
             if (self.length == 0) return null;
             self.length -= 1;
             const value = self.pool.node(self.pending[self.length]);
-            if (value.isRun()) {
+            if (value.isWord()) {
+                self.bits = value.payload.word;
+                self.word_base = value.low & ~@as(u64, 63);
+            } else if (value.isRun()) {
                 self.cursor = value.low;
                 self.end = value.high;
             } else {
                 std.debug.assert(self.length + 2 <= self.pending.len);
-                self.pending[self.length] = value.right;
-                self.pending[self.length + 1] = value.left;
+                self.pending[self.length] = value.payload.tree.right;
+                self.pending[self.length + 1] = value.payload.tree.left;
                 self.length += 2;
             }
         }

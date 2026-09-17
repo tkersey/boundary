@@ -413,3 +413,30 @@ malformed-state, ownership, capacity and consumer checks replace their semantic
 obligations; exact old-format replay is retired. The optimized 2.0.2 comparison
 anchor and the retained raw performance measurements are unchanged. Historical
 reconstruction uses Git history rather than a normal package dependency.
+
+## Invocation ownership
+
+Current PKI3/PKO3/ERQ3/ERS3 decoding owns one exact-sized copy of its input.
+Record fields borrow from that copy; no growable arena or nested record array is
+needed for these envelope types. Framing, limits, schema checks, request identity
+and error cleanup retain their existing owners. Callers use the decoded `value`
+and `deinit`; the old arena field is removed. Tests cover caller overwrite/free
+for every envelope family, request allocation failures, and a 1 MiB command
+decoded with exactly its input extent available. The full aggregate passes
+216 steps and 210 Zig tests. World records the matched memory measurements in
+its argument-ownership result section.
+
+## Canonical analysis-set storage
+
+Sparse sets within an aligned 64-ID word use one canonical bitmap leaf;
+contiguous runs remain one node and larger sets share binary subtrees. The
+interning table stores immutable node IDs, deriving hash/equality from the
+owning array instead of retaining a second node record. Bounds and cardinality
+determine the private payload interpretation, and constructors normalize every
+leaf before interning. Neither these IDs nor the interning hash enter portable
+Program identity. Read-only bases retain their existing lifetime contract.
+
+Exhaustive small-domain, cross-word, high-ID, overlay, layout and allocation-failure
+checks pass, along with the full 216-step / 212-test aggregate. World's matched
+control measurements show improvements over the preceding successor, but the
+optimized-predecessor control latency and peak-memory requirements remain open.

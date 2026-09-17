@@ -169,3 +169,50 @@ test "low-word projection matches membership without allocating or changing shar
     try testing.expectEqual(base_nodes, frozen.nodeCount());
     try testing.expectEqual(overlay_nodes, overlay.nodes.items.len);
 }
+
+test "canonical word leaves preserve all cross-word subsets and high-ID operations" {
+    const maximum = std.math.maxInt(u64);
+    const offsets = [_]u64{ 0, 31, 63, 64, 65, 95, 127, 128 };
+    for ([_]u64{ 0, 1, 64, maximum - 256 }) |base| {
+        var pool: sets.Pool = .{ .allocator = testing.allocator, .limit = maximum };
+        defer pool.deinit();
+        var roots: [256]sets.Root = @splat(sets.empty);
+        for (&roots, 0..) |*root, bits| {
+            for (offsets, 0..) |offset, bit| if (bits & (@as(usize, 1) << @intCast(bit)) != 0) {
+                root.* = try pool.insert(root.*, base + offset);
+            };
+            var reverse = sets.empty;
+            var index = offsets.len;
+            while (index > 0) {
+                index -= 1;
+                if (bits & (@as(usize, 1) << @intCast(index)) != 0)
+                    reverse = try pool.insert(reverse, base + offsets[index]);
+            }
+            try testing.expectEqual(root.*, reverse);
+            var iterator = pool.iterator(root.*);
+            for (offsets, 0..) |offset, bit| {
+                const present = bits & (@as(usize, 1) << @intCast(bit)) != 0;
+                try testing.expectEqual(present, pool.contains(root.*, base + offset));
+                if (present) try testing.expectEqual(base + offset, iterator.next().?);
+            }
+            try testing.expect(iterator.next() == null);
+        }
+        const frozen = try pool.readOnly();
+        const node_count = frozen.nodeCount();
+        var overlay = sets.Pool.overlay(testing.allocator, frozen);
+        defer overlay.deinit();
+        for (roots, 0..) |left, a| for (roots, 0..) |right, b| {
+            try testing.expectEqual(roots[a | b], try overlay.unite(left, right));
+            try testing.expectEqual(roots[a & b], try overlay.intersect(left, right));
+            try testing.expectEqual(roots[a & (~b & 255)], try overlay.difference(left, right));
+        };
+        try testing.expectEqual(node_count, frozen.nodeCount());
+        try testing.expectEqual(0, overlay.nodes.items.len);
+    }
+}
+
+test "canonical set node does not grow for word leaves" {
+    const pool: sets.Pool = .{ .allocator = testing.allocator, .limit = 8 };
+    const Node = @typeInfo(@TypeOf(pool.nodes.items)).pointer.child;
+    try testing.expectEqual(3 * @sizeOf(u64) + 2 * @sizeOf(usize), @sizeOf(Node));
+}

@@ -85,10 +85,11 @@ pub fn encodeOwned(comptime T: type, allocator: std.mem.Allocator, value: T) Err
 }
 pub fn Owned(comptime T: type) type {
     return struct {
-        arena: std.heap.ArenaAllocator,
+        allocator: std.mem.Allocator,
+        bytes: []u8,
         value: T,
         pub fn deinit(self: *@This()) void {
-            self.arena.deinit();
+            self.allocator.free(self.bytes);
             self.* = undefined;
         }
     };
@@ -99,9 +100,8 @@ pub fn decode(comptime T: type, allocator: std.mem.Allocator, input: []const u8)
 pub fn decodeLimited(comptime T: type, allocator: std.mem.Allocator, input: []const u8, limits: Limits) Error!Owned(T) {
     if (input.len < wire.header_length) return error.Truncated;
     if (input.len > limits.max_bytes) return error.Capacity;
-    var arena = std.heap.ArenaAllocator.init(allocator);
-    errdefer arena.deinit();
-    const bytes = try arena.allocator().dupe(u8, input);
+    const bytes = try allocator.dupe(u8, input);
+    errdefer allocator.free(bytes);
     var reader: wire.Reader = .{ .input = bytes };
     if (!std.mem.eql(u8, try reader.take(8), magic(T))) return error.InvalidFamily;
     if (try reader.fixed(u16) != 3) return error.UnsupportedVersion;
@@ -110,10 +110,10 @@ pub fn decodeLimited(comptime T: type, allocator: std.mem.Allocator, input: []co
     // Envelope fields are byte slices and fixed records; decoding them allocates
     // no nested record arrays. Their only backing is the owned input above.
     var remaining: usize = 0;
-    const value = try record.readBounded(T, &reader, arena.allocator(), &remaining);
+    const value = try record.readBounded(T, &reader, allocator, &remaining);
     try reader.finish();
     try validate(T, allocator, value);
-    return .{ .arena = arena, .value = value };
+    return .{ .allocator = allocator, .bytes = bytes, .value = value };
 }
 
 pub fn stateDigest(canonical_state: []const u8) [32]u8 {

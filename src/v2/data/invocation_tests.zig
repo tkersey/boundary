@@ -115,3 +115,59 @@ fn failure(allocator: std.mem.Allocator) !void {
 test "current request allocation failures release schema and envelope owners" {
     try testing.checkAllAllocationFailures(testing.allocator, failure, .{});
 }
+
+fn survivesCallerRelease(comptime T: type, value: T) !void {
+    const bytes = try protocol.encodeOwned(T, testing.allocator, value);
+    var decoded = protocol.decode(T, testing.allocator, bytes) catch |err| {
+        testing.allocator.free(bytes);
+        return err;
+    };
+    defer decoded.deinit();
+    @memset(bytes, 0xff);
+    testing.allocator.free(bytes);
+    try testing.expectEqualDeep(value, decoded.value);
+}
+
+test "every envelope family retains byte fields after caller overwrite and release" {
+    try survivesCallerRelease(protocol.Input, .{
+        .image = "image",
+        .instance = .{ .state = "state" },
+        .control = .{ .reply = "reply" },
+        .quantum = 7,
+    });
+    try survivesCallerRelease(protocol.Input, .{
+        .image = "image",
+        .instance = .{ .initial_args = "args" },
+        .control = .{ .cancel = .{ .bytes = "reason" } },
+    });
+    try survivesCallerRelease(protocol.Request, try request());
+    try survivesCallerRelease(protocol.Result, .{ .request_identity = .{7} ** 32, .value = "result" });
+    for ([_]protocol.Outcome{
+        .{ .progressed = "progress" },
+        .{ .requested = .{ .state = "state", .request = "request" } },
+        .{ .yielded = "yielded" },
+        .{ .completed = "completed" },
+        .{ .failed = .{ .value = "failed", .cancellation = .{ .text = "cancel" } } },
+        .{ .cancelled = .{ .reason = .{ .bytes = "cancelled" } } },
+    }) |outcome| try survivesCallerRelease(protocol.Outcome, outcome);
+}
+
+test "large command decode needs only its input extent and releases it" {
+    const payload = try testing.allocator.alloc(u8, 1 << 20);
+    defer testing.allocator.free(payload);
+    @memset(payload, 0x39);
+    const bytes = try protocol.encodeOwned(protocol.Input, testing.allocator, .{
+        .image = "image",
+        .instance = .{ .initial_args = payload },
+    });
+    defer testing.allocator.free(bytes);
+    const backing = try testing.allocator.alloc(u8, bytes.len);
+    defer testing.allocator.free(backing);
+    var fixed = std.heap.FixedBufferAllocator.init(backing);
+    var decoded = try protocol.decode(protocol.Input, fixed.allocator(), bytes);
+    @memset(bytes, 0xff);
+    try testing.expectEqualStrings("image", decoded.value.image);
+    try testing.expectEqualSlices(u8, payload, decoded.value.instance.initial_args);
+    decoded.deinit();
+    try testing.expectEqual(@as(usize, 0), fixed.end_index);
+}
