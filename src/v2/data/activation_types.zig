@@ -12,13 +12,24 @@ const effect_scope = @import("effect_scope.zig");
 pub const Error = a.Error || structure.Error;
 
 pub fn validate(allocator: std.mem.Allocator, image: ir.Program) Error!void {
-    return validateInternal(allocator, image, &.{}, false);
+    return validateInternal(allocator, image, &.{}, false, &.{});
 }
 
-pub fn validateComponent(allocator: std.mem.Allocator, image: ir.Program, imports: []const p.Id) Error!void {
-    return validateInternal(allocator, image, imports, true);
+pub fn validateComponent(
+    allocator: std.mem.Allocator,
+    image: ir.Program,
+    imports: []const p.Id,
+    borrows: []const @import("borrow_contract.zig").Summary,
+) Error!void {
+    return validateInternal(allocator, image, imports, true, borrows);
 }
-fn validateInternal(allocator: std.mem.Allocator, image: ir.Program, imports: []const p.Id, component: bool) Error!void {
+fn validateInternal(
+    allocator: std.mem.Allocator,
+    image: ir.Program,
+    imports: []const p.Id,
+    component: bool,
+    borrows: []const @import("borrow_contract.zig").Summary,
+) Error!void {
     try structure.validateComponent(allocator, image, imports);
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
@@ -46,7 +57,18 @@ fn validateInternal(allocator: std.mem.Allocator, image: ir.Program, imports: []
     try @import("region_admission.zig").validate(scratch, image);
     const schema_facts = try a.schemas(scratch, image.schemas);
     if (component) {
-        try @import("borrow_flow.zig").validateComponent(scratch, image, imports, schema_facts.exportable);
+        var solver = try @import("borrow_flow.zig").contracted(
+            scratch,
+            image,
+            imports,
+            schema_facts.exportable,
+            borrows,
+        );
+        for (borrows) |summary| {
+            if (image.functions[@intCast(summary.function)].entry == @import("relocation.zig").missing)
+                continue;
+            try @import("borrow_contract.zig").check(&solver, summary);
+        }
     } else try @import("borrow_flow.zig").validate(scratch, image, schema_facts.exportable, null);
 }
 

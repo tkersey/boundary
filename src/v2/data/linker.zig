@@ -132,8 +132,53 @@ pub fn link(allocator: std.mem.Allocator, input: []const Instance, bindings: []c
         if (try mapper.id(.schema, unit.object.program.roots.failure) != result.roots.failure) return error.IncompatibleFailure;
         for (unit.object.imports) |symbol| try compatible(mapper, unit.object.program, result, symbol.reference);
     }
-    const checked = try @import("activation_ownership.zig").analyze(allocator, result);
+    var checked = try @import("activation_ownership.zig").analyze(allocator, result);
+    errdefer checked.deinit();
+    try checkBorrows(a, units, result);
     return .{ .arena = arena, .program = result, .flow = checked };
+}
+
+fn checkBorrows(a: std.mem.Allocator, units: []const Unit, result: ir.Program) Error!void {
+    const schemas = try @import("admission.zig").schemas(a, result.schemas);
+    var borrow_flow = try @import("borrow_flow.zig").StableFlow.init(a, result, schemas.exportable);
+    for (units) |unit| {
+        const mapper: relocate.Mapper = .{ .allocator = a, .maps = unit.maps };
+        for (unit.object.borrows) |summary| {
+            const expected = try @import("borrow_contract.zig").relocated(mapper, summary);
+            try @import("borrow_contract.zig").check(&borrow_flow, expected);
+        }
+        for (unit.object.imports) |symbol| switch (symbol.reference.kind) {
+            .constructor => {
+                const expected = unit.object.program.constructors[@intCast(symbol.reference.id)];
+                const actual = result.constructors[@intCast(try mapper.id(.constructor, symbol.reference.id))];
+                try callableBorrow(&borrow_flow, mapper, unit.object, expected.function, actual.function);
+            },
+            .handler => {
+                const expected = unit.object.program.handlers[@intCast(symbol.reference.id)];
+                const actual = result.handlers[@intCast(try mapper.id(.handler, symbol.reference.id))];
+                try callableBorrow(&borrow_flow, mapper, unit.object, expected.return_function, actual.return_function);
+                for (expected.clauses, actual.clauses) |left, right|
+                    try callableBorrow(&borrow_flow, mapper, unit.object, left.function, right.function);
+            },
+            else => {},
+        };
+    }
+}
+
+fn callableBorrow(
+    flow: *@import("borrow_flow.zig").StableFlow,
+    mapper: relocate.Mapper,
+    object: component.Object,
+    declared: Id,
+    actual: Id,
+) Error!void {
+    for (object.borrows) |summary| {
+        if (summary.function != declared) continue;
+        var expected = try @import("borrow_contract.zig").relocated(mapper, summary);
+        expected.function = actual;
+        return @import("borrow_contract.zig").check(flow, expected);
+    }
+    return error.InvalidOwnership;
 }
 
 fn catalog(comptime T: type, comptime kind: Kind, allocator: std.mem.Allocator, units: []const Unit, imported: []const bool, count: usize, comptime method: anytype) Error![]const T {

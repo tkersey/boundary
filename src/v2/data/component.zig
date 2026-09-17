@@ -8,7 +8,12 @@ const record = @import("record.zig");
 const program_record = @import("program_record.zig");
 const wire = @import("wire.zig");
 pub const Symbol = struct { name: []const u8, reference: relocation.Reference };
-pub const Object = struct { program: ir.Program, imports: []const Symbol = &.{}, exports: []const Symbol };
+pub const Object = struct {
+    program: ir.Program,
+    imports: []const Symbol = &.{},
+    exports: []const Symbol,
+    borrows: []const @import("borrow_contract.zig").Summary = &.{},
+};
 pub const Error = @import("activation_ownership.zig").Error || record.Error || error{ InvalidSymbol, DuplicateSymbol, InvalidImport };
 pub const magic = "ABL_BMO1";
 pub const identity_domain = "boundary.component/v1\x00";
@@ -26,9 +31,38 @@ fn symbols(program: ir.Program, values: []const Symbol) Error!void {
     }
 }
 
+/// The callable contracts of an imported/exported handler or constructor are
+/// interface obligations even when their functions have no separate symbol.
+pub fn interfaceFunctions(allocator: std.mem.Allocator, object: Object) Error![]const p.Id {
+    var result: std.ArrayList(p.Id) = .empty;
+    errdefer result.deinit(allocator);
+    for ([_][]const Symbol{ object.imports, object.exports }) |list| {
+        try symbols(object.program, list);
+        for (list) |symbol| switch (symbol.reference.kind) {
+            .function => try result.append(allocator, symbol.reference.id),
+            .constructor => try result.append(allocator, object.program.constructors[@intCast(symbol.reference.id)].function),
+            .handler => {
+                const handler = object.program.handlers[@intCast(symbol.reference.id)];
+                try result.append(allocator, handler.return_function);
+                for (handler.clauses) |clause| try result.append(allocator, clause.function);
+            },
+            else => {},
+        };
+    }
+    std.mem.sort(p.Id, result.items, {}, std.sort.asc(p.Id));
+    var count: usize = 0;
+    for (result.items) |id| {
+        if (count != 0 and result.items[count - 1] == id) continue;
+        result.items[count] = id;
+        count += 1;
+    }
+    result.items.len = count;
+    return result.toOwnedSlice(allocator);
+}
+
 /// Check every local definition and declaration, including unreachable ones.
-/// Imported implementations leave interprocedural borrow obligations for the
-/// independently admitted closed link; the object makes no executable claim.
+/// Local code is checked under explicit imported borrow contracts. Closed link
+/// admission also derives the actual guarantees independently of declarations.
 pub fn validate(allocator: std.mem.Allocator, object: Object) Error!void {
     var entries: usize = 0;
     for (try relocation.sizes(object.program)) |count| {
@@ -54,8 +88,13 @@ pub fn validate(allocator: std.mem.Allocator, object: Object) Error!void {
         }
     }
     if (std.mem.indexOfScalar(p.Id, imports.items, object.program.roots.entry) != null) return error.InvalidImport;
-    var facts = try @import("activation_ownership.zig").analyzeComponent(allocator, object.program, imports.items);
+    var facts = try @import("activation_ownership.zig").analyzeComponent(allocator, object.program, imports.items, object.borrows);
     facts.deinit();
+    for (try interfaceFunctions(scratch.allocator(), object)) |function| {
+        for (object.borrows) |summary| {
+            if (summary.function == function) break;
+        } else return error.InvalidOwnership;
+    }
 }
 
 fn write(object: Object, writer: *wire.Writer) Error!void {
@@ -63,6 +102,7 @@ fn write(object: Object, writer: *wire.Writer) Error!void {
     try program_record.write(ir.Program, object.program, writer, &context);
     try record.write([]const Symbol, object.imports, writer);
     try record.write([]const Symbol, object.exports, writer);
+    try record.write([]const @import("borrow_contract.zig").Summary, object.borrows, writer);
 }
 pub fn encodedLength(object: Object) Error!usize {
     var writer: wire.Writer = .{ .position = wire.header_length };
@@ -108,8 +148,9 @@ pub fn decode(allocator: std.mem.Allocator, input: []const u8) Error!Decoded {
     var remaining = budget.maximum - budget.used;
     const imports = try record.readBounded([]const Symbol, &reader, arena.allocator(), &remaining);
     const exports = try record.readBounded([]const Symbol, &reader, arena.allocator(), &remaining);
+    const borrows = try record.readBounded([]const @import("borrow_contract.zig").Summary, &reader, arena.allocator(), &remaining);
     try reader.finish();
-    const object: Object = .{ .program = program, .imports = imports, .exports = exports };
+    const object: Object = .{ .program = program, .imports = imports, .exports = exports, .borrows = borrows };
     try validate(allocator, object);
     var comparison: wire.Writer = .{ .expected = bytes[wire.header_length..] };
     try write(object, &comparison);

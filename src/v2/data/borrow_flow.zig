@@ -51,11 +51,12 @@ const Mapped = struct {
     }
 };
 
-pub const Flow = FlowFor(p.Program);
+pub const Flow = FlowFor(p.Program, false);
 /// Function summaries use input ordinals; position queries explicitly use stable slots.
-pub const StableFlow = FlowFor(activation.Program);
+pub const StableFlow = FlowFor(activation.Program, false);
+pub const ComponentFlow = FlowFor(activation.Program, true);
 
-fn FlowFor(comptime Program: type) type {
+fn FlowFor(comptime Program: type, comptime open: bool) type {
     const stable = Program == activation.Program;
     const Edge = if (stable) activation.Edge else p.Edge;
     const Perform = if (stable) activation.Perform else p.Perform;
@@ -86,10 +87,57 @@ fn FlowFor(comptime Program: type) type {
         requirements: std.ArrayList(Requirements) = .empty,
         changed: bool = false,
         diagnostic: ?*a.Diagnostic = null,
-        // Component-only analysis can encounter a bodyless declaration. This
-        // observation invalidates that query, never a closed admission result.
-        observe_open_entries: bool = false,
-        encountered_open_entry: bool = false,
+        import_summaries: if (open) []const @import("borrow_contract.zig").Summary else void = if (open) &.{} else {},
+
+        pub fn entry(self: Self, function: p.Id) p.Id {
+            const start = self.program.functions[@intCast(function)].entry;
+            if (open and start == @import("relocation.zig").missing and
+                self.import_summaries.len != 0) return self.program.blocks.len + function;
+            return start;
+        }
+
+        fn imported(self: Self, start: p.Id) ?@import("borrow_contract.zig").Summary {
+            if (!open) return null;
+            if (start < self.program.blocks.len) return null;
+            const function = start - self.program.blocks.len;
+            for (self.import_summaries) |summary| if (summary.function == function) return summary;
+            return null;
+        }
+
+        pub fn contractSource(
+            self: *Self,
+            function: p.Id,
+            source: @import("borrow_contract.zig").Projection,
+        ) a.Error!Source {
+            if (source.source == .ambient) {
+                if (source.path.len != 0) return error.InvalidReference;
+                return .{ .ambient = source.source.ambient };
+            }
+            const parameters = inputs.of(self.program.functions[@intCast(function)]);
+            if (source.source.input >= parameters.len) return error.InvalidReference;
+            var schema = parameters.at(@intCast(source.source.input));
+            for (source.path) |step| {
+                switch (step) {
+                    .environment => |v| if (v.constructor >= self.program.constructors.len)
+                        return error.InvalidReference,
+                    .handler_state => |v| if (v.handler >= self.program.handlers.len)
+                        return error.InvalidReference,
+                    .use_site => |v| if (v.schema >= self.program.schemas.len)
+                        return error.InvalidReference,
+                    .body_result => |v| if (v >= self.program.schemas.len)
+                        return error.InvalidReference,
+                    else => {},
+                }
+                schema = self.selectedSchema(schema, step) orelse return error.InvalidReference;
+            }
+            var path: usize = 0;
+            var i = source.path.len;
+            while (i != 0) {
+                i -= 1;
+                path = try self.prepend(source.path[i], path);
+            }
+            return .{ .parameter = source.source.input, .path = path };
+        }
 
         fn rejected(self: Self, binding: Binding) a.Error {
             if (self.diagnostic) |diagnostic| diagnostic.* = .{ .phase = .block, .function = self.program.blocks[@intCast(binding.block)].function, .block = binding.block, .callee = binding.function, .handler = binding.handler };
@@ -222,9 +270,9 @@ fn FlowFor(comptime Program: type) type {
         }
 
         fn checkStart(self: *Self, start: p.Id, position: ?usize) a.Error!void {
-            if (self.observe_open_entries and start == @import("relocation.zig").missing) {
-                self.encountered_open_entry = true;
-                return error.InvalidReference;
+            if (self.imported(start) != null) {
+                if (position != null) return error.InvalidReference;
+                return;
             }
             if (start >= self.program.blocks.len) return error.InvalidReference;
             if (stable and position != null) {
@@ -242,7 +290,8 @@ fn FlowFor(comptime Program: type) type {
 
         fn queryFrom(self: *Self, start: p.Id, path: usize, position: ?usize) a.Error!usize {
             try self.checkStart(start, position);
-            const function = self.program.functions[@intCast(self.program.blocks[@intCast(start)].function)];
+            const owner = if (self.imported(start)) |summary| summary.function else self.program.blocks[@intCast(start)].function;
+            const function = self.program.functions[@intCast(owner)];
             const selected = try self.normalizePath(function.result, path);
             for (self.queries.items, 0..) |item, index| if (item.start == start and item.position == position and item.path == selected and item.target == null and item.writes == null) return index;
             try self.queries.append(self.allocator, .{ .start = start, .position = position, .path = selected });
@@ -269,6 +318,12 @@ fn FlowFor(comptime Program: type) type {
 
         fn writeQuery(self: *Self, start: p.Id, schema: p.Id, path: usize) a.Error!usize {
             return self.writeQueryFrom(start, schema, path, null);
+        }
+
+        pub fn written(self: *Self, start: p.Id, schema: p.Id) a.Error![]const Source {
+            const index = try self.writeQuery(start, schema, 0);
+            try self.settle();
+            return self.queries.items[index].sources.items;
         }
 
         fn writeQueryFrom(self: *Self, start: p.Id, schema: p.Id, path: usize, position: ?usize) a.Error!usize {
@@ -414,7 +469,7 @@ fn FlowFor(comptime Program: type) type {
         }
 
         fn transferRequirements(self: *Self, index: usize, binding: Binding) a.Error!void {
-            const called = try self.requirementsQuery(self.program.functions[@intCast(binding.function)].entry);
+            const called = try self.requirementsQuery(self.entry(binding.function));
             const pairs = try self.allocator.dupe(Constraint, self.requirements.items[called].constraints.items);
             defer self.allocator.free(pairs);
             const start = self.requirements.items[index].start;
@@ -531,7 +586,7 @@ fn FlowFor(comptime Program: type) type {
                 else => return error.InvalidProgram,
             };
             const handler = self.program.handlers[@intCast(handler_id)];
-            const query_id = try self.requirementsQuery(self.program.functions[@intCast(handler.return_function)].entry);
+            const query_id = try self.requirementsQuery(self.entry(handler.return_function));
             const constraints = try self.allocator.dupe(Constraint, self.requirements.items[query_id].constraints.items);
             defer self.allocator.free(constraints);
             for (constraints) |constraint| {
@@ -544,6 +599,10 @@ fn FlowFor(comptime Program: type) type {
         }
 
         fn solveRequirements(self: *Self, index: usize) a.Error!void {
+            if (self.imported(self.requirements.items[index].start)) |summary| {
+                for (summary.requirements) |pair| try self.addConstraint(index, try self.contractSource(summary.function, pair.value), try self.contractSource(summary.function, pair.owner), pair.bound);
+                return;
+            }
             var arena = std.heap.ArenaAllocator.init(self.allocator);
             defer arena.deinit();
             const live = try self.reachable(self.requirements.items[index].start, arena.allocator());
@@ -647,6 +706,16 @@ fn FlowFor(comptime Program: type) type {
             const query_path = self.queries.items[query_index].path;
             const query_target = self.queries.items[query_index].target;
             const query_writes = self.queries.items[query_index].writes;
+            if (self.imported(query_start)) |summary| {
+                if (query_target != null) return error.InvalidReference;
+                // A whole-result bound also bounds every result projection.
+                if (query_writes) |schema| {
+                    for (summary.writes) |write| if (write.schema == schema) {
+                        for (write.sources) |source| try self.addSource(query_index, try self.contractSource(summary.function, source));
+                    };
+                } else for (summary.returned) |source| try self.addSource(query_index, try self.contractSource(summary.function, source));
+                return;
+            }
             var arena = std.heap.ArenaAllocator.init(self.allocator);
             defer arena.deinit();
             const allocator = arena.allocator();
@@ -872,7 +941,7 @@ fn FlowFor(comptime Program: type) type {
         }
 
         fn call(self: *Self, pending: *std.ArrayList(Trace), block: p.Id, function: p.Id, arguments: []const p.Id, path: usize) a.Error!void {
-            const index = try self.query(self.program.functions[@intCast(function)].entry, path);
+            const index = try self.query(self.entry(function), path);
             try self.transferSources(pending, .{ .block = block, .function = function, .arguments = arguments }, index);
         }
 
@@ -880,13 +949,13 @@ fn FlowFor(comptime Program: type) type {
             const schema = self.slotType(block, computation_slot);
             for (self.program.constructors, 0..) |constructor, id| {
                 if (constructor.schema != schema) continue;
-                const index = try self.query(self.program.functions[@intCast(constructor.function)].entry, path);
+                const index = try self.query(self.entry(constructor.function), path);
                 try self.transferSources(pending, self.bodyBinding(block, computation_slot, arguments, supplied, id), index);
             }
         }
 
         fn callWrites(self: *Self, pending: *std.ArrayList(Trace), block: p.Id, function: p.Id, arguments: []const p.Id, schema: p.Id, path: usize) a.Error!void {
-            const index = try self.writeQuery(self.program.functions[@intCast(function)].entry, schema, path);
+            const index = try self.writeQuery(self.entry(function), schema, path);
             try self.transferSources(pending, .{ .block = block, .function = function, .arguments = arguments }, index);
         }
 
@@ -894,7 +963,7 @@ fn FlowFor(comptime Program: type) type {
             const computation_schema = self.slotType(block, computation_slot);
             for (self.program.constructors, 0..) |constructor, id| {
                 if (constructor.schema != computation_schema) continue;
-                const index = try self.writeQuery(self.program.functions[@intCast(constructor.function)].entry, schema, path);
+                const index = try self.writeQuery(self.entry(constructor.function), schema, path);
                 try self.transferSources(pending, self.bodyBinding(block, computation_slot, arguments, supplied, id), index);
             }
         }
@@ -911,14 +980,14 @@ fn FlowFor(comptime Program: type) type {
                 .handle => |v| {
                     const handler = self.program.handlers[@intCast(v.handler)];
                     try self.bodyWrites(pending, block, v.body, v.arguments, handler.clauses.len, schema, path);
-                    const index = try self.writeQuery(self.program.functions[@intCast(handler.return_function)].entry, schema, path);
+                    const index = try self.writeQuery(self.entry(handler.return_function), schema, path);
                     const sources = try self.allocator.dupe(Source, self.queries.items[index].sources.items);
                     defer self.allocator.free(sources);
                     for (sources) |source| try self.returnInput(pending, block, source);
                 },
                 .perform, .forward => |v| if (v.capability != null) {
                     for (self.program.handlers, 0..) |handler, handler_id| for (handler.clauses) |clause| if (clause.effect == v.effect) {
-                        const index = try self.writeQuery(self.program.functions[@intCast(clause.function)].entry, schema, path);
+                        const index = try self.writeQuery(self.entry(clause.function), schema, path);
                         try self.transferSources(pending, .{ .block = block, .function = clause.function, .arguments = &.{}, .handler = handler_id, .operation = v }, index);
                     };
                 },
@@ -957,7 +1026,7 @@ fn FlowFor(comptime Program: type) type {
                 .protect => |v| try self.body(pending, block, v.body, v.arguments, @intFromBool(v.resource != null), path),
                 .handle => |v| {
                     const handler = self.program.handlers[@intCast(v.handler)];
-                    const returns = try self.query(self.program.functions[@intCast(handler.return_function)].entry, path);
+                    const returns = try self.query(self.entry(handler.return_function), path);
                     const sources = try self.allocator.dupe(Source, self.queries.items[returns].sources.items);
                     defer self.allocator.free(sources);
                     for (sources) |source| try self.returnInput(pending, block, source);
@@ -965,7 +1034,7 @@ fn FlowFor(comptime Program: type) type {
                     // older inputs. Fresh body capabilities are checked separately.
                     for (handler.clauses) |clause| {
                         if (!@import("contracts.zig").retainsResumption(clause)) continue;
-                        const index = try self.query(self.program.functions[@intCast(clause.function)].entry, path);
+                        const index = try self.query(self.entry(clause.function), path);
                         for (self.queries.items[index].sources.items) |source| {
                             if (source.ambient) |ambient| {
                                 try self.pushTrace(pending, .{ .block = block, .ambient = ambient });
@@ -1010,41 +1079,47 @@ fn FlowFor(comptime Program: type) type {
 }
 
 pub fn validate(allocator: std.mem.Allocator, program: anytype, exportable: []const bool, diagnostic: ?*a.Diagnostic) a.Error!void {
-    var flow = try FlowFor(@TypeOf(program)).init(allocator, program, exportable);
+    var flow = try FlowFor(@TypeOf(program), false).init(allocator, program, exportable);
     flow.diagnostic = diagnostic;
     for (program.functions) |function| _ = try flow.requirementsQuery(function.entry);
     try flow.settle();
-    try validateScopes(&flow, null);
+    try validateScopes(&flow);
 }
 
-/// Check every implementation whose borrow queries close over local code.
-/// An absent implementation invalidates only its dependent analysis. Its open
-/// constraints must still be discharged by independent closed-link admission.
-pub fn validateComponent(allocator: std.mem.Allocator, program: activation.Program, imports: []const p.Id, exportable: []const bool) a.Error!void {
-    if (imports.len == 0) return validate(allocator, program, exportable, null);
-    for (program.functions, 0..) |function, id| {
-        if (std.mem.indexOfScalar(p.Id, imports, id) != null) continue;
-        var arena = std.heap.ArenaAllocator.init(allocator);
-        defer arena.deinit();
-        var flow = try StableFlow.init(arena.allocator(), program, exportable);
-        flow.observe_open_entries = true;
-        validateLocalFunction(&flow, function.entry, id) catch |err| {
-            if (err == error.InvalidReference and flow.encountered_open_entry) continue;
-            return err;
-        };
+/// Component admission uses declared import assumptions without dropping any
+/// dependent query. The closed linker subsequently checks those assumptions.
+pub fn contracted(
+    allocator: std.mem.Allocator,
+    program: activation.Program,
+    imports: []const p.Id,
+    exportable: []const bool,
+    summaries: []const @import("borrow_contract.zig").Summary,
+) a.Error!ComponentFlow {
+    var flow = try ComponentFlow.init(allocator, program, exportable);
+    flow.import_summaries = summaries;
+    var previous: ?p.Id = null;
+    for (summaries) |summary| {
+        if (previous) |prior| if (summary.function <= prior) return error.NonCanonical;
+        previous = summary.function;
+        try @import("borrow_contract.zig").validate(&flow, summary);
     }
-}
-
-fn validateLocalFunction(flow: *StableFlow, start: p.Id, owner: p.Id) a.Error!void {
-    _ = try flow.requirementsQuery(start);
+    for (imports) |function| {
+        for (summaries) |summary| {
+            if (summary.function == function) break;
+        } else return error.InvalidOwnership;
+    }
+    for (program.functions, 0..) |_, id| {
+        if (std.mem.indexOfScalar(p.Id, imports, id) != null) continue;
+        _ = try flow.requirementsQuery(flow.entry(id));
+    }
     try flow.settle();
-    try validateScopes(flow, owner);
+    try validateScopes(&flow);
+    return flow;
 }
 
-fn validateScopes(flow: anytype, owner: ?p.Id) a.Error!void {
+fn validateScopes(flow: anytype) a.Error!void {
     const program = flow.program;
     for (program.blocks, 0..) |block, block_id| {
-        if (owner) |function| if (block.function != function) continue;
         const body_slot, const arguments, const supplied = switch (block.terminator) {
             .handle => |v| .{ v.body, v.arguments, program.handlers[@intCast(v.handler)].clauses.len },
             .with_region => |v| .{ v.body, v.arguments, @as(usize, 1) },
@@ -1054,7 +1129,7 @@ fn validateScopes(flow: anytype, owner: ?p.Id) a.Error!void {
         const body_schema = flow.slotType(block_id, body_slot);
         for (program.constructors, 0..) |constructor, id| {
             if (constructor.schema != body_schema) continue;
-            const start = program.functions[@intCast(constructor.function)].entry;
+            const start = flow.entry(constructor.function);
             const returned = try flow.returned(start);
             const binding = flow.bodyBinding(block_id, body_slot, arguments, supplied, id);
             for (returned) |source| {

@@ -72,6 +72,7 @@ fn stateful(b: *source.Builder, c: Common) !Built {
     try b.define(main, try b.bind(pair, try b.term(.{ .handle = .{ .handler = handler, .body = try b.lambda(body, body_type), .state = &.{try b.constant(u64, 41)} } }), try b.pure(sum)));
     return .{ .entry = main, .interface = .{
         .imports = try b.allocator().dupe(data.component.Symbol, &.{symbol("twice", .function, twice)}),
+        .borrows = try b.allocator().dupe(data.borrow_contract.Summary, &.{.{ .function = twice }}),
         .exports = try b.allocator().dupe(data.component.Symbol, &.{ symbol("compute", .function, main), symbol("read", .effect, c.read) }),
     } };
 }
@@ -101,6 +102,7 @@ fn suspension(b: *source.Builder, c: Common) !Built {
     try b.define(main, try b.bind(value, try b.term(.{ .call = .{ .function = compute, .arguments = &.{} } }), try b.bind(answer, try b.term(.{ .handle = .{ .handler = generator.handler, .body = try b.lambda(start, start_type) } }), matched)));
     return .{ .entry = main, .interface = .{
         .imports = try b.allocator().dupe(data.component.Symbol, &.{ symbol("compute", .function, compute), symbol("read", .effect, c.read) }),
+        .borrows = try b.allocator().dupe(data.borrow_contract.Summary, &.{.{ .function = compute }}),
         .exports = try b.allocator().dupe(data.component.Symbol, &.{ symbol("main", .function, main), symbol("read", .effect, c.read), symbol("release", .effect, release) }),
     } };
 }
@@ -112,6 +114,7 @@ fn doubled(b: *source.Builder, c: Common) !Built {
     try b.define(main, try b.bind(value, try b.term(.{ .call = .{ .function = imported, .arguments = &.{} } }), try b.pure(try add(b, c.integer, try b.reference(value), try b.reference(value)))));
     return .{ .entry = main, .interface = .{
         .imports = try b.allocator().dupe(data.component.Symbol, &.{ symbol("main", .function, imported), symbol("read", .effect, c.read), symbol("release", .effect, release) }),
+        .borrows = try b.allocator().dupe(data.borrow_contract.Summary, &.{.{ .function = imported }}),
         .exports = try b.allocator().dupe(data.component.Symbol, &.{symbol("main", .function, main)}),
     } };
 }
@@ -135,6 +138,7 @@ fn recursive(b: *source.Builder, c: Common, even: bool) !Built {
     } }));
     return .{ .entry = main, .interface = .{
         .imports = try b.allocator().dupe(data.component.Symbol, &.{symbol("other", .function, other)}),
+        .borrows = try b.allocator().dupe(data.borrow_contract.Summary, &.{.{ .function = other }}),
         .exports = try b.allocator().dupe(data.component.Symbol, &.{symbol("main", .function, main)}),
     } };
 }

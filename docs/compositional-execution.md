@@ -280,10 +280,13 @@ objects and links from first-order artifacts using a data-only executable. Tests
 cover nominal sharing/separation, interface mismatches, capture bounds, forged
 resource authority, allocation failures and mutually recursive implementations.
 World executes the linked private-state/owned-suspension composition in two
-Programs and transfers their checkpoints through Wasmtime. Local imported-borrow
-contract checking still needs completion; queries that do not reach an import
-now run locally, including independent definitions in an object with unresolved
-calls. Full closed-link admission is mandatory.
+Programs and transfers their checkpoints through Wasmtime. BMO1 now carries
+explicit imported borrow assumptions and code-derived exported guarantees for
+result provenance, cell writes and outlives requirements. All local queries run
+under those assumptions; the old deferral path is removed. Linking checks them
+against the actual relocated implementations, including functions reached through
+handler/constructor imports, then independently admits the closed Program. The
+contract's whole-result precision limit is described in the component format.
 
 Public protocol cutover, completion of component contracts, selective execution,
 efficient values, transaction performance qualification, Agent's

@@ -11,8 +11,13 @@ coordinated default cutover.
 
 ```
 "ABL_BMO1"[8] | version:u16LE=1 | flags:u16LE=0 | body_length:u64LE | body
-body = ProgramRecords | [Symbol] imports | [Symbol] exports
+body = ProgramRecords | [Symbol] imports | [Symbol] exports | [BorrowSummary]
 Symbol = name:Text | kind:N | id:N
+BorrowSummary = function:N | [Projection] returned | [Requirement] | [Write]
+Projection = source:Source | [Step] path
+Source = input(0, ordinal:N) | ambient(1, component:N)
+Requirement = value:Projection | owner:Projection | bound:N
+Write = cell_schema:N | [Projection] sources
 ```
 
 `ProgramRecords` is exactly the body grammar in [BPI3](bpi3-wire.md), without
@@ -74,18 +79,40 @@ representation compatibility is checked and only defining-instance function
 identities receive those rights. Full closed type/effect/use/borrow admission
 runs after relocation. Names, hashes and interface summaries do not bypass it.
 
-The current object checker validates local types, effects, regions, ownership
-and capture bounds. Borrow analysis runs separately for each local function; only
-queries that actually reach a bodyless import remain deferred. An independent
-unresolved call cannot suppress a locally decidable borrow violation. A regression
-distinguishes older-capability clause payloads from invalid fresh-capability
-payloads, both directly and through local helper calls. Removing local checking
-causes that test to accept an invalid fresh-capability payload.
+The object checker validates local types, effects, regions, ownership and capture
+bounds, then solves every local borrow query under explicit import assumptions.
+Missing imported-function contracts reject; unknown effects never imply an empty
+borrow contract. The source compiler derives exported guarantees from the code.
+Each function mentioned directly or through an imported/exported handler or
+constructor must have a summary. Summaries are strictly ordered by function ID;
+write rows are strictly ordered by cell schema ID. Additional local guarantees
+are checked even when their code is unreachable from the selected root.
 
-Closed-link admission checks the complete code. Discharging the remaining local
-queries under explicit imported borrow contracts remains an open
-successor requirement; this component implementation is not full migration
-completion.
+Input sources use call-interface ordinals, not activation slots. Ambient evidence
+and region have tags 0 and 1. Requirement bounds region/clause/capture have tags
+0/1/2. Paths use the borrow solver's ordinary tagged projections: field(0, N),
+element(1), environment(2, constructor:N, field:N), handler_state(3, handler:N,
+field:N), use_site(4, index:N, schema:N), cell_content(5), package_token(6),
+outer(7, optional ambient), resumed(8, optional ambient), body_result(9, schema:N).
+Optional values encode a 0/1 presence tag followed by the value when present.
+Every selector is checked against its input schema and every catalog reference
+is relocated by kind. Ambient sources have no path.
+
+Returned and written sources bound the whole result, conservatively including
+all its projections. A declared input subtree may cover a narrower actual
+dependency. Outlives requirements keep both projections and the bound exactly;
+widening an owner is not a valid lifetime proof. Whole-result bounds can reject
+a safe client that relies on more precise field-specific imported behavior.
+This is a precision limit, not permission to omit a dependency.
+
+The linker independently derives guarantees from the complete relocated code
+and checks each assumption. Imported handlers and constructors also check the
+actual selected functions, not just their local signature placeholders. Tests
+cover a protected borrow passed through an import, false result provenance,
+hidden cell writes, missing outlives requirements, malformed projections, and
+handler/constructor substitution. Full closed Program admission remains required.
+The previous per-function deferral path has been removed. This development BMO1
+grammar includes the contract table; objects emitted before it must be rebuilt.
 
 ## Standalone use and witnesses
 
@@ -119,7 +146,7 @@ transports only objects and the data-only linker into a temporary directory,
 and runs three links without invoking an emitter again. Three components combine
 an effectful reusable callable, a private counter interpretation and an owned
 suspension with cleanup. The fourth wraps that same composition. Their current
-object sizes are 142/366/603/186 bytes; the two closed images are 839/875 bytes.
+object sizes are 147/375/612/195 bytes; the two closed images are 839/875 bytes.
 These sizes are fixture observations, not the required full performance report.
 
 World's current kernel suite executes both images using native, fresh WASM and
@@ -127,7 +154,7 @@ resident WASM operations. The private counter supplies 41 then 42; the first
 Program returns 83 and the wrapper returns 166. Each yields once and performs
 one external release carrying 83. It also runs a separately compiled mutually
 recursive even/odd pair. Agent tool integration and the required real-file
-browser transfer remain separate unfinished migration work.
+browser transfer have their own consumer checks and authenticated dependency pins.
 
 `library/combinators.zig` authors `twice` once and specializes from a callable's
 declared signature. Tests instantiate it for one-effect and two-effect residual

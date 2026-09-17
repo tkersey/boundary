@@ -49,6 +49,7 @@ fn object(provider: bool, boolean: bool) ![]u8 {
     };
     var compiled = try source.component.compile(testing.allocator, b.module(main, unit), .{
         .imports = if (provider) &.{} else &symbols,
+        .borrows = if (provider) &.{} else &.{.{ .function = read }},
         .exports = if (provider) &symbols else &.{.{ .name = "main", .reference = .{ .kind = .function, .id = main } }},
     });
     defer compiled.deinit();
@@ -158,6 +159,7 @@ fn capturedFactory(provider: bool, weakened: bool) ![]u8 {
     const symbol: data.component.Symbol = .{ .name = "factory", .reference = .{ .kind = .function, .id = factory } };
     var compiled = try source.component.compile(testing.allocator, b.module(main, unit), .{
         .imports = if (provider) &.{} else &.{symbol},
+        .borrows = if (provider) &.{} else &.{.{ .function = factory, .returned = &.{ .{ .source = .{ .ambient = .evidence } }, .{ .source = .{ .ambient = .region } } } }},
         .exports = if (provider) &.{symbol} else &.{.{ .name = "main", .reference = .{ .kind = .function, .id = main } }},
     });
     defer compiled.deinit();
@@ -255,6 +257,7 @@ test "an unrelated component import cannot hide a local protected borrow escape"
     const imported = try b.declare(&.{}, original.failure, &.{}, &.{});
     if (source.component.compile(testing.allocator, b.module(original.entry, original.failure), .{
         .imports = &.{.{ .name = "unused", .reference = .{ .kind = .function, .id = imported } }},
+        .borrows = &.{.{ .function = imported }},
         .exports = &.{.{ .name = "main", .reference = .{ .kind = .function, .id = original.entry } }},
     })) |value| {
         var accepted = value;
@@ -275,6 +278,7 @@ test "component local clause borrowing distinguishes older and fresh capabilitie
         try b.define(independent, try b.term(.{ .call = .{ .function = imported, .arguments = &.{} } }));
         const result = source.component.compile(testing.allocator, b.module(original.entry, original.failure), .{
             .imports = &.{.{ .name = "external", .reference = .{ .kind = .function, .id = imported } }},
+            .borrows = &.{.{ .function = imported }},
             .exports = &.{.{ .name = "main", .reference = .{ .kind = .function, .id = original.entry } }},
         });
         if (older) {
@@ -286,4 +290,51 @@ test "component local clause borrowing distinguishes older and fresh capabilitie
             return error.AcceptedFreshCapabilityInOuterClause;
         } else |err| try testing.expectEqual(error.InvalidOwnership, err);
     };
+}
+
+test "local protected borrow checking follows imported result provenance" {
+    inline for (.{ false, true }) |escape| {
+        var b = source.Builder.init(testing.allocator);
+        defer b.deinit();
+        const original = try source.examples.resourceScalar(&b);
+        const main_bind = b.terms.items[@intCast(b.functions.items[@intCast(original.entry)].body.?)].bind;
+        const protected = main_bind.next;
+        const body_value = b.terms.items[@intCast(protected)].protect.body;
+        const body_function = b.values.items[@intCast(body_value)].expression.lambda;
+        const parameter = b.parameter(body_function, 0);
+        const borrowed = b.variables.items[@intCast(parameter)];
+        const eliminator = b.resources.items[0].eliminators[0];
+        const imported = try b.declare(&.{borrowed}, borrowed, &.{}, b.functions.items[@intCast(eliminator)].regions);
+        const result = try b.variable(borrowed);
+        const invoke = try b.term(.{ .call = .{
+            .function = imported,
+            .arguments = &.{try b.reference(parameter)},
+        } });
+        const read = try b.term(.{ .call = .{
+            .function = eliminator,
+            .arguments = &.{try b.reference(result)},
+        } });
+        b.functions.items[@intCast(body_function)].body = try b.bind(result, invoke, if (escape) try b.pure(try b.reference(result)) else read);
+        if (escape) {
+            var signature = b.schemas.items[@intCast(b.values.items[@intCast(body_value)].schema)].internal.computation;
+            signature.result = borrowed;
+            b.values.items[@intCast(body_value)].schema = try b.schema(.{ .internal = .{ .computation = signature } });
+            b.functions.items[@intCast(body_function)].result = borrowed;
+            const escaped = try b.variable(borrowed);
+            const outside = try b.term(.{ .call = .{
+                .function = eliminator,
+                .arguments = &.{try b.reference(escaped)},
+            } });
+            b.functions.items[@intCast(original.entry)].body = try b.bind(main_bind.variable, main_bind.value, try b.bind(escaped, protected, outside));
+        }
+        const compiled = source.component.compile(testing.allocator, b.module(original.entry, original.failure), .{
+            .imports = &.{.{ .name = "identity", .reference = .{ .kind = .function, .id = imported } }},
+            .exports = &.{.{ .name = "main", .reference = .{ .kind = .function, .id = original.entry } }},
+            .borrows = &.{.{ .function = imported, .returned = &.{.{ .source = .{ .input = 0 } }} }},
+        });
+        if (escape) try testing.expectError(error.InvalidOwnership, compiled) else {
+            var accepted = try compiled;
+            accepted.deinit();
+        }
+    }
 }

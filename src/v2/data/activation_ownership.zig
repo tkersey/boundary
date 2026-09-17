@@ -14,14 +14,25 @@ pub const Error = types.Error || flow.Error;
 /// All facts are derived inside this call from the same immutable input. A caller
 /// cannot supply a live map or a weaker capture summary as proof of the program.
 pub fn analyze(allocator: std.mem.Allocator, image: ir.Program) Error!flow.Facts {
-    return analyzeInternal(allocator, image, &.{}, false);
+    return analyzeInternal(allocator, image, &.{}, false, &.{});
 }
 
-pub fn analyzeComponent(allocator: std.mem.Allocator, image: ir.Program, imports: []const p.Id) Error!flow.Facts {
-    return analyzeInternal(allocator, image, imports, true);
+pub fn analyzeComponent(
+    allocator: std.mem.Allocator,
+    image: ir.Program,
+    imports: []const p.Id,
+    borrows: []const @import("borrow_contract.zig").Summary,
+) Error!flow.Facts {
+    return analyzeInternal(allocator, image, imports, true, borrows);
 }
-fn analyzeInternal(allocator: std.mem.Allocator, image: ir.Program, imports: []const p.Id, component: bool) Error!flow.Facts {
-    if (component) try types.validateComponent(allocator, image, imports) else try types.validate(allocator, image);
+fn analyzeInternal(
+    allocator: std.mem.Allocator,
+    image: ir.Program,
+    imports: []const p.Id,
+    component: bool,
+    borrows: []const @import("borrow_contract.zig").Summary,
+) Error!flow.Facts {
+    if (component) try types.validateComponent(allocator, image, imports, borrows) else try types.validate(allocator, image);
     var facts = try flow.analyzeComponent(allocator, image, imports);
     errdefer facts.deinit();
     var arena = std.heap.ArenaAllocator.init(allocator);

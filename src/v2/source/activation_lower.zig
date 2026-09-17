@@ -37,16 +37,34 @@ pub fn lower(allocator: std.mem.Allocator, input: ast.Module) Error!Construction
 }
 
 pub fn lowerObserved(allocator: std.mem.Allocator, input: ast.Module, options: source.CompileOptions) Error!Construction {
-    return lowerInternal(allocator, input, &.{}, false, options);
+    return lowerInternal(allocator, input, &.{}, false, &.{}, options);
 }
 
-pub fn lowerComponent(allocator: std.mem.Allocator, input: ast.Module, imports: []const p.Id) Error!Construction {
-    return lowerComponentObserved(allocator, input, imports, .{});
+pub fn lowerComponent(
+    allocator: std.mem.Allocator,
+    input: ast.Module,
+    imports: []const p.Id,
+    borrows: []const data.borrow_contract.Summary,
+) Error!Construction {
+    return lowerComponentObserved(allocator, input, imports, borrows, .{});
 }
-pub fn lowerComponentObserved(allocator: std.mem.Allocator, input: ast.Module, imports: []const p.Id, options: source.CompileOptions) Error!Construction {
-    return lowerInternal(allocator, input, imports, true, options);
+pub fn lowerComponentObserved(
+    allocator: std.mem.Allocator,
+    input: ast.Module,
+    imports: []const p.Id,
+    borrows: []const data.borrow_contract.Summary,
+    options: source.CompileOptions,
+) Error!Construction {
+    return lowerInternal(allocator, input, imports, true, borrows, options);
 }
-fn lowerInternal(allocator: std.mem.Allocator, input: ast.Module, imports: []const p.Id, component: bool, options: source.CompileOptions) Error!Construction {
+fn lowerInternal(
+    allocator: std.mem.Allocator,
+    input: ast.Module,
+    imports: []const p.Id,
+    component: bool,
+    borrows: []const data.borrow_contract.Summary,
+    options: source.CompileOptions,
+) Error!Construction {
     if (options.diagnostic) |diagnostic| diagnostic.* = .{};
     errdefer |err| if (options.diagnostic) |diagnostic| {
         diagnostic.code = err;
@@ -105,7 +123,7 @@ fn lowerInternal(allocator: std.mem.Allocator, input: ast.Module, imports: []con
     const selected = try @import("tail_clauses.zig").optimize(a, program, traits);
     const result = try source.own(ir.Program, output.allocator(), selected);
     options.stage(.target_check);
-    const flow = if (component) try data.activation_ownership.analyzeComponent(allocator, result, imports) else try data.activation_ownership.analyze(allocator, result);
+    const flow = if (component) try data.activation_ownership.analyzeComponent(allocator, result, imports, borrows) else try data.activation_ownership.analyze(allocator, result);
     options.stage(.complete);
     return .{ .arena = output, .program = result, .flow = flow };
 }
