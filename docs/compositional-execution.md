@@ -355,3 +355,16 @@ mixed and irregular inputs. Installation byte budgets remain independently tied
 to the accepted 2.0.2 reference. Historical samples remain in Git and the retained
 measurement records. Legacy data decoders, remaining old runtime/build surfaces,
 the full performance matrix and serial reviews still require retirement or closure.
+
+## BPI1 retirement checkpoint
+
+The frozen BPI1 decoder, lift command, fixtures and their build targets are
+removed. Current BPI3/PST3 framing tests explicitly reject the old BPI1, BPI2,
+BPC1, PST1 and PST2 families. Historical measurements remain evidence; they do
+not create a supported old-format execution path.
+
+`zig build check-data check-authoring --global-cache-dir .zig-global-cache
+--summary all` passes all 195 tests with Zig 0.16.0. Formatting and diff checks
+pass. The previous full aggregate belongs to implementation `7094aa5`; it was
+not repeated for this retirement checkpoint. Other legacy data/runtime removal,
+performance acceptance and serial reviews remain incomplete.

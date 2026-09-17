@@ -181,9 +181,11 @@ test "BPI3 framing rejects truncation, old families, flags and trailing input" {
             return error.AcceptedTruncation;
         } else |_| {}
     }
-    bytes[7] = '2';
-    try testing.expectError(error.InvalidFamily, image.decode(testing.allocator, encoded));
-    bytes[7] = '3';
+    for ([_][]const u8{ "ABL_BPI1", "ABL_BPI2", "ABL_BPC1", "ABL_PST1", "ABL_PST2" }) |family| {
+        @memcpy(bytes[0..8], family);
+        try testing.expectError(error.InvalidFamily, image.decode(testing.allocator, encoded));
+    }
+    @memcpy(bytes[0..8], "ABL_BPI3");
     bytes[8] = 2;
     try testing.expectError(error.UnsupportedVersion, image.decode(testing.allocator, encoded));
     bytes[8] = 3;

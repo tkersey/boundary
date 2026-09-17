@@ -19,29 +19,6 @@ pub fn build(b: *std.Build) void {
     });
     const data_step = b.step("check-data", "Check canonical records and pure admission");
     data_step.dependOn(&b.addRunArtifact(tests).step);
-    const historical = b.addModule("boundary_bpi1", .{
-        .root_source_file = b.path("src/v2/legacy/root.zig"),
-        .target = target,
-        .optimize = optimize,
-        .imports = &.{.{ .name = "boundary_data", .module = data }},
-    });
-    const historical_tests = b.addTest(.{ .root_module = historical });
-    const historical_step = b.step("check-v2-bpi1", "Check the pure historical BPI1 decoder");
-    historical_step.dependOn(&b.addRunArtifact(historical_tests).step);
-    const historical_corpus = b.addTest(.{ .root_module = b.createModule(.{
-        .root_source_file = b.path("test/v2/bpi1_admission.zig"),
-        .target = b.graph.host,
-        .optimize = optimize,
-        .imports = &.{ .{ .name = "boundary_bpi1", .module = historical }, .{ .name = "boundary_data", .module = data } },
-    }) });
-    historical_step.dependOn(&b.addRunArtifact(historical_corpus).step);
-    const lift = b.addExecutable(.{ .name = "bpi1-lift", .root_module = b.createModule(.{
-        .root_source_file = b.path("tools/v2/bpi1_lift.zig"),
-        .target = target,
-        .optimize = optimize,
-        .imports = &.{ .{ .name = "boundary_bpi1", .module = historical }, .{ .name = "boundary_data", .module = data } },
-    }) });
-    b.step("build-bpi1-lift", "Build the pure BPI1 to BPI2 command").dependOn(&b.addInstallArtifact(lift, .{}).step);
     const boundary = b.addModule("boundary", .{
         .root_source_file = b.path("src/v2/root.zig"),
         .target = target,

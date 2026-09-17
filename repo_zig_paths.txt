@@ -31,12 +31,6 @@ src/v2/data/traits.zig
 src/v2/data/use_admission.zig
 src/v2/data/wire.zig
 src/v2/effect.zig
-src/v2/legacy/contract.zig
-src/v2/legacy/image.zig
-src/v2/legacy/lift.zig
-src/v2/legacy/root.zig
-src/v2/legacy/types.zig
-src/v2/legacy/value.zig
 src/v2/library/choice.zig
 src/v2/library/cleanup.zig
 src/v2/library/generator.zig
@@ -83,7 +77,6 @@ src/v2/source/projection_tests.zig
 src/v2/source/unwind_example.zig
 src/v2/source/writer_raise_example.zig
 src/v2/test_root.zig
-test/v2/bpi1_admission.zig
 test/v2/borrow_returns.zig
 test/v2/decode_retention.zig
 test/v2/economy_v1.zig
@@ -94,7 +87,6 @@ test/v2/emit_scalar.zig
 test/v2/emit_source.zig
 test/v2/oracle_scopes.zig
 test/v2/snapshot_retention.zig
-tools/v2/bpi1_lift.zig
 src/v2/data/compact_image.zig
 src/v2/data/compact_parameters.zig
 src/v2/data/compact_record.zig

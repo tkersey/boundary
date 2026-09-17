@@ -99,9 +99,11 @@ test "PST3 framing and decoded allocation budget reject malformed input" {
         } else |_| {}
     }
     try testing.expectError(error.Capacity, codec.decodeGraphLimited(testing.allocator, bytes, .{ .max_decoded_bytes = bytes.len }));
-    bytes[7] = '2';
-    try testing.expectError(error.InvalidFamily, codec.decodeGraph(testing.allocator, bytes));
-    bytes[7] = '3';
+    for ([_][]const u8{ "ABL_PST1", "ABL_PST2", "ABL_BPI1", "ABL_BPI2", "ABL_BPC1" }) |family| {
+        @memcpy(bytes[0..8], family);
+        try testing.expectError(error.InvalidFamily, codec.decodeGraph(testing.allocator, bytes));
+    }
+    @memcpy(bytes[0..8], "ABL_PST3");
     bytes[10] = 1;
     try testing.expectError(error.InvalidFlags, codec.decodeGraph(testing.allocator, bytes));
 }
