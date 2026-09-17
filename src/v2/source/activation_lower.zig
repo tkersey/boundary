@@ -209,7 +209,6 @@ fn stableHandlers(allocator: std.mem.Allocator, input: []const p.Handler) Error!
     for (output, input) |*target, handler| {
         const clauses = try allocator.alloc(ir.Clause, handler.clauses.len);
         for (clauses, handler.clauses) |*clause, original| {
-            if (original.direct) return error.UnsupportedInstruction;
             clause.* = .{ .effect = original.effect, .function = original.function, .resumption = original.resumption };
         }
         target.* = .{ .mode = handler.mode, .input = handler.input, .answer = handler.answer, .return_function = handler.return_function, .clauses = clauses, .forward_function = handler.forward_function, .state = handler.state, .effects = handler.effects };

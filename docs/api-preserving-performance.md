@@ -1,5 +1,10 @@
 # API-preserving performance results
 
+This is historical Boundary 2 / World 5 evidence. The maintained retention probes
+now use BPI3/PST3; reconstruct the predecessor probes from the commits recorded
+below when reproducing these measurements. Their results do not qualify the
+successor's performance.
+
 Boundary retains less decoder and snapshot memory and avoids repeated image
 section sizing. The combined Boundary/World implementation improves the measured
 installation and saved-response workloads. **BPI2 images are unchanged:** this

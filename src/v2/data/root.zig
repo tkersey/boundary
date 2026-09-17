@@ -19,24 +19,18 @@ pub const borrow_contract = @import("borrow_contract.zig");
 pub const borrow_flow = @import("borrow_flow.zig");
 pub const linker = @import("linker.zig");
 pub const admission = @import("admission.zig");
-pub const image = @import("image.zig");
-pub const compact_image = @import("compact_image.zig");
 pub const graph = @import("graph.zig");
-pub const snapshot = @import("snapshot.zig");
+pub const graph_order = @import("graph_order.zig");
 pub const scalar = @import("scalar.zig");
-pub const protocol = @import("protocol.zig");
 pub const schema = @import("schema.zig");
 pub const state_admission = @import("state_admission.zig");
 pub const traits = @import("traits.zig");
 pub const cleanup_contract = @import("cleanup_contract.zig");
-pub const direct_clause = @import("direct_clause.zig");
-pub const canonical = @import("canonical.zig");
 
 test {
     _ = total_clause;
     _ = wire;
-    _ = snapshot;
+    _ = graph_order;
     _ = scalar;
-    _ = protocol;
     _ = schema;
 }

@@ -9,7 +9,6 @@ const contracts = @import("contracts.zig");
 const effect_scope = @import("effect_scope.zig");
 pub const Error = a.Error || error{ InvalidState, InvalidScope };
 
-pub const Check = CheckFor(p.Program, g.State);
 pub fn CheckFor(comptime Program: type, comptime State: type) type {
     const Block = std.meta.Elem(@FieldType(Program, "blocks"));
     return struct {

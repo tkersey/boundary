@@ -5,7 +5,7 @@ const p = @import("program.zig");
 const g = @import("graph.zig");
 const a = @import("admission.zig");
 const scalar = @import("scalar.zig");
-const image = @import("image.zig");
+const image = @import("program_image.zig");
 const contracts = @import("contracts.zig");
 const traits = @import("traits.zig");
 const borrows = @import("borrow_flow.zig");
@@ -16,7 +16,7 @@ pub fn node(state: anytype, reference: g.NodeRef) Error!g.Node {
     if (reference.id >= state.nodes.len) return error.InvalidReference;
     return state.nodes[@intCast(reference.id)];
 }
-pub fn next(term: anytype) ?(if (@TypeOf(term) == p.Terminator) p.Edge else @import("activation.zig").Edge) {
+pub fn next(term: @import("activation.zig").Terminator) ?@import("activation.zig").Edge {
     return switch (term) {
         .call => |v| v.next,
         .perform, .forward => |v| v.next,
@@ -65,18 +65,6 @@ const StateView = struct {
     blobs: []const g.Blob,
 };
 
-pub fn validate(allocator: std.mem.Allocator, program: p.Program, state: g.State) Error!void {
-    try a.program(allocator, program);
-    if (!std.mem.eql(u8, &state.program_identity, &try image.identity(program))) return error.InvalidState;
-    return validateInternal(allocator, program, .{
-        .program_identity = state.program_identity,
-        .status = @enumFromInt(@intFromEnum(state.status)),
-        .roots = state.roots,
-        .nodes = state.nodes,
-        .blobs = state.blobs,
-    }, &.{}, null, null);
-}
-
 pub fn validateStable(allocator: std.mem.Allocator, program: stable_ir.Program, state: ps.State) Error!void {
     var flow = try @import("activation_ownership.zig").analyze(allocator, program);
     defer flow.deinit();
@@ -112,8 +100,8 @@ fn validateStableRecords(allocator: std.mem.Allocator, program: stable_ir.Progra
     }, frames, view, admitted);
 }
 
-fn validateInternal(allocator: std.mem.Allocator, program: anytype, state: StateView, activations: []const ?ps.Activation, flow: ?*@import("activation_flow.zig").View, admitted: ?*const @import("program_image.zig").Admitted) Error!void {
-    const Context = ContextFor(@TypeOf(program));
+fn validateInternal(allocator: std.mem.Allocator, program: stable_ir.Program, state: StateView, activations: []const ?ps.Activation, flow: ?*@import("activation_flow.zig").View, admitted: ?*const @import("program_image.zig").Admitted) Error!void {
+    const Context = ContextFor();
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     const temporary = arena.allocator();
@@ -258,13 +246,13 @@ fn validateInternal(allocator: std.mem.Allocator, program: anytype, state: State
     };
 }
 
-fn ContextFor(comptime Program: type) type {
-    const stable = Program == stable_ir.Program;
+fn ContextFor() type {
+    const Program = stable_ir.Program;
     const Block = std.meta.Elem(@FieldType(Program, "blocks"));
     return struct {
         const Context = @This();
         const EffectCheck = state_effects.CheckFor(Program, StateView);
-        const BorrowFlow = if (stable) borrows.StableFlow else borrows.Flow;
+        const BorrowFlow = borrows.StableFlow;
         allocator: std.mem.Allocator,
         program: Program,
         state: StateView,
@@ -646,7 +634,7 @@ fn ContextFor(comptime Program: type) type {
                 .control => |control| {
                     if (control.block >= self.program.blocks.len) return error.InvalidReference;
                     const block = self.program.blocks[@intCast(control.block)];
-                    if (stable) try self.checkActivation(id, control.block, false) else try self.values(control.arguments, block.parameters);
+                    try self.checkActivation(id, control.block, false);
                     try self.checkParent(control.parent, self.program.functions[@intCast(block.function)].result);
                     try self.effect_check.?.requireEffects(
                         control.parent,
@@ -656,31 +644,12 @@ fn ContextFor(comptime Program: type) type {
                     if (control.evidence) |evidence_ref| try self.containsScope(control.parent, evidence_ref);
                     try self.region(control.region);
                     try self.regionContext(control.region, control.parent);
-                    for (control.arguments) |value_item| {
-                        const shape = self.program.schemas[@intCast(value_item.schema)];
-                        if (shape == .internal and shape.internal == .capability) try self.containsScope(control.parent, value_item.body.reference);
-                        try self.valueRegion(value_item, control.region);
-                    }
                 },
                 .continuation => |saved| {
                     if (saved.source_block >= self.program.blocks.len) return error.InvalidReference;
                     const source = self.program.blocks[@intCast(saved.source_block)];
-                    const edge = next(source.terminator) orelse return error.InvalidState;
-                    if (stable) {
-                        try self.checkActivation(id, saved.source_block, true);
-                    } else {
-                        const target = self.program.blocks[@intCast(edge.block)];
-                        if (saved.arguments.len != edge.arguments.len) return error.InvalidState;
-                        for (saved.arguments, edge.arguments, target.parameters) |argument, spec, schema| {
-                            if ((argument == null) != (spec == .returned)) return error.InvalidState;
-                            if (argument) |value_item| {
-                                try self.value(value_item, schema);
-                                const shape = self.program.schemas[@intCast(schema)];
-                                if (shape == .internal and shape.internal == .capability) try self.containsScope(saved.parent, value_item.body.reference);
-                                try self.valueRegion(value_item, saved.region);
-                            }
-                        }
-                    }
+                    _ = next(source.terminator) orelse return error.InvalidState;
+                    try self.checkActivation(id, saved.source_block, true);
                     try self.checkParent(saved.parent, self.program.functions[@intCast(source.function)].result);
                     try self.effect_check.?.requireEffects(
                         saved.parent,
@@ -924,7 +893,6 @@ fn ContextFor(comptime Program: type) type {
         };
 
         fn framePosition(self: Context, frame: g.NodeRef) ?usize {
-            if (!stable) return null;
             return switch (self.state.nodes[@intCast(frame.id)]) {
                 .control => @intCast(self.activations[@intCast(frame.id)].?.position),
                 .continuation => 0,
@@ -978,8 +946,7 @@ fn ContextFor(comptime Program: type) type {
             }
             const parameter: usize = @intCast(source.parameter);
             const value_item: ?g.Value = switch (record) {
-                .control => |v| if (stable) try self.frameSource(frame, source) else v.arguments[parameter],
-                .continuation => |v| if (stable) try self.frameSource(frame, source) else v.arguments[parameter],
+                .control, .continuation => try self.frameSource(frame, source),
                 .attachment => |v| blk: {
                     const handler = (try node(self.state, v.handler)).handler;
                     break :blk if (parameter < handler.state.len) handler.state[parameter] else null;
@@ -1260,16 +1227,10 @@ fn ContextFor(comptime Program: type) type {
                     };
                 },
                 .control => |control| {
-                    if (stable) {
-                        for (self.activations[id].?.bindings) |binding| try self.useValue(contexts, binding.value, .{ .frame = self.bound(control.parent), .region = self.bound(control.region) });
-                    } else for (control.arguments) |item| try self.useValue(contexts, item, .{ .frame = self.bound(control.parent), .region = self.bound(control.region) });
+                    for (self.activations[id].?.bindings) |binding| try self.useValue(contexts, binding.value, .{ .frame = self.bound(control.parent), .region = self.bound(control.region) });
                 },
                 .continuation => |saved| {
-                    if (stable) {
-                        for (self.activations[id].?.bindings) |binding| try self.useValue(contexts, binding.value, .{ .frame = self.bound(saved.parent), .region = self.bound(saved.region) });
-                    } else for (saved.arguments) |argument| if (argument) |item| {
-                        try self.useValue(contexts, item, .{ .frame = self.bound(saved.parent), .region = self.bound(saved.region) });
-                    };
+                    for (self.activations[id].?.bindings) |binding| try self.useValue(contexts, binding.value, .{ .frame = self.bound(saved.parent), .region = self.bound(saved.region) });
                 },
                 .handler => |activation| for (activation.state) |item| try self.useValue(contexts, item, .{ .frame = self.bound(activation.evidence), .region = self.bound(activation.region) }),
                 .cell => |cell| try self.useValue(contexts, cell.value.?, .{ .frame = self.bound(region_frames[@intCast(cell.region.id)]), .region = self.bound(cell.region) }),
@@ -1370,12 +1331,8 @@ fn ContextFor(comptime Program: type) type {
                 if (ref.id == token.delimiter.id) return;
                 const frame = try node(self.state, ref);
                 switch (frame) {
-                    .continuation => |saved_frame| {
-                        if (stable) {
-                            for (self.activations[@intCast(ref.id)].?.bindings) |binding| try self.capturedValue(signature, binding.value);
-                        } else for (saved_frame.arguments) |argument| {
-                            if (argument) |item| try self.capturedValue(signature, item);
-                        }
+                    .continuation => {
+                        for (self.activations[@intCast(ref.id)].?.bindings) |binding| try self.capturedValue(signature, binding.value);
                     },
                     .attachment => |attachment| {
                         const handler = (try node(self.state, attachment.handler)).handler;

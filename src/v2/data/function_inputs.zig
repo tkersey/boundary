@@ -1,18 +1,17 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
 //! Read a function's genuine call interface without allocating a schema vector.
-//! The predecessor branch is transitional and leaves with its backend.
 const std = @import("std");
 const p = @import("program.zig");
 const a = @import("admission.zig");
 
 pub const Inputs = struct {
     types: []const p.Id,
-    destinations: ?[]const p.Id,
+    destinations: []const p.Id,
     len: usize,
 
     pub fn at(self: Inputs, index: usize) p.Id {
         std.debug.assert(index < self.len);
-        return self.types[if (self.destinations) |ids| @intCast(ids[index]) else index];
+        return self.types[@intCast(self.destinations[index])];
     }
 
     pub fn matches(self: Inputs, start: usize, schemas: []const p.Id) bool {
@@ -29,14 +28,10 @@ pub const Inputs = struct {
     }
 };
 
-pub fn of(function: anytype) Inputs {
-    return if (@hasField(@TypeOf(function), "layout")) .{
+pub fn of(function: @import("activation.zig").Function) Inputs {
+    return .{
         .types = function.layout.slots,
         .destinations = function.inputs,
         .len = function.inputs.len,
-    } else .{
-        .types = function.parameters,
-        .destinations = null,
-        .len = function.parameters.len,
     };
 }

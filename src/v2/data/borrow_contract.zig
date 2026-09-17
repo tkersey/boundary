@@ -8,7 +8,7 @@ const ir = @import("activation.zig");
 const flow = @import("borrow_flow.zig");
 const a = @import("admission.zig");
 const relocate = @import("relocation.zig");
-const equal = @import("canonical.zig").equal;
+const equal = @import("record.zig").equal;
 
 pub const Projection = struct {
     source: union(enum) { input: p.Id, ambient: flow.Ambient },

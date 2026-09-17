@@ -4,6 +4,10 @@ const std = @import("std");
 const g = @import("graph.zig");
 pub const Error = @import("record.zig").Error || error{ InvalidReference, InvalidState };
 const absent = std.math.maxInt(u64);
+
+test {
+    _ = @import("graph_order_tests.zig");
+}
 pub const Reference = union(enum) { node: u64, blob: u64 };
 
 /// Optional work counters. Graph discovery is distinct from the flat remapping

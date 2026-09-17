@@ -74,15 +74,7 @@ fn deepHandlerEffects(image: anytype, handler: anytype) a.Error!void {
         try subset(handler.effects, (try resumption(image, clause.resumption)).effects);
 }
 
-pub fn slotSchema(block: p.Block, slot: p.Id) a.Error!p.Id {
-    if (slot < block.parameters.len) return block.parameters[@intCast(slot)];
-    const index = slot - block.parameters.len;
-    if (index >= block.instructions.len) return error.InvalidReference;
-    return block.instructions[@intCast(index)].result_type;
-}
-
 pub fn programSlotSchema(program: anytype, block: anytype, slot: p.Id) a.Error!p.Id {
-    if (comptime @hasField(@TypeOf(block), "parameters")) return slotSchema(block, slot);
     const slots = program.functions[@intCast(block.function)].layout.slots;
     if (slot >= slots.len) return error.InvalidReference;
     return slots[@intCast(slot)];
@@ -139,9 +131,8 @@ pub fn invocationEffect(
     };
 }
 
-pub fn retainsResumption(clause: anytype) bool {
-    if (comptime @hasField(@TypeOf(clause), "strategy")) return clause.strategy == .general;
-    return !clause.direct;
+pub fn retainsResumption(clause: @import("activation.zig").Clause) bool {
+    return clause.strategy == .general;
 }
 
 pub fn containsEffect(row_: []const p.Id, effect: p.Id) bool {
@@ -265,10 +256,7 @@ pub fn validateDiagnosed(allocator: std.mem.Allocator, image: anytype, diagnosti
                 if (!parameters.matches(0, handler.state) or parameters.at(handler.state.len) != effect.payload) return error.TypeMismatch;
                 if (function.effects.len != 0) return error.InvalidEffect;
                 if (function.entry >= image.blocks.len) return error.InvalidProgram;
-                if (comptime @hasField(@TypeOf(function), "layout")) {
-                    try @import("total_clause.zig").validate(allocator, image, clause.function, facts);
-                } else if (!@import("direct_clause.zig").block(image.blocks[@intCast(function.entry)]))
-                    return error.InvalidProgram;
+                try @import("total_clause.zig").validate(allocator, image, clause.function, facts);
                 continue;
             }
             if (function.result != handler.answer or parameters.len != handler.state.len + 2 + effect.bodies.len) return error.TypeMismatch;

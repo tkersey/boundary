@@ -51,15 +51,14 @@ const Mapped = struct {
     }
 };
 
-pub const Flow = FlowFor(p.Program, false);
 /// Function summaries use input ordinals; position queries explicitly use stable slots.
-pub const StableFlow = FlowFor(activation.Program, false);
-pub const ComponentFlow = FlowFor(activation.Program, true);
+pub const StableFlow = FlowFor(false);
+pub const ComponentFlow = FlowFor(true);
 
-fn FlowFor(comptime Program: type, comptime open: bool) type {
-    const stable = Program == activation.Program;
-    const Edge = if (stable) activation.Edge else p.Edge;
-    const Perform = if (stable) activation.Perform else p.Perform;
+fn FlowFor(comptime open: bool) type {
+    const Program = activation.Program;
+    const Edge = activation.Edge;
+    const Perform = activation.Perform;
     const Incoming = struct { block: p.Id, edge: ?Edge = null, variant: ?usize = null };
     const Binding = struct {
         block: p.Id,
@@ -156,11 +155,11 @@ fn FlowFor(comptime Program: type, comptime open: bool) type {
                 },
                 .switch_variant => |selected| for (selected.cases, 0..) |edge, variant| try self.link(id, edge, variant),
                 .unpack_product => |unpack| {
-                    const target = if (stable) unpack.next.block else unpack.block;
+                    const target = unpack.next.block;
                     try self.outgoing[id].append(allocator, target);
                     try self.incoming[@intCast(target)].append(allocator, .{
                         .block = id,
-                        .edge = if (stable) unpack.next else null,
+                        .edge = unpack.next,
                     });
                 },
                 .call => |v| try self.link(id, v.next, null),
@@ -192,8 +191,7 @@ fn FlowFor(comptime Program: type, comptime open: bool) type {
 
         fn slotType(self: Self, block: p.Id, slot: p.Id) p.Id {
             const code = self.program.blocks[@intCast(block)];
-            if (stable) return self.program.functions[@intCast(code.function)].layout.slots[@intCast(slot)];
-            return if (slot < code.parameters.len) code.parameters[@intCast(slot)] else code.instructions[@intCast(slot - code.parameters.len)].result_type;
+            return self.program.functions[@intCast(code.function)].layout.slots[@intCast(slot)];
         }
 
         fn selectedSchema(self: Self, schema: p.Id, step: Step) ?p.Id {
@@ -275,9 +273,9 @@ fn FlowFor(comptime Program: type, comptime open: bool) type {
                 return;
             }
             if (start >= self.program.blocks.len) return error.InvalidReference;
-            if (stable and position != null) {
+            if (position != null) {
                 if (position.? > self.program.blocks[@intCast(start)].instructions.len) return error.InvalidReference;
-            } else if (stable) {
+            } else {
                 const owner = self.program.blocks[@intCast(start)].function;
                 if (self.program.functions[@intCast(owner)].entry != start)
                     return error.InvalidProgram;
@@ -608,7 +606,7 @@ fn FlowFor(comptime Program: type, comptime open: bool) type {
             const live = try self.reachable(self.requirements.items[index].start, arena.allocator());
             for (self.program.blocks, 0..) |block, id| if (live[id]) {
                 for (block.instructions, 0..) |op, position| if (self.futureInstruction(self.requirements.items[index].start, self.requirements.items[index].position, id, position, live)) switch (op.opcode) {
-                    .cell_new, .cell_set => try self.relationAt(index, id, op.operands[1], op.operands[0], .region, if (stable) position else null),
+                    .cell_new, .cell_set => try self.relationAt(index, id, op.operands[1], op.operands[0], .region, position),
                     else => {},
                 };
                 switch (block.terminator) {
@@ -729,7 +727,7 @@ fn FlowFor(comptime Program: type, comptime open: bool) type {
                 for (self.program.blocks, 0..) |block, id| if (live[id]) {
                     for (block.instructions, 0..) |op, position|
                         if (self.futureInstruction(query_start, self.queries.items[query_index].position, id, position, live) and op.opcode == .cell_set and self.slotType(id, op.operands[0]) == schema)
-                            try self.pushAt(&pending, id, op.operands[1], query_path, if (stable) position else null);
+                            try self.pushAt(&pending, id, op.operands[1], query_path, position);
                     try self.calledWrites(&pending, id, schema, query_path);
                 };
             } else for (self.program.blocks, 0..) |block, id| if (live[id] and block.terminator == .return_value) try self.push(&pending, id, block.terminator.return_value, query_path);
@@ -753,38 +751,7 @@ fn FlowFor(comptime Program: type, comptime open: bool) type {
                     try self.addSource(query_index, .{ .ambient = ambient });
                     continue;
                 }
-                const code = self.program.blocks[@intCast(trace.block)];
-                if (stable) {
-                    try self.stableTrace(&pending, trace, query_index, query_start, live, allocator);
-                } else {
-                    if (trace.slot >= code.parameters.len) {
-                        const op = code.instructions[@intCast(trace.slot - code.parameters.len)];
-                        try self.instruction(&pending, trace, op);
-                        if (op.opcode == .cell_get) {
-                            const writes = try self.writeQueryFrom(query_start, self.slotType(trace.block, op.operands[0]), trace.path, self.queries.items[query_index].position);
-                            const sources = try allocator.dupe(Source, self.queries.items[writes].sources.items);
-                            for (sources) |source| try self.addSource(query_index, source);
-                        }
-                        continue;
-                    }
-                    if (trace.block == query_start) try self.addSource(query_index, .{ .parameter = trace.slot, .path = trace.path });
-                    for (self.incoming[@intCast(trace.block)].items) |incoming| {
-                        if (!live[@intCast(incoming.block)]) continue;
-                        if (incoming.edge) |edge| switch (edge.arguments[@intCast(trace.slot)]) {
-                            .slot => |slot| try self.push(&pending, incoming.block, slot, trace.path),
-                            .returned => if (incoming.variant) |variant| {
-                                const selected = self.program.blocks[@intCast(incoming.block)].terminator.switch_variant;
-                                try self.push(&pending, incoming.block, selected.value, try self.prepend(.{ .field = variant }, trace.path));
-                            } else try self.output(&pending, incoming.block, trace.path),
-                        } else {
-                            const unpack = self.program.blocks[@intCast(incoming.block)].terminator.unpack_product;
-                            const fields = self.program.schemas[@intCast(self.slotType(incoming.block, unpack.value))].product.len;
-                            if (trace.slot < fields) {
-                                try self.push(&pending, incoming.block, unpack.value, try self.prepend(.{ .field = trace.slot }, trace.path));
-                            } else try self.push(&pending, incoming.block, unpack.arguments[@intCast(trace.slot - fields)], trace.path);
-                        }
-                    }
-                }
+                try self.stableTrace(&pending, trace, query_index, query_start, live, allocator);
             }
         }
 
@@ -1078,8 +1045,8 @@ fn FlowFor(comptime Program: type, comptime open: bool) type {
     };
 }
 
-pub fn validate(allocator: std.mem.Allocator, program: anytype, exportable: []const bool, diagnostic: ?*a.Diagnostic) a.Error!void {
-    var flow = try FlowFor(@TypeOf(program), false).init(allocator, program, exportable);
+pub fn validate(allocator: std.mem.Allocator, program: activation.Program, exportable: []const bool, diagnostic: ?*a.Diagnostic) a.Error!void {
+    var flow = try FlowFor(false).init(allocator, program, exportable);
     flow.diagnostic = diagnostic;
     for (program.functions) |function| _ = try flow.requirementsQuery(function.entry);
     try flow.settle();

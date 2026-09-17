@@ -4,6 +4,46 @@ const s = @import("process_state.zig");
 const codec = @import("state_image.zig");
 const testing = std.testing;
 
+test "PST3 rejects an encoded unreachable node instead of dropping it" {
+    const state: s.State = .{ .program_identity = @splat(0), .status = .active, .roots = .{}, .nodes = &.{.{ .record = .{ .environment = .{ .values = &.{}, .tail = null } } }} };
+    const record = @import("record.zig");
+    const wire = @import("wire.zig");
+    var measure: wire.Writer = .{};
+    try record.write(s.State, state, &measure);
+    var bytes: [256]u8 = undefined;
+    var writer: wire.Writer = .{ .output = &bytes };
+    try writer.put("ABL_PST3");
+    try writer.fixed(u16, 3);
+    try writer.fixed(u16, 0);
+    try writer.fixed(u64, measure.position);
+    try record.write(s.State, state, &writer);
+    try testing.expectError(error.NonCanonical, codec.decodeGraph(testing.allocator, bytes[0..writer.position]));
+}
+
+test "PST3 capacity accounts for canonical reference widths before output mutation" {
+    var nodes: [130]s.Node = undefined;
+    for (&nodes) |*node| node.* = .{ .record = .{ .environment = .{ .values = &.{}, .tail = null } } };
+    var aliases: [100]g.Value = undefined;
+    @memset(&aliases, ref(0));
+    nodes[nodes.len - 1].record.environment.values = &aliases;
+    var roots: [nodes.len - 1]g.OwnedRef = undefined;
+    for (&roots, 1..) |*root, id| root.* = .{ .node = .{ .id = id } };
+    const state: s.State = .{ .program_identity = @splat(0), .status = .active, .roots = .{ .detached = &roots }, .nodes = &nodes };
+    const bytes = try codec.emit(testing.allocator, state);
+    defer testing.allocator.free(bytes);
+    // 982 predecessor graph bytes plus one activation-option tag per node.
+    try testing.expectEqual(1112, bytes.len);
+    var output = [_]u8{0xaa} ** 1112;
+    try testing.expectError(error.Capacity, codec.encode(testing.allocator, state, output[0 .. output.len - 1]));
+    try testing.expect(std.mem.allEqual(u8, &output, 0xaa));
+    try testing.expectEqualSlices(u8, bytes, try codec.encode(testing.allocator, state, &output));
+    var decoded = try codec.decodeGraph(testing.allocator, bytes);
+    defer decoded.deinit();
+    const again = try codec.emit(testing.allocator, decoded.state);
+    defer testing.allocator.free(again);
+    try testing.expectEqualSlices(u8, bytes, again);
+}
+
 fn ref(id: u64) g.Value {
     return .{ .schema = 0, .body = .{ .reference = .{ .id = id } } };
 }

@@ -108,17 +108,13 @@ pub fn validateDiagnosed(allocator: std.mem.Allocator, image: anytype, diagnosti
         const parameters = @import("function_inputs.zig").of(function);
         for (0..parameters.len) |parameter|
             try allowed(deps, parameters.at(parameter), function.regions);
-        if (comptime @hasField(@TypeOf(function), "layout"))
-            for (function.layout.slots) |schema| try allowed(deps, schema, function.regions);
+        for (function.layout.slots) |schema| try allowed(deps, schema, function.regions);
         try allowed(deps, function.result, function.regions);
     }
     for (image.blocks, 0..) |block, index| {
         if (diagnostic) |d| d.* = .{ .phase = .region, .function = block.function, .block = index, .terminator = std.meta.activeTag(block.terminator), .callee = if (block.terminator == .call) block.terminator.call.function else null };
         const regions = image.functions[@intCast(block.function)].regions;
-        if (comptime @hasField(@TypeOf(block), "parameters")) {
-            for (block.parameters) |schema| try allowed(deps, schema, regions);
-            for (block.instructions) |op| try allowed(deps, op.result_type, regions);
-        }
+
         switch (block.terminator) {
             .call => |call| try contracts.subset(image.functions[@intCast(call.function)].regions, regions),
             .handle => |handle| {
@@ -147,8 +143,6 @@ pub fn validateDiagnosed(allocator: std.mem.Allocator, image: anytype, diagnosti
 }
 
 fn codeSlot(image: anytype, block: anytype, slot: p.Id) a.Error!p.Id {
-    if (comptime @hasField(@TypeOf(block), "parameters"))
-        return contracts.slotSchema(block, slot);
     return a.slotType(image.functions[@intCast(block.function)].layout.slots, slot);
 }
 

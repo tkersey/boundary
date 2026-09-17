@@ -75,3 +75,7 @@ pinned image/runtime pair or explicit completion/abandonment under that pair.
 There is no automatic migration of old live State. Full legacy data/runtime
 retirement, performance acceptance and serial review closeout remain open in the
 coordinated draft PRs.
+
+The old image, compact-image, snapshot and protocol codecs are removed.
+Use `data.program_image`, `data.state_image` and `data.invocation` for current
+wire artifacts, and `data.graph_order` for pure graph traversal/normalization.

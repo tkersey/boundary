@@ -1,7 +1,7 @@
 # Current invocation and external-interaction envelopes
 
 `data/invocation.zig` defines PKI3, PKO3, ERQ3 and ERS3. World executes them
-through the stable Session evaluator. Public cutover and ABI 3 remain required.
+through the public stable Session evaluator and generic ABI 3 kernel.
 
 ## Framing and records
 

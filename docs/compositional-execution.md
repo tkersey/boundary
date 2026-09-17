@@ -368,3 +368,40 @@ not create a supported old-format execution path.
 pass. The previous full aggregate belongs to implementation `7094aa5`; it was
 not repeated for this retirement checkpoint. Other legacy data/runtime removal,
 performance acceptance and serial reviews remain incomplete.
+
+## Current codec ownership
+
+BPI2/BPC1 and PST2/PKI2/PKO2/ERQ2/ERS2 readers/writers, old framing helpers,
+old catalog normalization and their public aliases are removed. BPI3/PST3 and
+current invocation codecs remain the wire owners. Shared graph discovery and
+normalization are exposed through the existing `data.graph_order` implementation;
+World storage and Agent's economy probe use that owner directly. Cancellation
+reasons belong to `data.invocation`. Structural record equality used by BMO1
+linking now lives with the record operations and keeps its previous semantics.
+
+Relevant old-format regression obligations have current tests: graph owner
+allocation failures, scratch lifetime, cycles and blob interning; unreachable
+wire nodes; canonical reference-width sizing and untouched failed output; all
+seven request-binding fields; allocator-time input mutation; current borrow-query
+cache/retry/batching; and recursive, bounded and finite schema contracts. Current
+framing, mutation, allocation and native/WASM goldens replace old-format spelling
+checks. Cancellation before initial execution is explicitly valid under the
+accepted successor contract. Retention probes now emit current formats; old
+measurement records remain historical.
+
+The local codec retirement passes the full Boundary aggregate: 216 build steps
+and 207 Zig tests, plus the source oracle and current WASM codec/link checks.
+World's full aggregate passes with the local Boundary source override: 32 steps,
+69 source tests, 35 storage tests, 24 host tests, 6,755 source-oracle observations,
+capacity and native/Node/Wasmtime/browser/package checks. Its resulting kernel
+SHA-256 is `89f8eb82abe322cda762fd6207b1a9374f0f1d45a48804f5b807f8018eff94c6`.
+Dependency pins and Agent qualification have not yet been refreshed for this
+codec change. Predecessor executable Program/Function/Block/Instruction/Edge
+records and their analysis branches are now removed too. Authoring schema,
+effect and handler contracts remain distinct from lowered executable records.
+Borrow analysis retains its required input-ordinal versus stable-slot distinction
+and closed versus component admission, without an old-layout branch. World now
+dispatches the current instruction directly with its layout-resolved result
+schema, rather than constructing an old instruction record. Graph-only helper
+cleanup, qualified dependency updates, full performance acceptance and serial
+reviews remain open.

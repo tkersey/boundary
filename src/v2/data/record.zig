@@ -10,10 +10,8 @@ pub const Error = wire.Error || std.mem.Allocator.Error;
 fn measuredSequence(comptime T: type, values: []const T) wire.Error!usize {
     var total: usize = 0;
     for (values) |value| {
-        const length = if (T == u64) naturalLength(value) else switch (value) {
-            .slot => |id| naturalLength(@intFromEnum(std.meta.activeTag(value))) + naturalLength(id),
-            .returned => naturalLength(@intFromEnum(std.meta.activeTag(value))),
-        };
+        comptime std.debug.assert(T == u64);
+        const length = naturalLength(value);
         total = std.math.add(usize, total, length) catch return error.InvalidLength;
     }
     return total;
@@ -69,7 +67,7 @@ pub fn write(comptime T: type, value: T, writer: *wire.Writer) wire.Error!void {
         .pointer => |info| {
             comptime std.debug.assert(info.size == .slice);
             try writer.natural(value.len);
-            if (info.child == u64 or info.child == @import("program.zig").Argument) {
+            if (info.child == u64) {
                 if (writer.output == null and writer.expected == null and writer.hasher == null) {
                     writer.position = std.math.add(usize, writer.position, try measuredSequence(info.child, value)) catch return error.InvalidLength;
                     return;
@@ -182,8 +180,8 @@ test "union decoding uses declared wire tags instead of field indexes" {
     try std.testing.expectError(error.InvalidTag, read(Record, &reader, std.testing.allocator));
 }
 
-test "numeric sequence sizing agrees with emitted and hashed legacy bytes" {
-    const Argument = @import("program.zig").Argument;
+test "numeric sequence sizing agrees with emitted and hashed current record bytes" {
+    const Argument = @import("activation.zig").Source;
     const Row = struct { ids: []const u64, arguments: []const Argument };
     for ([_]u64{ 0, 127, 128, 16383, 16384, std.math.maxInt(u64) }) |number| {
         const value: Row = .{ .ids = &.{ number, 0, 128 }, .arguments = &.{ .{ .slot = number }, .returned, .{ .slot = 0 } } };
@@ -203,8 +201,8 @@ test "numeric sequence sizing agrees with emitted and hashed legacy bytes" {
     }
 }
 
-test "legacy sequence hashes preserve long full-width vectors" {
-    const Argument = @import("program.zig").Argument;
+test "current record hashes preserve long full-width vectors" {
+    const Argument = @import("activation.zig").Source;
     inline for (.{ u64, Argument }) |T| {
         var values: [257]T = undefined;
         for (&values, 0..) |*value, index| {
@@ -220,4 +218,27 @@ test "legacy sequence hashes preserve long full-width vectors" {
         try std.testing.expectEqual(emitted.position, hashed.position);
         try std.testing.expectEqual(wire.digest(buffer[0..emitted.position]), hash.finalResult());
     }
+}
+
+/// Compare declared record contents, including borrowed slice elements.
+pub fn equal(comptime T: type, a: T, b: T) bool {
+    return switch (@typeInfo(T)) {
+        .pointer => |info| blk: {
+            if (a.len != b.len) break :blk false;
+            for (a, b) |left, right| if (!equal(info.child, left, right)) break :blk false;
+            break :blk true;
+        },
+        .@"struct" => |info| blk: {
+            inline for (info.fields) |field| if (!equal(field.type, @field(a, field.name), @field(b, field.name))) break :blk false;
+            break :blk true;
+        },
+        .@"union" => |info| blk: {
+            if (std.meta.activeTag(a) != std.meta.activeTag(b)) break :blk false;
+            inline for (info.fields) |field| if (std.mem.eql(u8, field.name, @tagName(a))) break :blk equal(field.type, @field(a, field.name), @field(b, field.name));
+            unreachable;
+        },
+        .optional => |info| if (a) |left| (if (b) |right| equal(info.child, left, right) else false) else b == null,
+        .void => true,
+        else => a == b,
+    };
 }

@@ -77,6 +77,33 @@ test "current envelopes reject initial replies and malformed outcomes atomically
     for (output) |byte| try testing.expectEqual(0xa5, byte);
 }
 
+test "ERQ3 rejects mutations of every bound field before publishing bytes" {
+    const expected = try request();
+    for (0..7) |field| {
+        var changed = expected;
+        switch (field) {
+            0 => changed.binding.program_identity[0] ^= 1,
+            1 => changed.binding.pending_state_digest[0] ^= 1,
+            2 => changed.binding.effect += 1,
+            3 => changed.binding.semantic_identity = "another-operation",
+            4 => changed.binding.payload_schema = &.{ 0, 1, 8 },
+            5 => changed.binding.resume_schema = &.{ 0, 1, 9 },
+            6 => changed.binding.payload = &.{ 43, 0, 0, 0, 0, 0, 0, 0 },
+            else => unreachable,
+        }
+        var output = [_]u8{0xa5} ** 256;
+        try testing.expectError(error.InvalidRequest, protocol.encode(protocol.Request, testing.allocator, changed, &output));
+        try testing.expect(std.mem.allEqual(u8, &output, 0xa5));
+    }
+    // Current cancellation is also valid before execution starts.
+    const input: protocol.Input = .{ .image = &.{}, .instance = .{ .initial_args = &.{} }, .control = .{ .cancel = .{ .text = "stop" } } };
+    const bytes = try protocol.encodeOwned(protocol.Input, testing.allocator, input);
+    defer testing.allocator.free(bytes);
+    var decoded = try protocol.decode(protocol.Input, testing.allocator, bytes);
+    defer decoded.deinit();
+    try testing.expectEqualDeep(input, decoded.value);
+}
+
 fn failure(allocator: std.mem.Allocator) !void {
     const value = try request();
     const bytes = try protocol.encodeOwned(protocol.Request, allocator, value);

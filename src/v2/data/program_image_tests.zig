@@ -195,3 +195,39 @@ test "BPI3 framing rejects truncation, old families, flags and trailing input" {
     try testing.expectError(error.InvalidLength, image.decode(testing.allocator, bytes[0 .. encoded.len + 1]));
     try testing.expectError(error.Capacity, image.decodeLimited(testing.allocator, encoded, .{ .max_decoded_bytes = encoded.len }));
 }
+
+test "admission checks the owned header even when allocation changes caller input" {
+    const Mutating = struct {
+        child: std.mem.Allocator,
+        input: []u8,
+        changed: bool = false,
+
+        fn allocate(ptr: *anyopaque, len: usize, alignment: std.mem.Alignment, ra: usize) ?[*]u8 {
+            const self: *@This() = @ptrCast(@alignCast(ptr));
+            if (!self.changed) {
+                self.changed = true;
+                self.input[10] = 1;
+            }
+            return self.child.rawAlloc(len, alignment, ra);
+        }
+
+        fn free(ptr: *anyopaque, bytes: []u8, alignment: std.mem.Alignment, ra: usize) void {
+            const self: *@This() = @ptrCast(@alignCast(ptr));
+            self.child.rawFree(bytes, alignment, ra);
+        }
+    };
+    var bytes: [256]u8 = undefined;
+    const encoded = try image.encode(std.testing.allocator, example, &bytes);
+    var context: Mutating = .{ .child = std.testing.allocator, .input = &bytes };
+    const allocator: std.mem.Allocator = .{ .ptr = &context, .vtable = &.{
+        .alloc = Mutating.allocate,
+        .resize = std.mem.Allocator.noResize,
+        .remap = std.mem.Allocator.noRemap,
+        .free = Mutating.free,
+    } };
+    if (image.decode(allocator, encoded)) |value| {
+        var owner = value;
+        owner.deinit();
+        return error.AcceptedChangedHeader;
+    } else |err| try std.testing.expectEqual(error.InvalidFlags, err);
+}

@@ -29,7 +29,7 @@ pub const ExitReasonTag = enum(u8) { normal = 0, failure = 1, cancellation = 2, 
 pub const Exit = struct {
     reason: union(ExitReasonTag) { normal: Value, failure: Value, cancellation, abandoned },
     cleanup_failures: []const Value = &.{},
-    cancellation: ?@import("protocol.zig").Reason = null,
+    cancellation: ?@import("invocation.zig").Reason = null,
     /// Borrowed destination. The current unwind/cleanup position owns its frames.
     stop: ?NodeRef = null,
     outer: ?NodeRef = null,
