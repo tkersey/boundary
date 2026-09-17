@@ -35,9 +35,15 @@ const Node = struct {
 
 const NodeContext = struct {
     pub fn hash(_: NodeContext, node_: Node) u64 {
-        const payload: [2]u64 = if (node_.isRun()) .{ 0, 0 } else if (node_.isWord()) .{ node_.payload.word, 0 } else .{ node_.payload.tree.left, node_.payload.tree.right };
-        const key = [_]u64{ node_.low, node_.high, node_.count, payload[0], payload[1] };
-        return std.hash.Wyhash.hash(0, std.mem.asBytes(&key));
+        // Bounds/cardinality remain part of exact equality. Canonical children
+        // already determine them, so hashing their duplicate fields is needless.
+        const kind: u64 = if (node_.isRun()) 0 else if (node_.isWord()) 1 else 2;
+        const key: [2]u64 = switch (kind) {
+            0 => .{ node_.low, node_.high },
+            1 => .{ node_.low & ~@as(u64, 63), node_.payload.word },
+            else => .{ node_.payload.tree.left, node_.payload.tree.right },
+        };
+        return std.hash.Wyhash.hash(kind, std.mem.asBytes(&key));
     }
     pub fn eql(_: NodeContext, a: Node, b: Node) bool {
         if (a.low != b.low or a.high != b.high or a.count != b.count) return false;
@@ -51,7 +57,7 @@ const NodeContext = struct {
 const RootContext = struct {
     pool: *const Pool,
     pub fn hash(self: RootContext, root: Root) u64 {
-        return LookupContext.hash(.{ .pool = self.pool }, self.pool.node(root));
+        return NodeContext.hash(.{}, self.pool.node(root));
     }
     pub fn eql(_: RootContext, a: Root, b: Root) bool {
         return a == b;
@@ -59,8 +65,9 @@ const RootContext = struct {
 };
 const LookupContext = struct {
     pool: *const Pool,
-    pub fn hash(_: LookupContext, value: Node) u64 {
-        return NodeContext.hash(.{}, value);
+    hash_value: u64,
+    pub fn hash(self: LookupContext, _: Node) u64 {
+        return self.hash_value;
     }
     pub fn eql(self: LookupContext, value: Node, root: Root) bool {
         return NodeContext.eql(.{}, value, self.pool.node(root));
@@ -131,7 +138,7 @@ pub const Pool = struct {
         self.retained_bytes -= bytes.len;
     }
 
-    fn node(self: *const Pool, root: Root) Node {
+    inline fn node(self: *const Pool, root: Root) Node {
         const count_ = self.baseCount();
         std.debug.assert(root != empty and root <= count_ + self.nodes.items.len);
         if (root <= count_) return self.base.?.pool().nodes.items[root - 1];
@@ -153,16 +160,24 @@ pub const Pool = struct {
     }
 
     fn intern(self: *Pool, value: Node) Error!Root {
-        if (self.base) |base| if (base.pool().interned.getKeyAdapted(value, LookupContext{ .pool = base.pool() })) |root| return root;
-        if (self.interned.getKeyAdapted(value, LookupContext{ .pool = self })) |root| return root;
+        const hash = NodeContext.hash(.{}, value);
+        if (self.base) |base| if (base.pool().interned.getKeyAdapted(value, LookupContext{ .pool = base.pool(), .hash_value = hash })) |root| return root;
+        const lookup: LookupContext = .{ .pool = self, .hash_value = hash };
+        if (self.nodes.items.len == self.nodes.capacity or self.interned.available == 0) {
+            // Existing roots never require allocation, including at capacity.
+            if (self.interned.getKeyAdapted(value, lookup)) |root| return root;
+            try self.nodes.ensureUnusedCapacity(self.bufferAllocator(), 1);
+            try self.interned.ensureUnusedCapacityContext(self.bufferAllocator(), 1, .{ .pool = self });
+        }
         std.debug.assert(value.low < value.high and value.high <= self.limit);
         const local = std.math.add(usize, self.nodes.items.len, 1) catch return error.OutOfMemory;
-        const root = std.math.add(usize, self.baseCount(), local) catch
-            return error.OutOfMemory;
-        try self.nodes.ensureUnusedCapacity(self.bufferAllocator(), 1);
-        try self.interned.ensureUnusedCapacityContext(self.bufferAllocator(), 1, .{ .pool = self });
+        const root = std.math.add(usize, self.baseCount(), local) catch return error.OutOfMemory;
+        const entry = self.interned.getOrPutAssumeCapacityAdapted(value, lookup);
+        if (entry.found_existing) return entry.key_ptr.*;
+        // All fallible work is complete. The temporary empty key cannot escape
+        // this sequential Pool operation before the owning node is published.
         self.nodes.appendAssumeCapacity(value);
-        self.interned.putAssumeCapacityNoClobberContext(root, {}, .{ .pool = self });
+        entry.key_ptr.* = root;
         return root;
     }
 
@@ -185,7 +200,29 @@ pub const Pool = struct {
 
     pub fn insert(self: *Pool, root: Root, member: Member) Error!Root {
         if (member >= self.limit) return error.InvalidReference;
-        return self.unite(root, try self.run(member, member + 1));
+        self.visits +|= 1;
+        if (root == empty) return self.run(member, member + 1);
+        const value = self.node(root);
+        if (value.isRun()) {
+            if (member >= value.low and member < value.high) return root;
+            if (member + 1 == value.low or member == value.high)
+                return self.run(@min(value.low, member), @max(value.high, member + 1));
+        }
+        const low = @min(value.low, member);
+        const high = @max(value.high, member + 1);
+        if ((low >> 6) == ((high - 1) >> 6)) {
+            const before = value.wordBits();
+            const after = before | (@as(u64, 1) << @intCast(member & 63));
+            return if (before == after) root else self.word(low & ~@as(u64, 63), after);
+        }
+        const middle = split(low, high);
+        const children = try self.partition(root, middle);
+        if (member < middle) {
+            const left = try self.insert(children[0], member);
+            return if (left == children[0]) root else self.join(left, children[1]);
+        }
+        const right = try self.insert(children[1], member);
+        return if (right == children[1]) root else self.join(children[0], right);
     }
 
     pub fn count(self: *const Pool, root: Root) Member {

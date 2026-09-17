@@ -228,3 +228,73 @@ test "set backing accounting follows live buffers through growth and release" {
     pool.deinit();
     try testing.expectEqual(tracked.allocated_bytes, tracked.freed_bytes);
 }
+
+test "local intern hits allocate nothing at node or table capacity" {
+    var failing = testing.FailingAllocator.init(testing.allocator, .{});
+    var pool: sets.Pool = .{ .allocator = failing.allocator(), .limit = 4096 };
+    defer pool.deinit();
+    var checked_nodes = false;
+    var checked_table = false;
+    const first = try pool.run(0, 1);
+    for (1..256) |i| {
+        _ = try pool.run(i, i + 1);
+        const nodes_full = pool.nodes.items.len == pool.nodes.capacity;
+        const table_full = pool.interned.available == 0;
+        if (nodes_full or table_full) {
+            const count = pool.nodes.items.len;
+            failing.fail_index = failing.alloc_index;
+            try testing.expectEqual(first, try pool.run(0, 1));
+            try testing.expectEqual(count, pool.nodes.items.len);
+            try testing.expect(!failing.has_induced_failure);
+            failing.fail_index = std.math.maxInt(usize);
+            checked_nodes = checked_nodes or nodes_full;
+            checked_table = checked_table or table_full;
+        }
+    }
+    try testing.expect(checked_nodes and checked_table);
+}
+
+test "direct insertion agrees with independent union across range and word boundaries" {
+    const maximum = std.math.maxInt(u64);
+    var pool: sets.Pool = .{ .allocator = testing.allocator, .limit = maximum };
+    defer pool.deinit();
+    for ([_]u64{ 0, 63, 1 << 32, maximum - 256 }) |base| {
+        const low = base + 3;
+        for ([_]u64{ 1, 63, 64, 65, 129 }) |length| {
+            const before = try pool.run(low, low + length);
+            for ([_]u64{ 0, 1, 31, 63, 64, 127, 128, 192, 255 }) |offset| {
+                const member = base + offset;
+                if (member >= maximum) continue;
+                const expected = try pool.unite(before, try pool.run(member, member + 1));
+                const actual = try pool.insert(before, member);
+                try testing.expectEqual(expected, actual);
+                try testing.expectEqual(length, pool.count(before));
+                try testing.expect(pool.contains(actual, member));
+                try testing.expectEqual(length + @intFromBool(member < low or member >= low + length), pool.count(actual));
+            }
+        }
+    }
+}
+
+fn directInsertFailure(allocator: std.mem.Allocator) !void {
+    var base: sets.Pool = .{ .allocator = testing.allocator, .limit = std.math.maxInt(u64) };
+    defer base.deinit();
+    const before = try base.run(3, 132);
+    const frozen = try base.readOnly();
+    const count = frozen.nodeCount();
+    var overlay = sets.Pool.overlay(allocator, frozen);
+    defer overlay.deinit();
+    const changed = overlay.insert(before, 0) catch |err| {
+        try testing.expectEqual(count, frozen.nodeCount());
+        try testing.expectEqual(129, base.count(before));
+        try testing.expect(!base.contains(before, 0));
+        return err;
+    };
+    try testing.expectEqual(130, overlay.count(changed));
+    try testing.expect(overlay.contains(changed, 0));
+    try testing.expectEqual(count, frozen.nodeCount());
+    try testing.expectEqual(129, base.count(before));
+}
+test "direct insertion failures preserve the immutable base and release local backing" {
+    try testing.checkAllAllocationFailures(testing.allocator, directInsertFailure, .{});
+}

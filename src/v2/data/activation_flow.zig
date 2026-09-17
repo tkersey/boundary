@@ -155,15 +155,24 @@ const Analysis = struct {
             .state = self.entries[@intCast(id)].?,
             .checking = checking,
         };
-        if (checking) {
-            self.positions[@intCast(id)] = try self.allocator.alloc(State, code.instructions.len + 1);
+        if (!checking) {
+            if (self.positions[@intCast(id)].len == 0)
+                self.positions[@intCast(id)] = try self.allocator.alloc(State, code.instructions.len + 1);
             self.positions[@intCast(id)][0] = flow.state;
         }
         for (code.instructions, 0..) |instruction, position| {
             for (instruction.operands) |operand|
                 try flow.read(operand, !instruction.opcode.borrowsOperands());
-            try flow.write(instruction.destination);
-            if (checking) self.positions[@intCast(id)][position + 1] = flow.state;
+            if (checking) {
+                if (self.pool.contains(flow.state.obligations, instruction.destination))
+                    return error.OverwrittenOwner;
+                // The worklist recorded this transition from the final entry.
+                // Reads are still checked/consumed above in the original order.
+                flow.state = self.positions[@intCast(id)][position + 1];
+            } else {
+                try flow.write(instruction.destination);
+                self.positions[@intCast(id)][position + 1] = flow.state;
+            }
         }
         try controlReads(&flow, code.terminator);
         var next: Successors = .{ .image = self.image, .code = code };
@@ -330,13 +339,10 @@ const Liveness = struct {
         while (result.visits < result.work.items.len) : (result.visits += 1) {
             const id = result.work.items[result.visits];
             result.queued[@intCast(id)] = false;
-            const root = try result.block(id, false);
+            const root = try result.block(id);
             if (root == result.entries[@intCast(id)]) continue;
             result.entries[@intCast(id)] = root;
             for (result.parents[@intCast(id)].items) |parent| try result.enqueue(parent);
-        }
-        for (analysis.entries, 0..) |entry, id| {
-            if (entry != null) _ = try result.block(id, true);
         }
         return result;
     }
@@ -366,7 +372,7 @@ const Liveness = struct {
         return before;
     }
 
-    fn block(self: *Liveness, id: p.Id, record: bool) Error!sets.Root {
+    fn block(self: *Liveness, id: p.Id) Error!sets.Root {
         const code = self.analysis.image.blocks[@intCast(id)];
         const pool = self.analysis.pool;
         var live: LiveReads = .{ .pool = pool };
@@ -380,17 +386,16 @@ const Liveness = struct {
         try controlReads(&live, code.terminator);
         var position = code.instructions.len;
         live.root = try self.pinOwners(id, position, live.root);
-        if (record) {
+        if (self.positions[@intCast(id)].len == 0)
             self.positions[@intCast(id)] = try self.analysis.allocator.alloc(sets.Root, position + 1);
-            self.positions[@intCast(id)][position] = live.root;
-        }
+        self.positions[@intCast(id)][position] = live.root;
         while (position != 0) {
             position -= 1;
             const operation = code.instructions[position];
             live.root = try pool.remove(live.root, operation.destination);
             try live.readAll(operation.operands);
             live.root = try self.pinOwners(id, position, live.root);
-            if (record) self.positions[@intCast(id)][position] = live.root;
+            self.positions[@intCast(id)][position] = live.root;
         }
         return live.root;
     }

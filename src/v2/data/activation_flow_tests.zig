@@ -284,3 +284,22 @@ test "activation flow keeps its allocator alive for later derived-set allocation
     try testing.expectEqual(257, facts.pool.count(root));
     try testing.expectEqual(1, facts.pool.count(facts.entries[0].?.initialized));
 }
+
+test "liveness refreshes internal positions when a successor changes but entry does not" {
+    var definition: ir.Function = undefined;
+    const blocks = [_]ir.Block{
+        .{ .function = 0, .instructions = &.{}, .terminator = .{ .return_value = 1 } },
+        .{ .function = 0, .instructions = &.{.{ .opcode = .move, .destination = 1, .operands = &.{0} }}, .terminator = .{ .jump = .{ .block = 0 } } },
+    };
+    const image = program(&blocks, &.{ 0, 0 }, &.{0}, &definition);
+    definition.entry = 1;
+    var facts = try flow.analyze(testing.allocator, image);
+    defer facts.deinit();
+    // Reverse declaration order processes block 1 before its successor. The
+    // successor later adds slot 1, which is killed by the move at block entry.
+    try testing.expect(facts.pool.contains(facts.live[1][0], 0));
+    try testing.expect(!facts.pool.contains(facts.live[1][0], 1));
+    try testing.expect(facts.pool.contains(facts.live[1][1], 1));
+    try testing.expect(!facts.pool.contains(facts.live[1][1], 0));
+    try testing.expect(facts.pool.contains(facts.live[0][0], 1));
+}

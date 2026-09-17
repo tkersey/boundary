@@ -454,3 +454,31 @@ The full aggregate passes 216 steps and 213 Zig tests. World
 `docs/measurements/admission-buffer-ownership.json` records the isolated effects,
 including control64 peak allocation of 291,133 bytes and unchanged semantics.
 Control latency and the measured Agent clarification regression remain open.
+
+## Solver-owned position facts
+
+Each worklist visit now records per-position facts from the current entry state.
+An entry change schedules another visit, so the last recorded transition belongs
+to the final fixed point. Final forward validation remains in declaration and
+instruction order: it checks and consumes operands, rejects owner overwrites,
+then uses the recorded post-instruction state. Successor/assignment checks remain.
+Initialization, availability, obligations and liveness stay separate.
+
+Liveness records every processing visit, including a successor change that alters
+internal positions without changing the block entry root. There is no caller-fed
+cache or trusted-summary flag. The same immutable Program and analysis owner
+govern computation, recording and validation; facts escape only after success.
+
+The interner hashes a smaller key while retaining full node equality, computes
+incoming hashes once, and uses one lookup/insertion probe when capacity permits.
+All fallible storage work precedes key publication. Direct insertion preserves
+the same canonical run/word/tree form without constructing a needless singleton.
+An exhausted-allocator test covers existing keys at both capacity boundaries.
+
+The full aggregate passes 216 steps / 217 tests. A generated comparison against
+`d8edcf1` matches 1024 CFG observations: 412 admitted, 572 UnavailableSlot and
+40 OverwrittenOwner cases, with every admitted per-position fact set compared.
+The probe is `test/v2/compare_activation_flow.zig`; compile it against an explicit
+`data` module from either frozen source. World retains all paired experiments
+in `docs/measurements/solver-facts.json`. Current measurements remain partial
+performance evidence, and control64 still trails optimized BPC1.
