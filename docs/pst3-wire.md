@@ -6,8 +6,8 @@ record decoding, references, canonical graph order and activation record shape.
 `state_admission.validateStable` separately checks the graph against the admitted
 Program, including identity, code position, slot availability, ownership, effects,
 borrow lifetimes and cleanup custody. World now restores these checked records
-into its native stable controller. Portable envelopes, ABI 3 and cross-host
-execution remain required before this is a complete portable runtime contract.
+into its native stable controller. Current envelopes and World ABI 3 carry this
+same State through fresh and resident execution and the cross-host checks.
 
 ## Framing and primitive grammar
 
@@ -56,14 +56,14 @@ a native instruction pointer, pool index, generation, or memory-page identity.
 ## Record tags
 
 All fields below are mandatory in order, including empty lists and absent
-optionals. Control/continuation argument vectors are required to be empty in
-PST3: their values reside in the activation view. These common graph types are
-shared during migration; there is no expansion to old block parameters.
+optionals. Control and continuation values reside only in the activation view;
+there are no predecessor block-argument vectors. This development grammar
+supersedes earlier draft PST3 records containing empty argument vectors.
 
 | Tag | Record | Fields |
 | --- | --- | --- |
-| 0 | control | block:N, arguments:[Value]=empty, parent:?NodeRef, evidence:?NodeRef, region:?NodeRef |
-| 1 | continuation | source_block:N, arguments:[?Value]=empty, parent:?NodeRef, evidence:?NodeRef, region:?NodeRef |
+| 0 | control | block:N, parent:?NodeRef, evidence:?NodeRef, region:?NodeRef |
+| 1 | continuation | source_block:N, parent:?NodeRef, evidence:?NodeRef, region:?NodeRef |
 | 2 | handler | definition:N, state:[Value], evidence:?NodeRef, region:?NodeRef |
 | 3 | attachment | handler:NodeRef, outer:?NodeRef, return_to:?NodeRef, phase:N, region:?NodeRef |
 | 4 | environment | values:[Value], tail:?NodeRef |

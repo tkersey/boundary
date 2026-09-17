@@ -53,7 +53,7 @@ const fixture: s.State = .{
     .roots = .{ .current = .{ .id = 1 } },
     .nodes = &.{
         .{ .record = .{ .region = .{ .descriptor = 0, .outer = null, .obligations = &.{} } } },
-        .{ .record = .{ .control = .{ .block = 0, .arguments = &.{} } }, .activation = .{
+        .{ .record = .{ .control = .{ .block = 0 } }, .activation = .{
             .position = 3,
             .scope = 0,
             .bindings = &.{.{ .slot = 8, .value = ref(2) }},
@@ -63,6 +63,27 @@ const fixture: s.State = .{
         .{ .record = .{ .environment = .{ .values = &.{}, .tail = null } } }, // dead
     },
 };
+
+test "PST3 control records encode only position and context references" {
+    const record = @import("record.zig");
+    const wire = @import("wire.zig");
+    var output: [16]u8 = undefined;
+    var writer: wire.Writer = .{ .output = &output };
+    try record.write(g.Control, .{
+        .block = 300,
+        .parent = .{ .id = 2 },
+        .region = .{ .id = 4 },
+    }, &writer);
+    // Minimal block varint, present parent, absent evidence, present region.
+    try testing.expectEqualSlices(u8, &.{ 0xac, 0x02, 1, 2, 0, 1, 4 }, output[0..writer.position]);
+    writer.position = 0;
+    try record.write(g.Continuation, .{
+        .source_block = 7,
+        .parent = .{ .id = 2 },
+        .region = .{ .id = 4 },
+    }, &writer);
+    try testing.expectEqualSlices(u8, &.{ 7, 1, 2, 0, 1, 4 }, output[0..writer.position]);
+}
 
 test "PST3 visits frame values and cycles but excludes unreachable nodes" {
     const bytes = try codec.emit(testing.allocator, fixture);
@@ -84,7 +105,7 @@ test "PST3 is independent of physical node order and unused prefix" {
         fixture.nodes[3],
         .{ .record = .{ .cell = .{ .schema = 0, .region = .{ .id = 2 }, .value = ref(1) } } },
         fixture.nodes[0],
-        .{ .record = .{ .control = .{ .block = 0, .arguments = &.{} } }, .activation = .{
+        .{ .record = .{ .control = .{ .block = 0 } }, .activation = .{
             .position = 3,
             .scope = 0,
             .bindings = &.{.{ .slot = 8, .value = ref(1) }},

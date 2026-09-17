@@ -47,7 +47,7 @@ test "immutable admitted images share facts without accepting mutable lookalikes
         .program_identity = admitted.identity(),
         .status = .active,
         .roots = .{ .current = .{ .id = 0 } },
-        .nodes = &.{.{ .record = .{ .control = .{ .block = 0, .arguments = &.{} } }, .activation = .{
+        .nodes = &.{.{ .record = .{ .control = .{ .block = 0 } }, .activation = .{
             .position = 1,
             .scope = 0,
             .owners = &.{},

@@ -1,15 +1,16 @@
 const std = @import("std");
 const g = @import("graph.zig");
+const s = @import("process_state.zig");
 const order = @import("graph_order.zig");
 
 fn detachedAllocationCase(allocator: std.mem.Allocator) !void {
     var detached: [1024]g.OwnedRef = undefined;
-    var nodes: [1024]g.Node = undefined;
+    var nodes: [1024]s.Node = undefined;
     for (&detached, &nodes, 0..) |*root, *node, id| {
         root.* = .{ .node = .{ .id = id } };
-        node.* = .{ .environment = .{ .values = &.{}, .tail = null } };
+        node.* = .{ .record = .{ .environment = .{ .values = &.{}, .tail = null } } };
     }
-    var normalized = try order.canonicalize(allocator, g.State{
+    var normalized = try order.canonicalize(allocator, s.State{
         .program_identity = .{0} ** 32,
         .status = .active,
         .roots = .{ .detached = &detached },
@@ -30,11 +31,11 @@ fn scratchLifetimeCase(allocator: std.mem.Allocator) !void {
         .{ .schema = 0, .body = .{ .blob = .{ .id = 0 } } },
         .{ .schema = 0, .body = .{ .blob = .{ .id = 1 } } },
     };
-    const nodes = [_]g.Node{
-        .{ .environment = .{ .values = &values, .tail = .{ .id = 1 } } },
-        .{ .environment = .{ .values = &values, .tail = .{ .id = 0 } } },
+    const nodes = [_]s.Node{
+        .{ .record = .{ .environment = .{ .values = &values, .tail = .{ .id = 1 } } } },
+        .{ .record = .{ .environment = .{ .values = &values, .tail = .{ .id = 0 } } } },
     };
-    var normalized = try order.canonicalize(allocator, g.State{
+    var normalized = try order.canonicalize(allocator, s.State{
         .program_identity = .{0} ** 32,
         .status = .active,
         .roots = .{ .current = .{ .id = 0 } },
@@ -49,7 +50,7 @@ fn scratchLifetimeCase(allocator: std.mem.Allocator) !void {
     try std.testing.expectEqual(@as(usize, 2), normalized.state.nodes.len);
     try std.testing.expectEqual(@as(usize, 1), normalized.state.blobs.len);
     try std.testing.expectEqualSlices(u8, &.{ 1, 2, 3, 4 }, normalized.state.blobs[0].bytes);
-    try std.testing.expectEqual(@as(u64, 0), normalized.state.nodes[1].environment.tail.?.id);
+    try std.testing.expectEqual(@as(u64, 0), normalized.state.nodes[1].record.environment.tail.?.id);
 }
 
 test "snapshot scratch release preserves owned payloads, cycles and distinct nodes" {

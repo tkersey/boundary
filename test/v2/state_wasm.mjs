@@ -6,7 +6,8 @@ assert.deepEqual(WebAssembly.Module.imports(module), []);
 // Independent scalar terminal and mid-instruction activation grammar witnesses.
 const cases = [
   [4, 0, 0, 0, 1, 0, 0, 1, 23, 0, 0, 0, ...Array(8).fill(0), ...Array(7).fill(0)],
-  [0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0,
+  [0, 1, 0, 0, 0, 0, 0, // active; current node 0; other roots absent
+    1, 0, 0, 0, 0, 0, // one control: tag, block, parent, evidence, region
     1, 3, 0, 1, 8, 0, 0, 42, ...Array(7).fill(0), 0, 0],
 ];
 for (const fields of cases) {

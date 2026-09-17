@@ -18,8 +18,6 @@ fn shape(state: s.State, allocator: std.mem.Allocator) Error!void {
     for (state.nodes) |node| {
         const is_frame = node.record == .control or node.record == .continuation;
         if (is_frame != (node.activation != null)) return error.InvalidState;
-        if (node.record == .control and node.record.control.arguments.len != 0) return error.InvalidState;
-        if (node.record == .continuation and node.record.continuation.arguments.len != 0) return error.InvalidState;
         const activation = node.activation orelse continue;
         var previous: ?u64 = null;
         var owned_count: usize = 0;
