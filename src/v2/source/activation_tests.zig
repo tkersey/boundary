@@ -345,14 +345,14 @@ test "stable lowering distinguishes the successor handler answer from the resump
 
 test "generalized-effect staged examples round-trip directly through BPI3 admission" {
     inline for (.{
-        "lexical",            "deep",                "recursive",      "choicesAll",         "choicesFirst",
-        "generator",          "stateLocal",          "stateShared",    "ownership",          "answers",
-        "scopedReader",       "writerRaise",         "schedulerFifo",  "yieldingCleanup",    "borrowOperands",
-        "resourceScalar",     "resourcePair",        "boundedValues",  "queensDfs",          "queensBfs",
-        "nested",             "shallow",             "injection",      "indexed",            "abortCustody",
-        "unwind",             "reentrant",           "cloned",         "shallowResumptions", "shallowInjection",
-        "handleOperandOrder", "protectOperandOrder", "successorState", "clausePayload",      "clauseAbort",
-        "blobCapture",        "scalarContracts",
+        "lexical",          "deep",               "recursive",           "choicesAll",     "choicesFirst",
+        "generator",        "stateLocal",         "stateShared",         "ownership",      "answers",
+        "retainedScope",    "scopedReader",       "writerRaise",         "schedulerFifo",  "yieldingCleanup",
+        "borrowOperands",   "resourceScalar",     "resourcePair",        "boundedValues",  "queensDfs",
+        "queensBfs",        "nested",             "shallow",             "injection",      "indexed",
+        "abortCustody",     "unwind",             "reentrant",           "cloned",         "shallowResumptions",
+        "shallowInjection", "handleOperandOrder", "protectOperandOrder", "successorState", "clausePayload",
+        "clauseAbort",      "blobCapture",        "scalarContracts",
     }) |name| {
         var builder = source.Builder.init(testing.allocator);
         defer builder.deinit();

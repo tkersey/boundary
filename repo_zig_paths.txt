@@ -153,3 +153,4 @@ tools/component_link.zig
 tools/component_example.zig
 src/v2/data/total_clause.zig
 src/v2/source/tail_clauses.zig
+src/v2/source/retained_scope_example.zig

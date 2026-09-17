@@ -17,6 +17,7 @@ pub const resourceScalar = @import("resource_example.zig").scalar;
 pub const resourcePair = @import("resource_example.zig").pair;
 pub const answers = @import("answer_example.zig").build;
 pub const scopedReader = @import("scoped_reader_example.zig").build;
+pub const retainedScope = @import("retained_scope_example.zig").build;
 pub const writerRaise = @import("writer_raise_example.zig").build;
 pub const schedulerFifo = @import("scheduler_example.zig").build;
 pub const scalarContracts = @import("scalar_contract_example.zig").build;

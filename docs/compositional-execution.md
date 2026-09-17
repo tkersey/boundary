@@ -291,3 +291,25 @@ complete migration and compiled-tool transfer, performance comparisons, retireme
 package validation and publication/review closeout remain mandatory. The current
 public compiler/runtime still use the predecessor. The internal construction is
 not a second supported production pipeline or a completed successor.
+
+## Retained scoped interaction
+
+`source.examples.retainedScope` supplies a linear effectful body to the internal
+`retained-scope/run` operation. Its clause installs a fresh interpretation and
+passes that capability to the body. The body stores a reusable computation,
+yields, then applies the saved value. That computation holds two distinct
+capabilities of the same nominal read family: its captured definition-site
+attachment reads 10, and the scope-supplied attachment reads 20.
+
+The deferred result is `10 * 100 + 20`. The outside continuation adds 1, the
+scoped handler return adds 100, and the outer handler transforms the scalar
+answer into `[1121, 99]`. A protected cleanup requests `retained-scope/release`
+with payload 77 exactly once, both normally and when cancelled at the yield.
+No new primitive, source language or runtime path is needed.
+
+The source construction round-trips through BPI3 admission. World additionally
+checks that the yielded graph retains a computation with two distinct capability
+references, restores it and its pending cleanup, and compares every instruction
+checkpoint through fresh, resident and restored execution. Both the selected
+read clauses and their general resumption forms produce the same observations.
+Native/Node/Wasmtime and real Chromium/Firefox Worker transfers cover this witness.
