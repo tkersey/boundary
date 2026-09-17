@@ -440,3 +440,17 @@ Exhaustive small-domain, cross-word, high-ID, overlay, layout and allocation-fai
 checks pass, along with the full 216-step / 212-test aggregate. World's matched
 control measurements show improvements over the preceding successor, but the
 optimized-predecessor control latency and peak-memory requirements remain open.
+
+## Analysis buffer ownership
+
+Initialization, availability, obligations and liveness remain distinct. Coincident
+input roots reuse the same pure set operation, preserving facts and checking
+order. The set Pool now owns resizable node/index buffers through the parent
+allocator, releasing replaced allocations during growth. Facts retains one
+deinit/error-cleanup path for its arena and Pool. Prepared storage accounting
+includes the actual held Pool buffers, including resize/remap/free changes.
+
+The full aggregate passes 216 steps and 213 Zig tests. World
+`docs/measurements/admission-buffer-ownership.json` records the isolated effects,
+including control64 peak allocation of 291,133 bytes and unchanged semantics.
+Control latency and the measured Agent clarification regression remain open.

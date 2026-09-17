@@ -73,6 +73,7 @@ pub const Pool = struct {
     nodes: std.ArrayList(Node) = .empty,
     interned: std.HashMapUnmanaged(Root, void, RootContext, 80) = .empty,
     visits: usize = 0,
+    retained_bytes: usize = 0,
     base: ?*const ReadOnly = null,
 
     /// The owner must keep this root pool immutable and alive while borrowed.
@@ -89,9 +90,45 @@ pub const Pool = struct {
     }
 
     pub fn deinit(self: *Pool) void {
-        self.nodes.deinit(self.allocator);
-        self.interned.deinit(self.allocator);
+        self.nodes.deinit(self.bufferAllocator());
+        self.interned.deinit(self.bufferAllocator());
+        std.debug.assert(self.retained_bytes == 0);
         self.* = undefined;
+    }
+
+    /// Owned backing capacity for the node array and interning table. Allocator
+    /// overhead is excluded, consistently with ArenaAllocator.queryCapacity.
+    pub fn storageBytes(self: *const Pool) usize {
+        return self.retained_bytes;
+    }
+
+    // Unmanaged containers retain no allocator/context pointer. Each operation
+    // borrows this Pool only until its allocation or deallocation returns.
+    fn bufferAllocator(self: *Pool) std.mem.Allocator {
+        return .{ .ptr = self, .vtable = &.{ .alloc = allocateBuffer, .resize = resizeBuffer, .remap = remapBuffer, .free = freeBuffer } };
+    }
+    fn allocateBuffer(context: *anyopaque, length: usize, alignment: std.mem.Alignment, ra: usize) ?[*]u8 {
+        const self: *Pool = @ptrCast(@alignCast(context));
+        const bytes = self.allocator.rawAlloc(length, alignment, ra) orelse return null;
+        self.retained_bytes += length;
+        return bytes;
+    }
+    fn resizeBuffer(context: *anyopaque, bytes: []u8, alignment: std.mem.Alignment, length: usize, ra: usize) bool {
+        const self: *Pool = @ptrCast(@alignCast(context));
+        if (!self.allocator.rawResize(bytes, alignment, length, ra)) return false;
+        self.retained_bytes = self.retained_bytes - bytes.len + length;
+        return true;
+    }
+    fn remapBuffer(context: *anyopaque, bytes: []u8, alignment: std.mem.Alignment, length: usize, ra: usize) ?[*]u8 {
+        const self: *Pool = @ptrCast(@alignCast(context));
+        const result = self.allocator.rawRemap(bytes, alignment, length, ra) orelse return null;
+        self.retained_bytes = self.retained_bytes - bytes.len + length;
+        return result;
+    }
+    fn freeBuffer(context: *anyopaque, bytes: []u8, alignment: std.mem.Alignment, ra: usize) void {
+        const self: *Pool = @ptrCast(@alignCast(context));
+        self.allocator.rawFree(bytes, alignment, ra);
+        self.retained_bytes -= bytes.len;
     }
 
     fn node(self: *const Pool, root: Root) Node {
@@ -122,8 +159,8 @@ pub const Pool = struct {
         const local = std.math.add(usize, self.nodes.items.len, 1) catch return error.OutOfMemory;
         const root = std.math.add(usize, self.baseCount(), local) catch
             return error.OutOfMemory;
-        try self.nodes.ensureUnusedCapacity(self.allocator, 1);
-        try self.interned.ensureUnusedCapacityContext(self.allocator, 1, .{ .pool = self });
+        try self.nodes.ensureUnusedCapacity(self.bufferAllocator(), 1);
+        try self.interned.ensureUnusedCapacityContext(self.bufferAllocator(), 1, .{ .pool = self });
         self.nodes.appendAssumeCapacity(value);
         self.interned.putAssumeCapacityNoClobberContext(root, {}, .{ .pool = self });
         return root;

@@ -216,3 +216,15 @@ test "canonical set node does not grow for word leaves" {
     const Node = @typeInfo(@TypeOf(pool.nodes.items)).pointer.child;
     try testing.expectEqual(3 * @sizeOf(u64) + 2 * @sizeOf(usize), @sizeOf(Node));
 }
+
+test "set backing accounting follows live buffers through growth and release" {
+    var tracked = testing.FailingAllocator.init(testing.allocator, .{});
+    var pool: sets.Pool = .{ .allocator = tracked.allocator(), .limit = 4096 };
+    for (0..4096) |i| {
+        _ = try pool.run(i, i + 1);
+        try testing.expectEqual(tracked.allocated_bytes - tracked.freed_bytes, pool.storageBytes());
+    }
+    try testing.expect(tracked.freed_bytes > 0);
+    pool.deinit();
+    try testing.expectEqual(tracked.allocated_bytes, tracked.freed_bytes);
+}

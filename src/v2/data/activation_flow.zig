@@ -38,6 +38,7 @@ pub const Facts = struct {
     }
 
     pub fn deinit(self: *Facts) void {
+        self.pool.deinit();
         self.arena.deinit();
         self.parent_allocator.destroy(self.arena);
         self.* = undefined;
@@ -66,7 +67,8 @@ pub fn analyzeComponent(allocator: std.mem.Allocator, image: ir.Program, imports
     const pool = try a.create(sets.Pool);
     var limit: usize = 0;
     for (image.functions) |function| limit = @max(limit, function.layout.slots.len);
-    pool.* = .{ .allocator = a, .limit = limit };
+    pool.* = .{ .allocator = allocator, .limit = limit };
+    errdefer pool.deinit();
     var analysis: Analysis = .{
         .allocator = a,
         .image = image,
@@ -185,10 +187,14 @@ const Flow = struct {
     fn read(self: *Flow, slot: p.Id, consuming: bool) Error!void {
         const pool = self.analysis.pool;
         if (self.checking and (!pool.contains(self.state.initialized, slot) or
-            !pool.contains(self.state.available, slot))) return error.UnavailableSlot;
+            (self.state.available != self.state.initialized and !pool.contains(self.state.available, slot)))) return error.UnavailableSlot;
         if (consuming and !self.analysis.uses.copy[@intCast(self.layout[@intCast(slot)])]) {
-            self.state.available = try pool.remove(self.state.available, slot);
-            self.state.obligations = try pool.remove(self.state.obligations, slot);
+            const available = self.state.available;
+            self.state.available = try pool.remove(available, slot);
+            self.state.obligations = if (self.state.obligations == available)
+                self.state.available
+            else
+                try pool.remove(self.state.obligations, slot);
         }
     }
 
@@ -200,10 +206,19 @@ const Flow = struct {
         const pool = self.analysis.pool;
         if (self.checking and pool.contains(self.state.obligations, slot))
             return error.OverwrittenOwner;
-        self.state.initialized = try pool.insert(self.state.initialized, slot);
-        self.state.available = try pool.insert(self.state.available, slot);
+        const before = self.state;
+        self.state.initialized = try pool.insert(before.initialized, slot);
+        self.state.available = if (before.available == before.initialized)
+            self.state.initialized
+        else
+            try pool.insert(before.available, slot);
         if (!self.analysis.uses.drop[@intCast(self.layout[@intCast(slot)])])
-            self.state.obligations = try pool.insert(self.state.obligations, slot);
+            self.state.obligations = if (before.obligations == before.initialized)
+                self.state.initialized
+            else if (before.obligations == before.available)
+                self.state.available
+            else
+                try pool.insert(before.obligations, slot);
     }
 
     fn edge(self: *Flow, next: ir.Edge, returned: ?p.Id) Error!void {
