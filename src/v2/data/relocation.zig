@@ -31,8 +31,10 @@ pub const Mapper = struct {
     allocator: std.mem.Allocator,
     maps: Maps,
     region_names: ?*RegionNames = null,
+    references: ?*std.ArrayList(Reference) = null,
 
     pub fn id(self: Mapper, kind: Kind, value: p.Id) Error!p.Id {
+        if (self.references) |found| try found.append(self.allocator, .{ .kind = kind, .id = value });
         if (kind == .region) if (self.region_names) |names| return names.id(value);
         const map = self.maps[@intFromEnum(kind)];
         if (value >= map.len or map[@intCast(value)] == missing) return error.InvalidReference;
@@ -163,31 +165,101 @@ pub const Mapper = struct {
     }
 };
 
-/// Copy an admitted closed Program while compacting referenced nominal regions.
-/// Sparse source names never determine an allocation size. Other catalog IDs,
-/// slot identities and control topology remain unchanged.
-pub fn ownDenseRegions(output: std.mem.Allocator, scratch: std.mem.Allocator, input: ir.Program) Error!ir.Program {
-    var maps: Maps = undefined;
-    const counts = [_]usize{ input.schemas.len, input.constants.len, input.effects.len, input.functions.len, input.blocks.len, input.handlers.len, input.scopes.captures.len, 0, input.scopes.resources.len, input.constructors.len };
-    for (&maps, counts) |*map, count| {
-        const ids = try scratch.alloc(p.Id, count);
-        for (ids, 0..) |*value, index| value.* = index;
-        map.* = ids;
+/// Program fields own output storage. Function origins borrow scratch and are
+/// used only while translating compiler diagnostics. Neither field grants admission.
+pub const Projection = struct { program: ir.Program, function_origins: []const p.Id };
+
+/// Project an already checked closed Program onto its typed reference closure.
+/// All catalog declarations retain their relative order and nominal distinction.
+/// Components must retain their interfaces; their unlinked objects do not use this.
+pub fn ownReachable(output: std.mem.Allocator, scratch: std.mem.Allocator, input: ir.Program) Error!Projection {
+    var selection = try Selection.init(scratch, input);
+    try selection.scan(input);
+    var orders: [kind_count][]p.Id = undefined;
+    for (&selection.maps, selection.seen, &orders) |*map, seen, *order| {
+        var count: usize = 0;
+        for (seen) |live| count += @intFromBool(live);
+        order.* = try scratch.alloc(p.Id, count);
+        count = 0;
+        for (map.*, seen, 0..) |*id, live, old| {
+            id.* = if (live) count else missing;
+            if (live) {
+                order.*[count] = old;
+                count += 1;
+            }
+        }
     }
-    var names: RegionNames = .{ .allocator = scratch, .declared = input.scopes.region_count };
-    const mapper: Mapper = .{ .allocator = output, .maps = maps, .region_names = &names };
+    const mapper: Mapper = .{ .allocator = output, .maps = selection.maps, .region_names = &selection.regions };
     var result = input;
-    inline for (.{ .{ "schemas", Mapper.schema }, .{ "constants", Mapper.literal }, .{ "effects", Mapper.effect }, .{ "functions", Mapper.function }, .{ "blocks", Mapper.block }, .{ "handlers", Mapper.handler }, .{ "constructors", Mapper.constructor } }) |item| {
-        const T = std.meta.Elem(@TypeOf(@field(input, item[0])));
-        const values = try output.alloc(T, @field(input, item[0]).len);
-        for (values, @field(input, item[0])) |*target, value|
-            target.* = try item[1](mapper, value);
-        @field(result, item[0]) = values;
+    result.roots = .{ .entry = try mapper.id(.function, input.roots.entry), .result = try mapper.id(.schema, input.roots.result), .failure = try mapper.id(.schema, input.roots.failure) };
+    inline for (.{ .{ Kind.schema, "schemas", Mapper.schema }, .{ Kind.constant, "constants", Mapper.literal }, .{ Kind.effect, "effects", Mapper.effect }, .{ Kind.function, "functions", Mapper.function }, .{ Kind.block, "blocks", Mapper.block }, .{ Kind.handler, "handlers", Mapper.handler }, .{ Kind.constructor, "constructors", Mapper.constructor } }) |item| {
+        const T = std.meta.Elem(@TypeOf(@field(input, item[1])));
+        const order = orders[@intFromEnum(item[0])];
+        const values = try output.alloc(T, order.len);
+        for (values, order) |*target, old| target.* = try item[2](mapper, @field(input, item[1])[@intCast(old)]);
+        @field(result, item[1]) = values;
     }
-    const captures = try output.alloc(p.Capture, input.scopes.captures.len);
-    for (captures, input.scopes.captures) |*target, value| target.* = try mapper.capture(value);
-    const resources = try output.alloc(p.Resource, input.scopes.resources.len);
-    for (resources, input.scopes.resources) |*target, value| target.* = try mapper.resource(value);
-    result.scopes = .{ .captures = captures, .resources = resources, .region_count = names.ids.count() };
-    return result;
+    const captures = try output.alloc(p.Capture, orders[@intFromEnum(Kind.capture)].len);
+    for (captures, orders[@intFromEnum(Kind.capture)]) |*target, old|
+        target.* = try mapper.capture(input.scopes.captures[@intCast(old)]);
+    const resources = try output.alloc(p.Resource, orders[@intFromEnum(Kind.resource)].len);
+    for (resources, orders[@intFromEnum(Kind.resource)]) |*target, old|
+        target.* = try mapper.resource(input.scopes.resources[@intCast(old)]);
+    result.scopes = .{ .captures = captures, .resources = resources, .region_count = selection.regions.ids.count() };
+    return .{ .program = result, .function_origins = orders[@intFromEnum(Kind.function)] };
 }
+
+const Selection = struct {
+    allocator: std.mem.Allocator,
+    maps: [kind_count][]p.Id,
+    seen: [kind_count][]bool,
+    regions: RegionNames,
+
+    fn init(allocator: std.mem.Allocator, input: ir.Program) Error!Selection {
+        var result: Selection = .{ .allocator = allocator, .maps = undefined, .seen = undefined, .regions = .{ .allocator = allocator, .declared = input.scopes.region_count } };
+        // Region names are sparse nominal IDs, not a dense allocation bound.
+        const counts = [_]usize{ input.schemas.len, input.constants.len, input.effects.len, input.functions.len, input.blocks.len, input.handlers.len, input.scopes.captures.len, 0, input.scopes.resources.len, input.constructors.len };
+        for (&result.maps, &result.seen, counts) |*map, *seen, count| {
+            map.* = try allocator.alloc(p.Id, count);
+            for (map.*, 0..) |*id, index| id.* = index;
+            seen.* = try allocator.alloc(bool, count);
+            @memset(seen.*, false);
+        }
+        return result;
+    }
+
+    fn scan(self: *Selection, input: ir.Program) Error!void {
+        var pending: std.ArrayList(Reference) = .empty;
+        try pending.appendSlice(self.allocator, &.{ .{ .kind = .function, .id = input.roots.entry }, .{ .kind = .schema, .id = input.roots.result }, .{ .kind = .schema, .id = input.roots.failure } });
+        while (pending.pop()) |reference| {
+            if (reference.kind == .region) {
+                _ = try self.regions.id(reference.id);
+                continue;
+            }
+            const kind = @intFromEnum(reference.kind);
+            if (reference.id >= self.seen[kind].len) return error.InvalidReference;
+            const id: usize = @intCast(reference.id);
+            if (self.seen[kind][id]) continue;
+            self.seen[kind][id] = true;
+            // Reference discovery and rewriting use the same record methods.
+            // Per-record copies are discarded; no scan storage escapes.
+            var temporary = std.heap.ArenaAllocator.init(self.allocator);
+            defer temporary.deinit();
+            var found: std.ArrayList(Reference) = .empty;
+            const mapper: Mapper = .{ .allocator = temporary.allocator(), .maps = self.maps, .region_names = &self.regions, .references = &found };
+            switch (reference.kind) {
+                .schema => _ = try mapper.schema(input.schemas[id]),
+                .constant => _ = try mapper.literal(input.constants[id]),
+                .effect => _ = try mapper.effect(input.effects[id]),
+                .function => _ = try mapper.function(input.functions[id]),
+                .block => _ = try mapper.block(input.blocks[id]),
+                .handler => _ = try mapper.handler(input.handlers[id]),
+                .capture => _ = try mapper.capture(input.scopes.captures[id]),
+                .resource => _ = try mapper.resource(input.scopes.resources[id]),
+                .constructor => _ = try mapper.constructor(input.constructors[id]),
+                .region => unreachable,
+            }
+            try pending.appendSlice(self.allocator, found.items);
+        }
+    }
+};

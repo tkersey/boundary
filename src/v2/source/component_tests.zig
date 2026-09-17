@@ -3,6 +3,45 @@ const source = @import("../source.zig");
 const data = @import("boundary_data");
 const testing = std.testing;
 
+fn dualClient(external: bool) ![]u8 {
+    var b = source.Builder.init(testing.allocator);
+    defer b.deinit();
+    const unit = try b.scalar(void);
+    const integer = try b.scalar(u64);
+    const boolean = try b.scalar(bool);
+    const pair = try b.schema(.{ .product = &.{ integer, integer } });
+    var effects: [2]data.program.Id = undefined;
+    var functions: [2]data.program.Id = undefined;
+    var imports: std.ArrayList(data.component.Symbol) = .empty;
+    defer imports.deinit(testing.allocator);
+    for (0..2) |i| {
+        if (external) {
+            effects[i] = try b.effect(.{ .identity = "component/read", .payload = unit, .result = integer });
+            try imports.append(testing.allocator, .{ .name = if (i == 0) "read-a" else "read-b", .reference = .{ .kind = .effect, .id = effects[i] } });
+        }
+        functions[i] = try b.declare(if (external) &.{} else &.{boolean}, integer, if (external) effects[i..][0..1] else &.{}, &.{});
+        try imports.append(testing.allocator, .{ .name = if (i == 0) "a" else "b", .reference = .{ .kind = .function, .id = functions[i] } });
+    }
+    const main = try b.declare(if (external) &.{} else &.{boolean}, pair, if (external) &effects else &.{}, &.{});
+    const arguments: []const source.Id = if (external) &.{} else &.{try b.reference(b.parameter(main, 0))};
+    const left = try b.variable(integer);
+    const right = try b.variable(integer);
+    const first = try b.term(.{ .call = .{ .function = functions[0], .arguments = arguments } });
+    const second = try b.term(.{ .call = .{ .function = functions[1], .arguments = arguments } });
+    const result = try b.primitive(pair, .product, &.{ try b.reference(left), try b.reference(right) }, 0);
+    try b.define(main, try b.bind(left, first, try b.bind(right, second, try b.pure(result))));
+    var compiled = try source.component.compile(testing.allocator, b.module(main, unit), .{
+        .imports = imports.items,
+        .borrows = &.{ .{ .function = functions[0] }, .{ .function = functions[1] } },
+        .exports = &.{.{ .name = "main", .reference = .{ .kind = .function, .id = main } }},
+    });
+    defer compiled.deinit();
+    const bytes = try testing.allocator.alloc(u8, try data.component.encodedLength(compiled.object));
+    errdefer testing.allocator.free(bytes);
+    _ = try compiled.encode(testing.allocator, bytes);
+    return bytes;
+}
+
 test "BMO1 preserves independently admitted tail clauses through relocation" {
     const bytes = blk: {
         var builder = source.Builder.init(testing.allocator);
@@ -21,7 +60,12 @@ test "BMO1 preserves independently admitted tail clauses through relocation" {
         break :blk output;
     };
     defer testing.allocator.free(bytes);
-    var linked = try data.linker.link(testing.allocator, &.{ .{ .key = "a", .object = bytes }, .{ .key = "b", .object = bytes } }, &.{}, .{ .instance = "b", .symbol = "main" });
+    const client = try dualClient(false);
+    defer testing.allocator.free(client);
+    var linked = try data.linker.link(testing.allocator, &.{ .{ .key = "a", .object = bytes }, .{ .key = "b", .object = bytes }, .{ .key = "client", .object = client } }, &.{
+        .{ .required = .{ .instance = "client", .symbol = "a" }, .supplied = .{ .instance = "a", .symbol = "main" } },
+        .{ .required = .{ .instance = "client", .symbol = "b" }, .supplied = .{ .instance = "b", .symbol = "main" } },
+    }, .{ .instance = "client", .symbol = "main" });
     defer linked.deinit();
     @memset(bytes, 0xff);
     try testing.expectEqual(2, linked.program.handlers.len);
@@ -109,11 +153,19 @@ test "public linker rejects missing duplicate wrong-kind and incompatible effect
 test "same-named private declarations remain distinct across explicit component instances" {
     const bytes = try object(true, false);
     defer testing.allocator.free(bytes);
-    var linked = try data.linker.link(testing.allocator, &.{ .{ .key = "one", .object = bytes }, .{ .key = "two", .object = bytes } }, &.{}, .{ .instance = "one", .symbol = "value" });
+    const client = try dualClient(true);
+    defer testing.allocator.free(client);
+    var linked = try data.linker.link(testing.allocator, &.{ .{ .key = "one", .object = bytes }, .{ .key = "two", .object = bytes }, .{ .key = "client", .object = client } }, &.{
+        .{ .required = .{ .instance = "client", .symbol = "a" }, .supplied = .{ .instance = "one", .symbol = "value" } },
+        .{ .required = .{ .instance = "client", .symbol = "b" }, .supplied = .{ .instance = "two", .symbol = "value" } },
+        .{ .required = .{ .instance = "client", .symbol = "read-a" }, .supplied = .{ .instance = "one", .symbol = "read" } },
+        .{ .required = .{ .instance = "client", .symbol = "read-b" }, .supplied = .{ .instance = "two", .symbol = "read" } },
+    }, .{ .instance = "client", .symbol = "main" });
     defer linked.deinit();
     try testing.expectEqual(2, linked.program.effects.len);
     try testing.expectEqualStrings(linked.program.effects[0].identity, linked.program.effects[1].identity);
-    try testing.expectEqual(2, linked.program.schemas.len);
+    try testing.expectEqual(3, linked.program.schemas.len);
+    try testing.expectEqual(3, linked.program.functions.len);
 }
 
 test "three effectful components link without retaining source and also serve a second wrapper" {

@@ -5,6 +5,36 @@ September 16, 2026 specification remains the completion contract, including Agen
 migration, measured performance, legacy retirement, linked draft PRs and serial
 review closeout. Nothing has been merged or released.
 
+## Current draft: closed catalogue pruning
+
+Closed compilation and linking now retain the typed reference closure of the
+entry, result and failure roots. Discovery and rewriting share the relocator's
+field inventory, including resource authority references. Full admission precedes
+pruning and follows remapping; unused invalid source still rejects. Retained
+declarations keep their relative order and nominal distinction. Unlinked BMO1
+components retain their interfaces. Compiler diagnostics translate remapped
+function IDs back to source IDs.
+
+The candidate passes `zig build check -Doptimize=ReleaseSafe -j4
+--global-cache-dir .zig-global-cache --summary all`: 216 build steps and 221 tests.
+Tests cover metadata-only authority references, owned output after scratch and
+caller storage release, allocation failure, and two reachable nominal instances.
+
+Downstream qualification is incomplete. World at `389d44c` against this source
+passes 70/74 source tests; four fail, and retained-scope general fixture generation
+fails with `TypeMismatch`, preventing the kernel/transfer/browser aggregates from
+passing. The affected tests currently reuse source catalogue IDs or otherwise
+unreferenced declarations after closed compilation. Their intended semantic and
+malformed-state assertions must be preserved when repairing fixture construction;
+this diagnosis does not waive the failures. No pruning speedup is yet measured.
+
+World and Agent still pin Boundary `711325d`, the preceding qualified source.
+Linked drafts are [Boundary #152](https://github.com/tkersey/boundary/pull/152),
+[World #54](https://github.com/tkersey/world/pull/54), and
+[Agent #32](https://github.com/tkersey/agent/pull/32). Coordinated dependency updates,
+Agent qualification, performance acceptance and serial reviews remain open.
+Later sections record earlier milestones with their original validation scope.
+
 The dedicated `feat/compositional-execution` worktrees start at Boundary
 `42a09b92c2870ab3eab923fe68ca2645eb710000`, World
 `d075169a4805d999ceba4c37b3e1c925b78c3bf9`, and Agent

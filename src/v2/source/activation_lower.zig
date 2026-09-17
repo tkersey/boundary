@@ -118,32 +118,37 @@ fn lowerInternal(
     };
     if (options.diagnostic) |diagnostic| diagnostic.function = null;
     options.stage(.target_check);
-    var original_facts = try checkTarget(allocator, &compiler, program, imports, component, borrows, options);
+    var original_facts = try checkTarget(allocator, &compiler, program, imports, component, borrows, null, options);
     original_facts.deinit();
     options.stage(.direct_optimization);
     const selected = try @import("tail_clauses.zig").optimize(a, program, traits);
     var output = std.heap.ArenaAllocator.init(allocator);
     errdefer output.deinit();
     options.stage(if (component) .source_copy else .canonicalization);
-    const result = if (component) try source.own(ir.Program, output.allocator(), selected) else try data.relocation.ownDenseRegions(output.allocator(), a, selected);
+    const projected: data.relocation.Projection = if (component)
+        .{ .program = try source.own(ir.Program, output.allocator(), selected), .function_origins = &.{} }
+    else
+        try data.relocation.ownReachable(output.allocator(), a, selected);
+    const result = projected.program;
     options.stage(.target_check);
-    const flow = try checkTarget(allocator, &compiler, result, imports, component, borrows, options);
+    const flow = try checkTarget(allocator, &compiler, result, imports, component, borrows, if (component) null else projected.function_origins, options);
     options.stage(.complete);
     if (options.diagnostic) |diagnostic| diagnostic.* = .{ .phase = .complete };
     return .{ .arena = output, .program = result, .flow = flow };
 }
 
-fn checkTarget(allocator: std.mem.Allocator, compiler: *Compiler, program: ir.Program, imports: []const p.Id, component: bool, borrows: []const data.borrow_contract.Summary, options: source.CompileOptions) Error!data.activation_flow.Facts {
+fn checkTarget(allocator: std.mem.Allocator, compiler: *Compiler, program: ir.Program, imports: []const p.Id, component: bool, borrows: []const data.borrow_contract.Summary, origins: ?[]const p.Id, options: source.CompileOptions) Error!data.activation_flow.Facts {
     if (component) return data.activation_ownership.analyzeComponent(allocator, program, imports, borrows);
     return data.activation_ownership.analyzeDiagnosed(allocator, program, if (options.diagnostic) |diagnostic| &diagnostic.target else null) catch |err|
         {
             if (options.diagnostic) |diagnostic| {
-                diagnostic.function = diagnostic.target.function;
+                diagnostic.function = if (diagnostic.target.function) |id| (if (origins) |map| map[@intCast(id)] else id) else null;
                 if (diagnostic.target.capture) |capture| {
                     for (program.constructors) |constructor| if (constructor.capture == capture) {
-                        diagnostic.function = constructor.function;
+                        diagnostic.function = if (origins) |map| map[@intCast(constructor.function)] else constructor.function;
                         if (diagnostic.target.field) |field| {
-                            const free = compiler.facts.functions[@intCast(constructor.function)].items;
+                            const function = if (origins) |map| map[@intCast(constructor.function)] else constructor.function;
+                            const free = compiler.facts.functions[@intCast(function)].items;
                             if (field < free.len) diagnostic.variable = free[@intCast(field)];
                         }
                         break;

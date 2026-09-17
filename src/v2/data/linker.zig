@@ -123,7 +123,7 @@ pub fn link(allocator: std.mem.Allocator, input: []const Instance, bindings: []c
     final_maps[@intFromEnum(Kind.schema)] = schema_map;
     var arena = std.heap.ArenaAllocator.init(allocator);
     errdefer arena.deinit();
-    const result = try rewrite(arena.allocator(), provisional, final_maps);
+    const result = try rewrite(a, provisional, final_maps);
     for (units) |*unit| {
         const mapped = try a.alloc(Id, unit.maps[@intFromEnum(Kind.schema)].len);
         for (mapped, unit.maps[@intFromEnum(Kind.schema)]) |*target, id| target.* = schema_map[@intCast(id)];
@@ -133,9 +133,11 @@ pub fn link(allocator: std.mem.Allocator, input: []const Instance, bindings: []c
         for (unit.object.imports) |symbol| try compatible(mapper, unit.object.program, result, symbol.reference);
     }
     var checked = try @import("activation_ownership.zig").analyze(allocator, result);
-    errdefer checked.deinit();
+    defer checked.deinit();
     try checkBorrows(a, units, result);
-    return .{ .arena = arena, .program = result, .flow = checked };
+    const projected = try relocate.ownReachable(arena.allocator(), a, result);
+    const flow = try @import("activation_ownership.zig").analyze(allocator, projected.program);
+    return .{ .arena = arena, .program = projected.program, .flow = flow };
 }
 
 fn checkBorrows(a: std.mem.Allocator, units: []const Unit, result: ir.Program) Error!void {

@@ -423,3 +423,14 @@ test "stable construction observations preserve bytes and report source failures
     try testing.expectEqual(source.CompileStage.source_check, diagnostic.phase);
     try testing.expectEqual(@as(?data.program.Id, module.entry), diagnostic.function);
 }
+
+test "closed compiler rejects invalid unused source before catalogue pruning" {
+    var builder = source.Builder.init(testing.allocator);
+    defer builder.deinit();
+    const integer = try builder.scalar(u64);
+    const entry = try builder.declare(&.{}, integer, &.{}, &.{});
+    const unused = try builder.declare(&.{}, integer, &.{}, &.{});
+    try builder.define(entry, try builder.pure(try builder.constant(u64, 42)));
+    try builder.define(unused, try builder.pure(try builder.constant(bool, true)));
+    try testing.expectError(error.TypeMismatch, lower(testing.allocator, builder.module(entry, try builder.scalar(void))));
+}

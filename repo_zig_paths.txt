@@ -125,3 +125,4 @@ src/v2/source/tail_clauses.zig
 src/v2/source/retained_scope_example.zig
 src/v2/data/graph_order_tests.zig
 src/v2/data/compact_sequence_tests.zig
+src/v2/data/relocation_tests.zig
