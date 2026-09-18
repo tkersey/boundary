@@ -36,7 +36,7 @@ export fn admitted_probe(length: usize) u32 {
     if (first.facts.pool == second.facts.pool or first.facts.live.ptr != second.facts.live.ptr or
         base != second.facts.pool.base.?) return 0;
     if (first.facts.pool.limit != 0) _ = first.facts.pool.run(0, 1) catch return 0;
-    if (base.nodeCount() != count or second.facts.pool.nodes.items.len != 0) return 0;
+    if (base.nodeCount() != count or second.facts.pool.nodeCount() != 0) return 0;
     program_identity = owner.identity();
     return 1;
 }

@@ -27,7 +27,7 @@ test "set overlays share immutable roots and isolate all eight-bit operations" {
     try testing.expectError(error.InvalidReference, overlay.readOnly());
     var sibling = sets.Pool.overlay(testing.allocator, frozen);
     defer sibling.deinit();
-    try testing.expectEqual(0, sibling.nodes.items.len);
+    try testing.expectEqual(0, sibling.nodeCount());
     try testing.expectEqual(@as(u8, 15), mask(&sibling, prefix));
 }
 
@@ -41,7 +41,7 @@ test "set overlay reuse needs no allocation and failure leaves the base intact" 
     defer overlay.deinit();
     try testing.expectEqual(prefix, try overlay.run(0, 4));
     try testing.expectError(error.OutOfMemory, overlay.insert(prefix, 7));
-    try testing.expectEqual(0, overlay.nodes.items.len);
+    try testing.expectEqual(0, overlay.nodeCount());
     try testing.expectEqual(@as(u8, 15), mask(&overlay, prefix));
     try testing.expectEqual(@as(u8, 15), mask(&base, prefix));
 }
@@ -82,9 +82,9 @@ test "analysis sets encode every monotonic prefix with bounded incremental nodes
     defer pool.deinit();
     var root = sets.empty;
     for (0..4096) |member| {
-        const before = pool.nodes.items.len;
+        const before = pool.nodeCount();
         root = try pool.insert(root, member);
-        try testing.expect(pool.nodes.items.len - before <= 2);
+        try testing.expect(pool.nodeCount() - before <= 2);
         try testing.expectEqual(member + 1, pool.count(root));
     }
     try testing.expect(pool.visits <= 4096);
@@ -154,7 +154,7 @@ test "low-word projection matches membership without allocating or changing shar
     }
     var ladder = try overlay.insert(sets.empty, 0);
     for (0..64) |bit| ladder = try overlay.insert(ladder, @as(u64, 1) << @intCast(bit));
-    const overlay_nodes = overlay.nodes.items.len;
+    const overlay_nodes = overlay.nodeCount();
     failing.fail_index = failing.alloc_index;
     try testing.expectEqual(@as(u64, 0x100010117), overlay.lowWord(ladder));
     try testing.expectEqual(@as(u64, 0xf000000000000000), overlay.lowWord(far));
@@ -167,7 +167,7 @@ test "low-word projection matches membership without allocating or changing shar
     }
     try testing.expect(!failing.has_induced_failure);
     try testing.expectEqual(base_nodes, frozen.nodeCount());
-    try testing.expectEqual(overlay_nodes, overlay.nodes.items.len);
+    try testing.expectEqual(overlay_nodes, overlay.nodeCount());
 }
 
 test "canonical word leaves preserve all cross-word subsets and high-ID operations" {
@@ -207,14 +207,43 @@ test "canonical word leaves preserve all cross-word subsets and high-ID operatio
             try testing.expectEqual(roots[a & (~b & 255)], try overlay.difference(left, right));
         };
         try testing.expectEqual(node_count, frozen.nodeCount());
-        try testing.expectEqual(0, overlay.nodes.items.len);
+        try testing.expectEqual(0, overlay.nodeCount());
     }
 }
 
 test "canonical set node does not grow for word leaves" {
     const pool: sets.Pool = .{ .allocator = testing.allocator, .limit = 8 };
-    const Node = @typeInfo(@TypeOf(pool.nodes.items)).pointer.child;
-    try testing.expectEqual(2 * @sizeOf(u64) + @max(@sizeOf(u64), 2 * @sizeOf(sets.Root)), @sizeOf(Node));
+    if (comptime @sizeOf(usize) <= 4) {
+        try testing.expectEqual(24, @sizeOf(@typeInfo(@TypeOf(pool.nodes.items)).pointer.child));
+    } else {
+        const Compact = @typeInfo(@TypeOf(pool.nodes.compact.items)).pointer.child;
+        const Wide = @typeInfo(@FieldType(@FieldType(@TypeOf(pool.nodes), "wide"), "items")).pointer.child;
+        try testing.expectEqual(16, @sizeOf(Compact));
+        try testing.expectEqual(24, @sizeOf(Wide));
+    }
+}
+
+test "bounded set storage preserves members and overlay roots at the 32-bit limit" {
+    const boundary: u64 = std.math.maxInt(u32);
+    for ([_]u64{ boundary - 1, boundary, boundary + 1, std.math.maxInt(u64) }) |limit| {
+        var pool: sets.Pool = .{ .allocator = testing.allocator, .limit = limit };
+        defer pool.deinit();
+        const tail = try pool.run(limit - 2, limit);
+        const root = try pool.insert(tail, 0);
+        try testing.expectEqual(3, pool.count(root));
+        var values = pool.iterator(root);
+        for ([_]u64{ 0, limit - 2, limit - 1 }) |expected|
+            try testing.expectEqual(expected, values.next().?);
+        try testing.expect(values.next() == null);
+        var overlay = sets.Pool.overlay(testing.allocator, try pool.readOnly());
+        defer overlay.deinit();
+        try testing.expectEqual(tail, try overlay.remove(root, 0));
+        const changed = try overlay.remove(root, limit - 1);
+        try testing.expectEqual(2, overlay.count(changed));
+        try testing.expect(pool.contains(root, limit - 1));
+        try testing.expect(!overlay.contains(changed, limit - 1));
+        try testing.expectError(error.InvalidReference, overlay.insert(root, limit));
+    }
 }
 
 test "set backing accounting follows live buffers through growth and release" {
@@ -238,13 +267,13 @@ test "local intern hits allocate nothing at node or table capacity" {
     const first = try pool.run(0, 1);
     for (1..256) |i| {
         _ = try pool.run(i, i + 1);
-        const nodes_full = pool.nodes.items.len == pool.nodes.capacity;
+        const nodes_full = pool.nodeCount() == pool.nodeCapacity();
         const table_full = pool.interned.available == 0;
         if (nodes_full or table_full) {
-            const count = pool.nodes.items.len;
+            const count = pool.nodeCount();
             failing.fail_index = failing.alloc_index;
             try testing.expectEqual(first, try pool.run(0, 1));
-            try testing.expectEqual(count, pool.nodes.items.len);
+            try testing.expectEqual(count, pool.nodeCount());
             try testing.expect(!failing.has_induced_failure);
             failing.fail_index = std.math.maxInt(usize);
             checked_nodes = checked_nodes or nodes_full;

@@ -50,7 +50,7 @@ fn measure(io: std.Io, allocator: std.mem.Allocator, module: source.Module) !Sam
         .nanoseconds = @intCast(elapsed),
         .arena_bytes = arena_bytes,
         .memberships = memberships,
-        .nodes = if (@hasField(check.Facts, "sets")) facts.sets.nodes.items.len else null,
+        .nodes = if (@hasField(check.Facts, "sets")) facts.sets.nodeCount() else null,
         .set_visits = if (@hasField(check.Facts, "sets")) facts.sets.visits else null,
         .digest = std.fmt.bytesToHex(hash.finalResult(), .lower),
     };

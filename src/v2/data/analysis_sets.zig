@@ -40,6 +40,58 @@ const Node = struct {
     }
 };
 
+const CompactNode = struct {
+    low: u32,
+    high: u32,
+    payload: u64,
+
+    fn expand(self: CompactNode) Node {
+        return .{ .low = self.low, .high = self.high, .payload = .{ .word = self.payload } };
+    }
+};
+
+// The pool's declared member limit selects storage, never its public ID width.
+// Large-domain pools keep the full representation, including in overlays.
+const Nodes = union(enum) {
+    compact: std.ArrayList(CompactNode),
+    wide: std.ArrayList(Node),
+
+    pub fn len(self: Nodes) usize {
+        return switch (self) {
+            inline else => |list| list.items.len,
+        };
+    }
+    pub fn capacity(self: Nodes) usize {
+        return switch (self) {
+            inline else => |list| list.capacity,
+        };
+    }
+    fn get(self: Nodes, index: usize) Node {
+        return switch (self) {
+            .compact => |list| list.items[index].expand(),
+            .wide => |list| list.items[index],
+        };
+    }
+    fn ensureUnusedCapacity(self: *Nodes, allocator: std.mem.Allocator, limit: Member) Error!void {
+        if (self.len() == 0 and self.capacity() == 0 and limit > std.math.maxInt(u32))
+            self.* = .{ .wide = .empty };
+        switch (self.*) {
+            inline else => |*list| try list.ensureUnusedCapacity(allocator, 1),
+        }
+    }
+    fn appendAssumeCapacity(self: *Nodes, value: Node) void {
+        switch (self.*) {
+            .compact => |*list| list.appendAssumeCapacity(.{ .low = @intCast(value.low), .high = @intCast(value.high), .payload = value.payload.word }),
+            .wide => |*list| list.appendAssumeCapacity(value),
+        }
+    }
+    fn deinit(self: *Nodes, allocator: std.mem.Allocator) void {
+        switch (self.*) {
+            inline else => |*list| list.deinit(allocator),
+        }
+    }
+};
+
 const NodeContext = struct {
     pub fn hash(_: NodeContext, node_: Node) u64 {
         // Bounds/cardinality remain part of exact equality. Canonical children
@@ -96,7 +148,8 @@ test "canonical equality distinguishes runs from sparse sets with the same bound
 pub const Pool = struct {
     allocator: std.mem.Allocator,
     limit: Member,
-    nodes: std.ArrayList(Node) = .empty,
+    // Native compaction is qualified independently; wasm32 keeps its untagged array.
+    nodes: if (@sizeOf(usize) > 4) Nodes else std.ArrayList(Node) = if (@sizeOf(usize) > 4) .{ .compact = .empty } else .empty,
     interned: std.HashMapUnmanaged(Root, void, RootContext, 80) = .empty,
     visits: usize = 0,
     retained_bytes: usize = 0,
@@ -111,8 +164,22 @@ pub const Pool = struct {
     pub fn overlay(allocator: std.mem.Allocator, base: *const ReadOnly) Pool {
         return .{ .allocator = allocator, .limit = base.pool().limit, .base = base };
     }
+    pub inline fn nodeCount(self: *const Pool) usize {
+        return if (comptime @sizeOf(usize) > 4) self.nodes.len() else self.nodes.items.len;
+    }
+    pub inline fn nodeCapacity(self: *const Pool) usize {
+        return if (comptime @sizeOf(usize) > 4) self.nodes.capacity() else self.nodes.capacity;
+    }
+    inline fn nodeAt(self: *const Pool, index: usize) Node {
+        return if (comptime @sizeOf(usize) > 4) self.nodes.get(index) else self.nodes.items[index];
+    }
+    inline fn ensureNodeCapacity(self: *Pool) Error!void {
+        if (comptime @sizeOf(usize) > 4) {
+            try self.nodes.ensureUnusedCapacity(self.bufferAllocator(), self.limit);
+        } else try self.nodes.ensureUnusedCapacity(self.bufferAllocator(), 1);
+    }
     fn baseCount(self: *const Pool) usize {
-        return if (self.base) |base| base.pool().nodes.items.len else 0;
+        return if (self.base) |base| base.pool().nodeCount() else 0;
     }
 
     pub fn deinit(self: *Pool) void {
@@ -159,9 +226,9 @@ pub const Pool = struct {
 
     inline fn node(self: *const Pool, root: Root) Node {
         const count_ = self.baseCount();
-        std.debug.assert(root != empty and root <= count_ + self.nodes.items.len);
-        if (root <= count_) return self.base.?.pool().nodes.items[root - 1];
-        return self.nodes.items[root - count_ - 1];
+        std.debug.assert(root != empty and root <= count_ + self.nodeCount());
+        if (root <= count_) return self.base.?.pool().nodeAt(root - 1);
+        return self.nodeAt(root - count_ - 1);
     }
 
     /// Membership projection for IDs 0 through 63. Higher IDs are intentionally
@@ -186,20 +253,20 @@ pub const Pool = struct {
         // At pointer width, the checked additions below already enforce it.
         if (comptime @sizeOf(Root) < @sizeOf(usize)) {
             if (self.baseCount() >= std.math.maxInt(Root) or
-                self.nodes.items.len >= std.math.maxInt(Root) - self.baseCount())
+                self.nodeCount() >= std.math.maxInt(Root) - self.baseCount())
             {
                 if (self.interned.getKeyAdapted(value, lookup)) |root| return root;
                 return error.OutOfMemory;
             }
         }
-        if (self.nodes.items.len == self.nodes.capacity or self.interned.available == 0) {
+        if (self.nodeCount() == self.nodeCapacity() or self.interned.available == 0) {
             // Existing roots never require allocation, including at capacity.
             if (self.interned.getKeyAdapted(value, lookup)) |root| return root;
-            try self.nodes.ensureUnusedCapacity(self.bufferAllocator(), 1);
+            try self.ensureNodeCapacity();
             try self.interned.ensureUnusedCapacityContext(self.bufferAllocator(), 1, .{ .pool = self });
         }
         std.debug.assert(value.low < value.high and value.high <= self.limit);
-        const local = std.math.add(usize, self.nodes.items.len, 1) catch return error.OutOfMemory;
+        const local = std.math.add(usize, self.nodeCount(), 1) catch return error.OutOfMemory;
         const index = std.math.add(usize, self.baseCount(), local) catch return error.OutOfMemory;
         // The narrower-index guard above bounds this conversion.
         const root: Root = @intCast(index);
@@ -434,7 +501,7 @@ pub const Pool = struct {
 /// No mutable pool fields escape through an admitted owner's shared base.
 pub const ReadOnly = opaque {
     pub fn nodeCount(self: *const ReadOnly) usize {
-        return self.pool().nodes.items.len;
+        return self.pool().nodeCount();
     }
     fn pool(self: *const ReadOnly) *const Pool {
         return @ptrCast(@alignCast(self));

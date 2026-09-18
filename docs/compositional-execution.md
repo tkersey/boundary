@@ -8,51 +8,48 @@ drafts. Implementation has resumed after the authorized archive cleanup.
 Current contracts: [components](bmo1-components.md), [Program images](bpi3-wire.md),
 [State](pst3-wire.md), and [invocations](invocation-wire.md).
 
-The current data check passes 101 tests, including large-image ownership and
-allocation failure. Full-suite coverage includes ownership, nominal separation,
-borrow contracts, native/wasm32 codecs and independent linking.
-World passes 75 source tests, 257 native/Node boundaries, 23 transfers,
-extracted-runtime and capacity/retry checks. The 13 Agent diagnostic scenarios
-preserve outcomes, work counts, authority and cleanup.
+The current full check passes 216 build steps and 227 tests, including 102 pure
+data tests, source semantics, ownership, nominal separation, allocation failures,
+native/wasm32 codecs and source-independent linking.
 
 ## Current results and unresolved work
 
-Private analysis indexes use checked u32 while member IDs remain u64. Flow analysis
-now releases work queues, reverse edges and temporary traits before returning its
-facts. Each FIFO holds at most one entry per block instead of retaining processed
-visit history. Entries, position facts, liveness and set nodes retain their owner.
-Canonical set nodes now use 24 bytes instead of 32: their payload and bounds
-determine the kind and exact cardinality, so no cached count is needed. Type
-validation reuses its existing schema exportability table for the borrow check,
-removing one repeated fixed-point derivation without changing ownership or APIs.
+On 64-bit hosts, analysis-set pools select a 16-byte node layout when their declared
+member limit fits in 32 bits; larger domains retain 24-byte nodes. wasm32 keeps
+its previous untagged 24-byte storage. Public members remain
+u64 and roots remain checked u32 indexes. Both layouts expand to the same exact
+node before hashing, equality and set operations. Overlays inherit their base's
+limit and preserve immutable roots. Tests retain exhaustive eight-bit operations,
+full-width high IDs, allocation failure and buffer accounting, and add cases at
+the 32-bit representation boundary. Wire bytes and identities are unchanged.
 
-Across 13 unchanged Agent scenarios, the current triad's native inquiry/ReAct
-Session peaks are 2,049,764 / 3,534,020 bytes, including World's contract-scratch
-reclamation. Outcomes and work counts agree; no latency improvement is claimed
-for that change.
+Using the unchanged Agent images, native preparation retains 1,168,868 /
+1,178,378 / 2,485,154 bytes for inquiry/repeated/ReAct, down from 1,265,868 /
+1,275,378 / 2,812,770. Preparation peaks fall by 161,728 bytes for inquiry and
+repeated inquiry, and by 546,088 bytes for ReAct (3,534,020 → 2,987,932).
+These preparation measurements exclude execution and invocation framing.
 
-ReAct's decoded-record arena reserves 1,320,484 bytes for 704,399 accounted bytes
-in the diagnostic replay. An exact-allocation prototype for arrays of at least
-4 KiB reduced that storage to 836,339 bytes, but slowed every one of seven paired
-control256 timing windows (median increase 1.9%). It was reverted; production
-allocation is unchanged. The large-image mutation and allocation-failure
-regression remains useful independently of that rejected technique.
+Final rotating native windows support modest control128/ReAct gains. Tiny scalar
+invocations cost roughly 40–80 ns more; other control timing differences are mixed.
+Control64/128/256 working peaks are 201,927 / 320,429 / 608,169 bytes. Scalar and
+one-installation peaks rise by 38 / 66 bytes from the layout selector overhead.
+Across 128 fixed invocations from 13 Agent scenarios, canonical outcomes match.
+Whole-invocation reset-inquiry/ReAct peaks fall from 2,147,127 / 3,676,006 to
+2,050,143 / 3,226,040 bytes. The Session-only counter falls from 2,049,764 /
+3,534,020 to 1,952,780 / 3,084,054; transitions, control and copy counters match. Two final rotating native replay windows show no material
+latency regression; inquiry differences are below 1%, with modest ReAct gains.
+Final matched BPC1 acceptance, the remaining workload matrix and serial reviews
+remain open. No performance failure has been waived.
 
-Native control64 is about 360 microseconds and 214,595 working bytes, versus about
-238 microseconds and 121,956 bytes for optimized BPC1: that gap remains unresolved.
-Control128/256 peaks are 353,313 / 715,953 bytes, below the preceding successor
-and BPC1's 435,558 / 1,324,938. Compact predecessor storage is selected only for
-64-bit hosts; the 32-bit predecessor builder remains unchanged after all-target
-compact construction regressed guest timing. The smaller set nodes apply on both
-targets. These are requested working
-allocations, not RSS. The current kernel passes Wasmtime and real Chromium/Firefox
-transfer checks, including the compiled Agent tool witness. The remaining performance
-matrix is still required before completion.
+The all-target tagged layout slowed the sampled fresh wasm32 inquiry/ReAct
+invocations by about 3% / 7% in two rotating windows. It is rejected on wasm32;
+the retained host selection produces the byte-identical previously qualified
+460,161-byte kernel. No guest performance or memory gain is claimed.
 
-Agent's measured inquiry/ReAct native Session peaks remain above BPC1. Remaining
-work includes primary-workload performance, the rest of the accepted workload
-matrix, coordinated final qualification, serial reviews and
-a requirement-by-requirement audit. No performance failure has been waived.
+The prior exact-allocation trial for large decoded arrays reduced retained
+storage but repeatedly slowed control256; it remains rejected. Its independent
+large-image ownership/allocation-failure regression is retained. The decoded
+arena's unused capacity remains a concrete optimization opportunity.
 
 Current tests and the small source/compiler probes under `test/` and
 `docs/performance/cold-guard.mjs` remain available for reproduction. Generated

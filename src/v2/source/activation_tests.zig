@@ -162,7 +162,7 @@ test "stable source analysis shares growing free-variable sets" {
         const facts = try check.analyze(arena.allocator(), input);
         // Counts cover the actual pool, including intermediate fixed-point work.
         // Logical memberships grow quadratically; stored descriptions must not.
-        try testing.expect(facts.sets.nodes.items.len <= 4 * count + 64);
+        try testing.expect(facts.sets.nodeCount() <= 4 * count + 64);
         try testing.expect(facts.sets.visits <= 24 * count + 128);
         try testing.expectEqual(0, facts.functions[@intCast(input.entry)].items.len);
     }
