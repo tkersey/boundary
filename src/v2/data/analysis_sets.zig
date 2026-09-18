@@ -166,11 +166,15 @@ pub const Pool = struct {
         const hash = NodeContext.hash(.{}, value);
         if (self.base) |base| if (base.pool().interned.getKeyAdapted(value, LookupContext{ .pool = base.pool(), .hash_value = hash })) |root| return root;
         const lookup: LookupContext = .{ .pool = self, .hash_value = hash };
-        if (self.baseCount() >= std.math.maxInt(Root) or
-            self.nodes.items.len >= std.math.maxInt(Root) - self.baseCount())
-        {
-            if (self.interned.getKeyAdapted(value, lookup)) |root| return root;
-            return error.OutOfMemory;
+        // A separate index-space bound is needed only when Root is narrower.
+        // At pointer width, the checked additions below already enforce it.
+        if (comptime @sizeOf(Root) < @sizeOf(usize)) {
+            if (self.baseCount() >= std.math.maxInt(Root) or
+                self.nodes.items.len >= std.math.maxInt(Root) - self.baseCount())
+            {
+                if (self.interned.getKeyAdapted(value, lookup)) |root| return root;
+                return error.OutOfMemory;
+            }
         }
         if (self.nodes.items.len == self.nodes.capacity or self.interned.available == 0) {
             // Existing roots never require allocation, including at capacity.
@@ -181,7 +185,8 @@ pub const Pool = struct {
         std.debug.assert(value.low < value.high and value.high <= self.limit);
         const local = std.math.add(usize, self.nodes.items.len, 1) catch return error.OutOfMemory;
         const index = std.math.add(usize, self.baseCount(), local) catch return error.OutOfMemory;
-        const root = std.math.cast(Root, index) orelse return error.OutOfMemory;
+        // The narrower-index guard above bounds this conversion.
+        const root: Root = @intCast(index);
         const entry = self.interned.getOrPutAssumeCapacityAdapted(value, lookup);
         if (entry.found_existing) return entry.key_ptr.*;
         // All fallible work is complete. The temporary empty key cannot escape

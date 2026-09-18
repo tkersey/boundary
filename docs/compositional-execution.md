@@ -122,7 +122,9 @@ Facts owns both those buffers and its stable-address arena.
 
 Private root indexes now use checked `u32`; member IDs remain `u64`. A base plus
 its overlay can contain at most 4,294,967,295 interned nodes. Existing roots remain
-reusable at capacity; new-root exhaustion returns `OutOfMemory` before publication.
+reusable at capacity; new-root exhaustion returns `OutOfMemory` before publication. The extra index-space check is compiled only when Root is
+narrower than the pointer width; otherwise the existing checked additions bound
+construction. The final conversion follows that established bound.
 This limit exceeds the qualified runtime budgets and does not restrict the values
 represented by a compressed interval or bitmap. Native nodes shrink from 40 to
 32 bytes; hash keys and position facts also shrink. wasm32 index/node widths are
@@ -130,7 +132,7 @@ unchanged. The public low-word projection still describes only members 0 through
 
 The [root-width comparison](measurements/analysis-root-width.json) records paired
 native control/value samples and Agent preparation measurements. Control64 medians
-fall from 374/376 to 359/361 microseconds and peak allocation from 282,999 to 241,495
+fall from 380/374 to 363/359 microseconds and peak allocation from 282,999 to 241,495
 bytes; optimized BPC1 still takes roughly 238–244 microseconds and 121,956 bytes.
 Control128 peak falls to 415,111 bytes and control256 to 788,285 bytes. Every measured
 value peak falls, while some small value timing increases remain disclosed.
@@ -139,7 +141,12 @@ Native paired inquiry Session peak falls from 3,107,532 to 2,847,222 bytes; ReAc
 falls from 5,201,096 to 4,239,618. Both still exceed the BPC1 baselines. Preparation
 alone falls from 2,327,004 to 2,063,574 for inquiry and 5,201,096 to 3,977,974 for ReAct;
 these preparation figures exclude subsequent Session/State work. Native index-width
-results do not establish wasm32 memory or guest latency gains.
+results do not establish wasm32 memory or guest latency gains. An intermediate
+unconditional guard produced adverse guest medians. The final target-width guard
+restores the complete preceding runtime byte inventory and kernel digest
+`b0cee0db452b46d9cf8f3f3067c52693383d566b9670a38da778793e29de66ee`
+(460,851 bytes). Agent retains the rejected guest observations; `NEG-000011`
+records that exact failed route. No final guest speedup is claimed.
 
 The [wider-leaf experiment](measurements/analysis-leaf-widths.json) retains rejected
 128/256-bit variants, exact patches, successful set-law tests and adverse samples.
@@ -164,8 +171,8 @@ aggregate against the immutable candidate, including 74 source tests,39 storage
 tests,30 host tests,6,755 independent oracle observations, Node/Wasmtime,
 Chromium/Firefox Worker transfer and extracted-package checks. All 13 paired Agent
 comparison scenarios preserve their original semantics and work counts with the
-new native build. Final normal-pin qualification and guest timing for this update
-remain separate pending gates.
+new native build. Final normal-pin qualification for this source update remains a separate gate.
+Guest behavior uses the exact preceding runtime bytes.
 
 The unchanged installation family retains its delayed checked sum and actual
 handlers. Native/wasm32 image checks cover installation, mixed and irregular
