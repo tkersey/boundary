@@ -181,6 +181,37 @@ test "activation flow owns all analysis storage and frees partial owners on fail
     try testing.checkAllAllocationFailures(testing.allocator, allocationCase, .{});
 }
 
+fn cyclicParentsCase(allocator: std.mem.Allocator) !void {
+    var definition: ir.Function = undefined;
+    const blocks = [_]ir.Block{
+        .{ .function = 0, .instructions = &.{}, .terminator = .{ .branch = .{
+            .condition = 0,
+            .when_true = .{ .block = 1 },
+            .when_false = .{ .block = 1 },
+        } } },
+        .{ .function = 0, .instructions = &.{.{ .opcode = .move, .destination = 2, .operands = &.{1} }}, .terminator = .{ .branch = .{
+            .condition = 0,
+            .when_true = .{ .block = 1 },
+            .when_false = .{ .block = 2 },
+        } } },
+        .{ .function = 0, .instructions = &.{}, .terminator = .{ .return_value = 2 } },
+    };
+    var facts = try flow.analyze(allocator, program(&blocks, &.{ 2, 0, 0 }, &.{ 0, 1 }, &definition));
+    defer facts.deinit();
+    for (0..2) |block| {
+        try testing.expect(facts.pool.contains(facts.live[block][0], 0));
+        try testing.expect(facts.pool.contains(facts.live[block][0], 1));
+        try testing.expect(!facts.pool.contains(facts.live[block][0], 2));
+    }
+    try testing.expect(facts.pool.contains(facts.entries[2].?.initialized, 2));
+    try testing.expectEqual(1, facts.pool.count(facts.live[2][0]));
+    try testing.expect(facts.pool.contains(facts.live[2][0], 2));
+}
+
+test "duplicate and cyclic predecessors preserve liveness and release partial scratch" {
+    try testing.checkAllAllocationFailures(testing.allocator, cyclicParentsCase, .{});
+}
+
 test "activation liveness drops irrelevant data but retains required disposition" {
     var definition: ir.Function = undefined;
     const blocks = [_]ir.Block{

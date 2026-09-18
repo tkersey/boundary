@@ -11,7 +11,9 @@ Current contracts: [components](bmo1-components.md), [Program images](bpi3-wire.
 The full Boundary check passes, including allocation failure, ownership, nominal
 separation, borrow contracts, independent native/wasm32 codecs and source-independent
 linking. The latest flow-storage change also passes World's 74 source tests and
-52 storage tests, 257 native/Node boundaries and extracted runtime checks.
+52 storage tests, 257 native/Node boundaries and extracted runtime checks. The
+compact native predecessor follow-up passes all 98 data tests and 74 World source
+tests, including duplicate/cyclic edges and allocation-failure cleanup.
 
 ## Current results and unresolved work
 
@@ -21,13 +23,15 @@ facts. Each FIFO holds at most one entry per block instead of retaining processe
 visit history. Entries, position facts, liveness and set nodes retain their owner.
 
 Across 13 unchanged Agent scenarios, native inquiry/ReAct Session peaks fall from
-2,847,222 / 4,239,618 to 2,408,588 / 3,841,782 bytes with identical outcomes and work
+2,847,222 / 4,239,618 to 2,408,588 / 3,795,384 bytes with identical outcomes and work
 counts. Five paired guest runs overlap substantially; guest speed is indeterminate.
 
 Native control64 is about 362 microseconds and 219,987 working bytes, versus about
 238 microseconds and 121,956 bytes for optimized BPC1: that gap remains unresolved.
-Control128/256 peaks are 417,163 / 881,349 bytes, up from 415,111 / 788,285 in the
-preceding successor but below BPC1's 435,558 / 1,324,938. These are requested working
+Control128/256 peaks are 368,337 / 761,625 bytes, below the preceding successor
+and BPC1's 435,558 / 1,324,938. Compact predecessor storage is selected only for
+64-bit hosts; the qualified 32-bit builder and complete guest runtime bytes remain
+unchanged after all-target compact construction regressed guest timing. These are requested working
 allocations, not RSS. Wasmtime/browser requalification and the remaining performance
 matrix are still required for the final candidate.
 

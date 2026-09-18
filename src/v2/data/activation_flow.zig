@@ -337,10 +337,14 @@ fn controlReads(self: anytype, control: ir.Terminator) Error!void {
 }
 
 const Liveness = struct {
+    // Compact rows reduce 64-bit scratch overhead. Keep the qualified 32-bit
+    // builder: compact construction regresses measured WASM consumer latency.
+    const compact_parents = @sizeOf(usize) > 4;
+    const ParentRow = if (compact_parents) []p.Id else std.ArrayList(p.Id);
     analysis: *Analysis,
     entries: []sets.Root,
     positions: [][]sets.Root,
-    parents: []std.ArrayList(p.Id),
+    parents: []ParentRow,
     queued: []bool,
     work: Queue,
     visits: usize = 0,
@@ -352,19 +356,51 @@ const Liveness = struct {
             .analysis = analysis,
             .entries = try a.alloc(sets.Root, image.blocks.len),
             .positions = try analysis.retained.alloc([]sets.Root, image.blocks.len),
-            .parents = try a.alloc(std.ArrayList(p.Id), image.blocks.len),
+            .parents = try a.alloc(ParentRow, image.blocks.len),
             .queued = try a.alloc(bool, image.blocks.len),
             .work = try Queue.init(a, image.blocks.len),
         };
         @memset(result.entries, sets.empty);
         @memset(result.positions, &.{});
-        @memset(result.parents, .empty);
+        if (comptime !compact_parents) @memset(result.parents, .empty);
         @memset(result.queued, false);
-        for (image.blocks, 0..) |code, id| {
-            if (analysis.entries[id] == null) continue;
-            var successors: Successors = .{ .image = image, .code = code };
-            while (successors.next()) |next|
-                try result.parents[@intCast(next.edge.block)].append(a, id);
+        if (comptime compact_parents) {
+            const counts = try a.alloc(usize, image.blocks.len);
+            @memset(counts, 0);
+            var edge_count: usize = 0;
+            for (image.blocks, 0..) |code, id| {
+                if (analysis.entries[id] == null) continue;
+                var successors: Successors = .{ .image = image, .code = code };
+                while (successors.next()) |next| {
+                    const child: usize = @intCast(next.edge.block);
+                    counts[child] = std.math.add(usize, counts[child], 1) catch return error.OutOfMemory;
+                    edge_count = std.math.add(usize, edge_count, 1) catch return error.OutOfMemory;
+                }
+            }
+            const parents = try a.alloc(p.Id, edge_count);
+            var offset: usize = 0;
+            for (result.parents, counts) |*row, count| {
+                row.* = parents[offset..][0..count];
+                offset += count;
+            }
+            // Replay the same immutable edge traversal, preserving predecessor order.
+            @memset(counts, 0);
+            for (image.blocks, 0..) |code, id| {
+                if (analysis.entries[id] == null) continue;
+                var successors: Successors = .{ .image = image, .code = code };
+                while (successors.next()) |next| {
+                    const child: usize = @intCast(next.edge.block);
+                    result.parents[child][counts[child]] = id;
+                    counts[child] += 1;
+                }
+            }
+        } else {
+            for (image.blocks, 0..) |code, id| {
+                if (analysis.entries[id] == null) continue;
+                var successors: Successors = .{ .image = image, .code = code };
+                while (successors.next()) |next|
+                    try result.parents[@intCast(next.edge.block)].append(a, id);
+            }
         }
         var remaining = image.blocks.len;
         while (remaining != 0) {
@@ -377,7 +413,8 @@ const Liveness = struct {
             const root = try result.block(id);
             if (root == result.entries[@intCast(id)]) continue;
             result.entries[@intCast(id)] = root;
-            for (result.parents[@intCast(id)].items) |parent| try result.enqueue(parent);
+            const parents = if (comptime compact_parents) result.parents[@intCast(id)] else result.parents[@intCast(id)].items;
+            for (parents) |parent| try result.enqueue(parent);
         }
         return result;
     }
