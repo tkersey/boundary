@@ -39,7 +39,7 @@ fn validateInternal(
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     const scratch = arena.allocator();
-    try catalogs(scratch, image, component);
+    const exportable = try catalogs(scratch, image, component);
     const uses = try contracts.validateDiagnosed(scratch, image, diagnostic);
     const effects = try effect_scope.deriveComponent(scratch, image, imports);
     for (image.blocks, 0..) |block, block_id| {
@@ -61,13 +61,12 @@ fn validateInternal(
         try terminator(image, block, layout, effects);
     }
     try @import("region_admission.zig").validate(scratch, image);
-    const schema_facts = try a.schemas(scratch, image.schemas);
     if (component) {
         var solver = try @import("borrow_flow.zig").contracted(
             scratch,
             image,
             imports,
-            schema_facts.exportable,
+            exportable,
             borrows,
         );
         for (borrows) |summary| {
@@ -75,10 +74,11 @@ fn validateInternal(
                 continue;
             try @import("borrow_contract.zig").check(&solver, summary);
         }
-    } else try @import("borrow_flow.zig").validate(scratch, image, schema_facts.exportable, diagnostic);
+    } else try @import("borrow_flow.zig").validate(scratch, image, exportable, diagnostic);
 }
 
-fn catalogs(allocator: std.mem.Allocator, image: ir.Program, component: bool) Error!void {
+/// Exportability remains valid for the immutable image throughout this call.
+fn catalogs(allocator: std.mem.Allocator, image: ir.Program, component: bool) Error![]const bool {
     const facts = try a.schemas(allocator, image.schemas);
     if ((!component and !facts.exportable[@intCast(image.roots.result)]) or
         !facts.exportable[@intCast(image.roots.failure)]) return error.InvalidSchema;
@@ -99,6 +99,7 @@ fn catalogs(allocator: std.mem.Allocator, image: ir.Program, component: bool) Er
         for (effect.use_site_effects) |id| if (id >= image.effects.len)
             return error.InvalidEffect;
     }
+    return facts.exportable;
 }
 
 fn instructionUses(image: ir.Program, operation: anytype, slots: []const p.Id, uses: @import("traits.zig").Facts) Error!void {

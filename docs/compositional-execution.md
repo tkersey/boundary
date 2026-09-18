@@ -8,7 +8,7 @@ drafts. Implementation has resumed after the authorized archive cleanup.
 Current contracts: [components](bmo1-components.md), [Program images](bpi3-wire.md),
 [State](pst3-wire.md), and [invocations](invocation-wire.md).
 
-The full Boundary check passes, including 99 data tests, allocation failure,
+The full Boundary check passes, including 100 data tests, allocation failure,
 ownership, nominal separation, borrow contracts, native/wasm32 codecs and independent
 linking. World passes 74 source tests, 257 native/Node boundaries, 23 transfers,
 extracted-runtime and capacity/retry checks. The 13 Agent diagnostic scenarios
@@ -21,7 +21,9 @@ now releases work queues, reverse edges and temporary traits before returning it
 facts. Each FIFO holds at most one entry per block instead of retaining processed
 visit history. Entries, position facts, liveness and set nodes retain their owner.
 Canonical set nodes now use 24 bytes instead of 32: their payload and bounds
-determine the kind and exact cardinality, so no cached count is needed.
+determine the kind and exact cardinality, so no cached count is needed. Type
+validation reuses its existing schema exportability table for the borrow check,
+removing one repeated fixed-point derivation without changing ownership or APIs.
 
 Across 13 unchanged Agent scenarios, native inquiry/ReAct Session peaks fall from
 2,847,222 / 4,239,618 to 2,367,460 / 3,656,504 bytes with identical outcomes and work

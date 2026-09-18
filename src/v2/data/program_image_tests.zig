@@ -72,6 +72,44 @@ test "immutable admitted image allocation failures release records and facts" {
     try testing.checkAllAllocationFailures(testing.allocator, admittedFailure, .{});
 }
 
+fn retainedContractFacts(allocator: std.mem.Allocator) !void {
+    const program: ir.Program = .{
+        .roots = .{ .entry = 0, .result = 0, .failure = 1 },
+        .schemas = &.{ .u64, .unit, .{ .internal = .{ .capability = 0 } } },
+        .constants = &.{},
+        .effects = &.{.{ .identity = "read", .payload = 0, .result = 0, .external = true }},
+        .functions = &.{.{ .entry = 0, .inputs = &.{0}, .layout = .{ .slots = &.{ 0, 0 } }, .result = 0, .effects = &.{0} }},
+        .blocks = &.{
+            .{ .function = 0, .instructions = &.{}, .terminator = .{ .perform = .{
+                .effect = 0,
+                .payload = 0,
+                .next = .{ .block = 1, .assignments = &.{.{ .destination = 1, .source = .returned }} },
+            } } },
+            .{ .function = 0, .instructions = &.{}, .terminator = .{ .return_value = 1 } },
+        },
+    };
+    var bytes: [256]u8 = undefined;
+    const encoded = try image.encode(testing.allocator, program, &bytes);
+    const owner = try image.Admitted.decode(allocator, encoded);
+    defer owner.deinit();
+    @memset(&bytes, 0xff);
+    const churn = try allocator.alloc(u8, 1024);
+    defer allocator.free(churn);
+    @memset(churn, 0xa5);
+    try testing.expectEqual(8, owner.schemaFacts().minimum[0]);
+    try testing.expect(owner.schemaFacts().exportable[0]);
+    try testing.expect(!owner.schemaFacts().exportable[2]);
+    try testing.expect(owner.traits().copy[0] and owner.traits().drop[0]);
+    try testing.expect(owner.effectFacts().ambient[0]);
+    try testing.expect(owner.effectFacts().contains(2, 0));
+    try testing.expect(!owner.effectFacts().contains(0, 0));
+    try testing.expectEqualStrings("read", owner.program().effects[0].identity);
+}
+
+test "admitted schema traits and effect facts survive scratch release and failed construction" {
+    try testing.checkAllAllocationFailures(testing.allocator, retainedContractFacts, .{});
+}
+
 test "BPI3 scalar and unit golden encodings" {
     var bytes: [256]u8 = undefined;
     try testing.expectEqualSlices(u8, &golden, try image.encode(testing.allocator, example, &bytes));
