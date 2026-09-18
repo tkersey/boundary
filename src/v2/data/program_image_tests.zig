@@ -269,3 +269,36 @@ test "admission checks the owned header even when allocation changes caller inpu
         return error.AcceptedChangedHeader;
     } else |err| try std.testing.expectEqual(error.InvalidFlags, err);
 }
+
+fn bulkDecodeFailure(allocator: std.mem.Allocator, encoded: []const u8) !void {
+    var decoded = try image.decode(allocator, encoded);
+    defer decoded.deinit();
+    try testing.expectEqual(@as(usize, 2048), decoded.program.blocks[0].instructions.len);
+    try testing.expectEqualSlices(u8, example.constants[0].bytes, decoded.program.constants[0].bytes);
+}
+
+test "large decoded arrays and owned image bytes survive caller mutation and allocation failure" {
+    const instructions = try testing.allocator.alloc(ir.Instruction, 2048);
+    defer testing.allocator.free(instructions);
+    @memset(instructions, .{ .destination = 0, .opcode = .constant });
+    var blocks = [_]ir.Block{example.blocks[0]};
+    blocks[0].instructions = instructions;
+    var program = example;
+    program.blocks = &blocks;
+    const bytes = try testing.allocator.alloc(u8, try image.encodedLength(program));
+    defer testing.allocator.free(bytes);
+    _ = try image.encode(testing.allocator, program, bytes);
+    try testing.expect(bytes.len >= 4096);
+    try testing.checkAllAllocationFailures(testing.allocator, bulkDecodeFailure, .{bytes});
+    var decoded = try image.decode(testing.allocator, bytes);
+    defer decoded.deinit();
+    @memset(bytes, 0xff);
+    try testing.expectEqual(@as(usize, 2048), decoded.program.blocks[0].instructions.len);
+    try testing.expectEqualSlices(u8, example.constants[0].bytes, decoded.program.constants[0].bytes);
+    const output = try testing.allocator.alloc(u8, try image.encodedLength(decoded.program));
+    defer testing.allocator.free(output);
+    _ = try image.encode(testing.allocator, decoded.program, output);
+    var roundtrip = try image.decode(testing.allocator, output);
+    defer roundtrip.deinit();
+    try testing.expectEqualDeep(decoded.program, roundtrip.program);
+}
