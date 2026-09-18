@@ -36,8 +36,9 @@ and BPC1's 435,558 / 1,324,938. Compact predecessor storage is selected only for
 64-bit hosts; the 32-bit predecessor builder remains unchanged after all-target
 compact construction regressed guest timing. The smaller set nodes apply on both
 targets. These are requested working
-allocations, not RSS. Wasmtime/browser requalification and the remaining performance
-matrix are still required for the final candidate.
+allocations, not RSS. The current kernel passes Wasmtime and real Chromium/Firefox
+transfer checks, including the compiled Agent tool witness. The remaining performance
+matrix is still required before completion.
 
 Agent's measured inquiry/ReAct native Session peaks remain above BPC1. Remaining
 work includes primary-workload performance, the rest of the accepted workload
