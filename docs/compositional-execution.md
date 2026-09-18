@@ -8,12 +8,11 @@ drafts. Implementation has resumed after the authorized archive cleanup.
 Current contracts: [components](bmo1-components.md), [Program images](bpi3-wire.md),
 [State](pst3-wire.md), and [invocations](invocation-wire.md).
 
-The full Boundary check passes, including allocation failure, ownership, nominal
-separation, borrow contracts, independent native/wasm32 codecs and source-independent
-linking. The latest flow-storage change also passes World's 74 source tests and
-52 storage tests, 257 native/Node boundaries and extracted runtime checks. The
-compact native predecessor follow-up passes all 98 data tests and 74 World source
-tests, including duplicate/cyclic edges and allocation-failure cleanup.
+The full Boundary check passes, including 99 data tests, allocation failure,
+ownership, nominal separation, borrow contracts, native/wasm32 codecs and independent
+linking. World passes 74 source tests, 257 native/Node boundaries, 23 transfers,
+extracted-runtime and capacity/retry checks. The 13 Agent diagnostic scenarios
+preserve outcomes, work counts, authority and cleanup.
 
 ## Current results and unresolved work
 
@@ -21,17 +20,20 @@ Private analysis indexes use checked u32 while member IDs remain u64. Flow analy
 now releases work queues, reverse edges and temporary traits before returning its
 facts. Each FIFO holds at most one entry per block instead of retaining processed
 visit history. Entries, position facts, liveness and set nodes retain their owner.
+Canonical set nodes now use 24 bytes instead of 32: their payload and bounds
+determine the kind and exact cardinality, so no cached count is needed.
 
 Across 13 unchanged Agent scenarios, native inquiry/ReAct Session peaks fall from
-2,847,222 / 4,239,618 to 2,408,588 / 3,795,384 bytes with identical outcomes and work
+2,847,222 / 4,239,618 to 2,367,460 / 3,656,504 bytes with identical outcomes and work
 counts. Five paired guest runs overlap substantially; guest speed is indeterminate.
 
-Native control64 is about 362 microseconds and 219,987 working bytes, versus about
+Native control64 is about 360 microseconds and 214,595 working bytes, versus about
 238 microseconds and 121,956 bytes for optimized BPC1: that gap remains unresolved.
-Control128/256 peaks are 368,337 / 761,625 bytes, below the preceding successor
+Control128/256 peaks are 353,313 / 715,953 bytes, below the preceding successor
 and BPC1's 435,558 / 1,324,938. Compact predecessor storage is selected only for
-64-bit hosts; the qualified 32-bit builder and complete guest runtime bytes remain
-unchanged after all-target compact construction regressed guest timing. These are requested working
+64-bit hosts; the 32-bit predecessor builder remains unchanged after all-target
+compact construction regressed guest timing. The smaller set nodes apply on both
+targets. These are requested working
 allocations, not RSS. Wasmtime/browser requalification and the remaining performance
 matrix are still required for the final candidate.
 

@@ -214,7 +214,7 @@ test "canonical word leaves preserve all cross-word subsets and high-ID operatio
 test "canonical set node does not grow for word leaves" {
     const pool: sets.Pool = .{ .allocator = testing.allocator, .limit = 8 };
     const Node = @typeInfo(@TypeOf(pool.nodes.items)).pointer.child;
-    try testing.expectEqual(3 * @sizeOf(u64) + @max(@sizeOf(u64), 2 * @sizeOf(sets.Root)), @sizeOf(Node));
+    try testing.expectEqual(2 * @sizeOf(u64) + @max(@sizeOf(u64), 2 * @sizeOf(sets.Root)), @sizeOf(Node));
 }
 
 test "set backing accounting follows live buffers through growth and release" {

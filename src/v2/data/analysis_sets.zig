@@ -15,13 +15,17 @@ pub const Error = std.mem.Allocator.Error || error{InvalidReference};
 const Node = struct {
     low: Member,
     high: Member,
-    count: Member,
-    // Canonical bounds and cardinality determine the payload kind: an interval,
-    // an aligned-word subset, or a split tree. No independently mutable tag.
+    // Runs have zero payload. Word leaves have nonzero bits; split trees have
+    // two nonempty roots and span multiple words. No cached count or kind tag.
     payload: extern union { word: u64, tree: extern struct { left: Root, right: Root } } = .{ .tree = .{ .left = empty, .right = empty } },
 
+    comptime {
+        // Both initialized root lanes must fill the word used for equality.
+        std.debug.assert(2 * @bitSizeOf(Root) == @bitSizeOf(u64));
+    }
+
     fn isRun(self: Node) bool {
-        return self.count == self.high - self.low;
+        return self.payload.word == 0;
     }
     fn isWord(self: Node) bool {
         return !self.isRun() and (self.low >> 6) == ((self.high - 1) >> 6);
@@ -49,10 +53,7 @@ const NodeContext = struct {
         return std.hash.Wyhash.hash(kind, std.mem.asBytes(&key));
     }
     pub fn eql(_: NodeContext, a: Node, b: Node) bool {
-        if (a.low != b.low or a.high != b.high or a.count != b.count) return false;
-        if (a.isRun()) return true;
-        if (a.isWord()) return a.payload.word == b.payload.word;
-        return a.payload.tree.left == b.payload.tree.left and a.payload.tree.right == b.payload.tree.right;
+        return a.low == b.low and a.high == b.high and a.payload.word == b.payload.word;
     }
 };
 
@@ -76,6 +77,21 @@ const LookupContext = struct {
         return NodeContext.eql(.{}, value, self.pool.node(root));
     }
 };
+
+test "canonical equality distinguishes runs from sparse sets with the same bounds" {
+    var pool: Pool = .{ .allocator = std.testing.allocator, .limit = 128 };
+    defer pool.deinit();
+    const dense_word = try pool.run(0, 3);
+    const sparse_word = try pool.unite(try pool.run(0, 1), try pool.run(2, 3));
+    const dense_tree = try pool.run(0, 65);
+    const sparse_tree = try pool.unite(try pool.run(0, 1), try pool.run(64, 65));
+    try std.testing.expect(!NodeContext.eql(.{}, pool.node(dense_word), pool.node(sparse_word)));
+    try std.testing.expect(!NodeContext.eql(.{}, pool.node(dense_tree), pool.node(sparse_tree)));
+    try std.testing.expectEqual(3, pool.count(dense_word));
+    try std.testing.expectEqual(65, pool.count(dense_tree));
+    try std.testing.expectEqual(2, pool.count(sparse_word));
+    try std.testing.expectEqual(2, pool.count(sparse_tree));
+}
 
 pub const Pool = struct {
     allocator: std.mem.Allocator,
@@ -199,7 +215,7 @@ pub const Pool = struct {
     pub fn run(self: *Pool, low: Member, high: Member) Error!Root {
         if (low > high or high > self.limit) return error.InvalidReference;
         if (low == high) return empty;
-        return self.intern(.{ .low = low, .high = high, .count = high - low });
+        return self.intern(.{ .low = low, .high = high });
     }
 
     // One canonical leaf for each noncontiguous subset of an aligned word.
@@ -210,7 +226,7 @@ pub const Pool = struct {
         const high = base + (64 - @as(u64, @clz(bits)));
         const count_: u64 = @popCount(bits);
         if (count_ == high - low) return self.run(low, high);
-        return self.intern(.{ .low = low, .high = high, .count = count_, .payload = .{ .word = bits } });
+        return self.intern(.{ .low = low, .high = high, .payload = .{ .word = bits } });
     }
 
     pub fn insert(self: *Pool, root: Root, member: Member) Error!Root {
@@ -240,8 +256,15 @@ pub const Pool = struct {
         return if (right == children[1]) root else self.join(children[0], right);
     }
 
+    /// Exact cardinality: constant time for leaves, otherwise visits the tree.
     pub fn count(self: *const Pool, root: Root) Member {
-        return if (root == empty) 0 else self.node(root).count;
+        if (root == empty) return 0;
+        const value = self.node(root);
+        if (value.isRun()) return value.high - value.low;
+        if (value.isWord()) return @popCount(value.payload.word);
+        // Children partition disjoint ranges at a strictly decreasing bit.
+        // Depth is bounded by Member width; the sum cannot exceed this span.
+        return self.count(value.payload.tree.left) + self.count(value.payload.tree.right);
     }
 
     pub fn first(self: *const Pool, root: Root) ?Member {
@@ -383,7 +406,6 @@ pub const Pool = struct {
         return self.intern(.{
             .low = a.low,
             .high = b.high,
-            .count = a.count + b.count,
             .payload = .{ .tree = .{ .left = left, .right = right } },
         });
     }
