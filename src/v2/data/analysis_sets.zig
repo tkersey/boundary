@@ -5,7 +5,10 @@
 //! strictly decreasing bit, never at a previous set version.
 const std = @import("std");
 pub const Member = u64;
-pub const Root = usize;
+// Private analysis indexes are bounded independently of full-width members.
+// Four billion nodes exceed the qualified runtime budgets; exhaustion fails
+// before publishing a root and does not narrow the represented member domain.
+pub const Root = u32;
 pub const empty: Root = 0;
 pub const Error = std.mem.Allocator.Error || error{InvalidReference};
 
@@ -163,6 +166,12 @@ pub const Pool = struct {
         const hash = NodeContext.hash(.{}, value);
         if (self.base) |base| if (base.pool().interned.getKeyAdapted(value, LookupContext{ .pool = base.pool(), .hash_value = hash })) |root| return root;
         const lookup: LookupContext = .{ .pool = self, .hash_value = hash };
+        if (self.baseCount() >= std.math.maxInt(Root) or
+            self.nodes.items.len >= std.math.maxInt(Root) - self.baseCount())
+        {
+            if (self.interned.getKeyAdapted(value, lookup)) |root| return root;
+            return error.OutOfMemory;
+        }
         if (self.nodes.items.len == self.nodes.capacity or self.interned.available == 0) {
             // Existing roots never require allocation, including at capacity.
             if (self.interned.getKeyAdapted(value, lookup)) |root| return root;
@@ -171,7 +180,8 @@ pub const Pool = struct {
         }
         std.debug.assert(value.low < value.high and value.high <= self.limit);
         const local = std.math.add(usize, self.nodes.items.len, 1) catch return error.OutOfMemory;
-        const root = std.math.add(usize, self.baseCount(), local) catch return error.OutOfMemory;
+        const index = std.math.add(usize, self.baseCount(), local) catch return error.OutOfMemory;
+        const root = std.math.cast(Root, index) orelse return error.OutOfMemory;
         const entry = self.interned.getOrPutAssumeCapacityAdapted(value, lookup);
         if (entry.found_existing) return entry.key_ptr.*;
         // All fallible work is complete. The temporary empty key cannot escape

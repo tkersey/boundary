@@ -1,514 +1,195 @@
-# Compositional execution: implementation status
+# Compositional execution: Boundary status
 
-This is an incomplete Boundary 3 / World 6 implementation milestone. The accepted
-September 16, 2026 specification remains the completion contract, including Agent
-migration, measured performance, legacy retirement, linked draft PRs and serial
-review closeout. Nothing has been merged or released.
+Boundary `3.0.0-dev.0` implements the authoring, checking, linking and pure-data
+portion of the accepted Boundary 3 / World 6 / Agent successor. The milestone is
+incomplete: primary-workload performance gaps, remaining measurements and consumer
+retirement, serial reviews and the final requirement audit remain open.
 
-## Current draft: closed catalogue pruning
-
-Closed compilation and linking now retain the typed reference closure of the
-entry, result and failure roots. Discovery and rewriting share the relocator's
-field inventory, including resource authority references. Full admission precedes
-pruning and follows remapping; unused invalid source still rejects. Retained
-declarations keep their relative order and nominal distinction. Unlinked BMO1
-components retain their interfaces. Compiler diagnostics translate remapped
-function IDs back to source IDs.
-
-The candidate passes `zig build check -Doptimize=ReleaseSafe -j4
---global-cache-dir .zig-global-cache --summary all`: 216 build steps and 221 tests.
-Tests cover metadata-only authority references, owned output after scratch and
-caller storage release, allocation failure, and two reachable nominal instances.
-
-Downstream qualification is incomplete. World at `389d44c` against this source
-passes 70/74 source tests; four fail, and retained-scope general fixture generation
-fails with `TypeMismatch`, preventing the kernel/transfer/browser aggregates from
-passing. The affected tests currently reuse source catalogue IDs or otherwise
-unreferenced declarations after closed compilation. Their intended semantic and
-malformed-state assertions must be preserved when repairing fixture construction;
-this diagnosis does not waive the failures. No pruning speedup is yet measured.
-
-World and Agent still pin Boundary `711325d`, the preceding qualified source.
-Linked drafts are [Boundary #152](https://github.com/tkersey/boundary/pull/152),
+Delivery is limited to linked drafts: [Boundary #152](https://github.com/tkersey/boundary/pull/152),
 [World #54](https://github.com/tkersey/world/pull/54), and
-[Agent #32](https://github.com/tkersey/agent/pull/32). Coordinated dependency updates,
-Agent qualification, performance acceptance and serial reviews remain open.
-Later sections record earlier milestones with their original validation scope.
+[Agent #32](https://github.com/tkersey/agent/pull/32). No merge, promotion or release
+is authorized. The fixed comparison anchors are Boundary `42a09b9`, World `d075169`
+and Agent `1f3297b`; each measurement retains its actual immutable subjects.
 
-The dedicated `feat/compositional-execution` worktrees start at Boundary
-`42a09b92c2870ab3eab923fe68ca2645eb710000`, World
-`d075169a4805d999ceba4c37b3e1c925b78c3bf9`, and Agent
-`1f3297b8cd7eeb7638bd1bb2a81c9ba609e2e311`. Remote heads were fetched and matched
-these inputs. Toolchains are Zig 0.16.0 and Node 26.8.2.
+## One current compilation path
 
-## Stable activation construction
+`boundary.program.compile`, `compileObserved` and staged `program.lower` use the
+stable-activation compiler. The returned construction owns its Program and flow
+facts independently of the source builder. Encoding revalidates the current
+records; possession of a construction or caller-supplied facts does not confer
+trusted execution. Diagnostics and phase observers remain caller-owned.
 
-`data/activation.zig` represents function-local slots, ordered call inputs,
-instruction destinations, and changed-only continuation assignments. It has no
-block parameter catalogs or pass-through argument vectors. Destinations obtain
-their types from the function layout. Branch assignments have simultaneous
-predecessor-view semantics; admission now checks source consumption before any
-writes. Each function also has an acyclic lexical custody tree; each block names
-its active scope. Normal scope exits transfer surviving owners into their parent
-before an edge establishes new bindings. This is separate from nominal regions.
-World's native stable controller now executes these contracts.
+Source bindings have function-local stable slots. Real inputs, changed edge
+assignments and lexical captures remain explicit; unchanged live values are not
+re-enumerated into block interfaces. The persistent lexical scope avoids copying
+binding history. Source expression sharing preserves effect and ownership rules.
+A Module receiver reads its builder by reference, including declarations created
+while evaluating its arguments.
 
-`source/activation_lower.zig` lowers staged terms directly into those records.
-It does not call the predecessor compiler or translate an old Program. Real
-function arguments and lexical closure captures remain explicit. A persistent
-indexed lexical scope avoids copying live environments or searching binding
-history. Its search path is bounded by the number of source variable names.
-Safe expression sharing reuses the existing source rules; operations with
-observable effects and noncopyable results do not acquire new sharing rights.
-The returned construction owns copied result records; source AST and analysis
-scratch are released before return. The construction also owns its derived flow
-facts. Allocation failures destroy partial results.
+Structure, instruction types/effects, borrow contracts and ownership remain
+separate checks. Forward flow derives initialization, availability and nondroppable
+obligations; backward flow derives liveness at every instruction and terminator.
+Worklists reach a fixed point. Position facts are recorded during those visits;
+final reads, consumption, overwrite checks and successor validation retain their
+checking order. A successor change refreshes internal liveness even when the entry
+root does not change.
 
-The representation decision retains Boundary's static contract and World's
-dynamic activation ownership. Wire compression alone does not eliminate the
-incumbent's repeated interfaces. A mutable whole-function frame would not satisfy
-retained-version isolation or dead-value reclamation; the static layout does not
-authorize retaining all its slots. The runtime must implement delimited views.
+Conditional cleanup obligations survive joins independently of permission to read
+a value. Edges read sources simultaneously, reject duplicate unique transfers and
+preserve nondroppable custody. Syntactically present unreachable continuations have
+no initialized entry state. Function-local custody trees encode scope transitions;
+physical reclamation is distinct from authored disposal.
 
-`data/activation_structure.zig` checks slot references, unique destinations,
-function-local edges and result-site types. It deliberately grants no trusted
-executable status. `data/activation_flow.zig` separately derives initialization,
-availability after moves, and liveness at every instruction/terminator position.
-Its worklists converge before reachable reads and ownership transfers are checked.
-Definite initialization/availability meet at joins, while possible nondroppable
-custody joins by union. A conditional cleanup obligation therefore survives even
-when the slot cannot be read on every path. Simultaneous edges reject duplicate
-unique sources, unique returned results and omitted nondroppable returned values;
-existing nondroppable owners cannot be overwritten. Unreachable continuations have
-no entry state and cannot be mistaken for initialized code.
+Borrow analysis uses stable slots at exact instruction positions. A later rebinding
+cannot hide an earlier invalid store. Function summaries use input ordinals, which
+need not equal slot numbers. Generative context, return-clause reference bounds,
+resource authority and capture/use obligations remain checked.
 
-Backward liveness retains nondroppable custody even after its last ordinary read.
-Ordinary dead slots stop belonging to the live map. This is static root analysis,
-not evidence that the runtime has reclaimed memory.
+## Selective lowering and closed catalogue pruning
 
-`data/activation_types.zig` now applies the existing instruction, signature, effect,
-resource-authority and region-dependency rules directly to stable records. Function
-call interfaces are views of ordered input destinations and their layout types;
-no old block interfaces or schema vectors are reconstructed. Existing semantic
-rules are shared with the predecessor during migration.
+An immediately applied known lambda with copyable lexical captures lowers to an
+ordinary call. Captures precede explicit arguments in the callee's input layout.
+Argument evaluation order remains source order. Noncopyable captures and retained
+callable values keep their closure/custody boundary. Original target admission
+checks the declared callable contract before specialization.
 
-`data/activation_ownership.zig` derives its own facts from the same input and checks
-continuation capture bounds, multi-shot clone safety and ordinary-return custody.
-It does not accept caller-provided analysis claims. Normal return with a remaining
-nondroppable owner rejects; failure retains that owner for authored unwinding.
-The twelve existing custody-edge scenarios now retain this normal/failure distinction
-under stable lowering. A successor handler's answer remains distinct from the
-captured resumption's answer.
+Eligible deep linear total-tail clauses use a distinct `tail` strategy. Independent
+target admission requires copyable inputs, total instructions, ordinary returns
+and an acyclic CFG; suspension, calls, authored failures, loops, shallow handling
+and incompatible effects reject. General source functions remain available when
+referenced by ordinary code. World uses its existing evaluator and keeps the
+selected delimiter active for checkpointing and cleanup.
 
-The shared borrow/context solver now reads stable slots at explicit instruction
-positions. A later rebinding cannot change the provenance of an earlier store.
-Incoming control edges transport only changed assignments; unchanged bindings keep
-their identity. Function-input ordinals are distinct from slot numbers, including
-non-prefix and permuted inputs. Reachability uses a worklist over actual edges.
-No predecessor block interfaces are materialized for this analysis.
+After complete source/target checks, closed compilation and linking retain the
+entry/result/failure typed reference closure. Discovery and rewriting use the same
+relocator field inventory, including resource introducer/eliminator authority.
+Retained declarations preserve relative order and nominal distinction. Final target
+admission checks the remapped result. Unused invalid source still rejects, and
+compiler diagnostics translate retained function IDs back to their source origin.
+Unlinked BMO1 components retain their interfaces and declarations.
 
-Function summaries retain input ordinals, while explicit position queries now
-describe actual stable slots at a checkpoint. Completed writes are excluded;
-reachable loop reentry still contributes future requirements. The compiler and
-native State checker enforce declared borrow/resource contracts. BPI3 now
-performs full stable image admission. Stable clauses use their own strategy record and independent CFG admission;
-the predecessor direct-clause flag never enters the successor path.
+World's general-handler and deliberate malformed-State fixtures now construct
+records through component compilation before closed admission. They no longer
+assume closed output retains arbitrary source catalogue IDs. Original expected
+outcomes, capture counts, cleanup and error assertions remain. Agent's static-code
+cost witness separately checks nominal source separation and final byte equality
+when immediate-call lowering removes the unused runtime declaration.
 
-## Immediate callable selection
+## Components and portable data
 
-An immediately applied source lambda with copyable lexical captures now lowers
-to the existing stable `call` terminator. Captures precede the explicit arguments
-in the callee's normal input layout. No `computation` instruction or runtime
-closure is created. Callable constructor metadata remains for independent target
-admission of the original signature, effects, regions, use and capture bound;
-specialization cannot erase a falsely declared capture contract.
+[BMO1](bmo1-components.md) contains independently checked, defunctionalized,
+relocatable first-order objects. The data-only linker needs no authoring source or
+emitter. Interfaces bind actual implementations while preserving private nominal
+instances; shared primitive schema structure does not merge private authority.
+Imports carry explicit borrow assumptions and exports carry code-derived guarantees
+for provenance, cell writes and outlives requirements. Linking checks those against
+the relocated implementations, including functions reached through handler and
+constructor imports, before admitting the closed Program. The format document
+states the whole-result precision limit.
 
-Argument evaluation remains in source order before the call. Noncopyable captures
-retain closure construction because moving an owner into the closure before
-evaluating later arguments is a custody boundary. Retained callable values also
-keep the general `apply` representation. Tests cover the direct scalar capture,
-invalid capture annotations, and an immediately applied lambda capturing a linear
-resumption. This is a bounded selection rule, not general escape analysis.
+[BPI3](bpi3-wire.md) directly encodes stable records, owns admitted input, enforces
+physical expansion limits and hashes canonical bytes in `boundary.program/v3`.
+Re-emission validates compressed/default spellings without constructing predecessor
+interfaces. Opaque admitted owners retain immutable Program, schema, effect and
+flow facts. World may share that owner across Sessions; mutable analysis operations
+use one private overlay over its read-only base, never a chain of prior versions.
 
-World's `immediate lexical calls` test runs both direct and retained forms of the
-same checked addition, including overflow and yield/checkpoint/restore. With
-Zig 0.16.0 native ReleaseSafe on an Apple M2 Pro, the unchanged compiler at
-`adf3c7e102fead43f32f1c850fa7d27ac417fdb6` added five graph nodes during either
-execution. This lowering adds one for the immediate form and five for the
-retained form. Both return 42 for input 40. These are deterministic Store node
-counts after Session initialization, not allocator counts or latency measurements.
-The branching tail-resumptive witness is described below.
+[PST3](pst3-wire.md) carries graph aliases/cycles, stable activation views and
+lexical owner order. Canonical projection removes unreachable State and restoration
+checks bindings, exact positions, effects, borrows, ownership and cleanup against
+the matching Program. Private analysis indexes and World allocation layouts are
+not portable State or authority.
 
-## Total branching clauses
+[Invocation envelopes](invocation-wire.md) are PKI3/PKO3 and ERQ3/ERS3. Each decoder
+owns an exact-sized copy, and decoded slices borrow only from that owner. Request
+identity binds the actual pending execution and typed interface. Caller overwrite,
+malformed framing, capacity failure and stale-response cases retain explicit tests.
 
-Stable Handler/Clause records now belong to `activation`, with a distinct
-`tail` strategy (wire tag 2). The compiler retains the general source function
-for ordinary calls and creates a specialized function with no token input.
-Both conditional branches return the operation result; the actual handler return
-clause and the suspended body's checked arithmetic remain in their original
-positions. Region, effect and callable contracts continue through final admission.
+The production predecessor compiler, old executable records, raw graph State,
+BPI1/BPI2/BPC1/PST2 and old invocation codecs, migration helpers, versioned public
+aliases and legacy-only proof wrappers are retired. Current framing rejects old
+families. Published releases and Git history remain intact. Existing saved
+executions require their original pinned pair; no automatic migration is claimed.
 
-`data/total_clause.zig` independently checks the selected function: copyable slots,
-total instructions, ordinary returns, and an acyclic branch/jump/sum/product CFG.
-It rejects suspension, calls, resumption operations, authored failures and loops.
-The existing contract checker also requires deep linear handling, no operation
-bodies, the exact state/payload inputs and operation result, and no residual
-clause effects. Effects belonging to the resumed body stay on the original
-resumption interface; they are not effects of this total function.
+## Analysis storage
 
-World executes the selected function through its existing evaluator with an
-ordinary saved continuation. The delimiter remains active, so checkpointing and
-cancellation retain body cleanup without a first-class resumption. The branching
-fixture returns 60 or 100 after body/return arithmetic. Its general form creates
-one one-shot token and 14 graph nodes; the selected form creates zero tokens and
-11 graph nodes (native ReleaseSafe, Zig 0.16.0, same inputs, excluding Session
-initialization). These are work counts, not a latency or peak-memory claim.
+Canonical sets use interval nodes, aligned 64-member bitmap leaves and shared
+binary subtrees. Constructors normalize equivalent sets; the interner stores root
+IDs and derives equality/hash information from the node owner. Hash equality still
+checks the complete logical node. All fallible reservation precedes publication.
+Pool buffers use the parent allocator so replaced growth buffers can be released;
+Facts owns both those buffers and its stable-address arena.
 
-Checks cover every instruction checkpoint, cancellation at multiple clause
-positions with one external cleanup, BMO1 encode/link/relocation, rejection of
-cycles and yielding/shallow forgeries, and the independently specified wire tag.
-Non-tail, shallow, escaping-generator and reentrant examples retain general
-clauses. Node/native and independent Wasmtime run the branching fixture through
-fresh/resident checkpoints; broader workload performance acceptance remains open.
+Private root indexes now use checked `u32`; member IDs remain `u64`. A base plus
+its overlay can contain at most 4,294,967,295 interned nodes. Existing roots remain
+reusable at capacity; new-root exhaustion returns `OutOfMemory` before publication.
+This limit exceeds the qualified runtime budgets and does not restrict the values
+represented by a compressed interval or bitmap. Native nodes shrink from 40 to
+32 bytes; hash keys and position facts also shrink. wasm32 index/node widths are
+unchanged. The public low-word projection still describes only members 0 through 63.
 
-## Evidence and limits
+The [root-width comparison](measurements/analysis-root-width.json) records paired
+native control/value samples and Agent preparation measurements. Control64 medians
+fall from 374/376 to 359/361 microseconds and peak allocation from 282,999 to 241,495
+bytes; optimized BPC1 still takes roughly 238–244 microseconds and 121,956 bytes.
+Control128 peak falls to 415,111 bytes and control256 to 788,285 bytes. Every measured
+value peak falls, while some small value timing increases remain disclosed.
 
-Run from this worktree with an isolated global cache:
+Native paired inquiry Session peak falls from 3,107,532 to 2,847,222 bytes; ReAct
+falls from 5,201,096 to 4,239,618. Both still exceed the BPC1 baselines. Preparation
+alone falls from 2,327,004 to 2,063,574 for inquiry and 5,201,096 to 3,977,974 for ReAct;
+these preparation figures exclude subsequent Session/State work. Native index-width
+results do not establish wasm32 memory or guest latency gains.
+
+The [wider-leaf experiment](measurements/analysis-leaf-widths.json) retains rejected
+128/256-bit variants, exact patches, successful set-law tests and adverse samples.
+Fewer nodes did not guarantee lower allocated capacity: the uniform 256-bit variant
+raised several guarded peaks and value timings. `NEG-000010` excludes that exact
+unchanged route on its bound workloads, not other bitmap representations.
+
+## Verification and measurement scope
+
+The current root-width source passes:
 
 ```sh
-zig build check-stable-lowering check-v2-data check-v2-authoring \
+zig build check -Doptimize=ReleaseSafe -j4 \
   --global-cache-dir .zig-global-cache --summary all
-zig build check-stable-lowering check-v2-data check-v2-authoring \
-  -Doptimize=ReleaseSafe --global-cache-dir .zig-global-cache --summary all
 ```
 
-The installation test uses the unchanged public construction at 1/8/64/128/256.
-For `n` installations its entry function has `4n+1` slots, `3n+1` instructions,
-`2n+1` blocks and exactly `n` returned-value assignments. All checked additions
-remain in the final result block, after all handlers. There is no unchanged-value
-edge assignment. These are target construction counts, not full compiler or
-runtime performance results.
+The result is 216/216 steps and 221/221 Zig tests, with the source oracle,
+source-independent BMO1 linking, independent native/wasm32 codec/identity witnesses,
+malformed records, nominal separation, borrow/resource authority, ownership,
+allocation failure, overlays and full-width member tests. World passes its 32-step
+aggregate against the immutable candidate, including 74 source tests,39 storage
+tests,30 host tests,6,755 independent oracle observations, Node/Wasmtime,
+Chromium/Firefox Worker transfer and extracted-package checks. All 13 paired Agent
+comparison scenarios preserve their original semantics and work counts with the
+new native build. Final normal-pin qualification and guest timing for this update
+remain separate pending gates.
 
-The source checker now shares canonical interval/tree sets rather than copying
-flat value/term free-variable vectors. Only actual function captures are enumerated.
-Contiguous prefixes add at most two set nodes per insertion, and queries descend
-by a strictly decreasing bit rather than replaying previous versions. Exhaustive
-comparisons cover every union, intersection and single-member removal on eight-bit
-sets, with separate full-width and allocation-failure witnesses. The installation
-checker has `2n+4` nodes and `18n+58` set-operation visits in the measured matrix;
-regression tests enforce linear bounds through 1,024 installations. Recursive
-closures still use a monotone least fixed point and preserve lexical binding.
+The unchanged installation family retains its delayed checked sum and actual
+handlers. Native/wasm32 image checks cover installation, mixed and irregular
+Programs, with current image budgets checked against the optimized compact
+predecessor. Source conformance covers deep/shallow, one-shot/multi-shot, injection,
+retained/reentrant computation, nominal capabilities, generative regions, borrowed
+resources, abandonment, yielded/suspending cleanup and cancellation. None of these
+static checks substitutes for World's executed and portable-state witnesses.
 
-The predecessor compiler, its retained-interface materialization adapter,
-closure/custody lowering helpers and old compiled owner have been removed.
-All existing authoring regressions now run through the stable compiler.
+Earlier measurements remain useful with their original limits:
 
-Construction and structure checks cover 37 existing generalized-effect examples,
-heterogeneous join destinations, shadowed names, expression DAG sharing, malformed
-slot/edge references, permutations, repeated copyable inputs, answer transformation,
-source-owner release and allocation-failure sweeps. New adversarial cases reject
-forged operation types, missing arithmetic failure contracts, hidden effects,
-weakened callable capture bounds, unauthorized resource elimination and corrupted
-custody trees. The nested-scope witness records exit into the parent before a
-sibling binding scope begins. Flow tests additionally cover
-partially initialized joins, use after move, loop fixed points, dead ordinary data,
-retained cleanup custody and unreachable continuations. The existing data/authoring
-expectations remain enabled. These checks do not establish behavior under World.
+- [Source facts](measurements/source-facts.json): isolated source-checker timings,
+  logical-set agreement and arena capacity; not full compiler/runtime latency.
+- [Shared fixture emitter](measurements/shared-emitter.json): all 82 fixture outputs
+  remained byte-identical; one cold pair fell 250.4→19.6 seconds and warm medians
+  fell 2.863→0.277 seconds. The cold observation is one pair, not a distribution.
+- World retains control, value, admission-buffer, solver and continuation-transfer
+  measurements; Agent retains actual inquiry/ReAct, repeated-task and producer/
+  build/edit/link measurements. Their results do not silently extend to later code.
 
-## Source-checker measurements
-
-`zig build profile-source-facts --global-cache-dir .zig-global-cache` runs the
-checker probe. The baseline executable was built before the checker change from
-`0db0224`, using the same staged installation inputs. The probe can also be built
-in that immutable checkout. It includes three warmups and nine measured checks per
-process. The reported values are medians of six process medians, from two windows
-of three rotating baseline/candidate pairs on the same M2 Pro, Zig 0.16.0 native
-build (source/probe module ReleaseSafe; pure data dependency Debug in both).
-Authoring, native compilation and diagnostic enumeration
-of logical memberships occur outside the timed interval.
-
-| Installations | Baseline checker | Current checker | Baseline arena | Current arena |
-|---:|---:|---:|---:|---:|
-| 1 | 1.625 us | 1.063 us | 5,342 B | 6,478 B |
-| 8 | 5.000 us | 2.729 us | 17,330 B | 13,778 B |
-| 64 | 104.126 us | 17.250 us | 146,126 B | 92,626 B |
-| 128 | 516.125 us | 35.063 us | 454,626 B | 183,698 B |
-| 256 | 3,383.230 us | 74.188 us | 1,436,818 B | 651,896 B |
-
-At 256, candidate process medians ranged from 73.375 to 80.750 us. Every observed
-set-content digest and logical membership count matched the baseline. Arena values
-are backing capacity, not peak RSS; the tiny input has an explicit memory cost.
-Raw samples, measured source hashes and configuration are in
-[the measurement file](measurements/source-facts.json). This is an isolated checker
-improvement, not completion of the cold-build, full compiler, runtime, Agent,
-compact-image-size or end-to-end performance requirements.
-
-## Remaining work
-
-Opaque admitted BPI3 owners now retain immutable Program facts for World
-preparation. Each execution or State admission gets a private set overlay over
-one read-only base; lookups never follow a chain of earlier versions. Exhaustive
-eight-bit set operations, allocation failures and sibling-overlay tests preserve
-the base. Schema/use/effect views are read-only. This removes repeated Program
-admission from prepared starts/restores, without adding a caller-supplied proof flag.
-The earlier checker timings above remain bound to their recorded source revisions;
-they are not measurements of these later representation changes.
-
-The [current invocation envelopes](invocation-wire.md) define PKI3/PKO3 and
-ERQ3/ERS3 with owned decoding and State-bound typed replies. Fresh native invocation
-uses the stable evaluator and agrees with resident/restored execution at matching
-quanta. Independent wasm32 fixtures cover envelope bytes and request identity.
-World's generic ABI 3 and browser-neutral embedding now exercise these envelopes;
-the ordinary public cutover remains pending.
-
-The Builder's Module receiver now reads by reference: adding a declaration while
-evaluating a module argument no longer captures a stale catalog. The former
-`builder.module(main, try builder.scalar(void))` failure is covered by an authoring
-regression and the explicit-yield invocation case.
-
-The [PST3 graph codec](pst3-wire.md) now owns canonical stable activation views
-and lexical owner order with each control node. It preserves graph aliases and
-cycles, removes unreachable state, and validates canonical numbering without a
-second decoded graph copy. World exports these records at its native safepoints.
-Program-relative State admission now checks actual stable slots, instruction
-positions, dynamic effects, borrow provenance, ownership and cleanup against the
-matching Program. Native executable restoration passes the source corpus at
-matched quanta. World also exercises the current envelopes across native, Node,
-Wasmtime and real browser Workers.
-
-The [BPI3 codec](bpi3-wire.md) now writes stable records directly, admits owned
-input, enforces a physical expansion budget and hashes the canonical bytes in
-the new `boundary.program/v3` domain. Goldens and allocation-failure sweeps pass;
-all 37 staged semantic examples round-trip with exact record/identity equality.
-The source construction exposes this encoder, and World's stable source suite
-now loads it and destroys the input bytes before execution. The ordinary public compiler now uses this path.
-
-`zig build check-program-image-wasm -Doptimize=ReleaseSafe` compares native and
-import-free, unshared wasm32 decoding/re-encoding and identity for 12 installation,
-mixed and irregular images. All agree. On the unchanged installation inputs,
-complete BPI3 sizes for 64/128/256 are **2,658 / 5,480 / 11,368 bytes**, versus
-the accepted optimized-predecessor budgets **2,805 / 5,574 / 12,102 bytes**. This is a byte-count result,
-not execution, preparation-memory or compiler-time acceptance. The probe emits
-every size and image identity; it includes the actual current native emitter and WASM
-codec, with no predecessor expansion in the successor codec.
-
-World now executes the native stable-control slice through `boundary.program.compile`,
-including deep multi-shot/reentrant cases and retained loop-slot versions. The
-analysis owner now keeps its arena at a stable address so runtime-derived set
-operations cannot allocate through an escaped stack pointer. World now
-also executes borrowed/resource cases using the stable borrow/context admission.
-The current source conformance includes 24 older/fresh return-clause cases,
-pre-instruction rebind counterexamples, loop/permutation summaries, clause payload
-rejections, and protected-loan escape rejection. Runtime witnesses include
-non-tail handling, external requests, joins, escaping one-shot control, retained
-loop versions and reentrant multi-shot behavior. Static admission is not a
-substitute for those executed witnesses.
-
-The [BMO1 component path](bmo1-components.md) now compiles independent effectful
-objects and links from first-order artifacts using a data-only executable. Tests
-cover nominal sharing/separation, interface mismatches, capture bounds, forged
-resource authority, allocation failures and mutually recursive implementations.
-World executes the linked private-state/owned-suspension composition in two
-Programs and transfers their checkpoints through Wasmtime. BMO1 now carries
-explicit imported borrow assumptions and code-derived exported guarantees for
-result provenance, cell writes and outlives requirements. All local queries run
-under those assumptions; the old deferral path is removed. Linking checks them
-against the actual relocated implementations, including functions reached through
-handler/constructor imports, then independently admits the closed Program. The
-contract's whole-result precision limit is described in the component format.
-
-The public compiler now emits BPI3, and the current World/Agent paths consume it.
-Full performance acceptance, remaining legacy data/runtime/build retirement,
-package validation on the final coordinated inputs and serial review closeout
-remain mandatory. This is not a completed successor.
-
-## Retained scoped interaction
-
-`source.examples.retainedScope` supplies a linear effectful body to the internal
-`retained-scope/run` operation. Its clause installs a fresh interpretation and
-passes that capability to the body. The body stores a reusable computation,
-yields, then applies the saved value. That computation holds two distinct
-capabilities of the same nominal read family: its captured definition-site
-attachment reads 10, and the scope-supplied attachment reads 20.
-
-The deferred result is `10 * 100 + 20`. The outside continuation adds 1, the
-scoped handler return adds 100, and the outer handler transforms the scalar
-answer into `[1121, 99]`. A protected cleanup requests `retained-scope/release`
-with payload 77 exactly once, both normally and when cancelled at the yield.
-No new primitive, source language or runtime path is needed.
-
-The source construction round-trips through BPI3 admission. World additionally
-checks that the yielded graph retains a computation with two distinct capability
-references, restores it and its pending cleanup, and compares every instruction
-checkpoint through fresh, resident and restored execution. Both the selected
-read clauses and their general resumption forms produce the same observations.
-Native/Node/Wasmtime and real Chromium/Firefox Worker transfers cover this witness.
-
-## Public compiler cutover and fixture build
-
-`boundary.program.compile`, `compileObserved` and staged `program.lower` now use
-one stable compiler and emit BPI3. The predecessor compiler and its owner,
-continuation/custody and direct-clause helpers are deleted. The separate data
-build module is `boundary_data`; the facade is `boundary.data`. Versioned facade
-aliases and the experimental `source.construct` entry points are removed.
-World and Agent call the same current surface.
-
-The migrated authoring suite preserves all 86 cases. Target diagnostics now
-report the responsible function, call, slot and handler. Sparse region ordinals
-are compacted through the typed relocator without allocating by their maximum
-value; distinct nominal names remain distinct. Local cell reads/writes retain
-their capture-free total-tail specialization, with type/region/borrow checks
-still required. A second consuming read rejects as `UnavailableSlot`.
-
-Original target admission precedes specialization, and final target admission
-follows normalization. Phase observations report both checks and real
-normalization/selection work; no synthetic legacy pass is reported.
-
-The current `check` aggregate passes in ReleaseSafe: 216 build steps and 240
-Zig tests, plus six archive/source-identity tests, the independent source oracle
-over 41 fixtures, BMO1 source-independent linking, and BPI3/PST3/invocation wasm32
-agreement. The formal model remains available separately through `check-formal`.
-
-The source-fixture build now compiles one reusable emitter for 41 JSON and 41
-BPI3 outputs. Against the same current compiler with the previous per-example
-build graph, all 82 outputs are byte-identical. One cold pair with fresh Zig
-caches and four jobs measured 250.4 seconds before and 19.6 seconds after; native
-emitter compilations fell from 82 to 1. Three alternating warm no-change pairs
-measured medians of 2.863 seconds and 0.277 seconds. These are fixture-build
-observations, not a full compiler/runtime performance claim. Raw timings, every
-fixture digest, reconstruction patches and limits are in
-[shared-emitter.json](measurements/shared-emitter.json).
-
-The removed BPC1 writer wrappers and comparison drivers are replaced on the
-current path by native/wasm32 BPI3 re-encoding and identity checks over installation,
-mixed and irregular inputs. Installation byte budgets remain independently tied
-to the accepted 2.0.2 reference. Historical samples remain in Git and the retained
-measurement records. Legacy data decoders, remaining old runtime/build surfaces,
-the full performance matrix and serial reviews still require retirement or closure.
-
-## BPI1 retirement checkpoint
-
-The frozen BPI1 decoder, lift command, fixtures and their build targets are
-removed. Current BPI3/PST3 framing tests explicitly reject the old BPI1, BPI2,
-BPC1, PST1 and PST2 families. Historical measurements remain evidence; they do
-not create a supported old-format execution path.
-
-`zig build check-data check-authoring --global-cache-dir .zig-global-cache
---summary all` passes all 195 tests with Zig 0.16.0. Formatting and diff checks
-pass. The previous full aggregate belongs to implementation `7094aa5`; it was
-not repeated for this retirement checkpoint. Other legacy data/runtime removal,
-performance acceptance and serial reviews remain incomplete.
-
-## Current codec ownership
-
-BPI2/BPC1 and PST2/PKI2/PKO2/ERQ2/ERS2 readers/writers, old framing helpers,
-old catalog normalization and their public aliases are removed. BPI3/PST3 and
-current invocation codecs remain the wire owners. Shared graph discovery and
-normalization are exposed through the existing `data.graph_order` implementation;
-World storage and Agent's economy probe use that owner directly. Cancellation
-reasons belong to `data.invocation`. Structural record equality used by BMO1
-linking now lives with the record operations and keeps its previous semantics.
-
-Relevant old-format regression obligations have current tests: graph owner
-allocation failures, scratch lifetime, cycles and blob interning; unreachable
-wire nodes; canonical reference-width sizing and untouched failed output; all
-seven request-binding fields; allocator-time input mutation; current borrow-query
-cache/retry/batching; and recursive, bounded and finite schema contracts. Current
-framing, mutation, allocation and native/WASM goldens replace old-format spelling
-checks. Cancellation before initial execution is explicitly valid under the
-accepted successor contract. Retention probes now emit current formats; old
-measurement records remain historical.
-
-The local codec retirement passes the full Boundary aggregate: 216 build steps
-and 207 Zig tests, plus the source oracle and current WASM codec/link checks.
-World's full aggregate passes with the local Boundary source override: 32 steps,
-69 source tests, 35 storage tests, 24 host tests, 6,755 source-oracle observations,
-capacity and native/Node/Wasmtime/browser/package checks. Its resulting kernel
-SHA-256 is `89f8eb82abe322cda762fd6207b1a9374f0f1d45a48804f5b807f8018eff94c6`.
-Dependency pins and Agent qualification have not yet been refreshed for this
-codec change. Predecessor executable Program/Function/Block/Instruction/Edge
-records and their analysis branches are now removed too. Authoring schema,
-effect and handler contracts remain distinct from lowered executable records.
-Borrow analysis retains its required input-ordinal versus stable-slot distinction
-and closed versus component admission, without an old-layout branch. World now
-dispatches the current instruction directly with its layout-resolved result
-schema, rather than constructing an old instruction record. Graph-only helper
-cleanup, qualified dependency updates, full performance acceptance and serial
-reviews remain open.
-
-Historical RNF/v1.5 reification comparison and acquisition scripts, BPI1 repair
-inputs and the old protected-delivery tuple are removed from the maintained
-source package. They had no callers in the current build. Current source-oracle,
-malformed-state, ownership, capacity and consumer checks replace their semantic
-obligations; exact old-format replay is retired. The optimized 2.0.2 comparison
-anchor and the retained raw performance measurements are unchanged. Historical
-reconstruction uses Git history rather than a normal package dependency.
-
-## Invocation ownership
-
-Current PKI3/PKO3/ERQ3/ERS3 decoding owns one exact-sized copy of its input.
-Record fields borrow from that copy; no growable arena or nested record array is
-needed for these envelope types. Framing, limits, schema checks, request identity
-and error cleanup retain their existing owners. Callers use the decoded `value`
-and `deinit`; the old arena field is removed. Tests cover caller overwrite/free
-for every envelope family, request allocation failures, and a 1 MiB command
-decoded with exactly its input extent available. The full aggregate passes
-216 steps and 210 Zig tests. World records the matched memory measurements in
-its argument-ownership result section.
-
-## Canonical analysis-set storage
-
-Sparse sets within an aligned 64-ID word use one canonical bitmap leaf;
-contiguous runs remain one node and larger sets share binary subtrees. The
-interning table stores immutable node IDs, deriving hash/equality from the
-owning array instead of retaining a second node record. Bounds and cardinality
-determine the private payload interpretation, and constructors normalize every
-leaf before interning. Neither these IDs nor the interning hash enter portable
-Program identity. Read-only bases retain their existing lifetime contract.
-
-Exhaustive small-domain, cross-word, high-ID, overlay, layout and allocation-failure
-checks pass, along with the full 216-step / 212-test aggregate. World's matched
-control measurements show improvements over the preceding successor, but the
-optimized-predecessor control latency and peak-memory requirements remain open.
-
-## Analysis buffer ownership
-
-Initialization, availability, obligations and liveness remain distinct. Coincident
-input roots reuse the same pure set operation, preserving facts and checking
-order. The set Pool now owns resizable node/index buffers through the parent
-allocator, releasing replaced allocations during growth. Facts retains one
-deinit/error-cleanup path for its arena and Pool. Prepared storage accounting
-includes the actual held Pool buffers, including resize/remap/free changes.
-
-The full aggregate passes 216 steps and 213 Zig tests. World
-`docs/measurements/admission-buffer-ownership.json` records the isolated effects,
-including control64 peak allocation of 291,133 bytes and unchanged semantics.
-Control latency and the measured Agent clarification regression remain open.
-
-## Solver-owned position facts
-
-Each worklist visit now records per-position facts from the current entry state.
-An entry change schedules another visit, so the last recorded transition belongs
-to the final fixed point. Final forward validation remains in declaration and
-instruction order: it checks and consumes operands, rejects owner overwrites,
-then uses the recorded post-instruction state. Successor/assignment checks remain.
-Initialization, availability, obligations and liveness stay separate.
-
-Liveness records every processing visit, including a successor change that alters
-internal positions without changing the block entry root. There is no caller-fed
-cache or trusted-summary flag. The same immutable Program and analysis owner
-govern computation, recording and validation; facts escape only after success.
-
-The interner hashes a smaller key while retaining full node equality, computes
-incoming hashes once, and uses one lookup/insertion probe when capacity permits.
-All fallible storage work precedes key publication. Direct insertion preserves
-the same canonical run/word/tree form without constructing a needless singleton.
-An exhausted-allocator test covers existing keys at both capacity boundaries.
-
-The full aggregate passes 216 steps / 217 tests. A generated comparison against
-`d8edcf1` matches 1024 CFG observations: 412 admitted, 572 UnavailableSlot and
-40 OverwrittenOwner cases, with every admitted per-position fact set compared.
-The probe is `test/v2/compare_activation_flow.zig`; compile it against an explicit
-`data` module from either frozen source. World retains all paired experiments
-in `docs/measurements/solver-facts.json`. Current measurements remain partial
-performance evidence, and control64 still trails optimized BPC1.
+The source fixture build uses one reusable emitter. The formal project remains
+independently runnable through `check-formal`; it is not a production dependency.
+Earlier prose milestones remain in Git history rather than a second maintained
+status timeline. Completion still requires the full accepted performance matrix,
+resolution of primary-workload regressions, the final coordinated dependency and
+package checks, remaining retirement, serial reviews and a requirement-by-requirement
+audit.
