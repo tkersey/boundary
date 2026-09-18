@@ -3,28 +3,33 @@
 Boundary 3.0.0-dev.0 provides stable-slot authoring, checked BMO1 component linking,
 and the current BPI3/PST3/invocation data contracts. World interprets these records;
 Agent is the required consumer. The successor remains incomplete and its PRs remain
-drafts. Implementation is paused for the authorized archive cleanup.
+drafts. Implementation has resumed after the authorized archive cleanup.
 
 Current contracts: [components](bmo1-components.md), [Program images](bpi3-wire.md),
 [State](pst3-wire.md), and [invocations](invocation-wire.md).
 
-The last implementation qualification passed 216 build steps and 221 Zig tests,
-including allocation failure, ownership, nominal separation, borrow contracts,
-independent native/wasm32 codecs and source-independent linking. Cleanup does not
-change executable source or test expectations; it does not repeat that full matrix.
+The full Boundary check passes, including allocation failure, ownership, nominal
+separation, borrow contracts, independent native/wasm32 codecs and source-independent
+linking. The latest flow-storage change also passes World's 74 source tests and
+52 storage tests, 257 native/Node boundaries and extracted runtime checks.
 
 ## Current results and unresolved work
 
-Private analysis indexes use checked u32 while member IDs remain u64. The separate
-index-space bound is needed only when narrowing the pointer width. The final guest
-runtime remains byte-identical to its preceding qualified version.
+Private analysis indexes use checked u32 while member IDs remain u64. Flow analysis
+now releases work queues, reverse edges and temporary traits before returning its
+facts. Each FIFO holds at most one entry per block instead of retaining processed
+visit history. Entries, position facts, liveness and set nodes retain their owner.
 
-On the measured native control64 workload, medians were 363/359 microseconds and
-working peak was 241,495 bytes. Optimized BPC1 was about 238 microseconds and
-121,956 bytes: the regression remains unresolved. Control128/256 peaks were
-415,111/788,285 bytes. Value peaks decreased, with small timing increases in some
-cases. These are workload-specific requested-allocation observations, not RSS or
-universal performance claims.
+Across 13 unchanged Agent scenarios, native inquiry/ReAct Session peaks fall from
+2,847,222 / 4,239,618 to 2,408,588 / 3,841,782 bytes with identical outcomes and work
+counts. Five paired guest runs overlap substantially; guest speed is indeterminate.
+
+Native control64 is about 362 microseconds and 219,987 working bytes, versus about
+238 microseconds and 121,956 bytes for optimized BPC1: that gap remains unresolved.
+Control128/256 peaks are 417,163 / 881,349 bytes, up from 415,111 / 788,285 in the
+preceding successor but below BPC1's 435,558 / 1,324,938. These are requested working
+allocations, not RSS. Wasmtime/browser requalification and the remaining performance
+matrix are still required for the final candidate.
 
 Agent's measured inquiry/ReAct native Session peaks remain above BPC1. Remaining
 work includes primary-workload performance, the rest of the accepted workload

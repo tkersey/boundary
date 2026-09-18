@@ -64,18 +64,25 @@ pub fn analyzeComponent(allocator: std.mem.Allocator, image: ir.Program, imports
         allocator.destroy(arena);
     }
     const a = arena.allocator();
+    // Work queues, reverse edges and temporary traits die with this analysis.
+    // Only returned entries/positions and their set pool belong to Facts.
+    var scratch = std.heap.ArenaAllocator.init(allocator);
+    defer scratch.deinit();
+    const temporary = scratch.allocator();
     const pool = try a.create(sets.Pool);
     var limit: usize = 0;
     for (image.functions) |function| limit = @max(limit, function.layout.slots.len);
     pool.* = .{ .allocator = allocator, .limit = limit };
     errdefer pool.deinit();
     var analysis: Analysis = .{
-        .allocator = a,
+        .allocator = temporary,
+        .retained = a,
         .image = image,
         .pool = pool,
-        .uses = try traits.derive(a, image.schemas),
+        .uses = try traits.derive(temporary, image.schemas),
         .entries = try a.alloc(?State, image.blocks.len),
-        .queued = try a.alloc(bool, image.blocks.len),
+        .queued = try temporary.alloc(bool, image.blocks.len),
+        .work = try Queue.init(temporary, image.blocks.len),
         .positions = try a.alloc([]State, image.blocks.len),
     };
     @memset(analysis.entries, null);
@@ -98,8 +105,8 @@ pub fn analyzeComponent(allocator: std.mem.Allocator, image: ir.Program, imports
         });
     }
     var index: usize = 0;
-    while (index < analysis.work.items.len) : (index += 1) {
-        const block = analysis.work.items[index];
+    while (analysis.work.pop()) |block| {
+        index += 1;
         analysis.queued[@intCast(block)] = false;
         try analysis.block(block, false);
     }
@@ -123,13 +130,14 @@ pub fn analyzeComponent(allocator: std.mem.Allocator, image: ir.Program, imports
 
 const Analysis = struct {
     allocator: std.mem.Allocator,
+    retained: std.mem.Allocator,
     image: ir.Program,
     pool: *sets.Pool,
     uses: traits.Facts,
     entries: []?State,
     positions: [][]State,
     queued: []bool,
-    work: std.ArrayList(p.Id) = .empty,
+    work: Queue,
 
     fn merge(self: *Analysis, id: p.Id, incoming: State) Error!void {
         const index: usize = @intCast(id);
@@ -142,7 +150,7 @@ const Analysis = struct {
         if (old != null and std.meta.eql(old.?, next)) return;
         self.entries[index] = next;
         if (!self.queued[index]) {
-            try self.work.append(self.allocator, id);
+            self.work.push(id);
             self.queued[index] = true;
         }
     }
@@ -157,7 +165,7 @@ const Analysis = struct {
         };
         if (!checking) {
             if (self.positions[@intCast(id)].len == 0)
-                self.positions[@intCast(id)] = try self.allocator.alloc(State, code.instructions.len + 1);
+                self.positions[@intCast(id)] = try self.retained.alloc(State, code.instructions.len + 1);
             self.positions[@intCast(id)][0] = flow.state;
         }
         for (code.instructions, 0..) |instruction, position| {
@@ -184,6 +192,32 @@ const Analysis = struct {
             try branch.edge(successor.edge, successor.returned);
             if (!checking) try self.merge(successor.edge.block, branch.state);
         }
+    }
+};
+
+// `queued` admits each block at most once at a time. A FIFO needs one cell per
+// block, regardless of the number of fixed-point visits; processed history dies.
+const Queue = struct {
+    items: []p.Id,
+    first: usize = 0,
+    next: usize = 0,
+    length: usize = 0,
+
+    fn init(allocator: std.mem.Allocator, capacity: usize) Error!Queue {
+        return .{ .items = try allocator.alloc(p.Id, capacity) };
+    }
+    fn push(self: *Queue, id: p.Id) void {
+        std.debug.assert(self.length < self.items.len);
+        self.items[self.next] = id;
+        self.next = if (self.next + 1 == self.items.len) 0 else self.next + 1;
+        self.length += 1;
+    }
+    fn pop(self: *Queue) ?p.Id {
+        if (self.length == 0) return null;
+        const id = self.items[self.first];
+        self.first = if (self.first + 1 == self.items.len) 0 else self.first + 1;
+        self.length -= 1;
+        return id;
     }
 };
 
@@ -308,7 +342,7 @@ const Liveness = struct {
     positions: [][]sets.Root,
     parents: []std.ArrayList(p.Id),
     queued: []bool,
-    work: std.ArrayList(p.Id) = .empty,
+    work: Queue,
     visits: usize = 0,
 
     fn derive(analysis: *Analysis) Error!Liveness {
@@ -317,9 +351,10 @@ const Liveness = struct {
         var result: Liveness = .{
             .analysis = analysis,
             .entries = try a.alloc(sets.Root, image.blocks.len),
-            .positions = try a.alloc([]sets.Root, image.blocks.len),
+            .positions = try analysis.retained.alloc([]sets.Root, image.blocks.len),
             .parents = try a.alloc(std.ArrayList(p.Id), image.blocks.len),
             .queued = try a.alloc(bool, image.blocks.len),
+            .work = try Queue.init(a, image.blocks.len),
         };
         @memset(result.entries, sets.empty);
         @memset(result.positions, &.{});
@@ -336,8 +371,8 @@ const Liveness = struct {
             remaining -= 1;
             if (analysis.entries[remaining] != null) try result.enqueue(remaining);
         }
-        while (result.visits < result.work.items.len) : (result.visits += 1) {
-            const id = result.work.items[result.visits];
+        while (result.work.pop()) |id| {
+            result.visits += 1;
             result.queued[@intCast(id)] = false;
             const root = try result.block(id);
             if (root == result.entries[@intCast(id)]) continue;
@@ -349,7 +384,7 @@ const Liveness = struct {
 
     fn enqueue(self: *Liveness, id: p.Id) Error!void {
         if (self.queued[@intCast(id)]) return;
-        try self.work.append(self.analysis.allocator, id);
+        self.work.push(id);
         self.queued[@intCast(id)] = true;
     }
 
@@ -387,7 +422,7 @@ const Liveness = struct {
         var position = code.instructions.len;
         live.root = try self.pinOwners(id, position, live.root);
         if (self.positions[@intCast(id)].len == 0)
-            self.positions[@intCast(id)] = try self.analysis.allocator.alloc(sets.Root, position + 1);
+            self.positions[@intCast(id)] = try self.analysis.retained.alloc(sets.Root, position + 1);
         self.positions[@intCast(id)][position] = live.root;
         while (position != 0) {
             position -= 1;
