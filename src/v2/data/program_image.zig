@@ -55,12 +55,14 @@ pub fn identity(allocator: std.mem.Allocator, program: ir.Program) Error![32]u8 
 
 pub const Decoded = struct {
     arena: std.heap.ArenaAllocator,
+    block_catalog: []ir.Block,
     program: ir.Program,
     bytes: []const u8,
     identity: [32]u8,
     decoded_bytes: usize,
 
     pub fn deinit(self: *Decoded) void {
+        self.arena.child_allocator.free(self.block_catalog);
         self.arena.deinit();
         self.* = undefined;
     }
@@ -89,6 +91,8 @@ fn decodeChecked(allocator: std.mem.Allocator, input: []const u8, limits: Limits
     if (input.len > limits.max_decoded_bytes) return error.Capacity;
     var arena = std.heap.ArenaAllocator.init(allocator);
     errdefer arena.deinit();
+    var block_catalog: []ir.Block = &.{};
+    errdefer allocator.free(block_catalog);
     const owned = try arena.allocator().dupe(u8, input);
     var reader: wire.Reader = .{ .input = owned };
     if (!std.mem.eql(u8, try reader.take(8), magic)) return error.InvalidFamily;
@@ -97,7 +101,7 @@ fn decodeChecked(allocator: std.mem.Allocator, input: []const u8, limits: Limits
     if (try reader.fixed(u64) != owned.len - wire.header_length) return error.InvalidLength;
     var context: body_record.Context = .{};
     var budget: body_record.Budget = .{ .used = owned.len, .maximum = limits.max_decoded_bytes };
-    const program = try body_record.read(ir.Program, &reader, arena.allocator(), &budget, &context);
+    const program = try body_record.readProgram(&reader, arena.allocator(), allocator, &block_catalog, &budget, &context);
     try reader.finish();
     var checked = try admission.analyze(allocator, program);
     errdefer checked.deinit();
@@ -108,7 +112,7 @@ fn decodeChecked(allocator: std.mem.Allocator, input: []const u8, limits: Limits
     var canonical: wire.Writer = .{ .expected = owned, .hasher = &hash };
     try write(program, owned.len, &canonical);
     if (canonical.position != owned.len) return error.NonCanonical;
-    return .{ .decoded = .{ .arena = arena, .program = program, .bytes = owned, .identity = hash.finalResult(), .decoded_bytes = budget.used }, .analysis = checked };
+    return .{ .decoded = .{ .arena = arena, .block_catalog = block_catalog, .program = program, .bytes = owned, .identity = hash.finalResult(), .decoded_bytes = budget.used }, .analysis = checked };
 }
 
 pub const Analysis = struct {
@@ -170,7 +174,8 @@ pub const Admitted = opaque {
     }
     pub fn storageBytes(self: *const Admitted) usize {
         const owner = self.storage();
-        return @sizeOf(AdmittedStorage) + owner.decoded.arena.queryCapacity() + owner.analysis.arena.queryCapacity() + owner.analysis.pool.storageBytes();
+        const catalogs = owner.decoded.block_catalog.len * @sizeOf(ir.Block);
+        return @sizeOf(AdmittedStorage) + owner.decoded.arena.queryCapacity() + catalogs + owner.analysis.arena.queryCapacity() + owner.analysis.pool.storageBytes();
     }
     /// Per-consumer mutable set nodes; all original maps remain shared read-only.
     /// This analysis borrows the admitted owner for its entire lifetime.

@@ -20,6 +20,25 @@ pub const Budget = struct {
 };
 pub const Context = struct { previous_function: p.Id = 0 };
 
+/// The image owner may allocate a large outer block catalog exactly. Nested
+/// records still belong to its arena; the out allocation is owned on failure too.
+pub fn readProgram(reader: *wire.Reader, arena: std.mem.Allocator, catalog: std.mem.Allocator, blocks: *[]ir.Block, budget: *Budget, context: *Context) Error!ir.Program {
+    var result: ir.Program = undefined;
+    inline for (std.meta.fields(ir.Program)) |field| {
+        if (comptime std.mem.eql(u8, field.name, "blocks")) {
+            const count = try reader.count();
+            if (count > reader.input.len - reader.position) return error.Truncated;
+            try budget.account(ir.Block, count);
+            const exact = count >= 4096 / @sizeOf(ir.Block);
+            const output = try (if (exact) catalog else arena).alloc(ir.Block, count);
+            if (exact) blocks.* = output;
+            for (output) |*block| block.* = try read(ir.Block, reader, arena, budget, context);
+            result.blocks = output;
+        } else @field(result, field.name) = try read(field.type, reader, arena, budget, context);
+    }
+    return result;
+}
+
 comptime {
     fields(ir.Program, &.{ "roots", "schemas", "constants", "effects", "functions", "blocks", "handlers", "scopes", "constructors" });
     fields(ir.Function, &.{ "entry", "inputs", "layout", "custody", "result", "effects", "regions" });

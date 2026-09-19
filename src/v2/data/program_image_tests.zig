@@ -302,3 +302,39 @@ test "large decoded arrays and owned image bytes survive caller mutation and all
     defer roundtrip.deinit();
     try testing.expectEqualDeep(decoded.program, roundtrip.program);
 }
+
+test "large outer block catalogs own exact storage and release partial decode failures" {
+    var blocks: [64]ir.Block = undefined;
+    for (&blocks, 0..) |*block, index| block.* = .{
+        .function = 0,
+        .instructions = if (index == 0) example.blocks[0].instructions else &.{},
+        .terminator = if (index + 1 == blocks.len) .{ .return_value = 0 } else .{ .jump = .{ .block = index + 1 } },
+    };
+    var program = example;
+    program.blocks = &blocks;
+    const encoded = try testing.allocator.alloc(u8, try image.encodedLength(program));
+    defer testing.allocator.free(encoded);
+    _ = try image.encode(testing.allocator, program, encoded);
+    var decoded = try image.decode(testing.allocator, encoded);
+    defer decoded.deinit();
+    try testing.expectEqual(blocks.len, decoded.block_catalog.len);
+    try testing.expectEqualDeep(program, decoded.program);
+    try testing.checkAllAllocationFailures(testing.allocator, decodeBlockCatalog, .{ encoded, false });
+    const truncated = try testing.allocator.dupe(u8, encoded[0 .. encoded.len - 1]);
+    defer testing.allocator.free(truncated);
+    std.mem.writeInt(u64, truncated[12..20], truncated.len - 20, .little);
+    try testing.checkAllAllocationFailures(testing.allocator, decodeBlockCatalog, .{ truncated, true });
+    @memset(encoded, 0xff);
+    try testing.expectEqualDeep(program, decoded.program);
+}
+
+fn decodeBlockCatalog(allocator: std.mem.Allocator, bytes: []const u8, truncated: bool) !void {
+    var decoded = image.decode(allocator, bytes) catch |err| {
+        if (truncated and err == error.Truncated) return;
+        return err;
+    };
+    defer decoded.deinit();
+    try testing.expect(!truncated);
+    try testing.expectEqual(64, decoded.program.blocks.len);
+    try testing.expectEqual(63, decoded.program.blocks[62].terminator.jump.block);
+}

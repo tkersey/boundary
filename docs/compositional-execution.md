@@ -8,11 +8,29 @@ drafts. Implementation has resumed after the authorized archive cleanup.
 Current contracts: [components](bmo1-components.md), [Program images](bpi3-wire.md),
 [State](pst3-wire.md), and [invocations](invocation-wire.md).
 
-The current full check passes 216 build steps and 227 tests, including 102 pure
+The current full check passes 216 build steps and 228 tests, including 103 pure
 data tests, source semantics, ownership, nominal separation, allocation failures,
 native/wasm32 codecs and source-independent linking.
 
 ## Current results and unresolved work
+
+Large top-level block catalogs now use an exact allocation owned by Decoded;
+nested records and small catalogs keep their existing arena. The existing block
+reader, budget checks, canonical re-emission and identity remain unchanged. Errors
+release the catalog even when parsing stops partway through it. Tests cover caller
+mutation, malformed trailing bytes and every allocation failure. No decoder
+reparses or relocates live pointers, and no standard-library arena internals change.
+
+Across 13 fixed Agent scenarios and 128 paired native invocations, canonical
+outcomes and transition/control/copy counters match. Inquiry/ReAct Session peaks
+fall 1,952,780 / 3,084,054 → 1,866,916 / 2,739,154 bytes. Two native replay windows
+and two guest initial-invocation windows show small mixed timing changes; no
+latency improvement is claimed. Control64/128/256 peaks fall to 193,195 / 303,637 /
+575,249 bytes; tiny controls add 16 bytes for the catalog ownership slice. The
+kernel grows 915 bytes. BPC1 inquiry/ReAct peaks (1,853,961 / 2,061,220) remain
+lower, so those gaps and final performance acceptance remain open.
+
+The following measurements preceded this catalog ownership change:
 
 On 64-bit hosts, analysis-set pools select a 16-byte node layout when their declared
 member limit fits in 32 bits; larger domains retain 24-byte nodes. wasm32 keeps
