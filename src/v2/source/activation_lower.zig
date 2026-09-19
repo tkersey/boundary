@@ -123,13 +123,14 @@ fn lowerInternal(
     options.stage(.direct_optimization);
     const threaded = try @import("thread_jumps.zig").optimize(a, program);
     const selected = try @import("tail_clauses.zig").optimize(a, threaded, traits);
+    const ordered = try @import("slot_order.zig").optimize(a, selected);
     var output = std.heap.ArenaAllocator.init(allocator);
     errdefer output.deinit();
     options.stage(if (component) .source_copy else .canonicalization);
     const projected: data.relocation.Projection = if (component)
-        .{ .program = try source.own(ir.Program, output.allocator(), selected), .function_origins = &.{} }
+        .{ .program = try source.own(ir.Program, output.allocator(), ordered), .function_origins = &.{} }
     else
-        try data.relocation.ownReachable(output.allocator(), a, selected);
+        try data.relocation.ownReachable(output.allocator(), a, ordered);
     const result = projected.program;
     options.stage(.target_check);
     const flow = try checkTarget(allocator, &compiler, result, imports, component, borrows, if (component) null else projected.function_origins, options);

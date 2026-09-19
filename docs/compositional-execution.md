@@ -1,72 +1,64 @@
 # Boundary 3 successor status
 
 Boundary 3.0.0-dev.0 provides stable-slot authoring, checked BMO1 component linking,
-and current BPI3/PST3/invocation data contracts. World interprets these records;
-Agent is the required consumer. The successor remains incomplete and its PRs
-remain drafts. Implementation has resumed after the authorized archive cleanup.
+and current BPI3/PST3/invocation contracts. World interprets these records; Agent
+is the required consumer. The successor remains incomplete and all PRs are drafts.
 
 Current contracts: [components](bmo1-components.md), [Program images](bpi3-wire.md),
 [State](pst3-wire.md), and [invocations](invocation-wire.md).
 
-## Current results and unresolved work
+## Current construction and checks
 
-Within a block, projections from a just-constructed copyable, droppable product
-reuse its already-computed field slot. Every operand and the product itself still
-execute in order. Fresh instruction destinations cannot be overwritten inside
-that block; no cross-block cache or consumed owner is forwarded. Malformed
-projection types, indices, arities and fault mappings remain for target admission
-to reject. An independent source/native/WASM fixture checks mutable reads across
-a write (result 8) and an overflowing unselected field (failure 77).
+Linear functions whose control results remain needed in the final block place
+control bindings before instruction temporaries when those bindings span multiple
+64-slot words. This is a bijective renaming: slot counts, schemas, instructions,
+simultaneous assignments, custody and call-argument order are preserved. Branching
+and recycling lifetimes retain their layouts. Tests cover immutable, idempotent
+renaming and those exclusions; full admission runs after transformation.
 
-Compared with Boundary 2cf8d55 / World 6f29529 / Agent e64697b, ReAct loses
-2,192 instructions and temporary slots. Two rotating native replay windows over
-128 captured invocations from 13 unchanged Agent scenarios show about 29% lower
-ReAct time. Complete reset-ReAct invocation peaks fall 2,863,966 → 1,993,377
-bytes; inquiry timing is essentially unchanged. All protected observations match.
-The measurement is a sum of per-input medians (three warmups, nine samples),
-including byte admission/execution/output, not whole-scenario elapsed time.
-Two corresponding Node 26.9.0 guest windows improve ReAct about 26%, including
-fresh Kernel creation, invocation and outcome decoding. The kernel remains
-byte-identical. File loading and JavaScript module import are outside the timer.
+Empty jumps are threaded only within the same function and custody scope, without
+assignments. Cycles and real handlers remain. Local product projections reuse
+already-computed field slots only for copyable, droppable products. Every operand
+and the product still evaluate in order; malformed projections remain rejectable.
+The independent mutable/fault fixture returns 8 or fails with 77 as prescribed.
 
-The compiler threads empty jumps only when they carry no assignments and stay
-within one function and custody scope. Cycles remain executable; values, real
-handlers and effectful boundaries are preserved. The existing reachability pass
-removes the resulting unreachable blocks. Installation lowering now has n + 1
-blocks, 3n + 1 instructions and n real handlers, with the checked sum still after
-all installations. Components retain checked linking and function identities.
+The full check passes 220 steps and 233 tests, including 42 independent source
+fixtures, native/wasm32 byte agreement and source-free component linking. World
+also passes 79 native source tests and all 42 source/native/WASM comparisons.
 
-The full Boundary check passes 220 build steps and 232 tests, including the
-42-fixture independent source oracle, native/wasm32 byte agreement, source-free
-component linking, custody/assignment/cycle fences and a 10,000-block path.
+## Current results and limits
 
-Compared with Boundary 3dc3413 using World e995dc9, four alternating native
-ReleaseSafe windows (three warmups and nine samples per process) show roughly
-6–7% lower complete fresh-invocation time for 64/128/256 installations. Image
-bytes fall 2,629/5,451/11,339 → 2,303/4,683/9,803; working peaks fall
-193,195/303,637/575,249 → 190,649/296,055/462,039 bytes. Shallow handling improves
-about 12%; retained-loop timing is essentially unchanged. Queens DFS/BFS improve
-about 11%/4%, but BFS peak working memory rises 230,376 → 244,736 bytes. These are
-per-process medians on an M2 Pro, Zig 0.16.0, macOS 27.2, not a service p99 claim.
+Two alternating windows use one runtime-only executable, comparing the slot-order
+change with Boundary e6388d9 and identical World a609a1f production code. Each
+process has three warmups and nine samples; these are complete fresh-invocation
+medians, not tail-latency measurements. M2 Pro, macOS 27.2, Zig 0.16.0 ReleaseSafe.
 
-Current Agent inquiry/repeated/ReAct images are 36,756/37,137/48,226 bytes,
-down from 36,861/37,242/63,151 before projection forwarding. This does not close the ReAct image gap against
-BPC1 (43,394 bytes). Final matched predecessor timing/memory acceptance,
-small-control regressions, coordinated qualification and serial reviews
-remain open. No performance failure has been waived.
+| Installations | Confirmation before → after µs | Peak bytes before → after | Current BPI3 bytes / BPC1 limit |
+| --- | --- | --- | --- |
+| 64 | 295–301 → 273–279 | 190,649 → 179,719 | 2,241 / 2,805 |
+| 128 | 643–667 → 554–583 | 296,055 → 274,031 | 4,559 / 5,574 |
+| 256 | 1,396–1,458 → 1,155–1,175 | 462,039 → 400,643 | 9,551 / 12,102 |
 
-Runtime preparation retains the exact top-level block-catalog allocation and
-native compact analysis nodes. Large catalogs are owned separately from nested
-arena records; malformed input and allocation failure release both. Native pools
-use 16-byte nodes within the 32-bit member bound, with full-width fallback.
-wasm32 retains its untagged layout: the tagged trial regressed inquiry/ReAct
-latency by about 3%/7%. The all-large-array exact-allocation trial and immediate
-small-set roots remain rejected after repeated large-control slowdowns.
+Allocation calls rise 825/1,574/3,063 → 861/1,707/3,455 despite lower total
+allocated bytes and peaks. Node 26.9.0 guest replay clearly improves
+installation256; 64/128 are less decisive. File loading and JavaScript import
+are outside those guest timers; fresh Kernel setup, invocation and outcome
+decoding are included.
 
-Small standalone compiler probes and substantive regression tests remain under
-`test/` and `docs/performance/cold-guard.mjs`. Generated samples, profiles and
-experimental patches are not maintained or packaged. Existing defect records keep
-their historical provenance; old artifact paths refer to their recorded Git
+Inquiry/repeated/ReAct images remain byte-identical at 36,756/37,137/48,226 bytes.
+Retained-loop, shallow and queens inputs also remain byte-identical. General slot
+reordering is excluded: it increased inquiry admission set storage across an
+allocation threshold. The existing exact block-catalog allocation and native
+compact analysis nodes remain; rejected all-array allocation and immediate-root
+trials have not returned.
+
+Final matched BPC1 acceptance and serial reviews remain open. The preceding
+baseline exposed scalar and installation1/8/64 gaps; no failure has been waived.
+Agent's existing document records its qualified ReAct gains and remaining limits.
+
+Maintained probes and regression tests remain under `test/` and
+`docs/performance/cold-guard.mjs`. Generated samples, profiles and patches are not
+maintained or packaged. Historical defect references refer to their recorded Git
 revisions. The Agent adequacy obstruction and minimal reproducer remain intact.
 
 Linked drafts: [Boundary #152](https://github.com/tkersey/boundary/pull/152),

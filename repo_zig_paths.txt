@@ -104,6 +104,7 @@ src/v2/source/scalar_contract_example.zig
 src/v2/source/scheduler_example.zig
 src/v2/source/scoped_reader_example.zig
 src/v2/source/shallow_resume_example.zig
+src/v2/source/slot_order.zig
 src/v2/source/state_choice_example.zig
 src/v2/source/successor_state_example.zig
 src/v2/source/tail_clauses.zig
