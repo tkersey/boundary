@@ -144,7 +144,8 @@ test "installation lowering establishes each result once without pass-through in
                 else => return error.TestUnexpectedResult,
             }
         }
-        try testing.expectEqual(2 * count + 1, blocks);
+        // Empty administrative jumps are threaded; real handlers remain.
+        try testing.expectEqual(count + 1, blocks);
         try testing.expectEqual(3 * count + 1, instructions);
         try testing.expectEqual(count, results);
         // The checked sum still occurs after all the handler installations.
@@ -228,7 +229,7 @@ test "both conditional arms write the same stable join slot" {
     try data.activation_structure.validate(testing.allocator, image);
 
     const root = image.blocks[@intCast(image.functions[@intCast(main)].entry)];
-    const conditional = image.blocks[@intCast(root.terminator.jump.block)].terminator.branch;
+    const conditional = root.terminator.branch;
     const a = image.blocks[@intCast(conditional.when_true.block)];
     const b = image.blocks[@intCast(conditional.when_false.block)];
     try testing.expectEqual(a.terminator.jump.block, b.terminator.jump.block);

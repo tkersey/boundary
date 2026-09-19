@@ -121,7 +121,8 @@ fn lowerInternal(
     var original_facts = try checkTarget(allocator, &compiler, program, imports, component, borrows, null, options);
     original_facts.deinit();
     options.stage(.direct_optimization);
-    const selected = try @import("tail_clauses.zig").optimize(a, program, traits);
+    const threaded = try @import("thread_jumps.zig").optimize(a, program);
+    const selected = try @import("tail_clauses.zig").optimize(a, threaded, traits);
     var output = std.heap.ArenaAllocator.init(allocator);
     errdefer output.deinit();
     options.stage(if (component) .source_copy else .canonicalization);

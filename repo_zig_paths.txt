@@ -107,6 +107,7 @@ src/v2/source/state_choice_example.zig
 src/v2/source/successor_state_example.zig
 src/v2/source/tail_clauses.zig
 src/v2/source/tests.zig
+src/v2/source/thread_jumps.zig
 src/v2/source/unwind_example.zig
 src/v2/source/value_cache.zig
 src/v2/source/writer_raise_example.zig
