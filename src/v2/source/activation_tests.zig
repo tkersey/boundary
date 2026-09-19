@@ -435,3 +435,57 @@ test "closed compiler rejects invalid unused source before catalogue pruning" {
     try builder.define(unused, try builder.pure(try builder.constant(bool, true)));
     try testing.expectError(error.TypeMismatch, lower(testing.allocator, builder.module(entry, try builder.scalar(void))));
 }
+
+test "local product projection retains mutable reads and unselected faults" {
+    var builder = source.Builder.init(testing.allocator);
+    defer builder.deinit();
+    var compiled = try lower(testing.allocator, try source.examples.productProjection(&builder));
+    defer compiled.deinit();
+    var reads: usize = 0;
+    var writes: usize = 0;
+    var products: usize = 0;
+    var arithmetic: usize = 0;
+    for (compiled.program.blocks) |block| {
+        for (block.instructions) |instruction| switch (instruction.opcode) {
+            .field => return error.TestUnexpectedResult,
+            .cell_get => reads += 1,
+            .cell_set => writes += 1,
+            .product => products += 1,
+            .integer_add => {
+                arithmetic += 1;
+                try testing.expectEqual(1, instruction.failures.len);
+                try testing.expectEqual(p.Fault.arithmetic_overflow, instruction.failures[0].kind);
+            },
+            else => {},
+        };
+    }
+    try testing.expectEqual(3, reads);
+    try testing.expectEqual(1, writes);
+    try testing.expectEqual(2, products);
+    try testing.expectEqual(2, arithmetic);
+}
+
+test "projection forwarding cannot erase malformed source operations" {
+    for (0..5) |mode| {
+        var b = source.Builder.init(testing.allocator);
+        defer b.deinit();
+        const integer = try b.scalar(u64);
+        const boolean = try b.scalar(bool);
+        const unit = try b.scalar(void);
+        const pair = try b.schema(.{ .product = &.{ integer, integer } });
+        const aggregate = try b.primitive(if (mode == 4) boolean else pair, .product, &.{ try b.constant(u64, 11), try b.constant(u64, 22) }, 0);
+        const selected = try b.value(.{ .schema = if (mode == 1) boolean else integer, .expression = .{ .primitive = .{
+            .opcode = .field,
+            .operands = if (mode == 2) &.{} else &.{aggregate},
+            .immediate = if (mode == 0) ~@as(p.Id, 0) else 0,
+            .failures = if (mode == 3) &.{.{ .kind = .arithmetic_overflow, .value = try b.failureLiteral(try b.constant(void, {})) }} else &.{},
+        } } });
+        const entry = try b.declare(&.{}, if (mode == 1) boolean else integer, &.{}, &.{});
+        try b.define(entry, try b.pure(selected));
+        if (lower(testing.allocator, b.module(entry, unit))) |result| {
+            var accepted = result;
+            accepted.deinit();
+            return error.TestUnexpectedResult;
+        } else |_| {}
+    }
+}

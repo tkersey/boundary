@@ -54,6 +54,7 @@ pub fn main(init: std.process.Init) !void {
         38 => CleanupDisposal.build(&builder, .running),
         39 => CleanupDisposal.build(&builder, .failure),
         40 => CleanupDisposal.ownedResult(&builder),
+        41 => boundary.source.examples.productProjection(&builder),
         else => error.UnknownExample,
     };
     var buffer: [4096]u8 = undefined;

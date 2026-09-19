@@ -22,6 +22,8 @@ pub const writerRaise = @import("writer_raise_example.zig").build;
 pub const schedulerFifo = @import("scheduler_example.zig").build;
 pub const scalarContracts = @import("scalar_contract_example.zig").build;
 pub const yieldingCleanup = @import("unwind_example.zig").yielding;
+pub const productProjection = @import("projection_example.zig").build;
+
 pub const borrowOperands = @import("borrow_operand_example.zig").build;
 
 pub fn custodyOrder(builder: *source.Builder, mode: u8) Error!source.Module {

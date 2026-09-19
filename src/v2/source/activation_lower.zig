@@ -526,6 +526,7 @@ const Block = struct {
     environment: p.Id,
     instructions: std.ArrayList(ir.Instruction) = .empty,
     computed: std.AutoHashMapUnmanaged(p.Id, p.Id) = .empty,
+    products: std.AutoHashMapUnmanaged(p.Id, []const p.Id) = .empty,
 
     const Operation = struct {
         opcode: p.Opcode,
@@ -535,6 +536,24 @@ const Block = struct {
     };
 
     fn instruction(self: *Block, schema: p.Id, operation: Operation) Error!p.Id {
+        // Slots written in this block are fresh. A copyable product therefore
+        // still contains these exact operand values, even after later mutable
+        // operations. Keep its construction and all operand evaluation; only
+        // the redundant projection is omitted. Never forward a consumed owner.
+        const compiler = self.function.compiler;
+        if (operation.opcode == .field and operation.operands.len == 1 and
+            operation.failures.len == 0 and compiler.uses.copy[@intCast(schema)])
+        {
+            if (self.products.get(operation.operands[0])) |fields| {
+                const product = compiler.source.schemas[@intCast(self.function.slots.items[@intCast(operation.operands[0])])].product;
+                // Full target admission follows lowering. Leave malformed source
+                // projections intact for that owner to reject, rather than
+                // erasing their invalid type, index, arity or failure mapping.
+                if (operation.immediate < fields.len and operation.immediate < product.len and
+                    product[@intCast(operation.immediate)] == schema)
+                    return fields[@intCast(operation.immediate)];
+            }
+        }
         const destination = try self.function.slot(schema);
         try self.instructions.append(self.function.compiler.allocator, .{
             .destination = destination,
@@ -543,6 +562,9 @@ const Block = struct {
             .immediate = operation.immediate,
             .failures = operation.failures,
         });
+        if (operation.opcode == .product and compiler.source.schemas[@intCast(schema)] == .product and
+            compiler.uses.copy[@intCast(schema)] and compiler.uses.drop[@intCast(schema)])
+            try self.products.put(compiler.allocator, destination, operation.operands);
         return destination;
     }
 

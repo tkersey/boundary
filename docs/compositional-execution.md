@@ -10,6 +10,25 @@ Current contracts: [components](bmo1-components.md), [Program images](bpi3-wire.
 
 ## Current results and unresolved work
 
+Within a block, projections from a just-constructed copyable, droppable product
+reuse its already-computed field slot. Every operand and the product itself still
+execute in order. Fresh instruction destinations cannot be overwritten inside
+that block; no cross-block cache or consumed owner is forwarded. Malformed
+projection types, indices, arities and fault mappings remain for target admission
+to reject. An independent source/native/WASM fixture checks mutable reads across
+a write (result 8) and an overflowing unselected field (failure 77).
+
+Compared with Boundary 2cf8d55 / World 6f29529 / Agent e64697b, ReAct loses
+2,192 instructions and temporary slots. Two rotating native replay windows over
+128 captured invocations from 13 unchanged Agent scenarios show about 29% lower
+ReAct time. Complete reset-ReAct invocation peaks fall 2,863,966 → 1,993,377
+bytes; inquiry timing is essentially unchanged. All protected observations match.
+The measurement is a sum of per-input medians (three warmups, nine samples),
+including byte admission/execution/output, not whole-scenario elapsed time.
+Two corresponding Node 26.9.0 guest windows improve ReAct about 26%, including
+fresh Kernel creation, invocation and outcome decoding. The kernel remains
+byte-identical. File loading and JavaScript module import are outside the timer.
+
 The compiler threads empty jumps only when they carry no assignments and stay
 within one function and custody scope. Cycles remain executable; values, real
 handlers and effectful boundaries are preserved. The existing reachability pass
@@ -17,8 +36,8 @@ removes the resulting unreachable blocks. Installation lowering now has n + 1
 blocks, 3n + 1 instructions and n real handlers, with the checked sum still after
 all installations. Components retain checked linking and function identities.
 
-The full Boundary check passes 216 build steps and 230 tests, including the
-41-fixture independent source oracle, native/wasm32 byte agreement, source-free
+The full Boundary check passes 220 build steps and 232 tests, including the
+42-fixture independent source oracle, native/wasm32 byte agreement, source-free
 component linking, custody/assignment/cycle fences and a 10,000-block path.
 
 Compared with Boundary 3dc3413 using World e995dc9, four alternating native
@@ -30,10 +49,10 @@ about 12%; retained-loop timing is essentially unchanged. Queens DFS/BFS improve
 about 11%/4%, but BFS peak working memory rises 230,376 → 244,736 bytes. These are
 per-process medians on an M2 Pro, Zig 0.16.0, macOS 27.2, not a service p99 claim.
 
-Current Agent inquiry/repeated/ReAct images are 36,861/37,242/63,151 bytes,
-down from 38,162/38,561/64,111. This does not close the ReAct image gap against
-BPC1 (43,394 bytes). Final matched predecessor timing/memory acceptance, the
-small-control and ReAct regressions, coordinated qualification and serial reviews
+Current Agent inquiry/repeated/ReAct images are 36,756/37,137/48,226 bytes,
+down from 36,861/37,242/63,151 before projection forwarding. This does not close the ReAct image gap against
+BPC1 (43,394 bytes). Final matched predecessor timing/memory acceptance,
+small-control regressions, coordinated qualification and serial reviews
 remain open. No performance failure has been waived.
 
 Runtime preparation retains the exact top-level block-catalog allocation and

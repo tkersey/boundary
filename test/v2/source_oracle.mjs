@@ -602,7 +602,7 @@ export function execute(source, initial, responses = [], cancellations = []) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const sources = await Promise.all(process.argv.slice(2).map(async (path) => JSON.parse(await readFile(path, "utf8"))));
-  assert.equal(sources.length, 41);
+  assert.equal(sources.length, 42);
   for (let index = 0; index < 20; index++) {
     const populated = index % 2 === 1, owned = index >= 12;
     const result = execute(sources[36], [index]);
@@ -822,5 +822,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     { trace: [{ kind: "Yielded" }], kind: "Failed", value: [], cleanupFailures: [], cancellation: "stop" });
   assert.deepEqual(execute(sources[40], []), { trace: [], kind: "Completed",
     value: [...scalar(3), 3, ...[3, 7, 99].flatMap(scalar)] });
-  console.log("independent source oracle: 41 compiled source fixtures and cancellation/cleanup scenarios passed");
+  assert.deepEqual(execute(sources[41], [0]), { trace: [], kind: "Completed", value: scalar(8) });
+  assert.deepEqual(execute(sources[41], [1]), { trace: [], kind: "Failed", value: scalar(77), cleanupFailures: [] });
+  console.log("independent source oracle: 42 compiled source fixtures and cancellation/cleanup scenarios passed");
 }
