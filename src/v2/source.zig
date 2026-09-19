@@ -2,19 +2,23 @@
 //! Staged source construction. Zig emit functions build terms and lexical lambdas;
 //! their native bodies are never inspected or translated.
 const std = @import("std");
-const data = @import("boundary_data_v2");
+pub const component = @import("source/component.zig");
+pub const component_examples = @import("source/component_examples.zig");
+const data = @import("boundary_data");
 const p = data.program;
 pub const ast = @import("source/ast.zig");
 pub const Id = p.Id;
 pub const Module = ast.Module;
-pub const Compiled = @import("source/compiled.zig").Compiled;
+pub const Compiled = @import("source/activation_lower.zig").Construction;
 pub const examples = @import("source/examples.zig");
-pub const lower = @import("source/lower.zig").lower;
-pub const lowerObserved = @import("source/lower.zig").lowerObserved;
+pub const lower = @import("source/activation_lower.zig").lower;
+/// Direct stable-slot construction with BPI3 encoding and pure admission.
+pub const lowerObserved = @import("source/activation_lower.zig").lowerObserved;
 pub const Diagnostic = @import("source/diagnostic.zig").Diagnostic;
 pub const CompileOptions = @import("source/diagnostic.zig").Options;
 pub const CompileStage = @import("source/diagnostic.zig").Stage;
-pub const Error = data.admission.Error || error{ UndefinedFunction, InvalidSource, UnboundVariable };
+pub const Error = data.admission.Error || data.activation_flow.Error ||
+    error{ UndefinedFunction, InvalidSource, UnboundVariable };
 
 /// Application.emit constructs a checked source Module. Its Zig body runs only
 /// while authoring; the result contains all executable code as portable data.
@@ -189,7 +193,7 @@ pub const Builder = struct {
         descriptor.introducers = try self.allocator().dupe(p.Id, introducers);
         descriptor.eliminators = try self.allocator().dupe(p.Id, eliminators);
     }
-    pub fn module(self: Builder, entry: p.Id, failure: p.Id) ast.Module {
+    pub fn module(self: *const Builder, entry: p.Id, failure: p.Id) ast.Module {
         return .{ .entry = entry, .failure = failure, .schemas = self.schemas.items, .constants = self.constants.items, .effects = self.effects.items, .handlers = self.handlers.items, .region_count = self.region_count, .resources = self.resources.items, .variables = self.variables.items, .values = self.values.items, .terms = self.terms.items, .functions = self.functions.items };
     }
 };

@@ -4,7 +4,7 @@ const source = @import("../source.zig");
 const generator = @import("../library/generator.zig");
 const scheduler = @import("../library/scheduler.zig");
 const writer = @import("../library/writer.zig");
-const p = @import("boundary_data_v2").program;
+const p = @import("boundary_data").program;
 const Error = source.Error;
 
 pub fn build(b: *source.Builder) Error!source.ast.Module {

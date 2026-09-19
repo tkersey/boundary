@@ -2,7 +2,7 @@
 //! Reader and local are authored handlers. Local supplies a new capability to
 //! its inside computation and resumes the outside continuation with the old one.
 const source = @import("../source.zig");
-const p = @import("boundary_data_v2").program;
+const p = @import("boundary_data").program;
 const Error = source.Error;
 pub const Reader = struct { ask: p.Id, local: p.Id, ask_capability: p.Id, local_capability: p.Id, inside: p.Id, handler: p.Id, resumptions: []const p.Id };
 pub const Captures = struct { continuation: []const p.Id, inside: []const p.Id = &.{} };

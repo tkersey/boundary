@@ -5,7 +5,7 @@ const p = @import("program.zig");
 const a = @import("admission.zig");
 const contracts = @import("contracts.zig");
 
-pub fn catalog(image: p.Program, regions: []const p.Id) a.Error!void {
+pub fn catalog(image: anytype, regions: []const p.Id) a.Error!void {
     for (regions, 0..) |id, index| {
         if (id >= image.scopes.region_count) return error.InvalidReference;
         if (index > 0 and regions[index - 1] >= id) return error.NonCanonical;
@@ -27,7 +27,7 @@ pub const Dependencies = struct {
 
 /// Only referenced nominal regions occupy columns. An ordinal upper bound is
 /// not a request to allocate one entry for every unused name below that bound.
-pub fn dependencies(allocator: std.mem.Allocator, image: p.Program) a.Error!Dependencies {
+pub fn dependencies(allocator: std.mem.Allocator, image: anytype) a.Error!Dependencies {
     var regions: std.ArrayList(p.Id) = .empty;
     var indices: std.AutoHashMapUnmanaged(p.Id, usize) = .empty;
     for (image.schemas) |shape| if (shape == .internal) {
@@ -95,24 +95,26 @@ pub fn dependencies(allocator: std.mem.Allocator, image: p.Program) a.Error!Depe
     return .{ .regions = regions.items, .values = result };
 }
 
-pub fn validate(allocator: std.mem.Allocator, image: p.Program) a.Error!void {
+pub fn validate(allocator: std.mem.Allocator, image: anytype) a.Error!void {
     return validateDiagnosed(allocator, image, null);
 }
 
-pub fn validateDiagnosed(allocator: std.mem.Allocator, image: p.Program, diagnostic: ?*a.Diagnostic) a.Error!void {
+pub fn validateDiagnosed(allocator: std.mem.Allocator, image: anytype, diagnostic: ?*a.Diagnostic) a.Error!void {
     if (diagnostic) |d| d.* = .{ .phase = .region };
     const deps = try dependencies(allocator, image);
     for (image.functions, 0..) |function, index| {
         if (diagnostic) |d| d.* = .{ .phase = .region, .function = index };
         try catalog(image, function.regions);
-        for (function.parameters) |schema| try allowed(deps, schema, function.regions);
+        const parameters = @import("function_inputs.zig").of(function);
+        for (0..parameters.len) |parameter|
+            try allowed(deps, parameters.at(parameter), function.regions);
+        for (function.layout.slots) |schema| try allowed(deps, schema, function.regions);
         try allowed(deps, function.result, function.regions);
     }
     for (image.blocks, 0..) |block, index| {
         if (diagnostic) |d| d.* = .{ .phase = .region, .function = block.function, .block = index, .terminator = std.meta.activeTag(block.terminator), .callee = if (block.terminator == .call) block.terminator.call.function else null };
         const regions = image.functions[@intCast(block.function)].regions;
-        for (block.parameters) |schema| try allowed(deps, schema, regions);
-        for (block.instructions) |op| try allowed(deps, op.result_type, regions);
+
         switch (block.terminator) {
             .call => |call| try contracts.subset(image.functions[@intCast(call.function)].regions, regions),
             .handle => |handle| {
@@ -121,12 +123,12 @@ pub fn validateDiagnosed(allocator: std.mem.Allocator, image: p.Program, diagnos
                 for (handler.clauses) |clause| try contracts.subset(image.functions[@intCast(clause.function)].regions, regions);
             },
             .with_region => |scope| {
-                const body_schema = if (scope.body < block.parameters.len) block.parameters[@intCast(scope.body)] else block.instructions[@intCast(scope.body - block.parameters.len)].result_type;
+                const body_schema = try codeSlot(image, block, scope.body);
                 const body = try contracts.computation(image, body_schema);
                 if (deps.contains(body.result, scope.region)) return error.InvalidOwnership;
             },
             .protect => |protection| if (protection.loan_region) |region| {
-                const schema = if (protection.body < block.parameters.len) block.parameters[@intCast(protection.body)] else block.instructions[@intCast(protection.body - block.parameters.len)].result_type;
+                const schema = try codeSlot(image, block, protection.body);
                 const body = try contracts.computation(image, schema);
                 if (deps.contains(body.result, region)) return error.InvalidOwnership;
             },
@@ -140,13 +142,17 @@ pub fn validateDiagnosed(allocator: std.mem.Allocator, image: p.Program, diagnos
     }
 }
 
+fn codeSlot(image: anytype, block: anytype, slot: p.Id) a.Error!p.Id {
+    return a.slotType(image.functions[@intCast(block.function)].layout.slots, slot);
+}
+
 fn allowed(deps: Dependencies, schema: p.Id, regions: []const p.Id) a.Error!void {
     for (deps.of(schema), deps.regions) |needed, id| {
         if (needed and std.mem.indexOfScalar(p.Id, regions, id) == null) return error.InvalidOwnership;
     }
 }
 
-pub fn instruction(image: p.Program, op: p.Instruction, slots: []const p.Id, uses: @import("traits.zig").Facts) a.Error!void {
+pub fn instruction(image: anytype, op: anytype, slots: []const p.Id, uses: @import("traits.zig").Facts) a.Error!void {
     if (op.immediate != 0) return error.InvalidProgram;
     const operands = op.operands;
     if (op.opcode == .cell_new) {

@@ -1,6 +1,6 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
 const source = @import("../source.zig");
-const p = @import("boundary_data_v2").program;
+const p = @import("boundary_data").program;
 
 pub fn exitInfo(builder: *source.Builder, failure: p.Id) source.Error!p.Id {
     const unit = try builder.scalar(void);

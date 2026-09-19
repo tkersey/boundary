@@ -2,7 +2,7 @@
 //! Deep and shallow resumptions differ observably at the return clause.
 const std = @import("std");
 const source = @import("../source.zig");
-const p = @import("boundary_data_v2").program;
+const p = @import("boundary_data").program;
 
 pub fn build(b: *source.Builder) source.Error!source.Module {
     const unit = try b.scalar(void);

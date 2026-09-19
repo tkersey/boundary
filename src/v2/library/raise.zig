@@ -2,7 +2,7 @@
 //! Catch is an abortive interpretation that explicitly discharges the abandoned
 //! continuation before returning its authored error value.
 const source = @import("../source.zig");
-const p = @import("boundary_data_v2").program;
+const p = @import("boundary_data").program;
 pub const Raise = struct { effect: p.Id, capability: p.Id, answer: p.Id, resumption: p.Id, handler: p.Id };
 pub const Family = struct { effect: p.Id, capability: p.Id, failure: p.Id };
 

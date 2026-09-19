@@ -12,7 +12,7 @@ export const usage = `Usage: node docs/performance/cold-guard.mjs ${names.map(na
 Paths are resolved against the invocation directory. All four checkouts must be
 clean repository roots with a tkersey/boundary or tkersey/world origin, respectively.
 The output must not exist; its parent must exist outside all measured checkouts.
-Requires Node 26.8.1+, git and Zig 0.16.0 on PATH. See docs/api-preserving-performance.md.`;
+Requires Node 26.8.1+, git and Zig 0.16.0 on PATH. See docs/compositional-execution.md.`;
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const writeJson = (file, value) => fs.writeFileSync(file, JSON.stringify(value, null, 2) + '\n');
 const inside = (parent, child) => { const relative = path.relative(parent, child); return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative)); };

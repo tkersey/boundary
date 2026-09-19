@@ -2,7 +2,7 @@
 //! One body and constructor, interpreted into two different answer types.
 const source = @import("../source.zig");
 const state = @import("../library/state.zig");
-const p = @import("boundary_data_v2").program;
+const p = @import("boundary_data").program;
 
 pub fn build(b: *source.Builder) source.Error!source.ast.Module {
     const unit = try b.scalar(void);

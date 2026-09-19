@@ -2,7 +2,7 @@
 //! The same raised value reaches the clause's outer handler or the suspended
 //! operation's inner handler, selected by resumeWithComputation.
 const source = @import("../source.zig");
-const p = @import("boundary_data_v2").program;
+const p = @import("boundary_data").program;
 
 pub fn build(b: *source.Builder) source.Error!source.Module {
     return buildMode(b, .deep);

@@ -12,15 +12,12 @@ pub const Value = struct {
 pub const Blob = struct { schema: p.Id, bytes: []const u8 };
 pub const Control = struct {
     block: p.Id,
-    arguments: []const Value,
     parent: ?NodeRef = null,
     evidence: ?NodeRef = null,
     region: ?NodeRef = null,
 };
 pub const Continuation = struct {
     source_block: p.Id,
-    /// Edge arguments only: null denotes the result hole. Dead SSA slots vanish.
-    arguments: []const ?Value,
     parent: ?NodeRef = null,
     evidence: ?NodeRef = null,
     region: ?NodeRef = null,
@@ -29,7 +26,7 @@ pub const ExitReasonTag = enum(u8) { normal = 0, failure = 1, cancellation = 2, 
 pub const Exit = struct {
     reason: union(ExitReasonTag) { normal: Value, failure: Value, cancellation, abandoned },
     cleanup_failures: []const Value = &.{},
-    cancellation: ?@import("protocol.zig").Reason = null,
+    cancellation: ?@import("invocation.zig").Reason = null,
     /// Borrowed destination. The current unwind/cleanup position owns its frames.
     stop: ?NodeRef = null,
     outer: ?NodeRef = null,
@@ -90,10 +87,3 @@ pub const Roots = struct {
     pending: ?NodeRef = null,
 };
 pub const Status = enum(u8) { active = 0, yielded = 1, parked = 2, unwinding = 3 };
-pub const State = struct {
-    program_identity: [32]u8,
-    status: Status,
-    roots: Roots,
-    nodes: []const Node,
-    blobs: []const Blob = &.{},
-};

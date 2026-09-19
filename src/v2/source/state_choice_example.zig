@@ -2,7 +2,7 @@
 const source = @import("../source.zig");
 const state = @import("../library/state.zig");
 const choice = @import("../library/choice.zig");
-const p = @import("boundary_data_v2").program;
+const p = @import("boundary_data").program;
 const Error = source.Error;
 pub fn local(b: *source.Builder) Error!source.ast.Module {
     return build(b, true);

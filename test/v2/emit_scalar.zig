@@ -14,7 +14,7 @@ const Application = struct {
 pub fn main(init: std.process.Init) !void {
     var compiled = try boundary.program.lower(init.gpa, Application);
     defer compiled.deinit();
-    const length = try boundary.image_v2.encodedLength(compiled.program);
+    const length = try boundary.data.program_image.encodedLength(compiled.program);
     const buffer = try init.gpa.alloc(u8, length);
     defer init.gpa.free(buffer);
     const bytes = try compiled.encode(init.gpa, buffer);

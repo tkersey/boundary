@@ -16,7 +16,7 @@ pub fn maximum(shape: p.Schema) u64 {
         else => @import("std").math.maxInt(u64),
     };
 }
-pub fn instruction(image: p.Program, op: p.Instruction, slots: []const p.Id) a.Error!void {
+pub fn instruction(image: anytype, op: anytype, slots: []const p.Id) a.Error!void {
     if (op.immediate != 0) return error.InvalidProgram;
     const result = image.schemas[@intCast(op.result_type)];
     const arity: usize = switch (op.opcode) {

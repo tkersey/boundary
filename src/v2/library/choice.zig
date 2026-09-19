@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
 //! Authored Boolean choice interpretations. The runtime has no choice operation.
 const source = @import("../source.zig");
-const p = @import("boundary_data_v2").program;
+const p = @import("boundary_data").program;
 const Error = source.Error;
 pub const Family = struct { effect: p.Id, capability: p.Id };
 pub const Interpretation = struct { handler: p.Id, answer: p.Id, resumption: p.Id };
