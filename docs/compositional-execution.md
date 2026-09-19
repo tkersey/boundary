@@ -52,6 +52,13 @@ allocation threshold. The existing exact block-catalog allocation and native
 compact analysis nodes remain; rejected all-array allocation and immediate-root
 trials have not returned.
 
+A catalog-reuse trial preserved all 128 fixed Agent invocation outputs but gave
+only mixed sub-percent timing changes and unchanged consumer peaks. Directly
+placing the derived arrays in retained storage raised shallow-handler peak memory
+from 149,898 to 197,300 bytes; copying them avoided that regression but did not
+justify the added retention APIs. Both variants are removed; admission still
+derives and validates its facts through the existing qualified path.
+
 Final matched BPC1 acceptance and serial reviews remain open. The preceding
 baseline exposed scalar and installation1/8/64 gaps; no failure has been waived.
 Agent's existing document records its qualified ReAct gains and remaining limits.
