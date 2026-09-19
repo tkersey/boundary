@@ -30,6 +30,14 @@ latency improvement is claimed. Control64/128/256 peaks fall to 193,195 / 303,63
 kernel grows 915 bytes. BPC1 inquiry/ReAct peaks (1,853,961 / 2,061,220) remain
 lower, so those gaps and final performance acceptance remain open.
 
+A subsequent trial encoded sets over members 0–30 directly in tagged roots.
+Although small controls improved, two seven-pair confirmation windows after a
+narrow refinement slowed control128 by 1.4–3.8% and control256 by 1.4–2.1%.
+Every paired observation for those sizes regressed, while control64 did not
+improve. The implementation and its representation-specific tests were removed;
+ordinary interning, the original root-index domain and published runtime remain
+unchanged. This rejects that realization, not every possible compact-set design.
+
 The following measurements preceded this catalog ownership change:
 
 On 64-bit hosts, analysis-set pools select a 16-byte node layout when their declared
