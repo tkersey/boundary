@@ -467,13 +467,7 @@ const Function = struct {
                 .use_site_capabilities = try block.values(perform.use_site_capabilities),
                 .next = next,
             } },
-            .handle => |handle| .{ .handle = .{
-                .handler = handle.handler,
-                .body = try block.value(handle.body),
-                .arguments = try block.values(handle.arguments),
-                .state = try block.values(handle.state),
-                .next = next,
-            } },
+            .handle => |handle| try block.handler(handle, next),
             else => return self.retainedControl(block, expression, next),
         };
     }
@@ -528,6 +522,23 @@ const Block = struct {
     instructions: std.ArrayList(ir.Instruction) = .empty,
     computed: std.AutoHashMapUnmanaged(p.Id, p.Id) = .empty,
     products: std.AutoHashMapUnmanaged(p.Id, []const p.Id) = .empty,
+
+    fn handler(self: *Block, handle: @FieldType(ast.Term, "handle"), next: ir.Edge) Error!ir.Terminator {
+        const compiler = self.function.compiler;
+        const body_value = compiler.source.values[@intCast(handle.body)];
+        const shape = compiler.source.schemas[@intCast(body_value.schema)];
+        // A reusable closed lambda reads no operand and has no authored effect
+        // or fault. Place only that construction next to its immediate use;
+        // all argument/state evaluation keeps its original relative order.
+        const closed = body_value.expression == .lambda and
+            compiler.facts.functions[@intCast(body_value.expression.lambda)].items.len == 0 and
+            shape == .internal and shape.internal == .computation and shape.internal.computation.use == .reusable;
+        const early_body: ?p.Id = if (closed) null else try self.value(handle.body);
+        const arguments = try self.values(handle.arguments);
+        const state = try self.values(handle.state);
+        const body = early_body orelse try self.value(handle.body);
+        return .{ .handle = .{ .handler = handle.handler, .body = body, .arguments = arguments, .state = state, .next = next } };
+    }
 
     const Operation = struct {
         opcode: p.Opcode,

@@ -26,6 +26,14 @@ The full check passes 220 steps and 233 tests, including 42 independent source
 fixtures, native/wasm32 byte agreement and source-free component linking. World
 also passes 79 native source tests and all 42 source/native/WASM comparisons.
 
+A reusable lambda with no lexical captures is constructed after its handler
+arguments and state, next to the handler instruction. This moves only a pure
+closed construction; argument/state effects, faults and cleanup retain their
+order. The existing IR still independently admits the complete callable contract.
+World may omit its allocation on qualified native execution when it has no other
+use or retained edge source. Explicit stepping and work quanta retain their
+original logical boundaries.
+
 ## Current results and limits
 
 Two alternating windows use one runtime-only executable, comparing the slot-order
