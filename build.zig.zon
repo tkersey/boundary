@@ -13,6 +13,7 @@
         "docs/bmo1-components.md",
         "docs/invocation-wire.md",
         "docs/compositional-execution.md",
+        "docs/recursive-interaction.md",
         "examples",
         "repo_zig_paths.txt",
         "semantics",

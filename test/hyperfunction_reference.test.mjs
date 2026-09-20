@@ -54,3 +54,24 @@ test('projection and composition agree with hand-derived finite observations', (
   assert.equal(h.force(h.project(add, h.delay(() => 5))), 7);
   assert.equal(h.force(h.project(h.compose(twice, add), h.delay(() => 5))), 14);
 });
+
+test('two ana participants retain both non-tail callers through reciprocal demand', () => {
+  const h = reference(256);
+  const trace = [];
+  const producer = h.ana((state, query) => h.delay(() => {
+    trace.push('producer');
+    const answer = h.force(query(true));
+    trace.push('producer-return');
+    return answer + 10;
+  }), false);
+  const consumer = h.ana((state, query) => h.delay(() => {
+    trace.push(state ? 'consumer-successor' : 'consumer');
+    if (state) return 19;
+    const answer = h.force(query(true));
+    trace.push('consumer-return');
+    return answer + 13;
+  }), false);
+  assert.equal(h.force(h.invoke(consumer, h.delay(() => producer))), 42);
+  assert.deepEqual(trace, ['consumer', 'producer', 'consumer-successor',
+    'producer-return', 'consumer-return']);
+});

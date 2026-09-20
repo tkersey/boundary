@@ -215,6 +215,21 @@ pub fn build(b: *std.Build) void {
     const lazy_check = b.addRunArtifact(lazy_hyper);
     _ = lazy_check.captureStdOut(.{});
     aggregate.dependOn(&lazy_check.step);
+    const unused_invocation = b.addRunArtifact(lazy_hyper);
+    unused_invocation.addArg("unused-invocation");
+    b.step("emit-unused-hyper-invocation", "Emit an undemanded divergent invocation")
+        .dependOn(&unused_invocation.step);
+    const reciprocal = b.addExecutable(.{ .name = "reciprocal-hyper", .root_module = b.createModule(.{
+        .root_source_file = b.path("examples/reciprocal_hyper.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "boundary", .module = boundary }},
+    }) });
+    b.step("emit-reciprocal-hyper", "Emit state-based reciprocal non-tail calls")
+        .dependOn(&b.addRunArtifact(reciprocal).step);
+    const reciprocal_check = b.addRunArtifact(reciprocal);
+    _ = reciprocal_check.captureStdOut(.{});
+    aggregate.dependOn(&reciprocal_check.step);
     const hyper_reference = b.addSystemCommand(&.{ "node", "--test" });
     hyper_reference.addFileArg(b.path("test/hyperfunction_reference.test.mjs"));
     aggregate.dependOn(&hyper_reference.step);

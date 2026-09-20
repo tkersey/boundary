@@ -117,3 +117,49 @@ This proves the narrow constant/non-demand case on Node/WASM. Native execution,
 browser/Wasmtime, recursive retained interaction, full constructors and Agent
 positive admission remain unexecuted requirements. Image size is an observation,
 not a performance comparison or the required fusion/scaling result.
+
+## Capturing invocation and state-based recursion
+
+The current interface has six mutually recursive callable schemas, cached per
+endpoint/capture signature. `pairWith` admits explicit capture bounds. All six
+schemas refer to the finite group; construction does not unfold recursion.
+Normal use analysis rejects an exclusive resource hidden in the group's reusable
+capture bound. Each actual environment still contains only the captures used by
+its authored body.
+
+`invoke` now constructs a delayed invocation rather than calling the participant
+while constructing its result descriptor. Its thunk first calls the participant,
+then forces the returned delayed answer. `make` accepts an arbitrary checked
+staged body; `ana` builds a participant from runtime state and a staged step.
+`Query.ask(next_state)` constructs a delayed counterpart contribution, including a
+delayed reconstruction of this participant at that successor state. The staged
+step may emit any number of runtime queries and non-tail operations. Its native
+builder is never serialized or used by World.
+
+`examples/reciprocal_hyper.zig` uses the same public `ana` operations for producer
+and consumer. The consumer's first query enters the producer; the producer's
+query enters the consumer's successor. That successor returns 19, the producer
+adds 10, and the original consumer adds 13. A separate higher-order reference
+executes the same equations and asserts the five-event nested call/return order.
+
+On the unchanged World kernel named above, actual Node/WASM execution gives:
+
+| Compiled witness | Program bytes | Fresh transfers at quantum 1 | Result |
+| --- | ---: | ---: | ---: |
+| Constant with divergent peer | 268 | 11 | 42 |
+| Unused invocation of divergent participant | 247 | 3 | 42 |
+| Reciprocal state-based non-tail calls | 735 | 60 | 42 |
+
+Emit with `zig build emit-lazy-hyper`, `emit-unused-hyper-invocation`, or
+`emit-reciprocal-hyper`, redirecting stdout to an image; run each image using
+`test/hyperfunction_world.mjs`. These are observed sizes and finite execution
+checks, not benchmark improvements or the complete structural-economy evidence.
+The constant image grew from 178 to 268 bytes when invocation itself became
+properly suspended; no shared kernel change was required.
+
+`zig build check --summary all`: 225/225 steps, 236/236 Zig tests pass.
+The independent Node oracle now has seven passing tests. The latest additional
+oracle case was run directly after the aggregate; it changes no production code.
+General lifting/composition, lazy aggregates, effect-handler translation,
+use-qualified owned interactions, source-free library reuse and full Agent
+reciprocal synthesis remain unfinished.

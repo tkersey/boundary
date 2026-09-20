@@ -1,6 +1,7 @@
 build.zig
 examples/lazy_hyper.zig
 examples/one_effect.zig
+examples/reciprocal_hyper.zig
 src/v2/data/activation.zig
 src/v2/data/activation_borrow_tests.zig
 src/v2/data/activation_flow.zig
