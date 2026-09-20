@@ -243,6 +243,19 @@ pub fn build(b: *std.Build) void {
         algebra_images.dependOn(&b.addInstallFileWithDir(run.captureStdOut(.{}), .prefix, b.fmt("hyper/{s}.bpi3", .{mode})).step);
     }
     aggregate.dependOn(algebra_images);
+    const fold = b.addExecutable(.{ .name = "hyper-fold", .root_module = b.createModule(.{
+        .root_source_file = b.path("examples/hyper_fold.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "boundary", .module = boundary }},
+    }) });
+    const fold_images = b.step("emit-hyper-fold", "Emit runtime two-input hyperfunction and direct folds");
+    for ([_][]const u8{ "hyper", "direct", "materialized", "stats", "stats-direct", "stats-materialized" }) |mode| {
+        const run = b.addRunArtifact(fold);
+        run.addArg(mode);
+        fold_images.dependOn(&b.addInstallFileWithDir(run.captureStdOut(.{}), .prefix, b.fmt("fold/{s}", .{mode})).step);
+    }
+    aggregate.dependOn(fold_images);
     const demand = b.addExecutable(.{ .name = "hyper-demand", .root_module = b.createModule(.{
         .root_source_file = b.path("examples/hyper_demand.zig"),
         .target = b.graph.host,

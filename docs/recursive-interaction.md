@@ -250,3 +250,66 @@ at the lexical owner without pretending that an external request lacking a
 capability can be intercepted by a surrounding handler. No runtime callback or
 kernel operation is added. Aggregate validation passes 256 steps / 240 tests;
 Agent's nondefault disposal/transfer witness is the next integration check.
+
+## Runtime multi-input map/zip/fold witness
+
+`examples/hyper_fold.zig` supplies two independently authored transforms, a
+producer over one runtime sequence and a consuming participant over another.
+The endpoints differ: `u64` versus a function from a delayed `u64` to a delayed
+`u64`. Both participants use public `ana`, reciprocal query, invocation and
+explicit forcing. The consumer checks its length and stopping limit before
+forcing the supplied element. Neither list length nor demand count emits code.
+Their explicit cursor state contains sequence descriptors, an index and a limit;
+reciprocal control and non-tail return values are retained separately. Transformed
+pairs are not assembled into an intermediate sequence.
+
+The independent direct path checks the same termination conditions, evaluates the
+right map then left map, and performs the same right-associated checked addition.
+The materialized comparator builds only that demanded prefix of transformed pairs,
+then reduces it in reverse. It does not eagerly map an unused suffix. The test-only
+JavaScript oracle independently computes these operations with bounded integers;
+it does not call the staged transforms or World dispatcher.
+
+Reproduce with `zig build emit-hyper-fold`, then
+`node test/hyper_fold.mjs WORLD_ENTRY KERNEL`. Zig 0.16.0 Debug emission and the
+unchanged ReleaseSafe World WASM kernel were used with Node 26.9.0 on macOS arm64.
+All three paths agree on 81 cases: 66 results and 15 demanded overflow failures.
+Cases cover empty and unequal inputs, zero demand, unused overflowing suffixes,
+seeded inputs (`0x61c88647`), and lengths 31/127/128/255/256/512. The first eleven
+cases also recover through actual fresh Node/WASM checkpoints (153 hyperfunction,
+56 direct and 75 materialized transfers). They issue no external effects.
+
+| Realized Program | Functions | Constructors | Sequence-building instructions | Image bytes |
+| --- | ---: | ---: | ---: | ---: |
+| Hyperfunction | 18 | 15 | 0 | 1,233 |
+| Direct | 2 | 0 | 0 | 347 |
+| Materialized | 4 | 0 | 2 | 498 |
+
+The same image is used for every input length. The two materialized instructions
+create the empty buffer and append each demanded pair. Their absence in the
+hyperfunction path follows from staging each map inside a demanded computation and
+passing its delayed value directly to the independently authored consumer. This is
+a construction fact checked against the actual first-order instructions, not a
+new general fold/build rewrite or a timing claim.
+
+Observed costs are unfavorable for this deliberately non-tail hyperfunction fold:
+
+| Path, 512 pairs | World peak working bytes | Largest sampled checkpoint bytes | 256-work quanta |
+| --- | ---: | ---: | ---: |
+| Hyperfunction | 3,057,476 | 48,174 | 173 |
+| Direct | 1,311,193 | 28,135 | 75 |
+| Materialized | 175,718 | 20,378 | 97 |
+
+Working high-water measurements include preparation and execution; checkpoint
+samples are taken at quantum boundaries and need not hit the exact maximum logical
+state. Host JavaScript allocations are excluded. Input encoding is 8,212 bytes in
+these rows. All runs release World working ownership to zero after completion.
+The materialized path uses tail loops around its buffer; the other two retain
+non-tail return contexts. Avoiding a sequence therefore does not establish lower
+memory or eliminate required control. No throughput, native-runtime, overall memory
+improvement, universal scaling proof or foundation-consumer regression claim is made.
+The history-free tail-control bound, separate-component fold reuse and broader
+structural/measurement obligations remain open.
+
+`zig build check --summary all` passes 270 steps / 240 tests. The World execution
+command above is additional evidence, not implicitly included in that aggregate.
