@@ -138,7 +138,7 @@ pub const Mapper = struct {
             .unpack_product => |v| .{ .unpack_product = .{ .value = v.value, .destinations = try self.local(p.Id, v.destinations), .next = try self.edge(v.next) } },
             .call => |v| .{ .call = .{ .function = try self.id(.function, v.function), .arguments = try self.local(p.Id, v.arguments), .next = try self.edge(v.next) } },
             .perform => |v| .{ .perform = try self.perform(v) },
-            .forward => |v| .{ .forward = try self.perform(v) },
+
             .apply => |v| .{ .apply = .{ .computation = v.computation, .arguments = try self.local(p.Id, v.arguments), .next = try self.edge(v.next) } },
             .handle => |v| .{ .handle = .{ .handler = try self.id(.handler, v.handler), .body = v.body, .arguments = try self.local(p.Id, v.arguments), .state = try self.local(p.Id, v.state), .next = try self.edge(v.next) } },
             .resume_value => |v| .{ .resume_value = .{ .resumption = v.resumption, .argument = v.argument, .next = try self.edge(v.next) } },
@@ -152,7 +152,7 @@ pub const Mapper = struct {
     pub fn handler(self: Mapper, value: ir.Handler) Error!ir.Handler {
         const clauses = try self.allocator.alloc(ir.Clause, value.clauses.len);
         for (clauses, value.clauses) |*target, clause| target.* = .{ .effect = try self.id(.effect, clause.effect), .function = try self.id(.function, clause.function), .resumption = try self.id(.schema, clause.resumption), .strategy = clause.strategy };
-        return .{ .mode = value.mode, .input = try self.id(.schema, value.input), .answer = try self.id(.schema, value.answer), .return_function = try self.id(.function, value.return_function), .clauses = clauses, .forward_function = if (value.forward_function) |function_| try self.id(.function, function_) else null, .state = try self.ids(.schema, value.state, false), .effects = try self.ids(.effect, value.effects, true) };
+        return .{ .mode = value.mode, .input = try self.id(.schema, value.input), .answer = try self.id(.schema, value.answer), .return_function = try self.id(.function, value.return_function), .clauses = clauses, .state = try self.ids(.schema, value.state, false), .effects = try self.ids(.effect, value.effects, true) };
     }
     pub fn capture(self: Mapper, value: p.Capture) Error!p.Capture {
         return .{ .fields = try self.ids(.schema, value.fields, false), .owned_regions = try self.ids(.region, value.owned_regions, true), .borrowed_regions = try self.ids(.region, value.borrowed_regions, true), .use = value.use };

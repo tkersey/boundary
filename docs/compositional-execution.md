@@ -9,6 +9,12 @@ Current contracts: [components](bmo1-components.md), [Program images](bpi3-wire.
 
 ## Current construction and checks
 
+Unsupported forwarding constructors and handler fields are retired. Older-capability
+dispatch remains the supported forwarding mechanism. Wire tag 14 rejects; the
+retired handler position remains a required zero byte. Accepted BPI3/BMO1 bytes
+retain their meaning, with independent golden coverage and byte-identical output
+for all 42 current examples.
+
 Linear functions whose control results remain needed in the final block place
 control bindings before instruction temporaries when those bindings span multiple
 64-slot words. This is a bijective renaming: slot counts, schemas, instructions,
@@ -22,9 +28,9 @@ already-computed field slots only for copyable, droppable products. Every operan
 and the product still evaluate in order; malformed projections remain rejectable.
 The independent mutable/fault fixture returns 8 or fails with 77 as prescribed.
 
-The full check passes 220 steps and 233 tests, including 42 independent source
+The full check passes 220 steps and 234 tests, including 42 independent source
 fixtures, native/wasm32 byte agreement and source-free component linking. World
-also passes 79 native source tests and all 42 source/native/WASM comparisons.
+also passes 84 native source tests and all 42 source/native/WASM comparisons.
 
 A reusable lambda with no lexical captures is constructed after its handler
 arguments and state, next to the handler instruction. This moves only a pure

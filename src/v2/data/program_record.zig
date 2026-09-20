@@ -42,6 +42,7 @@ pub fn readProgram(reader: *wire.Reader, arena: std.mem.Allocator, catalog: std.
 comptime {
     fields(ir.Program, &.{ "roots", "schemas", "constants", "effects", "functions", "blocks", "handlers", "scopes", "constructors" });
     fields(ir.Function, &.{ "entry", "inputs", "layout", "custody", "result", "effects", "regions" });
+    fields(ir.Handler, &.{ "mode", "input", "answer", "return_function", "clauses", "state", "effects" });
     fields(ir.Block, &.{ "function", "custody", "instructions", "terminator" });
     fields(ir.Instruction, &.{ "destination", "opcode", "operands", "immediate", "failures" });
     fields(ir.Edge, &.{ "block", "assignments" });
@@ -68,8 +69,12 @@ pub fn write(comptime T: type, value: T, writer: *wire.Writer, context: *Context
             if (info.child == u8) return writer.put(value);
             for (value) |element| try write(info.child, element, writer, context);
         },
-        .@"struct" => |info| inline for (info.fields) |field|
-            try write(field.type, @field(value, field.name), writer, context),
+        .@"struct" => |info| inline for (info.fields) |field| {
+            // Retired optional forwarding field: accepted images always encoded zero.
+            if (T == ir.Handler and comptime std.mem.eql(u8, field.name, "state"))
+                try writer.byte(0);
+            try write(field.type, @field(value, field.name), writer, context);
+        },
         .@"union" => {
             try writer.natural(@intFromEnum(std.meta.activeTag(value)));
             switch (value) {
@@ -108,8 +113,11 @@ pub fn read(comptime T: type, reader: *wire.Reader, allocator: std.mem.Allocator
         },
         .@"struct" => |info| blk: {
             var result: T = undefined;
-            inline for (info.fields) |field|
+            inline for (info.fields) |field| {
+                if (T == ir.Handler and comptime std.mem.eql(u8, field.name, "state"))
+                    if (try reader.byte() != 0) return error.InvalidFlags;
                 @field(result, field.name) = try read(field.type, reader, allocator, budget, context);
+            }
             break :blk result;
         },
         .@"union" => |info| blk: {

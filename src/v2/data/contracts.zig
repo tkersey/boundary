@@ -226,7 +226,6 @@ pub fn validateDiagnosed(allocator: std.mem.Allocator, image: anytype, diagnosti
             _ = try a.schemaAt(image.schemas, schema);
             if (!facts.copy[@intCast(schema)]) return error.InvalidOwnership;
         }
-        if (handler.forward_function != null) return error.UnsupportedInstruction;
         if (handler.return_function >= image.functions.len) return error.InvalidReference;
         const returns = image.functions[@intCast(handler.return_function)];
         const returned_inputs = inputs.of(returns);

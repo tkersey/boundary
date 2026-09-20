@@ -218,7 +218,7 @@ fn stableHandlers(allocator: std.mem.Allocator, input: []const p.Handler) Error!
         for (clauses, handler.clauses) |*clause, original| {
             clause.* = .{ .effect = original.effect, .function = original.function, .resumption = original.resumption };
         }
-        target.* = .{ .mode = handler.mode, .input = handler.input, .answer = handler.answer, .return_function = handler.return_function, .clauses = clauses, .forward_function = handler.forward_function, .state = handler.state, .effects = handler.effects };
+        target.* = .{ .mode = handler.mode, .input = handler.input, .answer = handler.answer, .return_function = handler.return_function, .clauses = clauses, .state = handler.state, .effects = handler.effects };
     }
     return output;
 }

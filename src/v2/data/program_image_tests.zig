@@ -338,3 +338,44 @@ fn decodeBlockCatalog(allocator: std.mem.Allocator, bytes: []const u8, truncated
     try testing.expectEqual(64, decoded.program.blocks.len);
     try testing.expectEqual(63, decoded.program.blocks[62].terminator.jump.block);
 }
+
+test "retired forwarding constructors are absent while accepted handler bytes stay fixed" {
+    const codec = @import("program_record.zig");
+    const wire = @import("wire.zig");
+    try testing.expect(!@hasField(ir.Terminator, "forward"));
+    try testing.expect(!@hasField(ir.Handler, "forward_function"));
+    try testing.expect(!@hasField(p.Handler, "forward_function"));
+    try testing.expectEqual(@as(u8, 15), @intFromEnum(p.TerminatorTag.dispose));
+    try testing.expectEqual(@as(u8, 16), @intFromEnum(p.TerminatorTag.protect));
+    try testing.expectEqual(@as(u8, 17), @intFromEnum(p.TerminatorTag.with_region));
+    // Independent record grammar: deep, input, answer, return, no clauses,
+    // mandatory zero retired field, no state, no effects.
+    const expected = [_]u8{ 0, 3, 4, 5, 0, 0, 0, 0 };
+    const handler: ir.Handler = .{
+        .mode = .deep,
+        .input = 3,
+        .answer = 4,
+        .return_function = 5,
+        .clauses = &.{},
+    };
+    var output: [32]u8 = undefined;
+    var writer: wire.Writer = .{ .output = &output };
+    var context: codec.Context = .{};
+    try codec.write(ir.Handler, handler, &writer, &context);
+    try testing.expectEqualSlices(u8, &expected, output[0..writer.position]);
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var reader: wire.Reader = .{ .input = &expected };
+    var budget: codec.Budget = .{ .maximum = 1024 };
+    const decoded = try codec.read(ir.Handler, &reader, arena.allocator(), &budget, &context);
+    try reader.finish();
+    try testing.expectEqualDeep(handler, decoded);
+    for ([_]u8{ 1, 2, 255 }) |invalid| {
+        var changed = expected;
+        changed[5] = invalid;
+        reader = .{ .input = &changed };
+        try testing.expectError(error.InvalidFlags, codec.read(ir.Handler, &reader, arena.allocator(), &budget, &context));
+    }
+    reader = .{ .input = &.{14} };
+    try testing.expectError(error.InvalidTag, codec.read(ir.Terminator, &reader, arena.allocator(), &budget, &context));
+}

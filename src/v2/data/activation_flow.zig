@@ -294,7 +294,7 @@ fn controlReads(self: anytype, control: ir.Terminator) Error!void {
         .switch_variant => |selected| try self.read(selected.value, true),
         .unpack_product => |unpack| try self.read(unpack.value, true),
         .call => |call| try self.readAll(call.arguments),
-        .perform, .forward => |operation| {
+        .perform => |operation| {
             try self.read(operation.payload, true);
             try self.readAll(operation.bodies);
             if (operation.capability) |slot| try self.read(slot, true);
@@ -520,7 +520,7 @@ const Successors = struct {
                 .edge = call.next,
                 .returned = self.image.functions[@intCast(call.function)].result,
             },
-            .perform, .forward => |perform| .{
+            .perform => |perform| .{
                 .edge = perform.next,
                 .returned = self.image.effects[@intCast(perform.effect)].result,
             },

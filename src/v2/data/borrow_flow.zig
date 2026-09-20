@@ -163,7 +163,7 @@ fn FlowFor(comptime open: bool) type {
                     });
                 },
                 .call => |v| try self.link(id, v.next, null),
-                .perform, .forward => |v| try self.link(id, v.next, null),
+                .perform => |v| try self.link(id, v.next, null),
                 .apply => |v| try self.link(id, v.next, null),
                 .handle => |v| try self.link(id, v.next, null),
                 .resume_value => |v| try self.link(id, v.next, null),
@@ -623,7 +623,7 @@ fn FlowFor(comptime open: bool) type {
                         try self.bodyRequirements(index, id, v.body, v.arguments, self.program.handlers[@intCast(v.handler)].clauses.len);
                         try self.returnRequirements(index, id);
                     },
-                    .perform, .forward => |v| if (v.capability) |capability| {
+                    .perform => |v| if (v.capability) |capability| {
                         var captures = false;
                         for (self.program.handlers) |handler| for (handler.clauses) |clause| if (clause.effect == v.effect and @import("contracts.zig").retainsResumption(clause)) {
                             captures = true;
@@ -952,7 +952,7 @@ fn FlowFor(comptime open: bool) type {
                     defer self.allocator.free(sources);
                     for (sources) |source| try self.returnInput(pending, block, source);
                 },
-                .perform, .forward => |v| if (v.capability != null) {
+                .perform => |v| if (v.capability != null) {
                     for (self.program.handlers, 0..) |handler, handler_id| for (handler.clauses) |clause| if (clause.effect == v.effect) {
                         const index = try self.writeQuery(self.entry(clause.function), schema, path);
                         try self.transferSources(pending, .{ .block = block, .function = clause.function, .arguments = &.{}, .handler = handler_id, .operation = v }, index);
@@ -1031,7 +1031,7 @@ fn FlowFor(comptime open: bool) type {
                     try self.push(pending, block, v.resumption, 0);
                     try self.push(pending, block, v.computation, 0);
                 },
-                .perform, .forward => |v| {
+                .perform => |v| {
                     // Keep all incoming borrows for internal result schemas. External
                     // results are exportable and are removed by push's schema check.
                     if (v.capability) |slot| try self.push(pending, block, slot, try self.prepend(.{ .outer = null }, 0));

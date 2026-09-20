@@ -52,7 +52,7 @@ Use tags: reusable=0, affine=1, linear=2, multi=3. Mode: deep=0, shallow=1.
 | --- | --- |
 | Effect | identity:Text, payload:N, result:N, use_site_effects:IDs, bodies:IDs, control_use:Use, external:Bool |
 | Clause | effect:N, function:N, resumption:N, strategy:N |
-| Handler | mode:Mode, input:N, answer:N, return_function:N, clauses:[Clause], forward_function:?N, state:IDs, effects:IDs |
+| Handler | mode:Mode, input:N, answer:N, return_function:N, clauses:[Clause], reserved:u8=0, state:IDs, effects:IDs |
 | Capture | fields:IDs, owned_regions:IDs, borrowed_regions:IDs, use:Use |
 | Resource | representation:N, introducers:IDs, eliminators:IDs |
 | Constructor | function:N, capture:N, schema:N |
@@ -219,14 +219,15 @@ use_site_capabilities:IDs, next:Edge)`.
 | 11 | resume_value | resumption:N, argument:N, next:Edge |
 | 12 | resume_with | resumption:N, argument:N, handler:N, state:IDs, next:Edge |
 | 13 | resume_computation | resumption:N, computation:N, next:Edge |
-| 14 | forward | Perform |
+| 14 | retired; rejects | — |
 | 15 | dispose | owned:N, next:Edge |
 | 16 | protect | body:N, cleanup:N, arguments:IDs, resource:?N, loan_region:?N, next:Edge |
 | 17 | with_region | region:N, body:N, arguments:IDs, next:Edge |
 
-Forward's tag is defined but stable admission currently rejects it; explicit
-older-capability dispatch is supported. An enumerated tag alone grants no
-admission or execution support.
+Tag 14 is retired and rejects during decoding. Handler records retain a mandatory
+zero byte at the retired optional-field position, preserving every previously
+accepted BPI3/BMO1 encoding. There is no corresponding public constructor or
+handler field. Forwarding uses explicit older-capability dispatch.
 
 ## Owners, limits and failure safety
 

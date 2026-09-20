@@ -4,8 +4,8 @@
 relocatable object. `boundary_data.component.decode` checks its first-order
 records. `boundary_data.linker.link` binds objects and independently admits a
 closed BPI3 Program. The linker neither runs source emitters nor executes code.
-These development APIs remain under the current migration namespace until the
-coordinated default cutover.
+The current namespaces are `boundary` for authoring and `boundary_data` for
+object admission and linking.
 
 ## Format
 

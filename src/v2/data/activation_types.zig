@@ -156,7 +156,7 @@ fn terminator(image: ir.Program, block: ir.Block, slots: []const p.Id, effects: 
         .protect,
         .dispose,
         => try contracts.terminator(image, block, slots, effects),
-        .forward => return error.UnsupportedInstruction,
+
         else => {}, // Shape admission checks ordinary values and control edges.
     }
 }

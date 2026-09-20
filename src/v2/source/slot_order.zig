@@ -147,7 +147,7 @@ fn control(a: std.mem.Allocator, value: ir.Terminator, mapping: []const Id) Erro
         .resume_value,
         .resume_with,
         .resume_computation,
-        .forward,
+
         .dispose,
         .protect,
         .with_region,

@@ -141,7 +141,7 @@ pub const InstructionFailure = struct {
     value: Id,
 };
 
-pub const TerminatorTag = enum(u8) { return_value = 0, jump = 1, branch = 2, switch_variant = 3, unpack_product = 4, call = 5, perform = 6, yield_value = 7, fail = 8, apply = 9, handle = 10, resume_value = 11, resume_with = 12, resume_computation = 13, forward = 14, dispose = 15, protect = 16, with_region = 17 };
+pub const TerminatorTag = enum(u8) { return_value = 0, jump = 1, branch = 2, switch_variant = 3, unpack_product = 4, call = 5, perform = 6, yield_value = 7, fail = 8, apply = 9, handle = 10, resume_value = 11, resume_with = 12, resume_computation = 13, dispose = 15, protect = 16, with_region = 17 };
 pub const Clause = struct {
     effect: Id,
     function: Id,
@@ -153,7 +153,6 @@ pub const Handler = struct {
     answer: Id,
     return_function: Id,
     clauses: []const Clause,
-    forward_function: ?Id = null,
     state: []const Id = &.{},
     effects: []const Id = &.{},
 };

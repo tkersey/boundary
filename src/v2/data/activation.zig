@@ -79,7 +79,6 @@ pub const Terminator = union(contract.TerminatorTag) {
         next: Edge,
     },
     resume_computation: struct { resumption: Id, computation: Id, next: Edge },
-    forward: Perform,
     dispose: struct { owned: Id, next: Edge },
     protect: struct {
         body: Id,
@@ -115,7 +114,6 @@ pub const Handler = struct {
     answer: Id,
     return_function: Id,
     clauses: []const Clause,
-    forward_function: ?Id = null,
     state: []const Id = &.{},
     effects: []const Id = &.{},
 };

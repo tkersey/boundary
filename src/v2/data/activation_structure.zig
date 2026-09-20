@@ -167,7 +167,7 @@ const Checker = struct {
             },
             .unpack_product => |unpack| try self.checkUnpack(owner, unpack),
             .call => |call| try self.checkCall(owner, call),
-            .perform, .forward => |perform| try self.checkPerform(owner, perform),
+            .perform => |perform| try self.checkPerform(owner, perform),
             .apply => |apply| {
                 const signature = try self.computation(owner, apply.computation);
                 try self.arguments(owner, apply.arguments, signature.parameters);

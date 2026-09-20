@@ -19,7 +19,7 @@ pub fn node(state: anytype, reference: g.NodeRef) Error!g.Node {
 pub fn next(term: @import("activation.zig").Terminator) ?@import("activation.zig").Edge {
     return switch (term) {
         .call => |v| v.next,
-        .perform, .forward => |v| v.next,
+        .perform => |v| v.next,
         .apply => |v| v.next,
         .handle => |v| v.next,
         .resume_value => |v| v.next,
