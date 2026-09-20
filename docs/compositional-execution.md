@@ -73,9 +73,21 @@ from 149,898 to 197,300 bytes; copying them avoided that regression but did not
 justify the added retention APIs. Both variants are removed; admission still
 derives and validates its facts through the existing qualified path.
 
-Final matched BPC1 acceptance and serial reviews remain open. The preceding
-baseline exposed scalar and installation1/8/64 gaps; no failure has been waived.
-Agent's existing document records its qualified ReAct gains and remaining limits.
+The selected production tuple is Boundary 1b00c8c / World a20a285, consumed by
+Agent 9cad6d0. World's later bb7a08c commit changes only its result document.
+The [cumulative native results](https://github.com/tkersey/world/blob/feat/compositional-execution/docs/compositional-execution.md)
+cover all 45 fixed cases; installation64 latency is now lower than BPC1. The
+September 19 task amendment accepts the ten explicitly named small-workload native
+latency tradeoffs as milestone costs, without waiving memory, guest, Agent,
+structural or semantic requirements. Those costs are not reported as improvements.
+
+Remaining closeout work is selected-tuple guest/Agent confirmation, explicit memory
+and other economic dispositions, the requirement audit and serial reviews. Do not
+restart architecture or optimize accepted cells merely to seek uniform dominance.
+The established source-free component, compact installation-image and semantic
+checks remain valid for this documentation-only update. Agent's result document
+separately reports consumer gains and limits. The historical adequacy obstruction
+belongs to its locked release tuple, not an established successor defect.
 
 Maintained probes and regression tests remain under `test/` and
 `docs/performance/cold-guard.mjs`. Generated samples, profiles and patches are not
