@@ -38,6 +38,7 @@ invoke(ana(step, s), peer) = step(s, next -> invoke(peer, ana(step, next)))
 | `compose` | H(B,C) × H(A,B) → H(A,C), retaining reciprocal return paths |
 | `run`, `project` | Observe through identity or a constant counterpart |
 | `ana`, `start`, `Query.ask` | Runtime-state construction with arbitrary staged queries |
+| `demand.family/request/interpret/handle` | Lexical internal Need effects interpreted as counterpart tasks |
 | `lazyProduct`, `lazySum` | Observe fields/tags without forcing unused delayed payloads |
 | `stream`, `cons`, `emptyStream` | Delayed elements and successor spines |
 
@@ -161,11 +162,40 @@ algebra revision remains to be performed through the normal authenticated lock.
 ## Remaining requirements
 
 Broader generated reference agreement and law discrimination, independently
-compiled support-library isolation, three-part compositional closure, explicit
-internal Need-effect translation, owned exchange/disposal APIs with suspending
+compiled support-library isolation, three-part compositional closure, broader effectful ownership and demand-handler integration, owned exchange/disposal APIs with suspending
 cleanup, multi-shot custody, allocation-failure sweeps, multi-input fold/fusion
 and required structural economy remain unfinished. The model-directed incremental
 parser synthesis, consumer-supplied recursive assessment, exact approval/delivery,
 credible strategy comparison, opt-in live-model path, matched measurements and
 serial reviews also remain required. No complete-milestone or live-quality claim
 is made; all publication remains draft.
+
+## Internal demand translation
+
+The task-valued family now has an explicit effect interpretation in
+`library.hyper.demand`. A nominal `Need<S,A>` request carries a lexical capability
+and successor state. Its ordinary deep-handler clause uses the current ana maker
+to construct that successor, invokes the counterpart task, and resumes the actual
+waiting one-shot continuation with its result. Step bodies contain ordinary effect
+requests rather than manually emitting counterpart invocation machinery. Constructing
+the task descriptor performs no environmental work. Each later request executes
+a fresh task; descriptor sharing does not share its execution.
+
+The handled body is linear, and caller-supplied capture/region/obligation bounds
+still cross the existing source/object checks. This is not an exemption from
+ownership checks or automatic support for every resource-bearing shape.
+
+`examples/hyper_demand.zig` nests consumer and producer requests with non-tail
+additions, while the inner consumer requests one residual reference operation.
+Both internal families deliberately share the display name `hyper/need`; their
+nominal IDs and lexical capabilities remain distinct. A wrong-family capability
+rejects at source checking.
+
+`zig build check --summary all` passes 249 steps / 239 tests.
+`zig build emit-hyper-demand > IMAGE`, followed by the ordinary
+`test/hyperfunction_world.mjs WORLD_ENTRY KERNEL IMAGE effect` driver, returns
+42 through 89 fresh Node/WASM transfers at quantum 1. The Program is 1,234 bytes.
+Only the single declared external `hyper/reference` request reaches the host;
+the fixture supplies its explicitly synthetic echo response. This tests handler
+translation and suspension, not a real empirical Agent tool. The existing Agent
+real-reference/model witness will be migrated onto this handler path next.

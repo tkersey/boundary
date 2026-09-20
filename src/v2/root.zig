@@ -40,4 +40,5 @@ pub const data = @import("boundary_data");
 test {
     _ = computation;
     _ = library.hyper;
+    _ = library.hyper.demand;
 }

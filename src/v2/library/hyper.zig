@@ -2,6 +2,7 @@
 //! Explicit pure call-by-name computations. Runtime closures use normal lowering.
 const source = @import("../source.zig");
 const Id = source.Id;
+pub const demand = @import("hyper_need.zig");
 
 /// A zero-argument pure computation. Captures are checked by normal admission.
 pub fn delayed(b: *source.Builder, result: Id, captures: []const Id) source.Error!Id {

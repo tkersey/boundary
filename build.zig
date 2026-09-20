@@ -243,6 +243,17 @@ pub fn build(b: *std.Build) void {
         algebra_images.dependOn(&b.addInstallFileWithDir(run.captureStdOut(.{}), .prefix, b.fmt("hyper/{s}.bpi3", .{mode})).step);
     }
     aggregate.dependOn(algebra_images);
+    const demand = b.addExecutable(.{ .name = "hyper-demand", .root_module = b.createModule(.{
+        .root_source_file = b.path("examples/hyper_demand.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "boundary", .module = boundary }},
+    }) });
+    b.step("emit-hyper-demand", "Emit lexical internal-demand interpretation")
+        .dependOn(&b.addRunArtifact(demand).step);
+    const demand_check = b.addRunArtifact(demand);
+    _ = demand_check.captureStdOut(.{});
+    aggregate.dependOn(&demand_check.step);
     const hyper_reference = b.addSystemCommand(&.{ "node", "--test" });
     hyper_reference.addFileArg(b.path("test/hyperfunction_reference.test.mjs"));
     aggregate.dependOn(&hyper_reference.step);
