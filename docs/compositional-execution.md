@@ -81,8 +81,10 @@ September 19 task amendment accepts the ten explicitly named small-workload nati
 latency tradeoffs as milestone costs, without waiving memory, guest, Agent,
 structural or semantic requirements. Those costs are not reported as improvements.
 
-Remaining closeout work is selected-tuple guest/Agent confirmation, explicit memory
-and other economic dispositions, the requirement audit and serial reviews. Do not
+Selected-tuple standalone guest, inquiry/ReAct/repeated and clarification
+confirmations now pass. The user explicitly accepted the named memory, checkpoint
+and ReAct-image costs on September 19. The requirement audit also led to Agent's
+read-only Program/State inspector extension. Serial-review closeout remains. Do not
 restart architecture or optimize accepted cells merely to seek uniform dominance.
 The established source-free component, compact installation-image and semantic
 checks remain valid for this documentation-only update. Agent's result document
