@@ -2,7 +2,7 @@
 
 Boundary 3.0.0-dev.0 provides stable-slot authoring, checked BMO1 component linking,
 and current BPI3/PST3/invocation contracts. World interprets these records; Agent
-is the required consumer. The successor remains incomplete and all PRs are drafts.
+is the required consumer. All PRs remain drafts; current review/readiness is recorded in the linked PRs.
 
 Current contracts: [components](bmo1-components.md), [Program images](bpi3-wire.md),
 [State](pst3-wire.md), and [invocations](invocation-wire.md).
@@ -84,7 +84,7 @@ structural or semantic requirements. Those costs are not reported as improvement
 Selected-tuple standalone guest, inquiry/ReAct/repeated and clarification
 confirmations now pass. The user explicitly accepted the named memory, checkpoint
 and ReAct-image costs on September 19. The requirement audit also led to Agent's
-read-only Program/State inspector extension. Serial-review closeout remains. Do not
+read-only Program/State inspector extension. Serial-review status is recorded in the linked PRs. Do not
 restart architecture or optimize accepted cells merely to seek uniform dominance.
 The established source-free component, compact installation-image and semantic
 checks remain valid for this documentation-only update. Agent's result document

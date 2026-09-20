@@ -4,8 +4,9 @@ Boundary checks staged Zig computations and handlers and compiles them into
 portable BPI3 program data. World 6 executes that data with one generic native/WASM
 interpreter. Boundary contains no production evaluator.
 
-This `3.0.0-dev.0` branch uses Zig `0.16.0`. The coordinated successor remains
-incomplete; see [current results and limits](docs/compositional-execution.md).
+This `3.0.0-dev.0` branch uses Zig `0.16.0`. See the
+[current results and limits](docs/compositional-execution.md) and linked draft PRs
+for qualification and live review/readiness status.
 
 ## Author and compile
 
@@ -73,9 +74,9 @@ implementation. No build command publishes a release or merges a PR.
 Recompile applications for the successor. Old saved executions require their old
 pinned image/runtime pair or explicit completion/abandonment under that pair.
 There is no automatic migration of old live State. Legacy data/runtime paths have
-been retired with current regression coverage. Coordinated performance disposition,
-selected-tuple confirmation and serial review closeout remain open in the linked
-draft PRs.
+been retired with current regression coverage. Selected-tuple confirmation and
+accepted milestone tradeoffs are documented in the current results. The linked
+draft PRs carry live serial-review and readiness status.
 
 The old image, compact-image, snapshot and protocol codecs are removed.
 Use `data.program_image`, `data.state_image` and `data.invocation` for current
