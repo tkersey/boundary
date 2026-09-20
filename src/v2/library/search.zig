@@ -2,7 +2,7 @@
 //! Search exposes alternatives as immutable templates. DFS and BFS differ only
 //! in where ordinary authored code inserts those alternatives into its worklist.
 const source = @import("../source.zig");
-const p = @import("boundary_data_v2").program;
+const p = @import("boundary_data").program;
 pub const Order = enum { depth_first, breadth_first };
 pub const Search = struct { pick: p.Id, reject: p.Id, pick_capability: p.Id, reject_capability: p.Id, step: p.Id, resumption: p.Id, handler: p.Id, solutions: p.Id, explore: p.Id, queue: p.Id };
 

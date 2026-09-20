@@ -1,7 +1,22 @@
 const std = @import("std");
 const source = @import("../source.zig");
 const examples = @import("examples.zig");
-const data = @import("boundary_data_v2");
+const data = @import("boundary_data");
+
+fn requireAdmitted(program: data.activation.Program) !void {
+    var facts = try data.activation_ownership.analyze(std.testing.allocator, program);
+    facts.deinit();
+}
+
+fn canonical(program: data.activation.Program) !void {
+    const a = std.testing.allocator;
+    const bytes = try a.alloc(u8, try data.program_image.encodedLength(program));
+    defer a.free(bytes);
+    _ = try data.program_image.encode(a, program, bytes);
+    var decoded = try data.program_image.decode(a, bytes);
+    defer decoded.deinit();
+    try std.testing.expectEqualDeep(program, decoded.program);
+}
 
 test "resource authority rejects absent descriptors before mutation" {
     for (0..2) |resource_count| for ([_]bool{ false, true }) |maximum| {
@@ -84,7 +99,7 @@ test "valid recursive result schemas do not require source termination" {
     try b.define(function, try b.term(.{ .call = .{ .function = function, .arguments = &.{} } }));
     var compiled = try source.lower(std.testing.allocator, b.module(function, integer));
     defer compiled.deinit();
-    try data.admission.program(std.testing.allocator, compiled.program);
+    try requireAdmitted(compiled.program);
 }
 
 test "borrowed operands preserve evaluated consumption and owned temporary failure custody" {
@@ -92,8 +107,8 @@ test "borrowed operands preserve evaluated consumption and owned temporary failu
     defer b.deinit();
     var compiled = try source.lower(std.testing.allocator, try examples.borrowOperands(&b));
     defer compiled.deinit();
-    try data.admission.program(std.testing.allocator, compiled.program);
-    try data.canonical.require(std.testing.allocator, compiled.program);
+    try requireAdmitted(compiled.program);
+    try canonical(compiled.program);
 }
 
 test "successor custody never permits ordinary owner discard" {
@@ -126,7 +141,7 @@ test "failure custody does not permit repeated consumption inside a borrowed ope
         break;
     }
     try std.testing.expect(changed);
-    try std.testing.expectError(error.InvalidOwnership, source.lower(
+    try std.testing.expectError(error.UnavailableSlot, source.lower(
         std.testing.allocator,
         b.module(module.entry, module.failure),
     ));
@@ -317,7 +332,7 @@ test "actual handler installation sites share executable definitions" {
         const program = compiled.program;
         try std.testing.expectEqual(@as(usize, 1), program.handlers.len);
         const clause = program.handlers[0].clauses[0];
-        try std.testing.expect(clause.direct);
+        try std.testing.expectEqual(@as(@TypeOf(clause.strategy), .tail), clause.strategy);
         const code = program.blocks[@intCast(program.functions[@intCast(clause.function)].entry)];
         if (functions == null) {
             functions = program.functions.len;
@@ -355,7 +370,7 @@ test "an added pointer-free constant occupies one stored payload" {
         defer compiled.deinit();
         try std.testing.expectEqual(@as(usize, 1), compiled.program.constants.len);
         try std.testing.expectEqual(bytes.len, compiled.program.constants[0].bytes.len);
-        const output = try std.testing.allocator.alloc(u8, try data.image.encodedLength(compiled.program));
+        const output = try std.testing.allocator.alloc(u8, try data.program_image.encodedLength(compiled.program));
         defer std.testing.allocator.free(output);
         _ = try compiled.encode(std.testing.allocator, output);
         if (length == 0) empty_size = output.len else {
@@ -363,7 +378,7 @@ test "an added pointer-free constant occupies one stored payload" {
             try std.testing.expect(output.len - empty_size >= length);
             // Two nested byte lengths, the constants section length, and the
             // six later directory offsets can each grow by two ULEB bytes.
-            try std.testing.expect(output.len - empty_size <= length + 2 * data.image.section_count);
+            try std.testing.expect(output.len - empty_size <= length + 2 * 10);
         }
     }
 }
@@ -381,6 +396,10 @@ test "public staged emit compiles independently and frees every failed allocatio
             var compiled = try @import("../root.zig").program.lower(allocator, @This());
             defer compiled.deinit();
             try std.testing.expectEqual(@as(u8, 42), compiled.program.constants[0].bytes[0]);
+            const bytes = try allocator.alloc(u8, try data.program_image.encodedLength(compiled.program));
+            defer allocator.free(bytes);
+            _ = try compiled.encode(allocator, bytes);
+            try std.testing.expectEqualStrings("ABL_BPI3", bytes[0..8]);
         }
     };
     try Application.attempt(std.testing.allocator);
@@ -398,11 +417,11 @@ test "lexical lambda conversion derives captures and owns emitted data independe
     builder.deinit();
     try std.testing.expectEqual(@as(usize, 1), compiled.program.constructors.len);
     try std.testing.expectEqual(@as(usize, 1), compiled.program.scopes.captures[0].fields.len);
-    try std.testing.expectEqual(@as(usize, 2), compiled.program.functions[1].parameters.len);
-    const output = try std.testing.allocator.alloc(u8, try data.image.encodedLength(compiled.program));
+    try std.testing.expectEqual(@as(usize, 2), compiled.program.functions[1].inputs.len);
+    const output = try std.testing.allocator.alloc(u8, try data.program_image.encodedLength(compiled.program));
     defer std.testing.allocator.free(output);
     _ = try compiled.encode(std.testing.allocator, output);
-    var decoded = try data.image.decode(std.testing.allocator, output);
+    var decoded = try data.program_image.decode(std.testing.allocator, output);
     defer decoded.deinit();
 }
 
@@ -436,31 +455,34 @@ test "source bind lowers non-tail handlers and mutually recursive functions" {
         defer builder.deinit();
         var compiled = try source.lower(std.testing.allocator, try example(&builder));
         defer compiled.deinit();
-        try data.admission.program(std.testing.allocator, compiled.program);
-        try data.canonical.require(std.testing.allocator, compiled.program);
+        try requireAdmitted(compiled.program);
+        try canonical(compiled.program);
     }
 }
 
-test "direct clauses reject authored failure and hidden effects at pure admission" {
+test "tail clauses reject well-typed authored failure and hidden effects at pure admission" {
     var b = source.Builder.init(std.testing.allocator);
     defer b.deinit();
     var compiled = try source.lower(std.testing.allocator, try examples.answers(&b));
     defer compiled.deinit();
     const clause = compiled.program.handlers[0].clauses[0];
-    try std.testing.expect(clause.direct);
+    try std.testing.expectEqual(@as(@TypeOf(clause.strategy), .tail), clause.strategy);
     const function = compiled.program.functions[@intCast(clause.function)];
     var bad = compiled.program;
-    const blocks = try std.testing.allocator.dupe(data.program.Block, bad.blocks);
+    const blocks = try std.testing.allocator.dupe(data.activation.Block, bad.blocks);
     defer std.testing.allocator.free(blocks);
-    blocks[@intCast(function.entry)].terminator = .{ .fail = 0 };
+    const failure_slot = for (function.inputs) |slot| {
+        if (function.layout.slots[@intCast(slot)] == bad.roots.failure) break slot;
+    } else return error.MissingFailureInput;
+    blocks[@intCast(function.entry)].terminator = .{ .fail = failure_slot };
     bad.blocks = blocks;
-    try std.testing.expectError(error.InvalidProgram, data.admission.program(std.testing.allocator, bad));
+    try std.testing.expectError(error.InvalidProgram, data.activation_types.validate(std.testing.allocator, bad));
     bad = compiled.program;
-    const functions = try std.testing.allocator.dupe(data.program.Function, bad.functions);
+    const functions = try std.testing.allocator.dupe(data.activation.Function, bad.functions);
     defer std.testing.allocator.free(functions);
     functions[@intCast(clause.function)].effects = &.{clause.effect};
     bad.functions = functions;
-    try std.testing.expectError(error.InvalidEffect, data.admission.program(std.testing.allocator, bad));
+    try std.testing.expectError(error.InvalidEffect, data.activation_types.validate(std.testing.allocator, bad));
 }
 
 test "library specializations share declarations at one eight and sixty-four installations" {
@@ -535,7 +557,7 @@ test "converting an owned capture consumes the original before any template acti
     const resumed = b.terms.items[@intCast(saved.next)].bind.value;
     const original = try b.reference(b.parameter(clause, 3));
     b.terms.items[@intCast(resumed)].resume_value.resumption = original;
-    try std.testing.expectError(error.InvalidOwnership, source.lower(std.testing.allocator, b.module(module.entry, module.failure)));
+    try std.testing.expectError(error.UnavailableSlot, source.lower(std.testing.allocator, b.module(module.entry, module.failure)));
 }
 
 test "unused binding annotations and undeclared captures still reject" {
@@ -714,7 +736,7 @@ test "capture diagnostics name the responsible source variable without changing 
     var diagnostic: source.Diagnostic = .{};
     var observed = try source.lowerObserved(std.testing.allocator, module, .{ .diagnostic = &diagnostic, .observer = .{ .context = &trace, .enter = Trace.enter } });
     defer observed.deinit();
-    try std.testing.expectEqualSlices(source.CompileStage, &.{ .source_copy, .source_check, .lowering, .target_check, .direct_optimization, .canonicalization, .complete }, trace.stages.items);
+    try std.testing.expectEqualSlices(source.CompileStage, &.{ .source_check, .lowering, .target_check, .direct_optimization, .canonicalization, .target_check, .complete }, trace.stages.items);
     try std.testing.expect(diagnostic.code == null and diagnostic.phase == .complete);
     var a: [1024]u8 = undefined;
     var c: [1024]u8 = undefined;
@@ -775,7 +797,7 @@ test "resource authority sets survive every three-function root permutation" {
         }
         var compiled = try source.lower(std.testing.allocator, b.module(functions[entry], integer));
         defer compiled.deinit();
-        try data.canonical.require(std.testing.allocator, compiled.program);
+        try canonical(compiled.program);
         const admitted = compiled.program.scopes.resources[0];
         try std.testing.expectEqual(@as(usize, @popCount(mask)), admitted.introducers.len);
         try std.testing.expectEqualSlices(p.Id, admitted.introducers, admitted.eliminators);
@@ -845,7 +867,7 @@ test "choice returns borrowed cells to a caller inside their live region" {
     try b.define(main, try b.term(.{ .with_region = .{ .region = r, .body = try b.lambda(scope, scope_type) } }));
     var compiled = try source.lower(std.testing.allocator, b.module(main, unit));
     defer compiled.deinit();
-    try data.canonical.require(std.testing.allocator, compiled.program);
+    try canonical(compiled.program);
 }
 
 test "escaping choice captures own even a region with no live cells" {

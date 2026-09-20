@@ -2,7 +2,7 @@
 //! Structural usage properties. Serialized records cannot assert these facts.
 const std = @import("std");
 const p = @import("program.zig");
-pub const Facts = struct { copy: []bool, drop: []bool, clone: []bool };
+pub const Facts = struct { copy: []const bool, drop: []const bool, clone: []const bool };
 
 /// Greatest fixed points for recursive immutable data, narrowed by owned leaves.
 pub fn derive(allocator: std.mem.Allocator, schemas: []const p.Schema) @import("admission.zig").Error!Facts {
@@ -17,6 +17,7 @@ pub fn derive(allocator: std.mem.Allocator, schemas: []const p.Schema) @import("
     @memset(drop, true);
     @memset(clone, true);
     const facts: Facts = .{ .copy = copy, .drop = drop, .clone = clone };
+    const mutable = .{ .copy = copy, .drop = drop, .clone = clone };
     var changed = true;
     while (changed) {
         changed = false;
@@ -24,7 +25,7 @@ pub fn derive(allocator: std.mem.Allocator, schemas: []const p.Schema) @import("
             const observed = properties(schema, facts);
             inline for (.{ "copy", "drop", "clone" }) |field| {
                 if (!@field(observed, field) and @field(facts, field)[index]) {
-                    @field(facts, field)[index] = false;
+                    @field(mutable, field)[index] = false;
                     changed = true;
                 }
             }

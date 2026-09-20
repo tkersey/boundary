@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
 //! Each control operand writes a distinct value before the final operand reads.
 const source = @import("../source.zig");
-const p = @import("boundary_data_v2").program;
+const p = @import("boundary_data").program;
 
 pub fn handle(b: *source.Builder) source.Error!source.Module {
     return build(b, false);

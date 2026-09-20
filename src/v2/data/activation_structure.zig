@@ -1,0 +1,279 @@
+// Copyright (c) 2026 Boundary contributors. MIT license.
+//! The structural layer of stable-activation admission. It checks every slot,
+//! destination and control edge. Initialization, liveness, effects, ownership,
+//! region flow and full instruction typing are separate required layers; success
+//! here alone never grants executable status.
+const std = @import("std");
+const ir = @import("activation.zig");
+const p = @import("program.zig");
+pub const Error = std.mem.Allocator.Error || error{
+    InvalidReference,
+    TypeMismatch,
+    DuplicateDestination,
+    InvalidProgram,
+};
+
+pub fn validate(allocator: std.mem.Allocator, image: ir.Program) Error!void {
+    return validateComponent(allocator, image, &.{});
+}
+
+/// Imports are bodyless declarations, never executable entry points.
+pub fn validateComponent(allocator: std.mem.Allocator, image: ir.Program, imports: []const p.Id) Error!void {
+    var checker: Checker = .{ .allocator = allocator, .image = image };
+    for (imports, 0..) |id, at| {
+        if (id >= image.functions.len or std.mem.indexOfScalar(p.Id, imports[0..at], id) != null) return error.InvalidReference;
+    }
+    defer checker.destinations.deinit(allocator);
+    if (image.roots.profile != 1) return error.InvalidProgram;
+    if (image.roots.entry >= image.functions.len) return error.InvalidReference;
+    try checker.schema(image.roots.result);
+    try checker.schema(image.roots.failure);
+    if (image.functions[@intCast(image.roots.entry)].result != image.roots.result)
+        return error.TypeMismatch;
+    for (image.functions, 0..) |function, id| {
+        const imported = std.mem.indexOfScalar(p.Id, imports, id) != null;
+        if (imported) {
+            if (function.entry != @import("relocation.zig").missing or function.inputs.len != function.layout.slots.len) return error.InvalidProgram;
+        } else {
+            try checker.target(id, function.entry);
+            if (image.blocks[@intCast(function.entry)].custody != 0) return error.InvalidProgram;
+        }
+        if (function.custody.len == 0 or function.custody[0].parent != null) return error.InvalidProgram;
+        for (function.custody[1..], 1..) |scope, scope_id| {
+            const parent = scope.parent orelse return error.InvalidProgram;
+            if (parent >= scope_id) return error.InvalidReference;
+        }
+        try checker.schema(function.result);
+        for (function.layout.slots) |schema| try checker.schema(schema);
+        for (function.effects) |effect| if (effect >= image.effects.len)
+            return error.InvalidReference;
+        for (function.regions) |region| if (region >= image.scopes.region_count)
+            return error.InvalidReference;
+        checker.destinations.clearRetainingCapacity();
+        for (function.inputs) |input| {
+            _ = try checker.slot(id, input);
+            try checker.destination(input);
+        }
+    }
+    for (image.blocks) |block| {
+        if (std.mem.indexOfScalar(p.Id, imports, block.function) != null) return error.InvalidProgram;
+        try checker.block(block);
+    }
+}
+
+const Checker = struct {
+    allocator: std.mem.Allocator,
+    image: ir.Program,
+    destinations: std.AutoHashMapUnmanaged(p.Id, void) = .empty,
+
+    fn schema(self: Checker, id: p.Id) Error!void {
+        if (id >= self.image.schemas.len) return error.InvalidReference;
+    }
+
+    fn slot(self: Checker, function: p.Id, id: p.Id) Error!p.Id {
+        if (function >= self.image.functions.len) return error.InvalidReference;
+        const layout = self.image.functions[@intCast(function)].layout.slots;
+        if (id >= layout.len) return error.InvalidReference;
+        const result = layout[@intCast(id)];
+        try self.schema(result);
+        return result;
+    }
+
+    fn target(self: Checker, owner: p.Id, id: p.Id) Error!void {
+        if (id >= self.image.blocks.len) return error.InvalidReference;
+        if (self.image.blocks[@intCast(id)].function != owner) return error.InvalidReference;
+    }
+
+    fn destination(self: *Checker, id: p.Id) Error!void {
+        const result = try self.destinations.getOrPut(self.allocator, id);
+        if (result.found_existing) return error.DuplicateDestination;
+    }
+
+    fn slots(self: Checker, function: p.Id, values: []const p.Id) Error!void {
+        for (values) |value| _ = try self.slot(function, value);
+    }
+
+    fn arguments(
+        self: Checker,
+        function: p.Id,
+        supplied: []const p.Id,
+        expected: []const p.Id,
+    ) Error!void {
+        if (supplied.len != expected.len) return error.TypeMismatch;
+        for (supplied, expected) |value, shape| {
+            if (try self.slot(function, value) != shape) return error.TypeMismatch;
+        }
+    }
+
+    fn edge(self: *Checker, owner: p.Id, next: ir.Edge, returned: ?p.Id) Error!void {
+        try self.target(owner, next.block);
+        self.destinations.clearRetainingCapacity();
+        for (next.assignments) |assignment| {
+            try self.destination(assignment.destination);
+            const expected = try self.slot(owner, assignment.destination);
+            const actual = switch (assignment.source) {
+                .slot => |value| try self.slot(owner, value),
+                .returned => returned orelse return error.TypeMismatch,
+            };
+            if (actual != expected) return error.TypeMismatch;
+        }
+    }
+
+    fn computation(self: Checker, owner: p.Id, value: p.Id) Error!p.ComputationType {
+        const shape = self.image.schemas[@intCast(try self.slot(owner, value))];
+        if (shape != .internal or shape.internal != .computation) return error.TypeMismatch;
+        return shape.internal.computation;
+    }
+
+    fn resumption(self: Checker, owner: p.Id, value: p.Id) Error!p.ResumptionType {
+        const shape = self.image.schemas[@intCast(try self.slot(owner, value))];
+        if (shape != .internal or shape.internal != .resumption) return error.TypeMismatch;
+        return shape.internal.resumption;
+    }
+
+    fn block(self: *Checker, code: ir.Block) Error!void {
+        if (code.function >= self.image.functions.len) return error.InvalidReference;
+        const owner = code.function;
+        if (code.custody >= self.image.functions[@intCast(owner)].custody.len)
+            return error.InvalidReference;
+        for (code.instructions) |instruction| {
+            _ = try self.slot(owner, instruction.destination);
+            try self.slots(owner, instruction.operands);
+            for (instruction.failures) |failure| {
+                if (failure.value >= self.image.constants.len) return error.InvalidReference;
+            }
+        }
+        switch (code.terminator) {
+            .return_value => |value| {
+                const function = self.image.functions[@intCast(owner)];
+                if (try self.slot(owner, value) != function.result) return error.TypeMismatch;
+            },
+            .fail => |value| {
+                if (try self.slot(owner, value) != self.image.roots.failure)
+                    return error.TypeMismatch;
+            },
+            .jump, .yield_value => |next| try self.edge(owner, next, null),
+            .branch => |branch| {
+                const shape = self.image.schemas[@intCast(try self.slot(owner, branch.condition))];
+                if (shape != .boolean) return error.TypeMismatch;
+                try self.edge(owner, branch.when_true, null);
+                try self.edge(owner, branch.when_false, null);
+            },
+            .switch_variant => |selected| {
+                const shape = self.image.schemas[@intCast(try self.slot(owner, selected.value))];
+                if (shape != .sum or shape.sum.len != selected.cases.len)
+                    return error.TypeMismatch;
+                for (selected.cases, shape.sum) |next, result| try self.edge(owner, next, result);
+            },
+            .unpack_product => |unpack| try self.checkUnpack(owner, unpack),
+            .call => |call| try self.checkCall(owner, call),
+            .perform => |perform| try self.checkPerform(owner, perform),
+            .apply => |apply| {
+                const signature = try self.computation(owner, apply.computation);
+                try self.arguments(owner, apply.arguments, signature.parameters);
+                try self.edge(owner, apply.next, signature.result);
+            },
+            .handle => |handle| try self.checkHandle(owner, handle),
+            .resume_value, .resume_with, .resume_computation => try self.resumeControl(code),
+            .dispose => |dispose| {
+                _ = try self.slot(owner, dispose.owned);
+                try self.edge(owner, dispose.next, null);
+            },
+            .protect, .with_region => try self.scopeControl(code),
+        }
+    }
+
+    fn checkUnpack(self: *Checker, owner: p.Id, operation: anytype) Error!void {
+        const shape = self.image.schemas[@intCast(try self.slot(owner, operation.value))];
+        if (shape != .product or shape.product.len != operation.destinations.len)
+            return error.TypeMismatch;
+        self.destinations.clearRetainingCapacity();
+        for (operation.destinations, shape.product) |id, expected| {
+            try self.destination(id);
+            if (try self.slot(owner, id) != expected) return error.TypeMismatch;
+        }
+        // Unpack establishes destinations before taking its ordinary next edge.
+        try self.edge(owner, operation.next, null);
+    }
+
+    fn checkCall(self: *Checker, owner: p.Id, operation: anytype) Error!void {
+        if (operation.function >= self.image.functions.len) return error.InvalidReference;
+        const callee = self.image.functions[@intCast(operation.function)];
+        if (operation.arguments.len != callee.inputs.len) return error.TypeMismatch;
+        for (operation.arguments, callee.inputs) |value, input| {
+            if (try self.slot(owner, value) != try self.slot(operation.function, input))
+                return error.TypeMismatch;
+        }
+        try self.edge(owner, operation.next, callee.result);
+    }
+
+    fn checkPerform(self: *Checker, owner: p.Id, operation: ir.Perform) Error!void {
+        if (operation.effect >= self.image.effects.len) return error.InvalidReference;
+        const effect = self.image.effects[@intCast(operation.effect)];
+        if (try self.slot(owner, operation.payload) != effect.payload) return error.TypeMismatch;
+        if (operation.capability) |value| _ = try self.slot(owner, value);
+        try self.arguments(owner, operation.bodies, effect.bodies);
+        try self.slots(owner, operation.use_site_capabilities);
+        try self.edge(owner, operation.next, effect.result);
+    }
+
+    fn checkHandle(self: *Checker, owner: p.Id, operation: anytype) Error!void {
+        if (operation.handler >= self.image.handlers.len) return error.InvalidReference;
+        const handler = self.image.handlers[@intCast(operation.handler)];
+        _ = try self.computation(owner, operation.body);
+        try self.slots(owner, operation.arguments);
+        try self.arguments(owner, operation.state, handler.state);
+        try self.edge(owner, operation.next, handler.answer);
+    }
+
+    fn resumeControl(self: *Checker, code: ir.Block) Error!void {
+        const owner = code.function;
+        switch (code.terminator) {
+            inline .resume_value, .resume_with => |operation| {
+                const signature = try self.resumption(owner, operation.resumption);
+                if (try self.slot(owner, operation.argument) != signature.input)
+                    return error.TypeMismatch;
+                var answer = signature.answer;
+                if (code.terminator == .resume_with) {
+                    const successor = code.terminator.resume_with;
+                    if (successor.handler >= self.image.handlers.len)
+                        return error.InvalidReference;
+                    const handler = self.image.handlers[@intCast(successor.handler)];
+                    if (handler.input != signature.answer) return error.TypeMismatch;
+                    try self.arguments(owner, successor.state, handler.state);
+                    answer = handler.answer;
+                }
+                try self.edge(owner, operation.next, answer);
+            },
+            .resume_computation => |operation| {
+                const signature = try self.resumption(owner, operation.resumption);
+                _ = try self.computation(owner, operation.computation);
+                try self.edge(owner, operation.next, signature.answer);
+            },
+            else => return error.InvalidProgram,
+        }
+    }
+
+    fn scopeControl(self: *Checker, code: ir.Block) Error!void {
+        const owner = code.function;
+        switch (code.terminator) {
+            .protect => |operation| {
+                const signature = try self.computation(owner, operation.body);
+                _ = try self.computation(owner, operation.cleanup);
+                try self.slots(owner, operation.arguments);
+                if (operation.resource) |value| _ = try self.slot(owner, value);
+                if (operation.loan_region) |region| if (region >= self.image.scopes.region_count)
+                    return error.InvalidReference;
+                try self.edge(owner, operation.next, signature.result);
+            },
+            .with_region => |operation| {
+                if (operation.region >= self.image.scopes.region_count)
+                    return error.InvalidReference;
+                const signature = try self.computation(owner, operation.body);
+                try self.slots(owner, operation.arguments);
+                try self.edge(owner, operation.next, signature.result);
+            },
+            else => return error.InvalidProgram,
+        }
+    }
+};

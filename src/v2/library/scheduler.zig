@@ -2,7 +2,7 @@
 //! FIFO policy is ordinary recursive source code over an owned package queue.
 const source = @import("../source.zig");
 const generator = @import("generator.zig");
-const p = @import("boundary_data_v2").program;
+const p = @import("boundary_data").program;
 pub const Scheduler = struct { queue: p.Id, enqueue: p.Id, drain: p.Id };
 
 pub fn fifo(b: *source.Builder, tasks: generator.Generator, residual: source.Row, regions: []const p.Id) source.Error!Scheduler {

@@ -1,7 +1,7 @@
 //! Synthetic heterogeneous live interfaces, authored through the public builder.
 const boundary = @import("boundary");
 const std = @import("std");
-const p = boundary.data_v2.program;
+const p = boundary.data.program;
 
 pub fn mixed(
     b: *boundary.computation.Builder,
@@ -78,12 +78,12 @@ pub fn storedConstant(b: *boundary.computation.Builder, length: usize) !boundary
     const bytes_type = try b.schema(.bytes);
     const unit = try b.scalar(void);
     const pair = try b.schema(.{ .product = &.{ bytes_type, bytes_type } });
-    var measured: boundary.data_v2.wire.Writer = .{};
+    var measured: boundary.data.wire.Writer = .{};
     try measured.natural(length);
     const total = std.math.add(usize, measured.position, length) catch return error.InvalidLength;
     const bytes = try b.allocator().alloc(u8, total);
     @memset(bytes, 0x5a);
-    var writer: boundary.data_v2.wire.Writer = .{ .output = bytes };
+    var writer: boundary.data.wire.Writer = .{ .output = bytes };
     try writer.natural(length);
     const first = try b.literal(.{ .schema = bytes_type, .bytes = bytes });
     const second = try b.literal(.{ .schema = bytes_type, .bytes = bytes });

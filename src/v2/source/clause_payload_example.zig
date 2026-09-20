@@ -2,7 +2,7 @@
 //! A clause may borrow an older attachment, but not its own suspended one.
 const std = @import("std");
 const source = @import("../source.zig");
-const p = @import("boundary_data_v2").program;
+const p = @import("boundary_data").program;
 
 pub fn build(b: *source.Builder) source.Error!source.Module {
     return variant(b, true, false);

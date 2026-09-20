@@ -3,7 +3,7 @@
 This is a model of Boundary control and lowering, checked with the pinned
 Lean 4.33.1 toolchain and bundled Std. It has no external package dependencies.
 Run `lake build` and `lake env lean Trust.lean` in this directory, or use
-`zig build check-v2-semantics` from the repository. Importing Boundary's
+`zig build check-formal` from the repository. Importing Boundary's
 Zig modules does not execute these commands or require Lean.
 
 The artifacts under proof are the Lean definitions here. The production Zig

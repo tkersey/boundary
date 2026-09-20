@@ -16,7 +16,7 @@ pub const Error = wire.Error || std.mem.Allocator.Error || error{
     InvalidOwnership,
 };
 
-pub const SchemaFacts = struct { minimum: []u64, exportable: []bool };
+pub const SchemaFacts = struct { minimum: []const u64, exportable: []const bool };
 
 pub fn schemaAt(catalog: []const p.Schema, id: p.Id) Error!p.Schema {
     if (id >= catalog.len) return error.InvalidSchema;
@@ -218,137 +218,6 @@ pub fn readValue(
     return reader.input[start..reader.position];
 }
 
-pub fn program(allocator: std.mem.Allocator, image: p.Program) Error!void {
-    return programDiagnosed(allocator, image, null);
-}
-
-pub fn programDiagnosed(allocator: std.mem.Allocator, image: p.Program, diagnostic: ?*Diagnostic) Error!void {
-    if (diagnostic) |d| d.* = .{};
-    errdefer |err| if (diagnostic) |d| {
-        d.code = err;
-    };
-    var arena = std.heap.ArenaAllocator.init(allocator);
-    defer arena.deinit();
-    const scratch = arena.allocator();
-    if (image.roots.profile != 1) return error.UnsupportedProfile;
-    const facts = try schemas(scratch, image.schemas);
-    if (image.roots.entry >= image.functions.len) return error.InvalidProgram;
-    _ = try schemaAt(image.schemas, image.roots.result);
-    _ = try schemaAt(image.schemas, image.roots.failure);
-    if (!facts.exportable[@intCast(image.roots.result)] or
-        !facts.exportable[@intCast(image.roots.failure)]) return error.InvalidSchema;
-    if (image.functions[@intCast(image.roots.entry)].result != image.roots.result) return error.TypeMismatch;
-    for (image.functions[@intCast(image.roots.entry)].parameters) |id| {
-        _ = try schemaAt(image.schemas, id);
-        if (!facts.exportable[@intCast(id)]) return error.InvalidSchema;
-    }
-    for (image.constants) |literal| {
-        if (diagnostic) |d| d.* = .{ .phase = .constant, .schema = literal.schema };
-        try value(scratch, image.schemas, facts, literal);
-    }
-    for (image.effects, 0..) |effect, index| {
-        if (diagnostic) |d| d.* = .{ .phase = .effect, .effect = index };
-        if (effect.identity.len == 0 or !std.unicode.utf8ValidateSlice(effect.identity)) return error.InvalidEffect;
-        _ = try schemaAt(image.schemas, effect.payload);
-        _ = try schemaAt(image.schemas, effect.result);
-        if (!facts.exportable[@intCast(effect.result)]) return error.InvalidEffect;
-        if (effect.external and (!facts.exportable[@intCast(effect.payload)] or effect.bodies.len != 0)) return error.InvalidEffect;
-        for (effect.use_site_effects) |id| if (id >= image.effects.len) return error.InvalidEffect;
-    }
-    for (image.functions, 0..) |function, index| {
-        if (diagnostic) |d| d.* = .{ .phase = .function, .function = index };
-        if (function.entry >= image.blocks.len) return error.InvalidReference;
-        const entry = image.blocks[@intCast(function.entry)];
-        if (entry.function != index or !std.mem.eql(p.Id, entry.parameters, function.parameters)) return error.TypeMismatch;
-        _ = try schemaAt(image.schemas, function.result);
-        for (function.effects) |id| if (id >= image.effects.len) return error.InvalidEffect;
-    }
-    const use_facts = try @import("contracts.zig").validateDiagnosed(scratch, image, diagnostic);
-    const effect_facts = try @import("effect_scope.zig").derive(scratch, image);
-    for (image.blocks, 0..) |block, index| {
-        if (diagnostic) |d| d.* = .{ .phase = .block, .function = block.function, .block = index };
-        try validateBlock(scratch, image, block, use_facts, effect_facts, diagnostic);
-    }
-    try @import("region_admission.zig").validateDiagnosed(scratch, image, diagnostic);
-    try @import("borrow_flow.zig").validate(scratch, image, facts.exportable, diagnostic);
-    if (diagnostic) |d| d.* = .{};
-}
-
-fn validateBlock(allocator: std.mem.Allocator, image: p.Program, block: p.Block, use_facts: @import("traits.zig").Facts, effect_facts: @import("effect_scope.zig").Facts, diagnostic: ?*Diagnostic) Error!void {
-    if (block.function >= image.functions.len) return error.InvalidReference;
-    const length = std.math.add(usize, block.parameters.len, block.instructions.len) catch return error.InvalidLength;
-    const slots = try allocator.alloc(p.Id, length);
-    @memcpy(slots[0..block.parameters.len], block.parameters);
-    for (block.parameters) |id| _ = try schemaAt(image.schemas, id);
-    for (block.instructions, 0..) |instruction, index| {
-        if (diagnostic) |d| d.instruction = index;
-        const available = block.parameters.len + index;
-        _ = try schemaAt(image.schemas, instruction.result_type);
-        for (instruction.operands) |operand| if (operand >= available) return error.InvalidReference;
-        try validateInstruction(image, block.function, instruction, slots[0..available], use_facts);
-        slots[available] = instruction.result_type;
-    }
-    const function = image.functions[@intCast(block.function)];
-    if (diagnostic) |d| {
-        d.instruction = null;
-        d.terminator = std.meta.activeTag(block.terminator);
-        d.callee = if (block.terminator == .call) block.terminator.call.function else null;
-    }
-    switch (block.terminator) {
-        .return_value => |slot| {
-            if (try slotType(slots, slot) != function.result) return error.TypeMismatch;
-        },
-        .fail => |slot| {
-            if (try slotType(slots, slot) != image.roots.failure) return error.TypeMismatch;
-        },
-        .jump, .yield_value => |next| try edge(image, block.function, slots, next, null),
-        .branch => |branch| {
-            if (image.schemas[@intCast(try slotType(slots, branch.condition))] != .boolean) return error.TypeMismatch;
-            try edge(image, block.function, slots, branch.when_true, null);
-            try edge(image, block.function, slots, branch.when_false, null);
-        },
-        .switch_variant => |selected| {
-            const shape = image.schemas[@intCast(try slotType(slots, selected.value))];
-            if (shape != .sum or selected.cases.len != shape.sum.len) return error.TypeMismatch;
-            for (selected.cases, shape.sum) |target, payload| try edge(image, block.function, slots, target, payload);
-        },
-        .unpack_product => |unpack| {
-            const shape = image.schemas[@intCast(try slotType(slots, unpack.value))];
-            if (shape != .product or unpack.block >= image.blocks.len) return error.TypeMismatch;
-            const target = image.blocks[@intCast(unpack.block)];
-            if (target.function != block.function or target.parameters.len != shape.product.len + unpack.arguments.len) return error.TypeMismatch;
-            if (!std.mem.eql(p.Id, target.parameters[0..shape.product.len], shape.product)) return error.TypeMismatch;
-            try arguments(slots, unpack.arguments, target.parameters[shape.product.len..]);
-        },
-        .call => |call| {
-            if (call.function >= image.functions.len) return error.InvalidReference;
-            const callee = image.functions[@intCast(call.function)];
-            try arguments(slots, call.arguments, callee.parameters);
-            for (callee.effects) |effect| if (std.mem.indexOfScalar(p.Id, function.effects, effect) == null) return error.InvalidEffect;
-            try edge(image, block.function, slots, call.next, callee.result);
-        },
-        .perform => |perform| {
-            if (perform.effect >= image.effects.len) return error.InvalidEffect;
-            const effect = image.effects[@intCast(perform.effect)];
-            if (perform.capability) |capability| {
-                try @import("contracts.zig").capability(image, try slotType(slots, capability), perform.effect);
-            } else if (!effect.external) return error.InvalidEffect;
-            try arguments(slots, perform.bodies, effect.bodies);
-            if (perform.use_site_capabilities.len != effect.use_site_effects.len) return error.InvalidEffect;
-            for (perform.use_site_capabilities, effect.use_site_effects) |slot, id| {
-                try @import("contracts.zig").capability(image, try slotType(slots, slot), id);
-            }
-            if (std.mem.indexOfScalar(p.Id, function.effects, perform.effect) == null) return error.InvalidEffect;
-            try @import("contracts.zig").subset(effect.use_site_effects, function.effects);
-            if (try slotType(slots, perform.payload) != effect.payload) return error.TypeMismatch;
-            try edge(image, block.function, slots, perform.next, effect.result);
-        },
-        .apply, .handle, .resume_value, .resume_with, .resume_computation, .with_region, .protect, .dispose => try @import("contracts.zig").terminator(image, block, slots, effect_facts),
-        else => return error.UnsupportedInstruction,
-    }
-    try @import("use_admission.zig").block(allocator, image, block, slots, use_facts, effect_facts, diagnostic);
-}
-
 pub fn slotType(slots: []const p.Id, id: p.Id) Error!p.Id {
     if (id >= slots.len) return error.InvalidReference;
     return slots[@intCast(id)];
@@ -359,12 +228,12 @@ pub fn arguments(slots: []const p.Id, supplied: []const p.Id, expected: []const 
     for (supplied, expected) |slot, schema| if (try slotType(slots, slot) != schema) return error.TypeMismatch;
 }
 
-pub fn edge(image: p.Program, owner: p.Id, slots: []const p.Id, next: p.Edge, returned: ?p.Id) Error!void {
+pub fn edge(image: @import("activation.zig").Program, owner: p.Id, slots: []const p.Id, next: @import("activation.zig").Edge, returned: ?p.Id) Error!void {
     if (next.block >= image.blocks.len) return error.InvalidReference;
-    const target = image.blocks[@intCast(next.block)];
-    if (target.function != owner or next.arguments.len != target.parameters.len) return error.TypeMismatch;
-    for (next.arguments, target.parameters) |argument, expected| {
-        const actual = switch (argument) {
+    if (image.blocks[@intCast(next.block)].function != owner) return error.TypeMismatch;
+    for (next.assignments) |assignment| {
+        const expected = try slotType(slots, assignment.destination);
+        const actual = switch (assignment.source) {
             .slot => |slot| try slotType(slots, slot),
             .returned => returned orelse return error.TypeMismatch,
         };
@@ -372,7 +241,7 @@ pub fn edge(image: p.Program, owner: p.Id, slots: []const p.Id, next: p.Edge, re
     }
 }
 
-fn validateInstruction(image: p.Program, function: p.Id, instruction: p.Instruction, slots: []const p.Id, uses: @import("traits.zig").Facts) Error!void {
+pub fn validateInstruction(image: anytype, function: p.Id, instruction: anytype, slots: []const p.Id, uses: @import("traits.zig").Facts) Error!void {
     try instructionFailures(image, instruction, slots);
     const operands = instruction.operands;
     const result = instruction.result_type;
@@ -434,7 +303,7 @@ fn validateInstruction(image: p.Program, function: p.Id, instruction: p.Instruct
     }
 }
 
-fn instructionFailures(image: p.Program, instruction: p.Instruction, slots: []const p.Id) Error!void {
+fn instructionFailures(image: anytype, instruction: anytype, slots: []const p.Id) Error!void {
     const needed: []const p.Fault = switch (instruction.opcode) {
         .integer_add, .integer_sub, .integer_mul => &.{.arithmetic_overflow},
         .integer_convert => if (instruction.operands.len == 1 and !@import("scalar.zig").conversionCanFail(image.schemas[@intCast(slots[@intCast(instruction.operands[0])])], image.schemas[@intCast(instruction.result_type)])) &.{} else &.{.arithmetic_overflow},

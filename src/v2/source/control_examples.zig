@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
 //! Nested answers and a shallow protocol, authored through the public builder.
 const source = @import("../source.zig");
-const p = @import("boundary_data_v2").program;
+const p = @import("boundary_data").program;
 
 fn arithmetic(b: *source.Builder, operation: p.Opcode, left: p.Id, right: u64) source.Error!p.Id {
     return b.value(.{ .schema = try b.scalar(u64), .expression = .{ .primitive = .{

@@ -1,34 +1,28 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
-//! Field-typed sequence spellings. No IDs or returned markers change meaning.
+//! Compact ID sequences. Logical IDs keep their meaning.
 const std = @import("std");
 const p = @import("program.zig");
 const wire = @import("wire.zig");
 const record = @import("record.zig");
 const Error = record.Error;
 
-pub fn supports(comptime T: type) bool {
-    return T == p.Id or T == p.Argument;
-}
-
 const Mode = enum(u8) { literal = 0, repeat = 1, range = 2 };
 const Segment = struct { mode: Mode, count: usize };
 
 fn equal(comptime T: type, a: T, b: T) bool {
-    if (T == p.Id) return a == b;
-    return switch (a) {
-        .returned => b == .returned,
-        .slot => |slot| b == .slot and b.slot == slot,
-    };
+    comptime std.debug.assert(T == p.Id);
+    return a == b;
 }
 
 fn ordinal(comptime T: type, value: T) ?u64 {
-    if (T == p.Id) return value;
-    return if (value == .slot) value.slot else null;
+    comptime std.debug.assert(T == p.Id);
+    return value;
 }
 
 fn at(comptime T: type, start: u64, index: usize) T {
     const value = start + index; // The complete range was checked before expansion.
-    return if (T == p.Id) value else .{ .slot = value };
+    comptime std.debug.assert(T == p.Id);
+    return value;
 }
 
 fn size(comptime T: type, value: T) usize {

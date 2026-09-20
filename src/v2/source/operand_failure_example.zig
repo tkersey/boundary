@@ -2,7 +2,7 @@
 //! A later operand failure must unwind every still-owned earlier operand.
 const std = @import("std");
 const source = @import("../source.zig");
-const p = @import("boundary_data_v2").program;
+const p = @import("boundary_data").program;
 const Fixtures = @import("custody_order_example.zig").Fixtures;
 const cleanup = @import("../library/cleanup.zig");
 const Kind = enum {

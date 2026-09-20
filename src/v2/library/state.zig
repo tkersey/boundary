@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
 //! State policy is authored code; a cell is explicit handler-owned state.
 const source = @import("../source.zig");
-const p = @import("boundary_data_v2").program;
+const p = @import("boundary_data").program;
 const Error = source.Error;
 pub const Family = struct { get: p.Id, put: p.Id, get_capability: p.Id, put_capability: p.Id, element: p.Id };
 pub const Answer = enum { value, with_state, optional };

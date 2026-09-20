@@ -16,19 +16,7 @@ pub const Error = error{
     InvalidBuffers,
 };
 
-pub const Family = enum { bpi, pst, pki, pko, erq, ers };
 pub const header_length = 20;
-
-pub fn magic(family: Family) *const [8]u8 {
-    return switch (family) {
-        .bpi => "ABL_BPI2",
-        .pst => "ABL_PST2",
-        .pki => "ABL_PKI2",
-        .pko => "ABL_PKO2",
-        .erq => "ABL_ERQ2",
-        .ers => "ABL_ERS2",
-    };
-}
 
 pub const Reader = struct {
     input: []const u8,
@@ -135,39 +123,11 @@ pub const Writer = struct {
     }
 };
 
-pub fn frame(family: Family, body: []const u8, output: []u8) Error![]const u8 {
-    const length = std.math.add(usize, header_length, body.len) catch
-        return error.InvalidLength;
-    if (output.len < length) return error.Capacity;
-    if (overlap(body, output[0..length])) return error.InvalidBuffers;
-    var writer: Writer = .{ .output = output };
-    try writer.put(magic(family));
-    try writer.fixed(u16, 2);
-    try writer.fixed(u16, 0);
-    try writer.fixed(u64, body.len);
-    try writer.put(body);
-    return output[0..writer.position];
-}
-
 pub fn overlap(first: []const u8, second: []const u8) bool {
     if (first.len == 0 or second.len == 0) return false;
     const a = @intFromPtr(first.ptr);
     const b = @intFromPtr(second.ptr);
     return if (a <= b) b - a < first.len else a - b < second.len;
-}
-
-pub fn unframe(family: Family, input: []const u8) Error![]const u8 {
-    var reader: Reader = .{ .input = input };
-    const observed = try reader.take(8);
-    inline for (std.meta.tags(Family)) |known| {
-        if (std.mem.eql(u8, observed[0..7], magic(known)[0..7]) and
-            observed[7] == '1') return error.UnsupportedFamily;
-    }
-    if (!std.mem.eql(u8, observed, magic(family))) return error.InvalidFamily;
-    if (try reader.fixed(u16) != 2) return error.UnsupportedVersion;
-    if (try reader.fixed(u16) != 0) return error.InvalidFlags;
-    if (try reader.fixed(u64) != input.len - header_length) return error.InvalidLength;
-    return input[header_length..];
 }
 
 pub fn digest(bytes: []const u8) [32]u8 {
@@ -184,18 +144,6 @@ pub fn hashField(hash: *std.crypto.hash.sha2.Sha256, bytes: []const u8) void {
     hash.update(bytes);
 }
 
-test "all record families reject v1, trailing bytes and incorrect lengths" {
-    var output: [64]u8 = undefined;
-    inline for (std.meta.tags(Family)) |family| {
-        const encoded = try frame(family, "body", &output);
-        try std.testing.expectEqualStrings("body", try unframe(family, encoded));
-        output[7] = '1';
-        try std.testing.expectError(error.UnsupportedFamily, unframe(family, encoded));
-        output[7] = '2';
-        try std.testing.expectError(error.InvalidLength, unframe(family, output[0..25]));
-    }
-}
-
 test "minimal naturals include u64 max and reject overflow without trapping" {
     var output: [10]u8 = undefined;
     for ([_]u64{ 0, 127, 128, 16384, std.math.maxInt(u64) }) |value| {
@@ -209,16 +157,4 @@ test "minimal naturals include u64 max and reject overflow without trapping" {
     try std.testing.expectError(error.NonCanonical, overlong.natural());
     var overflow: Reader = .{ .input = &.{ 255, 255, 255, 255, 255, 255, 255, 255, 255, 2 } };
     try std.testing.expectError(error.InvalidLength, overflow.natural());
-}
-
-test "framing capacity failure leaves output untouched" {
-    var output = [_]u8{0xa5} ** 21;
-    try std.testing.expectError(error.Capacity, frame(.bpi, "xx", &output));
-    for (output) |byte| try std.testing.expectEqual(@as(u8, 0xa5), byte);
-}
-
-test "overlapping frame input rejects before the header changes it" {
-    var output = [_]u8{0xa5} ** 64;
-    try std.testing.expectError(error.InvalidBuffers, frame(.bpi, output[5..15], &output));
-    for (output) |byte| try std.testing.expectEqual(@as(u8, 0xa5), byte);
 }

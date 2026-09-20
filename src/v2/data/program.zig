@@ -1,5 +1,5 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
-//! First-order program records. All slices borrow caller-owned immutable storage.
+//! Shared schema, effect and authoring contracts. Executable records live in activation.zig.
 //! IDs index the corresponding catalog; they never name native functions.
 pub const Id = u64;
 pub const Use = enum(u8) { reusable = 0, affine = 1, linear = 2, multi = 3 };
@@ -77,17 +77,6 @@ pub const Effect = struct {
     external: bool = true,
 };
 
-pub const Function = struct {
-    entry: Id,
-    parameters: []const Id,
-    result: Id,
-    effects: []const Id = &.{},
-    regions: []const Id = &.{},
-};
-
-pub const ArgumentTag = enum(u8) { slot = 0, returned = 1 };
-pub const Argument = union(ArgumentTag) { slot: Id, returned };
-pub const Edge = struct { block: Id, arguments: []const Argument };
 pub const Opcode = enum(u8) {
     constant = 0,
     move = 1,
@@ -152,57 +141,11 @@ pub const InstructionFailure = struct {
     value: Id,
 };
 
-/// Instructions append one SSA slot after the block's parameters.
-pub const Instruction = struct {
-    opcode: Opcode,
-    result_type: Id,
-    operands: []const Id = &.{},
-    immediate: Id = 0,
-    failures: []const InstructionFailure = &.{},
-};
-pub const Call = struct { function: Id, arguments: []const Id, next: Edge };
-pub const Perform = struct {
-    effect: Id,
-    capability: ?Id = null,
-    payload: Id,
-    bodies: []const Id = &.{},
-    use_site_capabilities: []const Id = &.{},
-    next: Edge,
-};
-pub const TerminatorTag = enum(u8) { return_value = 0, jump = 1, branch = 2, switch_variant = 3, unpack_product = 4, call = 5, perform = 6, yield_value = 7, fail = 8, apply = 9, handle = 10, resume_value = 11, resume_with = 12, resume_computation = 13, forward = 14, dispose = 15, protect = 16, with_region = 17 };
-pub const Terminator = union(TerminatorTag) {
-    return_value: Id,
-    jump: Edge,
-    branch: struct { condition: Id, when_true: Edge, when_false: Edge },
-    switch_variant: struct { value: Id, cases: []const Edge },
-    unpack_product: struct { value: Id, block: Id, arguments: []const Id },
-    call: Call,
-    perform: Perform,
-    yield_value: Edge,
-    fail: Id,
-    apply: struct { computation: Id, arguments: []const Id, next: Edge },
-    handle: struct { handler: Id, body: Id, arguments: []const Id, state: []const Id, next: Edge },
-    resume_value: struct { resumption: Id, argument: Id, next: Edge },
-    resume_with: struct { resumption: Id, argument: Id, handler: Id, state: []const Id = &.{}, next: Edge },
-    resume_computation: struct { resumption: Id, computation: Id, next: Edge },
-    forward: Perform,
-    dispose: struct { owned: Id, next: Edge },
-    protect: struct { body: Id, cleanup: Id, arguments: []const Id, resource: ?Id = null, loan_region: ?Id = null, next: Edge },
-    with_region: struct { region: Id, body: Id, arguments: []const Id, next: Edge },
-};
-pub const Block = struct {
-    function: Id,
-    parameters: []const Id,
-    instructions: []const Instruction,
-    terminator: Terminator,
-};
+pub const TerminatorTag = enum(u8) { return_value = 0, jump = 1, branch = 2, switch_variant = 3, unpack_product = 4, call = 5, perform = 6, yield_value = 7, fail = 8, apply = 9, handle = 10, resume_value = 11, resume_with = 12, resume_computation = 13, dispose = 15, protect = 16, with_region = 17 };
 pub const Clause = struct {
     effect: Id,
     function: Id,
     resumption: Id,
-    /// A direct clause is one total instruction block returning the operation
-    /// result. Deep handling continues in place; no resumption value exists.
-    direct: bool = false,
 };
 pub const Handler = struct {
     mode: Mode,
@@ -210,7 +153,6 @@ pub const Handler = struct {
     answer: Id,
     return_function: Id,
     clauses: []const Clause,
-    forward_function: ?Id = null,
     state: []const Id = &.{},
     effects: []const Id = &.{},
 };
@@ -234,14 +176,3 @@ pub const ScopeCatalog = struct {
 /// Only these executable functions may introduce or eliminate a representation.
 pub const Resource = struct { representation: Id, introducers: []const Id, eliminators: []const Id };
 pub const Roots = struct { profile: u64 = 1, entry: Id, result: Id, failure: Id };
-pub const Program = struct {
-    roots: Roots,
-    schemas: []const Schema,
-    constants: []const Literal,
-    effects: []const Effect,
-    functions: []const Function,
-    blocks: []const Block,
-    handlers: []const Handler = &.{},
-    scopes: ScopeCatalog = .{},
-    constructors: []const Constructor = &.{},
-};

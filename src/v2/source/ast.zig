@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
 //! Higher-order source syntax. Functions may close over lexical variables;
 //! terms compose with bind, independently of any target block or frame layout.
-const p = @import("boundary_data_v2").program;
+const p = @import("boundary_data").program;
 pub const Id = p.Id;
 pub const Value = struct {
     schema: Id,

@@ -3,7 +3,7 @@
 //! outside continuation. Logging is an unrelated, typed residual effect.
 const source = @import("../source.zig");
 const reader_library = @import("../library/reader.zig");
-const p = @import("boundary_data_v2").program;
+const p = @import("boundary_data").program;
 const Error = source.Error;
 
 pub fn build(b: *source.Builder) Error!source.ast.Module {

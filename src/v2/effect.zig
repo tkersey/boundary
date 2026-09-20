@@ -3,7 +3,7 @@
 //! signature before emission; there is no unchecked runtime result cast.
 const std = @import("std");
 const source = @import("source.zig");
-const p = @import("boundary_data_v2").program;
+const p = @import("boundary_data").program;
 pub const Signature = p.Effect;
 pub const Row = source.Row;
 pub const declare = source.Builder.effect;

@@ -6,17 +6,26 @@ const std = @import("std");
 const p = @import("program.zig");
 const Error = @import("admission.zig").Error;
 pub const Facts = struct {
-    ambient: []bool,
-    dependencies: []bool,
+    ambient: []const bool,
+    dependencies: []const bool,
     width: usize,
     pub fn contains(self: Facts, schema: p.Id, effect: p.Id) bool {
         return self.dependencies[@as(usize, @intCast(schema)) * self.width + @as(usize, @intCast(effect))];
     }
 };
 
-pub fn derive(allocator: std.mem.Allocator, image: p.Program) Error!Facts {
+pub fn derive(allocator: std.mem.Allocator, image: anytype) Error!Facts {
+    return deriveComponent(allocator, image, &.{});
+}
+
+pub fn deriveComponent(allocator: std.mem.Allocator, image: anytype, imports: []const p.Id) Error!Facts {
     const ambient = try allocator.alloc(bool, image.effects.len);
     @memset(ambient, false);
+    // An unknown implementation is not evidence of local-only interpretation.
+    for (imports) |function| for (image.functions[@intCast(function)].effects) |effect| {
+        if (effect >= ambient.len) return error.InvalidEffect;
+        ambient[@intCast(effect)] = true;
+    };
     for (image.blocks) |block| if (block.terminator == .perform) {
         const operation = block.terminator.perform;
         if (operation.effect >= image.effects.len) return error.InvalidEffect;
@@ -44,7 +53,7 @@ fn any(facts: Facts, fields: []const p.Id, effect: p.Id) bool {
     for (fields) |field| if (facts.contains(field, effect)) return true;
     return false;
 }
-fn dependency(image: p.Program, facts: Facts, schema: p.Schema, effect: p.Id) bool {
+fn dependency(image: anytype, facts: Facts, schema: p.Schema, effect: p.Id) bool {
     return switch (schema) {
         .product, .sum => |fields| any(facts, fields, effect),
         .seq => |element| facts.contains(element, effect),
@@ -75,7 +84,7 @@ fn dependency(image: p.Program, facts: Facts, schema: p.Schema, effect: p.Id) bo
     };
 }
 
-pub fn discharged(image: p.Program, facts: Facts, handler: p.Handler, body: p.ComputationType, effect: p.Id) bool {
+pub fn discharged(image: anytype, facts: Facts, handler: anytype, body: p.ComputationType, effect: p.Id) bool {
     if (facts.ambient[@intCast(effect)] or any(facts, body.capture_bound, effect)) return false;
     if (any(facts, body.parameters[handler.clauses.len..], effect)) return false;
     for (handler.clauses) |clause| if (clause.effect == effect) return true;

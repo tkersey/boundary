@@ -1,5 +1,5 @@
 //! Caller-owned diagnostics and optional compilation phase observations.
-const data = @import("boundary_data_v2");
+const data = @import("boundary_data");
 const p = data.program;
 pub const Stage = enum { source_copy, source_check, lowering, target_check, direct_optimization, canonicalization, complete };
 pub const Diagnostic = struct {

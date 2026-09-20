@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
 //! Dynamic log accumulation through an explicit cell outside the body capture.
 const source = @import("../source.zig");
-const p = @import("boundary_data_v2").program;
+const p = @import("boundary_data").program;
 pub const Writer = struct { effect: p.Id, capability: p.Id, answer: p.Id, cell: p.Id, sequence: p.Id, handler: p.Id, resumption: p.Id };
 pub const Family = struct { effect: p.Id, capability: p.Id, message: p.Id };
 
