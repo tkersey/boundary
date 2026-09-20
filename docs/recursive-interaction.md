@@ -199,3 +199,45 @@ Only the single declared external `hyper/reference` request reaches the host;
 the fixture supplies its explicitly synthetic echo response. This tests handler
 translation and suspension, not a real empirical Agent tool. The existing Agent
 real-reference/model witness will be migrated onto this handler path next.
+
+## Owned bidirectional exchange substrate
+
+The existing generator owner now also provides `defineExchange`, `begin` and
+`exchange`. A definition has distinct input, offered-output and completion schemas.
+Beginning supplies the first input; exchanging consumes the old owned package,
+accepts the supplied input, and advances to the next output or completion. It does
+not return the previous yield. The original unit-input/unit-completion generator
+API delegates to this construction; its existing checks remain intact.
+
+The implementation uses the existing deep handler, linear resumption and suspension
+package representation. Local `close` disposes only the selected owner and returns
+to its caller. It does not use enclosing World cancellation. Captures, regions,
+obligations and consumed-package rejection remain owned by the existing validators.
+No opcode, interpreter or wire-format change is made.
+
+`examples/owned_exchange.zig` retains two independent owned endpoints. Ordinary
+exchanges verify input 7 produces the next output 17, and input 9 produces completion
+109. Both endpoints retain cleanup obligations that perform residual release
+operations. A separate ordinary-work operation makes premature or post-cancellation
+execution observable. Fresh Node/WASM recovery gives:
+
+| Execution | Observed order | Transfers | Result |
+| --- | --- | ---: | --- |
+| Local disposal | release 5; work on 50; release 50 | 12 | Caller completes |
+| Normal exchanges | work on 5; release 5; work on 50; release 50 | 15 | Typed outputs/completion match |
+| Enclosing cancellation | release 5; release 50; no ordinary work | 9 | Cancelled |
+
+The local-disposal and global-cancellation cases are separate executions. Cleanup
+suspends and transfers in both. The caller of local disposal remains active and
+can resume its retained sibling; globally cancelled execution cannot do so.
+The release/work responses are explicit synthetic mechanism-test leaves, not
+claims about cancellation of arbitrary external operations.
+
+`zig build check --summary all` passes 256 steps / 240 tests, including an allocation
+failure sweep of exchange construction. The duplicate-disposal source case rejects
+with UnavailableSlot before publishing an image. `zig build emit-owned-exchange`
+and `node test/owned_exchange.mjs WORLD_ENTRY KERNEL` reproduce the runtime cases.
+The disposal image is 894 bytes; the normal-exchange image is 1,098 bytes. These are
+finite observations, not scaling or timing claims. Composing owned exchanges over
+the hyperfunction/task interface, application integration, additional failure
+sweeps and the full cleanup-transfer engine matrix remain required.

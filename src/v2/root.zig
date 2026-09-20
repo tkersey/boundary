@@ -41,4 +41,5 @@ test {
     _ = computation;
     _ = library.hyper;
     _ = library.hyper.demand;
+    _ = library.generator;
 }

@@ -254,6 +254,23 @@ pub fn build(b: *std.Build) void {
     const demand_check = b.addRunArtifact(demand);
     _ = demand_check.captureStdOut(.{});
     aggregate.dependOn(&demand_check.step);
+    const exchange = b.addExecutable(.{ .name = "owned-exchange", .root_module = b.createModule(.{
+        .root_source_file = b.path("examples/owned_exchange.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "boundary", .module = boundary }},
+    }) });
+    const exchange_images = b.step("emit-owned-exchange", "Emit owned exchange and local disposal witnesses");
+    for ([_][]const u8{ "dispose", "normal" }) |mode| {
+        const run = b.addRunArtifact(exchange);
+        if (std.mem.eql(u8, mode, "normal")) run.addArg(mode);
+        exchange_images.dependOn(&b.addInstallFileWithDir(run.captureStdOut(.{}), .prefix, b.fmt("exchange/{s}.bpi3", .{mode})).step);
+    }
+    aggregate.dependOn(exchange_images);
+    const exchange_negative = b.addSystemCommand(&.{"node"});
+    exchange_negative.addFileArg(b.path("test/owned_exchange_negative.mjs"));
+    exchange_negative.addArtifactArg(exchange);
+    aggregate.dependOn(&exchange_negative.step);
     const hyper_reference = b.addSystemCommand(&.{ "node", "--test" });
     hyper_reference.addFileArg(b.path("test/hyperfunction_reference.test.mjs"));
     aggregate.dependOn(&hyper_reference.step);
