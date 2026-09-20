@@ -256,6 +256,19 @@ pub fn build(b: *std.Build) void {
         fold_images.dependOn(&b.addInstallFileWithDir(run.captureStdOut(.{}), .prefix, b.fmt("fold/{s}", .{mode})).step);
     }
     aggregate.dependOn(fold_images);
+    const tail = b.addExecutable(.{ .name = "hyper-tail", .root_module = b.createModule(.{
+        .root_source_file = b.path("examples/hyper_tail.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "boundary", .module = boundary }},
+    }) });
+    const tail_images = b.step("emit-hyper-tail", "Emit history-free reciprocal and direct countdowns");
+    for ([_][]const u8{ "hyper", "direct" }) |mode| {
+        const run = b.addRunArtifact(tail);
+        run.addArg(mode);
+        tail_images.dependOn(&b.addInstallFileWithDir(run.captureStdOut(.{}), .prefix, b.fmt("tail/{s}", .{mode})).step);
+    }
+    aggregate.dependOn(tail_images);
     const demand = b.addExecutable(.{ .name = "hyper-demand", .root_module = b.createModule(.{
         .root_source_file = b.path("examples/hyper_demand.zig"),
         .target = b.graph.host,

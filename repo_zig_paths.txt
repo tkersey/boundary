@@ -2,6 +2,7 @@ build.zig
 examples/hyper_algebra.zig
 examples/hyper_demand.zig
 examples/hyper_fold.zig
+examples/hyper_tail.zig
 examples/lazy_hyper.zig
 examples/one_effect.zig
 examples/owned_exchange.zig

@@ -99,7 +99,7 @@ closure oracle; it imports no production compiler or dispatcher. Eight tests cov
 partial demand, checked failures, adaptive multiple queries, different endpoints,
 reciprocal non-tail return order and concrete projection/composition observations.
 
-Zig 0.16.0 native Debug emission and the unchanged World ReleaseSafe kernel
+Zig 0.16.0 native Debug emission and the unchanged World ReleaseSmall WASM kernel
 (SHA-256 `7a27d64295431c960046439353a158e378f14d4686fac47b61b1406cf1753663`)
 executed these current `examples/hyper_algebra.zig` Programs on Node/WASM:
 
@@ -272,7 +272,7 @@ it does not call the staged transforms or World dispatcher.
 
 Reproduce with `zig build emit-hyper-fold`, then
 `node test/hyper_fold.mjs WORLD_ENTRY KERNEL`. Zig 0.16.0 Debug emission and the
-unchanged ReleaseSafe World WASM kernel were used with Node 26.9.0 on macOS arm64.
+unchanged ReleaseSmall World WASM kernel were used with Node 26.9.0 on macOS arm64.
 All three paths agree on 81 cases: 66 results and 15 demanded overflow failures.
 Cases cover empty and unequal inputs, zero demand, unused overflowing suffixes,
 seeded inputs (`0x61c88647`), and lengths 31/127/128/255/256/512. The first eleven
@@ -313,3 +313,41 @@ structural/measurement obligations remain open.
 
 `zig build check --summary all` passes 270 steps / 240 tests. The World execution
 command above is additional evidence, not implicitly included in that aggregate.
+
+## History-free reciprocal tail control
+
+`examples/hyper_tail.zig` is the distinguishing history-free case: two public ana
+participants delegate without post-return work, using a runtime countdown. It emits
+one 783-byte Program; the direct recursive comparator is 107 bytes. Run
+`zig build emit-hyper-tail` and `node test/hyper_tail.mjs WORLD_ENTRY KERNEL`.
+All counts 0/1/7/31/127/512/1,024 return 42, under work quantum 97.
+
+The immutable foundation kernel previously used by these witnesses accumulates
+indirect return controls even in tail position. Its sampled checkpoint grows from
+599 bytes at count 7 to 73,672 bytes at 1,024. World follow-on PR #55 applies the
+existing direct-call tail predicate to indirect application. It retains the actual
+callee environment/evidence/region but omits an empty return-only parent. On the
+same image and inputs, checkpoint size reaches 125 bytes at count 31 and stays
+there through 1,024; peak World working memory at 1,024 falls from 3,009,769 to
+111,688 bytes. The direct comparator remains 93 bytes / 8,490 working bytes.
+The native World regression independently tests captured data, actual fresh restore
+and a non-tail neighbor that must retain its post-return additions.
+
+Candidate kernel SHA256:
+`df7fe1ae0ed0de7b2976c98b1534d1d55f4c341b7148837ce32f42ed8d011084`.
+Its bytes increase from 462,629 to 462,730 (+101). Both kernels were compiled as
+ReleaseSmall: World's build hardcodes the WASM optimization level even when the
+host option is ReleaseSafe. Earlier labels in this document have been corrected;
+actual kernel identities and prior measurements remain unchanged.
+
+The existing 81-case fold comparison also passes on the new kernel without changing
+any Program bytes. At 512 pairs the hyperfunction path now observes 1,435,599 peak
+working bytes and 29,742 sampled checkpoint bytes; direct and materialized paths
+retain their earlier numbers. This does not remove meaningful non-tail state or
+make the hyperfunction fold superior to its comparators. The identity witness still
+exhausts eight bounded quanta without a semantic answer, and remains cancellable.
+
+These results establish this finite history-free workload and the specific tail
+transfer mechanism; they are not throughput measurements or a general productivity
+proof. Final normal dependency integration and broader matched economic evidence
+remain required. Boundary aggregate: 276 steps / 240 tests passed.
