@@ -17,6 +17,7 @@ pub const region = struct {
     pub const authority = computation.Builder.resourceAuthority;
 };
 pub const library = struct {
+    pub const hyper = @import("library/hyper.zig");
     pub const choice = @import("library/choice.zig");
     pub const generator = @import("library/generator.zig");
     pub const cleanup = @import("library/cleanup.zig");

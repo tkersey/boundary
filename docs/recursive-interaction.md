@@ -88,3 +88,32 @@ with a scoped model/reference operation, fresh restore, both non-tail returns,
 and nearby authority/capture rejection cases. Expand these same witnesses to
 the complete v1.1 requirements. Publish linked drafts throughout; never promote
 or merge them under this task's authority.
+
+## First compiled demand witness
+
+`library.hyper` now supplies initial capture-free recursive callable pairs,
+pure delayed computation schemas, `invoke`, and `force`. This is a deliberately
+incomplete public surface, not the completed general hyperfunction library.
+`examples/lazy_hyper.zig` compiles a constant participant applied to a delayed
+peer whose body recursively calls itself. The result is explicitly forced.
+Ordinary lowering removes unused work and emits a 178-byte BPI3 Program.
+
+Executed with Zig 0.16.0, native Debug emission, and the unchanged World baseline
+ReleaseSafe kernel (SHA-256
+`7a27d64295431c960046439353a158e378f14d4686fac47b61b1406cf1753663`):
+
+- `zig build check --summary all`: 223 steps / 234 Zig tests pass; six Node
+  hyperfunction reference tests also pass.
+- `zig build emit-lazy-hyper > /tmp/lazy-hyper.bpi3`: passes.
+- `node test/hyperfunction_world.mjs WORLD_ENTRY KERNEL /tmp/lazy-hyper.bpi3`:
+  returns 42 after seven actual fresh WASM-instance transfers at quantum 1.
+  Each transferred source handle is invalidated and releases its working memory.
+  The destination resumes the actual checkpoint bytes returned by World.
+
+Build the unchanged baseline kernel with `zig build build-kernel
+-Doptimize=ReleaseSafe` in the World baseline checkout. `WORLD_ENTRY` is its
+`src/embedding/index.mjs`; `KERNEL` is `zig-out/world-kernel.wasm`.
+This proves the narrow constant/non-demand case on Node/WASM. Native execution,
+browser/Wasmtime, recursive retained interaction, full constructors and Agent
+positive admission remain unexecuted requirements. Image size is an observation,
+not a performance comparison or the required fusion/scaling result.

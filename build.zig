@@ -203,6 +203,21 @@ pub fn build(b: *std.Build) void {
     trust.step.dependOn(&formal.step);
     b.step("check-formal", "Check the independent source semantic model").dependOn(&trust.step);
     const aggregate = b.step("check", "Check current authoring, data, source semantics and component linking");
+    const lazy_hyper = b.addExecutable(.{ .name = "lazy-hyper", .root_module = b.createModule(.{
+        .root_source_file = b.path("examples/lazy_hyper.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "boundary", .module = boundary }},
+    }) });
+    const lazy_run = b.addRunArtifact(lazy_hyper);
+    b.step("emit-lazy-hyper", "Emit the unused divergent hyperfunction peer witness")
+        .dependOn(&lazy_run.step);
+    const lazy_check = b.addRunArtifact(lazy_hyper);
+    _ = lazy_check.captureStdOut(.{});
+    aggregate.dependOn(&lazy_check.step);
+    const hyper_reference = b.addSystemCommand(&.{ "node", "--test" });
+    hyper_reference.addFileArg(b.path("test/hyperfunction_reference.test.mjs"));
+    aggregate.dependOn(&hyper_reference.step);
     aggregate.dependOn(data_step);
     aggregate.dependOn(component_step);
     aggregate.dependOn(&program_wasm_run.step);
