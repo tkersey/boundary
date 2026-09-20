@@ -72,9 +72,10 @@ implementation. No build command publishes a release or merges a PR.
 
 Recompile applications for the successor. Old saved executions require their old
 pinned image/runtime pair or explicit completion/abandonment under that pair.
-There is no automatic migration of old live State. Full legacy data/runtime
-retirement, performance acceptance and serial review closeout remain open in the
-coordinated draft PRs.
+There is no automatic migration of old live State. Legacy data/runtime paths have
+been retired with current regression coverage. Coordinated performance disposition,
+selected-tuple confirmation and serial review closeout remain open in the linked
+draft PRs.
 
 The old image, compact-image, snapshot and protocol codecs are removed.
 Use `data.program_image`, `data.state_image` and `data.invocation` for current
