@@ -1,18 +1,18 @@
 # Defunctionalized hyperfunctions and recursive interaction
 
-Implementation of the user-authorized specification v1.1 (September 19, 2026).
-This is an early, incomplete implementation. The production library and Agent
-application are not yet implemented or accepted.
+Implementation of the complete user specification v1.1 (September 19, 2026).
+The milestone remains incomplete. Boundary draft:
+https://github.com/tkersey/boundary/pull/153. Agent companion:
+https://github.com/tkersey/agent/pull/33.
 
-## Semantic contract
+## Pure meaning and public operations
 
-The pure core uses call-by-name demand, including endpoint values, with
-`H(A,B) = H(B,A) -> B`. A delayed value is demanded explicitly; merely constructing
-a callable or aggregate does not evaluate its contents. General recursion can
-remain nonproductive. Observation-limit exhaustion is a scheduling/test outcome,
-never a mathematical result or proof of divergence.
+The pure core uses explicit call-by-name delays, including endpoint values.
+The rest of Boundary remains strict. Native Zig builders construct source; no
+native closure is serialized or called by World. Runtime recursion may remain
+nonproductive, and work-quantum exhaustion is never an authored result.
 
-In lazy notation:
+In lazy semantic notation:
 
 ```
 invoke(make(body), peer) = body(peer)
@@ -26,140 +26,146 @@ project(h, x) = invoke(h, base(x))
 invoke(ana(step, s), peer) = step(s, next -> invoke(peer, ana(step, next)))
 ```
 
-Composition has orientation H(B,C) × H(A,B) -> H(A,C). The independent
-higher-order oracle in `test/hyperfunction_reference.mjs` executes these equations
-using explicit lazy closures, without importing production code. Its six initial
-checks include constant lift, unused peer/field/fault, bounded identity observation,
-and adaptive multiple queries with number/string endpoints and non-tail return.
-The finite examples do not prove universal laws or production agreement.
+`library.hyper` supplies:
 
-The effectful family uses suspended Boundary computations as endpoint values.
-Constructing or sharing a pure task descriptor does not invoke it. Explicit task
-calls execute sequentially in authored order; repeated calls are fresh executions.
-Internal nominal partner demands are handled within the Program. Environmental
-operations remain residual effects, with the real waiting continuation retained.
-Owned running interactions cannot inherit unrestricted pure duplication laws.
+| Operation | Staged meaning |
+| --- | --- |
+| `pair`, `pairWith` | Checked reciprocal interfaces with explicit capture bounds |
+| `group`, `Group.get` | Compatible interfaces for a finite monomorphic endpoint cohort |
+| `deferValue`, `delayed`, `force` | Construct a typed delay and demand one result layer |
+| `make`, `invoke` | General checked body and suspended invocation |
+| `base`, `push`, `lift`, `identity` | The non-strict constructors above |
+| `compose` | H(B,C) × H(A,B) → H(A,C), retaining reciprocal return paths |
+| `run`, `project` | Observe through identity or a constant counterpart |
+| `ana`, `start`, `Query.ask` | Runtime-state construction with arbitrary staged queries |
+| `lazyProduct`, `lazySum` | Observe fields/tags without forcing unused delayed payloads |
+| `stream`, `cons`, `emptyStream` | Delayed elements and successor spines |
 
-## Initial representation decision
+IDs refer to checked source values/functions/schemas. Operations that execute a
+source call return a source term yielding the delayed value or participant;
+`make`, `base`, and value constructors return source values. Bind terms using the
+normal Builder before referring to their values. `push` and `lift` take a source
+function `Delayed<A> -> Delayed<B>`; a strict function must explicitly force its
+argument in its authored body. The library does not silently perform that force.
+`run`/identity require equal endpoint types; `project` permits distinct endpoints.
+Composition with lifted maps supplies checked endpoint adaptation.
 
-Begin with existing computation schemas, lambda lowering, indirect application,
-and stable activations. Delay both peer and answer computations; a strict
-coroutine-style alternation fails the constant-lift discriminator. A source
-closure should become ordinary code identity plus checked environment; reciprocal
-invocation should become normal first-order transfer with a retained return path.
-World remains the sole production evaluator. The oracle is test-only.
+`ana` gives `Step.emit` source values for state and a query builder. The step may
+emit zero, one, or several adaptive runtime queries and non-tail work. It is not a
+fixed stream schedule. Only finitely authored code is generated; successor states
+and repeated interactions are runtime values.
 
-No new opcode, schema, format, or host evaluator is selected. Production support
-for the recursive callable construction is still to be established. Existing
-schema references and greatest-fixed-point capture traits are promising facilities,
-not proof that all required recursive contracts already pass admission.
+## Composition and capture contracts
 
-## Integrated foundation and admission gap
+The compiler's existing computation contracts admit captures by schema. A
+composition retains H(B,C), H(A,B), and its reciprocal H(C,A), and the nested call
+rotates those endpoints. Independently declared narrow pair capture bounds need
+not permit that rotation. `group` declares the shared finite type cohort before
+participants are authored or independently compiled. It enumerates endpoint type
+pairs, never endpoint values, runtime states, or exchange histories. A component
+must share a compatible contract; unrelated contracts are not silently coerced.
 
-The foundation PRs Boundary #152, World #54, Agent #32 are merged. Follow-on bases:
+Each pair has ordinary callable and delay schemas. Composition uses three
+mutually referring maker functions, declared before their bodies are defined.
+There is no recursive native expansion, new opcode, wire format or interpreter.
+Actual environments contain only the captures used by their bodies. Existing
+fixed-point trait analysis and constructor checking remain authoritative; reusable
+recursive wrapping cannot hide an exclusive capture. Group construction checks
+schema IDs, arithmetic, declaration counts and the total capture-reference budget
+before reserving its graph. Oversized groups fail with Capacity.
 
-- Boundary: c7a08ed7c1e15732fc7373dd1f149cbe7da82e7b
-- World: 374ed712c2a2ab5041c28befa38bb3c3a859bd26
-- Agent: e1b56f06ce0d91a8d7f324198a541f0b16b55a00
+Constructor equations give the local source-to-target correspondence: each delay
+is a zero-argument source computation; invocation's thunk calls the selected body
+and then forces its answer; push constructs an argument thunk without demanding
+it; lift ties its tail through code references; composition's three functions
+implement the same reciprocal rotation; ana's query thunk defers both counterpart
+lookup and successor construction. Normal selective lowering turns these closures
+into code IDs and checked environments. World retains actual non-tail callers and
+serializes their reachable finite state without executing delayed code.
 
-The normal foundation manifests still bind Boundary production 1b00c8c159f0cb490a1223fac8d3d208cef41cb1;
-its recorded World production dependency is 02846a4c8d535c60956874aba5fd30f579207c20.
-The foundation's published results retain the accepted named native latency,
-peak-memory, image, and checkpoint costs. Those are inherited costs, not an
-allowance for additional regressions. No feature performance measurement exists yet.
+The intended pure identity, associativity and lifting laws are scoped to the
+supported non-strict interface and corresponding observations. In particular,
+`project(lift(f), x) = f(x)` and `run(lift(f)) = fix(f)` follow by unfolding the
+constructor equations. Equal Program hashes do not establish extensional equality.
+Current finite tests distinguish these constructions but are not a universal
+proof about partial terms. No unrestricted fold/build rewrite or effectful
+commutativity is claimed.
 
-At the Agent base, `src/compiled_tool.zig:declare` requires effect-only imports,
-portable input/output, read/simulation roles, and rejects model invocation and
-multi-shot resumption schemas. Its linking path uses the component borrow checker.
-It does not supply the required internal participant path. Tool restrictions must
-remain effective; the new path must validate actual linked authority, including
-indirect calls and assessment isolation, through normal Agent compilation.
+## Executed pure evidence
 
-## Current evidence and next slice
+`test/hyperfunction_reference.mjs` is an independent test-only higher-order
+closure oracle; it imports no production compiler or dispatcher. Eight tests cover
+partial demand, checked failures, adaptive multiple queries, different endpoints,
+reciprocal non-tail return order and concrete projection/composition observations.
 
-`node --test test/hyperfunction_reference.test.mjs`: six passing oracle checks.
-No existing checks were deleted or weakened. Production pure agreement, checked
-Agent participants, transfer, parser synthesis, structural economy, measurements,
-and serial reviews are not run and remain required.
+Zig 0.16.0 native Debug emission and the unchanged World ReleaseSafe kernel
+(SHA-256 `7a27d64295431c960046439353a158e378f14d4686fac47b61b1406cf1753663`)
+executed these current `examples/hyper_algebra.zig` Programs on Node/WASM:
 
-Next: compile the unused-divergent-counterpart witness through the ordinary
-Boundary/World path, then independently compiled reciprocal Agent participants
-with a scoped model/reference operation, fresh restore, both non-tail returns,
-and nearby authority/capture rejection cases. Expand these same witnesses to
-the complete v1.1 requirements. Publish linked drafts throughout; never promote
-or merge them under this task's authority.
+| Case | Image bytes | Fresh transfers, quantum 1 | Observation |
+| --- | ---: | ---: | --- |
+| run(lift(constant 42)) | 660 | 16 | 42; unused infinite argument not demanded |
+| Projection through lifted addition | 505 | 33 | 42 |
+| Boolean/integer endpoints | 483 | 16 | 42 |
+| Boolean → integer → record composition | 1,479 | 91 | Expected record fields |
+| Lazy product | 132 | 6 | 42; divergent other field unused |
+| Lazy sum | 134 | 7 | Tag observed; divergent payload unused |
+| Stream prefix | 192 | 9 | First element; divergent suffix unused |
+| Unused checked overflow | 507 | 16 | 42 |
+| Demanded checked overflow | 527 | 33 | Authored failure, no cleanup failures |
 
-## First compiled demand witness
+The 666-byte identity Program exhausted eight quanta of eight operations, with
+fresh transfer after each. It produced no semantic result. Separate operational
+cancellation ended that observation. The earlier state-based reciprocal example
+also remains: consumer → producer → consumer-successor, followed by both callers'
+non-tail additions, yielding 42 through 60 fresh transfers (735-byte Program).
+These are finite execution/size observations, not timing improvements or the
+required fusion/scaling comparisons.
 
-`library.hyper` now supplies initial capture-free recursive callable pairs,
-pure delayed computation schemas, `invoke`, and `force`. This is a deliberately
-incomplete public surface, not the completed general hyperfunction library.
-`examples/lazy_hyper.zig` compiles a constant participant applied to a delayed
-peer whose body recursively calls itself. The result is explicitly forced.
-Ordinary lowering removes unused work and emits a 178-byte BPI3 Program.
+```
+zig build check --summary all
+zig build emit-hyper-algebra
+node --test test/hyperfunction_reference.test.mjs
+node test/hyperfunction_world.mjs WORLD_ENTRY KERNEL zig-out/hyper/compose.bpi3
+node test/hyperfunction_world.mjs WORLD_ENTRY KERNEL zig-out/hyper/fault.bpi3 failed
+node test/hyperfunction_partial.mjs WORLD_ENTRY KERNEL zig-out/hyper/identity.bpi3
+```
 
-Executed with Zig 0.16.0, native Debug emission, and the unchanged World baseline
-ReleaseSafe kernel (SHA-256
-`7a27d64295431c960046439353a158e378f14d4686fac47b61b1406cf1753663`):
+The current aggregate passes 247/247 steps and 238/238 Zig tests. All ten emitted
+algebra cases were executed after final generation. `WORLD_ENTRY` is the baseline
+World's `src/embedding/index.mjs`; `KERNEL` is its `zig-out/world-kernel.wasm`, built
+with `zig build build-kernel -Doptimize=ReleaseSafe`. Formatting, diff and source
+inventory checks pass. No existing rejection assertion was removed or weakened.
 
-- `zig build check --summary all`: 223 steps / 234 Zig tests pass; six Node
-  hyperfunction reference tests also pass.
-- `zig build emit-lazy-hyper > /tmp/lazy-hyper.bpi3`: passes.
-- `node test/hyperfunction_world.mjs WORLD_ENTRY KERNEL /tmp/lazy-hyper.bpi3`:
-  returns 42 after seven actual fresh WASM-instance transfers at quantum 1.
-  Each transferred source handle is invalidated and releases its working memory.
-  The destination resumes the actual checkpoint bytes returned by World.
+## Foundation and Agent integration
 
-Build the unchanged baseline kernel with `zig build build-kernel
--Doptimize=ReleaseSafe` in the World baseline checkout. `WORLD_ENTRY` is its
-`src/embedding/index.mjs`; `KERNEL` is `zig-out/world-kernel.wasm`.
-This proves the narrow constant/non-demand case on Node/WASM. Native execution,
-browser/Wasmtime, recursive retained interaction, full constructors and Agent
-positive admission remain unexecuted requirements. Image size is an observation,
-not a performance comparison or the required fusion/scaling result.
+Foundation Boundary #152, World #54 and Agent #32 are merged. Immutable bases:
+Boundary c7a08ed7c1e15732fc7373dd1f149cbe7da82e7b,
+World 374ed712c2a2ab5041c28befa38bb3c3a859bd26,
+Agent e1b56f06ce0d91a8d7f324198a541f0b16b55a00.
+The foundation's accepted named latency, memory, image and checkpoint tradeoffs
+remain inherited costs, not waivers for this feature. No World code change has
+been required. BPI3/BMO1/PST3 retain their existing meanings.
 
-## Capturing invocation and state-based recursion
+Agent's separate internal participant path inspects object code and actual helper
+bindings without weakening compiled-tool restrictions. Its task-valued `ana`
+witness reuses unchanged producer bytes with two consumers, performs real reference
+reads and checked synthetic-model calls, retains an idle owned computation, rejects
+stale replies, and transfers actual bytes across native, Node, Wasmtime, Chromium
+and Firefox. Separate enclosing cancellation stops ordinary sibling/model work.
+Agent also has real isolated parser acceptance with two valid implementations and
+five independently rejected invalid implementations. Its current dependency is
+Boundary b604ae828650a9be176b103552942adaafc983c0; integration of this later pure
+algebra revision remains to be performed through the normal authenticated lock.
 
-The current interface has six mutually recursive callable schemas, cached per
-endpoint/capture signature. `pairWith` admits explicit capture bounds. All six
-schemas refer to the finite group; construction does not unfold recursion.
-Normal use analysis rejects an exclusive resource hidden in the group's reusable
-capture bound. Each actual environment still contains only the captures used by
-its authored body.
+## Remaining requirements
 
-`invoke` now constructs a delayed invocation rather than calling the participant
-while constructing its result descriptor. Its thunk first calls the participant,
-then forces the returned delayed answer. `make` accepts an arbitrary checked
-staged body; `ana` builds a participant from runtime state and a staged step.
-`Query.ask(next_state)` constructs a delayed counterpart contribution, including a
-delayed reconstruction of this participant at that successor state. The staged
-step may emit any number of runtime queries and non-tail operations. Its native
-builder is never serialized or used by World.
-
-`examples/reciprocal_hyper.zig` uses the same public `ana` operations for producer
-and consumer. The consumer's first query enters the producer; the producer's
-query enters the consumer's successor. That successor returns 19, the producer
-adds 10, and the original consumer adds 13. A separate higher-order reference
-executes the same equations and asserts the five-event nested call/return order.
-
-On the unchanged World kernel named above, actual Node/WASM execution gives:
-
-| Compiled witness | Program bytes | Fresh transfers at quantum 1 | Result |
-| --- | ---: | ---: | ---: |
-| Constant with divergent peer | 268 | 11 | 42 |
-| Unused invocation of divergent participant | 247 | 3 | 42 |
-| Reciprocal state-based non-tail calls | 735 | 60 | 42 |
-
-Emit with `zig build emit-lazy-hyper`, `emit-unused-hyper-invocation`, or
-`emit-reciprocal-hyper`, redirecting stdout to an image; run each image using
-`test/hyperfunction_world.mjs`. These are observed sizes and finite execution
-checks, not benchmark improvements or the complete structural-economy evidence.
-The constant image grew from 178 to 268 bytes when invocation itself became
-properly suspended; no shared kernel change was required.
-
-`zig build check --summary all`: 225/225 steps, 236/236 Zig tests pass.
-The independent Node oracle now has seven passing tests. The latest additional
-oracle case was run directly after the aggregate; it changes no production code.
-General lifting/composition, lazy aggregates, effect-handler translation,
-use-qualified owned interactions, source-free library reuse and full Agent
-reciprocal synthesis remain unfinished.
+Broader generated reference agreement and law discrimination, independently
+compiled support-library isolation, three-part compositional closure, explicit
+internal Need-effect translation, owned exchange/disposal APIs with suspending
+cleanup, multi-shot custody, allocation-failure sweeps, multi-input fold/fusion
+and required structural economy remain unfinished. The model-directed incremental
+parser synthesis, consumer-supplied recursive assessment, exact approval/delivery,
+credible strategy comparison, opt-in live-model path, matched measurements and
+serial reviews also remain required. No complete-milestone or live-quality claim
+is made; all publication remains draft.

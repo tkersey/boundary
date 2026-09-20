@@ -230,6 +230,19 @@ pub fn build(b: *std.Build) void {
     const reciprocal_check = b.addRunArtifact(reciprocal);
     _ = reciprocal_check.captureStdOut(.{});
     aggregate.dependOn(&reciprocal_check.step);
+    const algebra = b.addExecutable(.{ .name = "hyper-algebra", .root_module = b.createModule(.{
+        .root_source_file = b.path("examples/hyper_algebra.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "boundary", .module = boundary }},
+    }) });
+    const algebra_images = b.step("emit-hyper-algebra", "Emit the public pure hyperfunction algebra cases");
+    for ([_][]const u8{ "constant", "project", "identity", "distinct", "compose", "product", "sum", "stream", "unused_fault", "fault" }) |mode| {
+        const run = b.addRunArtifact(algebra);
+        run.addArg(mode);
+        algebra_images.dependOn(&b.addInstallFileWithDir(run.captureStdOut(.{}), .prefix, b.fmt("hyper/{s}.bpi3", .{mode})).step);
+    }
+    aggregate.dependOn(algebra_images);
     const hyper_reference = b.addSystemCommand(&.{ "node", "--test" });
     hyper_reference.addFileArg(b.path("test/hyperfunction_reference.test.mjs"));
     aggregate.dependOn(&hyper_reference.step);

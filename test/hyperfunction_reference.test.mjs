@@ -75,3 +75,10 @@ test('two ana participants retain both non-tail callers through reciprocal deman
   assert.deepEqual(trace, ['consumer', 'producer', 'consumer-successor',
     'producer-return', 'consumer-return']);
 });
+
+test('composition preserves distinct endpoint values', () => {
+  const h = reference(1024);
+  const right = h.lift(x => h.delay(() => h.force(x) ? 41 : 0));
+  const left = h.lift(x => h.delay(() => ({ok:h.force(x)===41,value:h.force(x)+1})));
+  assert.deepEqual(h.force(h.project(h.compose(left,right),h.delay(()=>true))), {ok:true,value:42});
+});

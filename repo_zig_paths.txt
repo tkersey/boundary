@@ -1,4 +1,5 @@
 build.zig
+examples/hyper_algebra.zig
 examples/lazy_hyper.zig
 examples/one_effect.zig
 examples/reciprocal_hyper.zig
