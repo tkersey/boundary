@@ -34,6 +34,13 @@ pub fn request(b: *source.Builder, need: Family, capability: Id, next_state: Id)
 /// result to the waiting one-shot continuation. The query's maker preserves the
 /// current participant at the requested successor state. No host routing occurs.
 pub fn interpret(b: *source.Builder, query: hyper.Query, need: Family, result: Id, options: Options) source.Error!Interpretation {
+    return interpretWith(b, query, need, result, options, Resume);
+}
+
+/// Choose the disposition of the actual owned requester after its counterpart
+/// returns. Completion is staged code; it must consume the linear resumption by
+/// resuming or disposing it. It cannot replace the saved caller with host state.
+pub fn interpretWith(b: *source.Builder, query: hyper.Query, need: Family, result: Id, options: Options, comptime Completion: type) source.Error!Interpretation {
     if (result >= b.schemas.items.len) return error.InvalidReference;
     const task = try returned(b, query.types.answer_backward);
     if (try returned(b, task) != need.contribution) return error.TypeMismatch;
@@ -55,7 +62,7 @@ pub fn interpret(b: *source.Builder, query: hyper.Query, need: Family, result: I
     const returns = try b.declare(&.{ query.types.peer_backward, result }, result, &.{}, options.regions);
     try b.define(returns, try b.pure(try b.reference(b.parameter(returns, 1))));
     const clause = try b.declare(&.{ query.types.peer_backward, need.state, token }, result, options.residual.effects, options.regions);
-    try clauseBody(b, query, clause, task);
+    try clauseBody(b, query, clause, task, Completion);
     const row = try options.residual.unionWith(b.allocator(), .{ .effects = &.{need.effect} });
     const body = try b.schema(.{ .internal = .{ .computation = .{
         .parameters = &.{need.capability},
@@ -77,16 +84,19 @@ fn returned(b: *source.Builder, id: Id) source.Error!Id {
     return schema.internal.computation.result;
 }
 
-fn clauseBody(b: *source.Builder, original: hyper.Query, clause: Id, task: Id) source.Error!void {
+const Resume = struct {
+    pub fn emit(b: *source.Builder, token: Id, contribution: Id) source.Error!Id {
+        return b.term(.{ .resume_value = .{ .resumption = token, .argument = contribution } });
+    }
+};
+
+fn clauseBody(b: *source.Builder, original: hyper.Query, clause: Id, task: Id, comptime Completion: type) source.Error!void {
     var query = original;
     query.peer = try b.reference(b.parameter(clause, 0));
     const delayed = try b.variable(query.types.answer_backward);
     const selected = try b.variable(task);
     const contribution = try b.variable(try returned(b, task));
-    const resumed = try b.term(.{ .resume_value = .{
-        .resumption = try b.reference(b.parameter(clause, 2)),
-        .argument = try b.reference(contribution),
-    } });
+    const resumed = try Completion.emit(b, try b.reference(b.parameter(clause, 2)), try b.reference(contribution));
     try b.define(clause, try b.bind(delayed, try query.ask(b, try b.reference(b.parameter(clause, 1))), try b.bind(selected, try hyper.force(b, try b.reference(delayed)), try b.bind(contribution, try hyper.force(b, try b.reference(selected)), resumed))));
 }
 

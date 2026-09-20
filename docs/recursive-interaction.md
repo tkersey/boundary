@@ -241,3 +241,12 @@ The disposal image is 894 bytes; the normal-exchange image is 1,098 bytes. These
 finite observations, not scaling or timing claims. Composing owned exchanges over
 the hyperfunction/task interface, application integration, additional failure
 sweeps and the full cleanup-transfer engine matrix remain required.
+
+The demand interpreter also exposes `hyper.demand.interpretWith`: a staged
+completion receives the actual linear requester and the counterpart contribution.
+It must resume or dispose that requester under ordinary use/effect checking.
+`interpret` remains the resume-only specialization. This permits local abandonment
+at the lexical owner without pretending that an external request lacking a
+capability can be intercepted by a surrounding handler. No runtime callback or
+kernel operation is added. Aggregate validation passes 256 steps / 240 tests;
+Agent's nondefault disposal/transfer witness is the next integration check.
