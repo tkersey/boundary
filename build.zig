@@ -31,8 +31,9 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .imports = &.{.{ .name = "boundary_data", .module = data }},
     }) });
+    const installed_linker = b.addInstallArtifact(linker, .{});
     b.step("build-compiler", "Build the source-independent BMO1 linker")
-        .dependOn(&b.addInstallArtifact(linker, .{}).step);
+        .dependOn(&installed_linker.step);
     const component_example = b.addExecutable(.{ .name = "component-example", .root_module = b.createModule(.{
         .root_source_file = b.path("tools/component_example.zig"),
         .target = target,
@@ -269,6 +270,20 @@ pub fn build(b: *std.Build) void {
         tail_images.dependOn(&b.addInstallFileWithDir(run.captureStdOut(.{}), .prefix, b.fmt("tail/{s}", .{mode})).step);
     }
     aggregate.dependOn(tail_images);
+    const adaptive = b.addExecutable(.{ .name = "hyper-adaptive", .root_module = b.createModule(.{
+        .root_source_file = b.path("examples/hyper_adaptive.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "boundary", .module = boundary }},
+    }) });
+    const adaptive_objects = b.step("emit-hyper-adaptive", "Emit independent adaptive hyperfunction objects");
+    adaptive_objects.dependOn(&installed_linker.step);
+    for ([_][]const u8{ "producer", "producer-reversed", "consumer", "consumer-invert", "support", "entry" }) |mode| {
+        const run = b.addRunArtifact(adaptive);
+        run.addArg(mode);
+        adaptive_objects.dependOn(&b.addInstallFileWithDir(run.captureStdOut(.{}), .prefix, b.fmt("adaptive/{s}.bmo1", .{mode})).step);
+    }
+    aggregate.dependOn(adaptive_objects);
     const demand = b.addExecutable(.{ .name = "hyper-demand", .root_module = b.createModule(.{
         .root_source_file = b.path("examples/hyper_demand.zig"),
         .target = b.graph.host,

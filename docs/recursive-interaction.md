@@ -351,3 +351,51 @@ These results establish this finite history-free workload and the specific tail
 transfer mechanism; they are not throughput measurements or a general productivity
 proof. Final normal dependency integration and broader matched economic evidence
 remain required. Boundary aggregate: 276 steps / 240 tests passed.
+
+## Adaptive distinct-endpoint invocation and source-denied linking
+
+`examples/hyper_adaptive.zig` supplies a general pure `ana` body at
+`H(bool, u64)`, with a complementary `H(u64, bool)` consumer. The producer's first
+counterpart result chooses which second state to query. It retains the first
+Boolean through that second query and performs non-tail work afterward. The
+consumer likewise performs checked arithmetic after its own reciprocal query.
+This is not a fixed one-input/one-output stream schedule.
+
+Producer, normal consumer, inverted consumer, invocation support and the entry
+wrapper are emitted independently as BMO1. The unchanged producer and support
+objects link with either consumer through the existing data-only `boundary-link`.
+A separate well-typed producer has the same state parameter but reversed endpoints;
+binding it to the original import rejects with IncompatibleInterface. Missing
+bindings reject with UnresolvedImport. Object bytes are compared before and after
+both successful links; no component is re-defunctionalized by the linker.
+
+Reproduce with `zig build emit-hyper-adaptive` and:
+
+```sh
+node test/hyper_adaptive.mjs zig-out/bin/boundary-link zig-out/adaptive WORLD_ENTRY KERNEL
+```
+
+The macOS test transports only the linker and objects to a fresh directory before
+linking. No emitter is transported. The existing OS sandbox denies all reads and
+execution under the original Boundary repository; a denied read of the actual
+authoring file is checked explicitly. Linking and subsequent execution both run
+under that denial. The runtime receives only the linked images plus the independently
+implemented higher-order test oracle. This source-access test for trusted tooling
+is not a new candidate-code sandbox or a production evaluator.
+
+Both Programs agree with hand-derived discriminators and 71 higher-order reference
+cases (seed `0x71c3a19f`): 69 results and two demanded arithmetic failures each. The
+reference's observation limit is never treated as an answer. Each Program resumes
+through 1,353 actual fresh Node/WASM State transfers. An ignoring consumer returns
+normally even when the unused reciprocal arithmetic would overflow. The original
+consumer produces 11/21/22 on the three distinguishing cases; its replacement
+produces 21/11/12 without changing producer bytes.
+
+Normal image: 1,301 bytes; inverted-consumer image: 1,305 bytes. Producer object SHA256
+`6f3c24036ccbb6aab87a57b7e260d7c4b0d400a510b03bbda153e6043ad84f76`;
+invocation-support object SHA256
+`d7eb01e46b6cafba71cfbdd1b4b97dbb3e632c659bbaba31ad0ed5feb94dc27b`.
+World kernel remains `df7fe1ae0ed0de7b2976c98b1534d1d55f4c341b7148837ce32f42ed8d011084`.
+Aggregate: 291 steps / 240 tests pass; the source-denied execution command above is
+additional explicit evidence. This does not claim universal law verification or
+complete the owned three-part channel/composition and broader remaining requirements.

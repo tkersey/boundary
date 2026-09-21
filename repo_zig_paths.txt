@@ -1,4 +1,5 @@
 build.zig
+examples/hyper_adaptive.zig
 examples/hyper_algebra.zig
 examples/hyper_demand.zig
 examples/hyper_fold.zig
