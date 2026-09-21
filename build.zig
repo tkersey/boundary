@@ -308,6 +308,22 @@ pub fn build(b: *std.Build) void {
         exchange_images.dependOn(&b.addInstallFileWithDir(run.captureStdOut(.{}), .prefix, b.fmt("exchange/{s}.bpi3", .{mode})).step);
     }
     aggregate.dependOn(exchange_images);
+    const composed = b.addExecutable(.{ .name = "composed-exchange", .root_module = b.createModule(.{
+        .root_source_file = b.path("examples/composed_exchange.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "boundary", .module = boundary }},
+    }) });
+    const composed_images = b.step("emit-composed-exchange", "Emit owned three-part exchange composition");
+    for ([_][]const u8{ "dispose", "finish", "right-finish" }) |mode| {
+        const run = b.addRunArtifact(composed);
+        if (!std.mem.eql(u8, mode, "dispose")) run.addArg(mode);
+        composed_images.dependOn(&b.addInstallFileWithDir(run.captureStdOut(.{}), .prefix, b.fmt("composed/{s}.bpi3", .{mode})).step);
+    }
+    aggregate.dependOn(composed_images);
+    const composed_negative = b.addSystemCommand(&.{ "node", "test/composed_exchange_negative.mjs" });
+    composed_negative.addArtifactArg(composed);
+    composed_images.dependOn(&composed_negative.step);
     const exchange_negative = b.addSystemCommand(&.{"node"});
     exchange_negative.addFileArg(b.path("test/owned_exchange_negative.mjs"));
     exchange_negative.addArtifactArg(exchange);

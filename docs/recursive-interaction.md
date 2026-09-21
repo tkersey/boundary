@@ -399,3 +399,46 @@ World kernel remains `df7fe1ae0ed0de7b2976c98b1534d1d55f4c341b7148837ce32f42ed8d
 Aggregate: 291 steps / 240 tests pass; the source-denied execution command above is
 additional explicit evidence. This does not claim universal law verification or
 complete the owned three-part channel/composition and broader remaining requirements.
+
+## Derived owned exchange composition
+
+`generator.compose` emits a reusable composition definition with its own ordinary
+Generator interface and a `start` function. Starting consumes two live packages and
+the first supplied input. Left outputs feed right inputs; a yielded right output
+returns one owned composite successor. That successor uses the existing `exchange`
+and `close` operations and can itself be composed with another compatible endpoint.
+The left output/right input and completion types must agree. Either completion path
+closes the other retained endpoint before returning the actual completion value.
+
+Composition is guest code over existing handlers, typed packages, calls and local
+disposal. No host phase enum, kernel primitive or wire format is added. Compilation
+of the definition performs no environmental work; starting it is an explicit
+execution, not an effect-free join of running participants. This is a derived
+sequential pipeline operator, not a replacement for general hyperfunction invocation
+or a claim that arbitrary coroutine composition satisfies the pure hyperfunction laws.
+Declared residual effects and region bounds are combined; ordinary source/object
+admission still checks actual capture, use, borrow and lifetime obligations.
+
+The witness builds A and B, observes their output, then combines that running
+composite with C through the same interface. New inputs produce 120 and 122 rather
+than replaying an earlier yield. A fourth owned participant remains outside the
+composite. Local close disposes C/B/A, returns to the active caller, then permits the
+fourth participant's real observation and final cleanup. Left completion and right
+early completion also dispose the remaining peers. These outcomes retain the
+foundation's unwind order rather than imposing an invented global cleanup order.
+
+All four executions pass fresh native/Node/Wasmtime/Chromium transfer using actual
+destination outcomes (170 destroyed Workers). Local disposal has 51 transfers;
+normal completion 53; right early completion 34; separate whole-execution cancellation
+28. Cancellation begins at a pending observation before the test adapter executes
+it; only cleanup then runs, including the unrelated retained participant. This is
+not a general claim that an already executed external operation can be cancelled.
+Completion/disposal image sizes are 3,337 / 3,245 bytes; early-right completion is
+3,093 bytes. Kernel remains df7fe1ae0ed0de7b2976c98b1534d1d55f4c341b7148837ce32f42ed8d011084.
+
+`zig build emit-composed-exchange` emits the witnesses; `test/composed_exchange.mjs`
+executes them against supplied World inputs and optional existing peer/Worker harnesses.
+Duplicate composite-owner use rejects before image publication. Type incompatibility
+and allocation-failure construction checks pass. Aggregate: 300 steps / 241 tests.
+This does not finish all owned hyperfunction/Agent strategy integration or the wider
+borrowed-region, comparison and serial-review requirements.

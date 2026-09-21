@@ -1,4 +1,5 @@
 build.zig
+examples/composed_exchange.zig
 examples/hyper_adaptive.zig
 examples/hyper_algebra.zig
 examples/hyper_demand.zig
