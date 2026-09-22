@@ -620,3 +620,11 @@ Node 26.9.0 and Darwin 27.2 arm64 were used. Boundary check passed 306 steps and
 241 tests; production workload images are unchanged, so prior runtime evidence
 is retained. These measurements fill compiler/build attribution, not final review
 or requirement-audit credit.
+
+The actual hyper-fold authoring/lowering/encoding/image-admission path now has
+an allocation-failure sweep in `test/hyper_allocation.zig`. Every injected failure
+releases partial owners under the testing allocator; successful publication still
+admits and preserves the function count. Run it with
+`zig build --build-file test/build_hyper_compiler.zig allocation -Dsource=BOUNDARY_SOURCE`.
+The ReleaseSafe sweep passed. This adds verification only; workload images and
+compiler/runtime measurements retain their preceding executable inputs.
