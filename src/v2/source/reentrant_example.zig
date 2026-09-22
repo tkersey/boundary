@@ -9,12 +9,16 @@ fn add(b: *source.Builder, value: p.Id, amount: u64) source.Error!p.Id {
 }
 
 pub fn build(b: *source.Builder) source.Error!source.Module {
-    return example(b, false);
+    return example(b, false, null);
 }
 pub fn cloned(b: *source.Builder) source.Error!source.Module {
-    return example(b, true);
+    return example(b, true, null);
 }
-fn example(b: *source.Builder, comptime convert: bool) source.Error!source.Module {
+/// Substitute a checked, closed pure u64 computation at the nested return.
+pub fn withResult(b: *source.Builder, result: p.Id, comptime convert: bool) source.Error!source.Module {
+    return example(b, convert, result);
+}
+fn example(b: *source.Builder, comptime convert: bool, result: ?p.Id) source.Error!source.Module {
     const unit = try b.scalar(void);
     const integer = try b.scalar(u64);
     const boolean = try b.scalar(bool);
@@ -56,7 +60,7 @@ fn example(b: *source.Builder, comptime convert: bool) source.Error!source.Modul
         .{ .variable = present, .body = try b.bind(second, reentered, try b.pure(try add(b, try b.reference(second), 100))) },
     } } });
     const recursive = try b.term(.{ .yield_then = try b.bind(try b.variable(unit), mark, matched) });
-    const choose = try b.term(.{ .conditional = .{ .condition = condition, .when_true = recursive, .when_false = try b.pure(try b.constant(u64, 10)) } });
+    const choose = try b.term(.{ .conditional = .{ .condition = condition, .when_true = recursive, .when_false = if (result) |function| try b.term(.{ .call = .{ .function = function, .arguments = &.{} } }) else try b.pure(try b.constant(u64, 10)) } });
     const capture = try b.term(.{ .perform = .{ .effect = operation, .capability = try b.reference(b.parameter(body, 0)), .payload = try b.constant(void, {}) } });
     try b.define(body, try b.bind(try b.variable(unit), capture, choose));
     const body_type = try b.schema(.{ .internal = .{ .computation = .{ .parameters = &.{cap}, .result = integer, .effects = &.{operation}, .capture_bound = &.{ template_cell, counter_cell }, .regions = &.{region} } } });

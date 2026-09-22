@@ -442,3 +442,45 @@ Duplicate composite-owner use rejects before image publication. Type incompatibi
 and allocation-failure construction checks pass. Aggregate: 300 steps / 241 tests.
 This does not finish all owned hyperfunction/Agent strategy integration or the wider
 borrowed-region, comparison and serial-review requirements.
+
+## Multi-shot recursive values and reentrant execution
+
+`examples/hyper_multishot.zig` composes the existing hyperfunction and scoped
+choice APIs. It constructs a lifted function capturing 37 before one multi-shot
+capture. Both activations mutate their own captured local cell from 0 to 1; the
+outer cell is deliberately shared and advances from 0 to 1 to 2. Projecting the
+captured hyperfunction yields rows `(false,1,1,39)` and `(true,1,2,40)`. Sharing the
+private cell or deep-copying the outer cell would produce different observations.
+Each branch parks at a declared observation fulfilled by a real fixture-file read.
+These are two activations of the same template, not two fresh one-shot captures.
+
+The separate `reentrant` mode uses the existing reentrant fixture owner, extended
+with a checked pure result function. It converts one capture to a multi-shot
+template and resumes that template while the first activation remains live. The
+nested return runs `project(lift(x -> x + 37), 5)`; the original return paths then
+perform their non-tail additions, producing 145. Existing fixture entry points
+retain their original result. This is ordinary compiled code, not another evaluator.
+
+Reproduce with `zig build emit-hyper-multishot`, then:
+
+```sh
+node test/hyper_multishot.mjs WORLD_ENTRY KERNEL NATIVE_FIXTURES WASMTIME_PEER BROWSER_MODULE BROWSER_TOOLS
+node test/hyper_multishot.mjs WORLD_ENTRY KERNEL NATIVE_FIXTURES WASMTIME_PEER BROWSER_MODULE BROWSER_TOOLS reentrant
+```
+
+The supplied browser module may be the existing generic
+`agent/test/agent4/recursive_browser.mjs` harness. It is a test-driver argument,
+not a production dependency. Both paths continue actual destination State bytes
+across native World, Node/WASM, independent Wasmtime and Chromium Workers under
+the same kernel. Terminal working-live storage is zero after closing each run.
+This establishes the stated finite clone/reentry witnesses; it does not make
+resource-bearing Agent interactions or compiled participant imports unrestricted
+multi-shot values, or establish a universal lifetime/leak theorem.
+
+Measured fixture sizes/outcomes: clone image 1,132 bytes, two fixture reads,
+11 fresh transfers and 12 destroyed Workers; reentrant image 998 bytes, one
+authored yield, eight transfers and nine destroyed Workers. Both used kernel
+`df7fe1ae0ed0de7b2976c98b1534d1d55f4c341b7148837ce32f42ed8d011084`.
+Boundary `zig build check` passed 306 steps and 241 tests. This slice changes
+fixture authoring/support only; Agent's authenticated Boundary dependency remains
+at `5a8aa24bb179bc8defaa896ea776605261ed6539` until an explicit integration update.

@@ -284,6 +284,19 @@ pub fn build(b: *std.Build) void {
         adaptive_objects.dependOn(&b.addInstallFileWithDir(run.captureStdOut(.{}), .prefix, b.fmt("adaptive/{s}.bmo1", .{mode})).step);
     }
     aggregate.dependOn(adaptive_objects);
+    const hyper_multi = b.addExecutable(.{ .name = "hyper-multishot", .root_module = b.createModule(.{
+        .root_source_file = b.path("examples/hyper_multishot.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "boundary", .module = boundary }},
+    }) });
+    const multi_images = b.step("emit-hyper-multishot", "Emit clone-safe recursive participant witness");
+    const multi_run = b.addRunArtifact(hyper_multi);
+    multi_images.dependOn(&b.addInstallFileWithDir(multi_run.captureStdOut(.{}), .prefix, "hyper-multishot.bpi3").step);
+    const multi_reentrant = b.addRunArtifact(hyper_multi);
+    multi_reentrant.addArg("reentrant");
+    multi_images.dependOn(&b.addInstallFileWithDir(multi_reentrant.captureStdOut(.{}), .prefix, "hyper-reentrant.bpi3").step);
+    aggregate.dependOn(multi_images);
     const demand = b.addExecutable(.{ .name = "hyper-demand", .root_module = b.createModule(.{
         .root_source_file = b.path("examples/hyper_demand.zig"),
         .target = b.graph.host,
