@@ -15,6 +15,7 @@
         "docs/compositional-execution.md",
         "docs/recursive-interaction.md",
         "docs/recursive-interaction-timings.csv",
+        "docs/recursive-interaction-compiler.csv",
         "examples",
         "repo_zig_paths.txt",
         "semantics",

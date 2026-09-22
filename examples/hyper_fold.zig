@@ -203,3 +203,10 @@ fn materializedFold(b: *source.Builder, t: Types) !Id {
     try b.define(entry, try b.term(.{ .call = .{ .function = gather, .arguments = &.{ try b.reference(b.parameter(entry, 0)), try b.constant(u64, 0), try b.primitive(buffer, .sequence, &.{}, 0) } } }));
     return entry;
 }
+
+/// Reuse the exact staged workloads in compiler measurements.
+pub fn emitWorkload(b: *source.Builder, mode: enum { hyper, direct, materialized }) !source.Module {
+    Application.direct = mode == .direct;
+    Application.materialized = mode == .materialized;
+    return Application.emit(b);
+}

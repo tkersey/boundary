@@ -569,3 +569,54 @@ Runtime timings are new evidence; the preceding structural/source-oracle checks
 are reused because their executable inputs did not change. Cold native emitter
 build cost and source/component compilation attribution remain separate unmeasured
 lanes; no old cold-build target is reintroduced by this timing pass.
+
+## Native emitter and compiler attribution
+
+`test/build_hyper_compiler.zig` builds the normal fold emitter separately from a
+stage-observed compiler. `emitWorkload` exposes exactly the existing staged bodies;
+instrumented and ordinary outputs are checked byte-for-byte against the admitted
+images. No timing callback enters a Program. The observer uses the compiler's
+existing stage interface; it changes only the benchmark's native timing record.
+
+Nine rotated compiler-process samples follow three warmups per mode. Median
+staged-authoring / compilation / image-encoding times are 32.1/212.8/60.7 us for
+hyperfunctions, 21.6/86.5/23.7 us direct, and 24.9/106.5/30.7 us materialized.
+For hyperfunctions, source checking is 25.8 us, lowering 29.1 us, target checks
+combined 105.1 us, direct optimization 7.5 us and canonicalization 37.3 us.
+Stage medians are separate statistics and need not sum to the total median.
+Observed phase clocks have instrumentation overhead; they are attribution, not
+an uninstrumented latency improvement claim. Whole uninstrumented command medians,
+including process startup, are 2.507/2.327/2.332 ms respectively.
+
+The existing adaptive producer/consumer/support/entry component emitters take
+2.20–2.40 ms per already-built CLI command (startup included). Source-free linking
+of those objects takes 3.873 ms normally and 3.810 ms with the alternate consumer.
+These are command-level component/link measurements, not isolated link CPU time.
+The measured emitted objects then passed the independent source-denied oracle:
+71 cases per consumer, 69 completions and two demanded overflows each, with 1,353
+fresh transfers per Program. Output identities and all sample ranges are retained
+in [the compiler table](recursive-interaction-compiler.csv).
+
+Building the combined **uninstrumented native emitter** with three fresh local and
+global Zig caches took 16.524, 16.463 and 16.515 seconds. This is one executable
+containing all three workload modes, not a per-mode cost or a comparison against
+a historical cold-build target. OS filesystem caches and host load were not
+controlled. Warm emitter execution and portable runtime timing remain distinct.
+No optional compiler optimization was added in response to these costs.
+
+Reproduce from Boundary:
+
+```sh
+zig build --build-file test/build_hyper_compiler.zig profile emitter components linker \
+  -Dsource=BOUNDARY_SOURCE --prefix OUTPUT
+node test/hyper_compiler_economy.mjs OUTPUT/bin RESULTS --cold-builds
+```
+
+The driver creates fresh cache directories for every cold sample. The recorded
+first run used new empty `build-0/1/2` directories; the driver subsequently made
+that precondition explicit with unique directory creation. That naming-only
+safeguard does not change the measured compiler inputs. Zig 0.16.0, ReleaseSafe,
+Node 26.9.0 and Darwin 27.2 arm64 were used. Boundary check passed 306 steps and
+241 tests; production workload images are unchanged, so prior runtime evidence
+is retained. These measurements fill compiler/build attribution, not final review
+or requirement-audit credit.
