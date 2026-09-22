@@ -484,3 +484,88 @@ authored yield, eight transfers and nine destroyed Workers. Both used kernel
 Boundary `zig build check` passed 306 steps and 241 tests. This slice changes
 fixture authoring/support only; Agent's authenticated Boundary dependency remains
 at `5a8aa24bb179bc8defaa896ea776605261ed6539` until an explicit integration update.
+
+## Matched native timing procedure
+
+`test/hyper_economy.mjs` uses World's existing Zig `replay-bench` clocks rather
+than timing process launch. The immutable runtime baseline is World
+`374ed712c2a2ab5041c28befa38bb3c3a859bd26`; the candidate is
+`5c3dea1c0443f026b2451581de77ec2e51085e57`. Both benchmark binaries use the same
+Boundary data source at `b40befad3fa214431961e60c375c012995817aac`, ReleaseSafe
+host builds, identical BPI3/PKI3 bytes, and the existing 256-MiB test workspace.
+
+Before inspecting timings: compare tail hyper/direct inputs 0,31,127,512 and
+fold hyper/direct/materialized inputs 0,31,128,512. Measure fresh initial execution
+and fresh recovery from an identical complete initial State. Verify completed
+bytes against an independently calculated numeric result. For each cell alternate
+baseline/current order across three processes per variant, each with three warmups
+and nine measurements. Summarize process medians, retain all outcomes, and inspect
+any consistently adverse control result rather than changing the workload or gate.
+There is no new optimization or universal percentage target in this pass.
+
+The timed native invocation includes decode, preparation, execution and complete
+outcome encoding; allocation counters run separately. Initial-State recovery
+includes admission/restore, but does not by itself measure resident operation or
+checkpoint encode cost. The existing Zig `bench_stats` and `perf_report` 0.2.16
+CLIs were executed on a known sample and report template before using their output.
+Do not reinterpret these finite process samples as service p95/p99 or WASM timings.
+
+Native results cover 40 cells; [all medians/ranges and input identities](recursive-interaction-timings.csv)
+are retained with the six unchanged-control and 27 WASM cells. At tail count 512,
+initial native execution falls from 9.970 to 4.542 ms (0.456x); fresh initial-State
+recovery falls from 9.974 to 4.490 ms (0.450x). Direct initial execution stays at
+0.270 ms. The hyperfunction construction therefore still costs about 16.8x the
+direct loop on this workload; the runtime improvement is not comparator dominance.
+For the non-tail fold at 512, hyper/direct/materialized candidate medians are
+80.076/47.521/31.679 ms. The structural intermediate elimination does not establish
+a speed advantage over either simpler comparator.
+
+Six existing foundation fixtures (scalar, deep handler, reentrant, cleanup,
+generator, retained-loop 128) use the existing `execution-bench`, three paired
+processes, identical input hashes and its independent event oracle. Candidate /
+baseline median ratios range from 0.968 to 1.013. Small differences are not accepted
+as wins or regressions from these samples. Boundary data sources are byte-unchanged
+between the foundation and B40; using the same data input isolates the World delta.
+
+The separate WASM procedure (`test/hyper_wasm_economy.mjs`) uses three warmups and
+five alternating paired samples in one Node process. It includes generic-kernel
+admission/creation, preparation and execution. Resident and fresh modes both encode
+one complete checkpoint after each quantum of 97; fresh additionally creates a
+new kernel and restores that checkpoint. Their checkpoint counts/bytes match
+within each runtime variant. Uninterrupted mode has a different durability policy
+and is reported separately. V8 warmup, GC and embedding setup remain in these
+end-to-end observations; no cold compilation or service-tail claim is made.
+
+For tail hyperfunctions at 512, baseline/candidate WASM medians are 27.58/9.51 ms
+uninterrupted, 191.85/17.65 ms resident with checkpoints, and 612.32/104.25 ms fresh
+with checkpoints. Large effects have separated observed ranges. Setup-dominated
+and direct-control ranges overlap substantially (including the only adverse WASM
+median, direct-127 resident at 1.048x); their apparent changes are inconclusive,
+not attributed to tail application. On the candidate, direct-512 resident/fresh
+costs 1.56/14.47 ms, still substantially below the hyperfunction path. Every run
+returns its independently specified value and releases final working ownership.
+No optional optimizer was added and no unfavorable cell was discarded.
+
+Reproduction (use immutable source directories and distinct output prefixes):
+
+```sh
+# From World; repeat with the candidate World source and another prefix.
+zig build --build-file test/v2/build_replay_bench.zig \
+  -Dboundary-source=BOUNDARY_SOURCE -Dworld-source=BASELINE_WORLD \
+  --prefix BASELINE_REPLAY_OUTPUT
+# From Boundary after emit-hyper-tail and emit-hyper-fold:
+node test/hyper_economy.mjs WORLD_ENTRY CURRENT_KERNEL BASELINE_REPLAY CURRENT_REPLAY OUTPUT
+node test/hyper_wasm_economy.mjs WORLD_ENTRY BASELINE_KERNEL CURRENT_KERNEL OUTPUT
+```
+
+Foundation controls use `test/v2/build_execution_bench.zig` with the same source
+pair options, then `execution-bench bpi3 FIXTURE COUNT`; the fixture/count list is
+above. Native replay binary SHA256s were
+`9e8624edbe234bf681e69c4a19b1b853ef48ca002e23c86d70466f1f736a93cd` and
+`8c2a0cbae060dc931a88271c3d46e5d850879f10c8e44fe822ad774d697eafae`.
+Kernels were `7a27d64295431c960046439353a158e378f14d4686fac47b61b1406cf1753663`
+and `df7fe1ae0ed0de7b2976c98b1534d1d55f4c341b7148837ce32f42ed8d011084`.
+Runtime timings are new evidence; the preceding structural/source-oracle checks
+are reused because their executable inputs did not change. Cold native emitter
+build cost and source/component compilation attribution remain separate unmeasured
+lanes; no old cold-build target is reintroduced by this timing pass.

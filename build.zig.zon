@@ -14,6 +14,7 @@
         "docs/invocation-wire.md",
         "docs/compositional-execution.md",
         "docs/recursive-interaction.md",
+        "docs/recursive-interaction-timings.csv",
         "examples",
         "repo_zig_paths.txt",
         "semantics",
