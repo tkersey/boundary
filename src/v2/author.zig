@@ -44,6 +44,32 @@ pub const Operation = struct {
     payload: Schema,
     result: Schema,
     boundary: enum { external, local },
+    capability: ?Schema = null,
+};
+pub const Region = struct { token: *Token, id: p.Id };
+pub const HandlerOptions = struct {
+    mode: p.Mode,
+    input: Schema,
+    answer: Schema,
+    state: []const NamedParameter = &.{},
+    residual: []const Operation = &.{},
+    resumption_use: p.Use,
+    capture_bound: []const Schema,
+    owned_regions: []const Region = &.{},
+    borrowed_regions: []const Region = &.{},
+    obligations: bool = false,
+};
+pub const Handler = struct {
+    token: *Token,
+    id: p.Id,
+    operation: Operation,
+    input: Schema,
+    answer: Schema,
+    state: []const NamedParameter,
+    residual: []const Operation,
+    on_return: Function,
+    on_operation: Function,
+    resumption: Schema,
 };
 pub const NamedParameter = struct { name: []const u8, schema: Schema };
 pub const Record = struct { schema: Schema, fields: []const NamedParameter };
@@ -114,6 +140,10 @@ pub const Session = struct {
         }
         return .{ .schema = try self.dynamicSchema(.{ .product = schemas }), .fields = names };
     }
+    pub fn sequence(self: *Session, element: Schema) Error!Schema {
+        try self.checkSchema(element);
+        return self.dynamicSchema(.{ .seq = element.id });
+    }
     /// Advanced interoperation. Raw IDs have no recoverable builder provenance;
     /// callers must supply only IDs produced by this Session's source Builder.
     pub fn legacy(self: *Session) Legacy {
@@ -129,9 +159,83 @@ pub const Session = struct {
         try self.checkSchema(payload);
         try self.checkSchema(result);
         const id = try self.raw.effect(.{ .identity = name, .payload = payload.id, .result = result.id, .control_use = use, .external = false });
-        return .{ .token = self.token, .id = id, .payload = payload, .result = result, .boundary = .local };
+        const capability = try self.raw.schema(.{ .internal = .{ .capability = id } });
+        return .{ .token = self.token, .id = id, .payload = payload, .result = result, .boundary = .local, .capability = .{ .token = self.token, .id = capability } };
+    }
+    pub fn region(self: *Session) Region {
+        return .{ .token = self.token, .id = self.raw.region() };
+    }
+    pub fn interpret(self: *Session, operation: Operation, options: HandlerOptions) Error!Handler {
+        errdefer self.token.poisoned = true;
+        try self.check(operation.token, "operation");
+        if (operation.boundary != .local) return error.InvalidOperation;
+        try self.checkSchema(options.input);
+        try self.checkSchema(options.answer);
+        const a = self.raw.allocator();
+        const state = try a.dupe(NamedParameter, options.state);
+        const residual = try a.dupe(Operation, options.residual);
+        const residual_ids = try a.alloc(p.Id, residual.len);
+        const state_ids = try a.alloc(p.Id, state.len);
+        const captures = try a.alloc(p.Id, options.capture_bound.len);
+        const owned = try a.alloc(p.Id, options.owned_regions.len);
+        const borrowed = try a.alloc(p.Id, options.borrowed_regions.len);
+        for (state, state_ids) |item, *id| {
+            try self.checkSchema(item.schema);
+            id.* = item.schema.id;
+        }
+        for (residual, residual_ids) |item, *id| {
+            try self.check(item.token, "residual effect");
+            id.* = item.id;
+        }
+        for (options.capture_bound, captures) |item, *id| {
+            try self.checkSchema(item);
+            id.* = item.id;
+        }
+        for (options.owned_regions, owned) |item, *id| {
+            try self.check(item.token, "owned region");
+            id.* = item.id;
+        }
+        for (options.borrowed_regions, borrowed) |item, *id| {
+            try self.check(item.token, "borrowed region");
+            id.* = item.id;
+        }
+        const resume_id = try self.raw.schema(.{ .internal = .{ .resumption = .{
+            .effect = operation.id,
+            .input = operation.result.id,
+            .answer = options.answer.id,
+            .effects = residual_ids,
+            .capture_bound = captures,
+            .handled = &.{operation.id},
+            .mode = options.mode,
+            .use = options.resumption_use,
+            .owned_regions = owned,
+            .obligations = options.obligations,
+        } } });
+        const resume_schema = Schema{ .token = self.token, .id = resume_id };
+        const return_parameters = try a.alloc(NamedParameter, state.len + 1);
+        @memcpy(return_parameters[0..state.len], state);
+        return_parameters[state.len] = .{ .name = "body_result", .schema = options.input };
+        const clause_parameters = try a.alloc(NamedParameter, state.len + 2);
+        @memcpy(clause_parameters[0..state.len], state);
+        clause_parameters[state.len] = .{ .name = "payload", .schema = operation.payload };
+        clause_parameters[state.len + 1] = .{ .name = "resume", .schema = resume_schema };
+        const returns = try self.declareWithRegions(return_parameters, options.answer, &.{}, borrowed);
+        const clause = try self.declareWithRegions(clause_parameters, options.answer, residual, borrowed);
+        const id = try self.raw.handler(.{
+            .mode = options.mode,
+            .input = options.input.id,
+            .answer = options.answer.id,
+            .return_function = returns.id,
+            .clauses = &.{.{ .effect = operation.id, .function = clause.id, .resumption = resume_id }},
+            .state = state_ids,
+            .effects = residual_ids,
+        });
+        return .{ .token = self.token, .id = id, .operation = operation, .input = options.input, .answer = options.answer, .state = state, .residual = residual, .on_return = returns, .on_operation = clause, .resumption = resume_schema };
     }
     pub fn declare(self: *Session, parameters: []const NamedParameter, result: Schema, effects: []const Operation) Error!Function {
+        return self.declareWithRegions(parameters, result, effects, &.{});
+    }
+    fn declareWithRegions(self: *Session, parameters: []const NamedParameter, result: Schema, effects: []const Operation, regions: []const p.Id) Error!Function {
         try self.checkSchema(result);
         const a = self.raw.allocator();
         const names = try a.dupe(NamedParameter, parameters);
@@ -145,7 +249,7 @@ pub const Session = struct {
             try self.check(effect.token, "effect");
             id.* = effect.id;
         }
-        return .{ .token = self.token, .id = try self.raw.declare(schemas, result.id, row, &.{}), .parameters = names, .result = result };
+        return .{ .token = self.token, .id = try self.raw.declare(schemas, result.id, row, regions), .parameters = names, .result = result };
     }
     pub fn body(self: *Session, function: Function) Error!Body {
         try self.check(function.token, "function");
@@ -168,15 +272,21 @@ pub const Legacy = struct {
         if (id >= self.session.raw.schemas.items.len) return error.InvalidSchema;
         return .{ .token = self.session.token, .id = id };
     }
+    pub fn region(self: Legacy, id: p.Id) Error!Region {
+        if (id >= self.session.raw.region_count) return error.InvalidReference;
+        return .{ .token = self.session.token, .id = id };
+    }
     pub fn operation(self: Legacy, id: p.Id) Error!Operation {
         if (id >= self.session.raw.effects.items.len) return error.InvalidReference;
         const effect = self.session.raw.effects.items[@intCast(id)];
+        const capability: ?Schema = if (effect.external) null else .{ .token = self.session.token, .id = try self.session.raw.schema(.{ .internal = .{ .capability = id } }) };
         return .{
             .token = self.session.token,
             .id = id,
             .payload = try self.schema(effect.payload),
             .result = try self.schema(effect.result),
             .boundary = if (effect.external) .external else .local,
+            .capability = capability,
         };
     }
 };
@@ -237,6 +347,93 @@ pub const Body = struct {
         }
         const id = try self.session.raw.term(.{ .perform = .{ .effect = operation.id, .payload = payload.id } });
         return .{ .token = self.session.token, .id = id, .result = operation.result, .scope = self.scope };
+    }
+    pub fn performLocal(self: *Body, operation: Operation, capability: Value, payload: Value) Error!Computation {
+        try self.value(capability);
+        try self.value(payload);
+        try self.session.check(operation.token, "operation");
+        const expected = operation.capability orelse return error.InvalidOperation;
+        if (operation.boundary != .local or capability.schema.id != expected.id) {
+            self.session.report(.invalid_operation, "capability instance", expected.id, capability.schema.id);
+            return error.InvalidOperation;
+        }
+        if (payload.schema.id != operation.payload.id) {
+            self.session.report(.schema_mismatch, "operation payload", operation.payload.id, payload.schema.id);
+            return error.SchemaMismatch;
+        }
+        const term = try self.session.raw.term(.{ .perform = .{ .effect = operation.id, .capability = capability.id, .payload = payload.id } });
+        return .{ .token = self.session.token, .id = term, .result = operation.result, .scope = self.scope };
+    }
+    pub fn resumeValue(self: *Body, resumption: Value, argument: Value) Error!Computation {
+        try self.value(resumption);
+        try self.value(argument);
+        const shape = self.session.raw.schemas.items[@intCast(resumption.schema.id)];
+        if (shape != .internal or shape.internal != .resumption) return error.TypeMismatch;
+        const contract = shape.internal.resumption;
+        if (argument.schema.id != contract.input) {
+            self.session.report(.schema_mismatch, "resumption input", contract.input, argument.schema.id);
+            return error.SchemaMismatch;
+        }
+        const term = try self.session.raw.term(.{ .resume_value = .{ .resumption = resumption.id, .argument = argument.id } });
+        return .{ .token = self.session.token, .id = term, .result = try self.session.legacy().schema(contract.answer), .scope = self.scope };
+    }
+    pub fn handle(self: *Body, handler: Handler, body: Value, arguments: []const Value, state: []const Value) Error!Computation {
+        try self.value(body);
+        try self.session.check(handler.token, "handler");
+        const shape = self.session.raw.schemas.items[@intCast(body.schema.id)];
+        if (shape != .internal or shape.internal != .computation) return error.TypeMismatch;
+        const signature = shape.internal.computation;
+        if (signature.result != handler.input.id or signature.parameters.len != arguments.len + 1 or handler.state.len != state.len) {
+            self.session.report(.schema_mismatch, "handled body", handler.input.id, signature.result);
+            return error.SchemaMismatch;
+        }
+        if (signature.parameters[0] != handler.operation.capability.?.id) {
+            self.session.report(.invalid_operation, "handled capability instance", handler.operation.capability.?.id, signature.parameters[0]);
+            return error.InvalidOperation;
+        }
+        for (signature.effects) |effect| {
+            if (effect == handler.operation.id) continue;
+            var allowed = false;
+            for (handler.residual) |residual| if (residual.id == effect) {
+                allowed = true;
+                break;
+            };
+            if (!allowed) {
+                self.session.report(.invalid_operation, "disallowed residual effect", null, null);
+                return error.InvalidOperation;
+            }
+        }
+        const args = try self.session.raw.allocator().alloc(p.Id, arguments.len);
+        const states = try self.session.raw.allocator().alloc(p.Id, state.len);
+        for (arguments, signature.parameters[1..], args) |item, expected, *id| {
+            try self.value(item);
+            if (item.schema.id != expected) return error.SchemaMismatch;
+            id.* = item.id;
+        }
+        for (state, handler.state, states) |item, expected, *id| {
+            try self.value(item);
+            if (item.schema.id != expected.schema.id) return error.SchemaMismatch;
+            id.* = item.id;
+        }
+        const term = try self.session.raw.term(.{ .handle = .{ .handler = handler.id, .body = body.id, .arguments = args, .state = states } });
+        return .{ .token = self.session.token, .id = term, .result = handler.answer, .scope = self.scope };
+    }
+    pub fn singleton(self: *Body, sequence_schema: Schema, item: Value) Error!Value {
+        try self.value(item);
+        try self.session.checkSchema(sequence_schema);
+        const shape = self.session.raw.schemas.items[@intCast(sequence_schema.id)];
+        if (shape != .seq or shape.seq != item.schema.id) return error.SchemaMismatch;
+        const id = try self.session.raw.primitive(sequence_schema.id, .sequence, &.{item.id}, 0);
+        return .{ .token = self.session.token, .id = id, .schema = sequence_schema, .scope = self.scope };
+    }
+    pub fn concat(self: *Body, left: Value, right: Value) Error!Value {
+        try self.value(left);
+        try self.value(right);
+        if (left.schema.id != right.schema.id) return error.SchemaMismatch;
+        const shape = self.session.raw.schemas.items[@intCast(left.schema.id)];
+        if (shape != .seq) return error.TypeMismatch;
+        const id = try self.session.raw.primitive(left.schema.id, .sequence_concat, &.{ left.id, right.id }, 0);
+        return .{ .token = self.session.token, .id = id, .schema = left.schema, .scope = self.scope };
     }
     pub fn call(self: *Body, function: Function, arguments: []const Value) Error!Computation {
         try self.active();

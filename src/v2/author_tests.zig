@@ -83,3 +83,47 @@ test "nested authoring closure captures its parent and named dynamic fields chec
     var compiled = try source.lower(std.testing.allocator, try a.module(outer, unit));
     defer compiled.deinit();
 }
+
+test "derived local interpretation changes answer and rejects a different instance" {
+    var raw = source.Builder.init(std.testing.allocator);
+    defer raw.deinit();
+    var a = try author.Session.init(&raw);
+    defer a.deinit();
+    const unit = try a.scalar(void);
+    const boolean = try a.scalar(bool);
+    const integer = try a.scalar(u32);
+    const left = try a.local("same-name", unit, boolean, .linear);
+    const right = try a.local("same-name", unit, boolean, .linear);
+    const handler = try a.interpret(left, .{
+        .mode = .deep,
+        .input = boolean,
+        .answer = integer,
+        .resumption_use = .linear,
+        .capture_bound = &.{ unit, boolean, integer, left.capability.? },
+    });
+    var returns = try a.body(handler.on_return);
+    try returns.finishFunction(try returns.constant(u32, 7));
+    var clause = try a.body(handler.on_operation);
+    const token = try clause.parameter("resume");
+    const resumed = try clause.bind(try clause.resumeValue(token, try clause.constant(bool, true)));
+    try clause.finishFunction(resumed);
+    const body_fn = try a.declare(&.{.{ .name = "cap", .schema = left.capability.? }}, boolean, &.{left});
+    var operation_body = try a.body(body_fn);
+    const cap = try operation_body.parameter("cap");
+    const payload = try operation_body.constant(void, {});
+    try std.testing.expectError(error.InvalidOperation, operation_body.performLocal(right, cap, payload));
+    const answer = try operation_body.bind(try operation_body.performLocal(left, cap, payload));
+    try operation_body.finishFunction(answer);
+    const callable = try a.dynamicSchema(.{ .internal = .{ .computation = .{
+        .parameters = &.{left.capability.?.id},
+        .result = boolean.id,
+        .effects = &.{left.id},
+        .use = .linear,
+    } } });
+    const entry = try a.declare(&.{}, integer, &.{});
+    var main = try a.body(entry);
+    const installed = try main.bind(try main.handle(handler, try main.lambda(body_fn, callable), &.{}, &.{}));
+    try main.finishFunction(installed);
+    var compiled = try source.lower(std.testing.allocator, try a.module(entry, unit));
+    defer compiled.deinit();
+}

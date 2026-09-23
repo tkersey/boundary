@@ -1,14 +1,17 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
 //! Authored Boolean choice interpretations. The runtime has no choice operation.
 const source = @import("../source.zig");
+const author = @import("../author.zig");
 const p = @import("boundary_data").program;
 const Error = source.Error;
 pub const Family = struct { effect: p.Id, capability: p.Id };
 pub const Interpretation = struct { handler: p.Id, answer: p.Id, resumption: p.Id };
 
 pub fn family(builder: *source.Builder, identity: []const u8) Error!Family {
-    const effect = try builder.effect(.{ .identity = identity, .payload = try builder.scalar(void), .result = try builder.scalar(bool), .control_use = .multi, .external = false });
-    return .{ .effect = effect, .capability = try builder.schema(.{ .internal = .{ .capability = effect } }) };
+    var a = try author.Session.init(builder);
+    defer a.deinit();
+    const operation = try a.local(identity, try a.scalar(void), try a.scalar(bool), .multi);
+    return .{ .effect = operation.id, .capability = operation.capability.?.id };
 }
 
 pub fn all(builder: *source.Builder, choice: Family, element: p.Id, captures: []const p.Id, residual: source.Row) Error!Interpretation {
@@ -24,23 +27,38 @@ pub fn allScoped(builder: *source.Builder, choice: Family, element: p.Id, captur
 fn interpret(builder: *source.Builder, choice: Family, element: p.Id, captures: []const p.Id, residual: source.Row, owned_regions: []const p.Id, borrowed_regions: []const p.Id, comptime every: bool) Error!Interpretation {
     const instance = try builder.specialization(Interpretation, "boundary.library.choice/v2", .{ choice, element, captures, residual, owned_regions, borrowed_regions, every });
     if (instance.cached) |value| return value;
-    const unit = try builder.scalar(void);
-    const boolean = try builder.scalar(bool);
-    const answer = try builder.schema(.{ .seq = element });
-    const resumption = try builder.schema(.{ .internal = .{ .resumption = .{ .effect = choice.effect, .input = boolean, .answer = answer, .effects = residual.effects, .capture_bound = captures, .handled = &.{choice.effect}, .mode = .deep, .use = .multi, .owned_regions = owned_regions } } });
-    const returns = try builder.declare(&.{element}, answer, &.{}, borrowed_regions);
-    const clause = try builder.declare(&.{ unit, resumption }, answer, residual.effects, borrowed_regions);
-    const item = try builder.reference(builder.parameter(returns, 0));
-    try builder.define(returns, try builder.pure(try builder.value(.{ .schema = answer, .expression = .{ .primitive = .{ .opcode = .sequence, .operands = &.{item} } } })));
-    const token = try builder.reference(builder.parameter(clause, 1));
-    const left = try builder.term(.{ .resume_value = .{ .resumption = token, .argument = try builder.constant(bool, false) } });
-    const body = if (every) blk: {
-        const left_result = try builder.variable(answer);
-        const right_result = try builder.variable(answer);
-        const right = try builder.term(.{ .resume_value = .{ .resumption = token, .argument = try builder.constant(bool, true) } });
-        const results = try builder.pure(try builder.value(.{ .schema = answer, .expression = .{ .primitive = .{ .opcode = .sequence_concat, .operands = &.{ try builder.reference(left_result), try builder.reference(right_result) } } } }));
-        break :blk try builder.bind(left_result, left, try builder.bind(right_result, right, results));
-    } else left;
-    try builder.define(clause, body);
-    return instance.finish(builder, .{ .handler = try builder.handler(.{ .mode = .deep, .input = element, .answer = answer, .return_function = returns, .clauses = &.{.{ .effect = choice.effect, .function = clause, .resumption = resumption }}, .effects = residual.effects }), .answer = answer, .resumption = resumption });
+    var a = try author.Session.init(builder);
+    defer a.deinit();
+    const legacy = a.legacy();
+    const operation = try legacy.operation(choice.effect);
+    const input = try legacy.schema(element);
+    const answer = try a.sequence(input);
+    const allowed = try builder.allocator().alloc(author.Operation, residual.effects.len);
+    for (allowed, residual.effects) |*item, id| item.* = try legacy.operation(id);
+    const bound = try builder.allocator().alloc(author.Schema, captures.len);
+    for (bound, captures) |*item, id| item.* = try legacy.schema(id);
+    const owned = try builder.allocator().alloc(author.Region, owned_regions.len);
+    for (owned, owned_regions) |*item, id| item.* = try legacy.region(id);
+    const borrowed = try builder.allocator().alloc(author.Region, borrowed_regions.len);
+    for (borrowed, borrowed_regions) |*item, id| item.* = try legacy.region(id);
+    const h = try a.interpret(operation, .{
+        .mode = .deep,
+        .input = input,
+        .answer = answer,
+        .residual = allowed,
+        .resumption_use = .multi,
+        .capture_bound = bound,
+        .owned_regions = owned,
+        .borrowed_regions = borrowed,
+    });
+    var returns = try a.body(h.on_return);
+    try returns.finishFunction(try returns.singleton(answer, try returns.parameter("body_result")));
+    var clause = try a.body(h.on_operation);
+    const token = try clause.parameter("resume");
+    const left = try clause.bind(try clause.resumeValue(token, try clause.constant(bool, false)));
+    if (every) {
+        const right = try clause.bind(try clause.resumeValue(token, try clause.constant(bool, true)));
+        try clause.finishFunction(try clause.concat(left, right));
+    } else try clause.finishFunction(left);
+    return instance.finish(builder, .{ .handler = h.id, .answer = answer.id, .resumption = h.resumption.id });
 }
