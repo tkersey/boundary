@@ -31,8 +31,9 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .imports = &.{.{ .name = "boundary_data", .module = data }},
     }) });
+    const installed_linker = b.addInstallArtifact(linker, .{});
     b.step("build-compiler", "Build the source-independent BMO1 linker")
-        .dependOn(&b.addInstallArtifact(linker, .{}).step);
+        .dependOn(&installed_linker.step);
     const component_example = b.addExecutable(.{ .name = "component-example", .root_module = b.createModule(.{
         .root_source_file = b.path("tools/component_example.zig"),
         .target = target,
@@ -198,6 +199,162 @@ pub fn build(b: *std.Build) void {
     exact_json.addFileArg(b.path("test/v2/exact_json.test.mjs"));
     semantics.dependOn(&exact_json.step);
     const aggregate = b.step("check", "Check current authoring, data, source semantics and component linking");
+    const lazy_hyper = b.addExecutable(.{ .name = "lazy-hyper", .root_module = b.createModule(.{
+        .root_source_file = b.path("examples/lazy_hyper.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "boundary", .module = boundary }},
+    }) });
+    const lazy_run = b.addRunArtifact(lazy_hyper);
+    b.step("emit-lazy-hyper", "Emit the unused divergent hyperfunction peer witness")
+        .dependOn(&lazy_run.step);
+    const lazy_check = b.addRunArtifact(lazy_hyper);
+    _ = lazy_check.captureStdOut(.{});
+    aggregate.dependOn(&lazy_check.step);
+    const unused_invocation = b.addRunArtifact(lazy_hyper);
+    unused_invocation.addArg("unused-invocation");
+    b.step("emit-unused-hyper-invocation", "Emit an undemanded divergent invocation")
+        .dependOn(&unused_invocation.step);
+    const reciprocal = b.addExecutable(.{ .name = "reciprocal-hyper", .root_module = b.createModule(.{
+        .root_source_file = b.path("examples/reciprocal_hyper.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "boundary", .module = boundary }},
+    }) });
+    b.step("emit-reciprocal-hyper", "Emit state-based reciprocal non-tail calls")
+        .dependOn(&b.addRunArtifact(reciprocal).step);
+    const reciprocal_check = b.addRunArtifact(reciprocal);
+    _ = reciprocal_check.captureStdOut(.{});
+    aggregate.dependOn(&reciprocal_check.step);
+    const algebra = b.addExecutable(.{ .name = "hyper-algebra", .root_module = b.createModule(.{
+        .root_source_file = b.path("examples/hyper_algebra.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "boundary", .module = boundary }},
+    }) });
+    const algebra_images = b.step("emit-hyper-algebra", "Emit the public pure hyperfunction algebra cases");
+    for ([_][]const u8{
+        "constant",     "project", "identity",   "distinct",    "compose", "product", "sum", "stream",
+        "unused_fault", "fault",   "ana_config", "ana_capture",
+    }) |mode| {
+        const run = b.addRunArtifact(algebra);
+        run.addArg(mode);
+        algebra_images.dependOn(&b.addInstallFileWithDir(run.captureStdOut(.{}), .prefix, b.fmt("hyper/{s}.bpi3", .{mode})).step);
+    }
+    aggregate.dependOn(algebra_images);
+    const generated = b.addExecutable(.{ .name = "hyper-generated", .root_module = b.createModule(.{
+        .root_source_file = b.path("examples/hyper_generated.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "boundary", .module = boundary }},
+    }) });
+    const generated_install = b.addInstallArtifact(generated, .{});
+    b.step("build-hyper-generated", "Build bounded pure-construction test emitter")
+        .dependOn(&generated_install.step);
+    const generated_check = b.addRunArtifact(generated);
+    generated_check.addArgs(&.{ "193", "5" });
+    _ = generated_check.captureStdOut(.{});
+    aggregate.dependOn(&generated_check.step);
+    const fold = b.addExecutable(.{ .name = "hyper-fold", .root_module = b.createModule(.{
+        .root_source_file = b.path("examples/hyper_fold.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "boundary", .module = boundary }},
+    }) });
+    const fold_images = b.step("emit-hyper-fold", "Emit runtime two-input hyperfunction and direct folds");
+    for ([_][]const u8{ "hyper", "direct", "materialized", "stats", "stats-direct", "stats-materialized" }) |mode| {
+        const run = b.addRunArtifact(fold);
+        run.addArg(mode);
+        fold_images.dependOn(&b.addInstallFileWithDir(run.captureStdOut(.{}), .prefix, b.fmt("fold/{s}", .{mode})).step);
+    }
+    aggregate.dependOn(fold_images);
+    const tail = b.addExecutable(.{ .name = "hyper-tail", .root_module = b.createModule(.{
+        .root_source_file = b.path("examples/hyper_tail.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "boundary", .module = boundary }},
+    }) });
+    const tail_images = b.step("emit-hyper-tail", "Emit history-free reciprocal and direct countdowns");
+    for ([_][]const u8{ "hyper", "direct" }) |mode| {
+        const run = b.addRunArtifact(tail);
+        run.addArg(mode);
+        tail_images.dependOn(&b.addInstallFileWithDir(run.captureStdOut(.{}), .prefix, b.fmt("tail/{s}", .{mode})).step);
+    }
+    aggregate.dependOn(tail_images);
+    const adaptive = b.addExecutable(.{ .name = "hyper-adaptive", .root_module = b.createModule(.{
+        .root_source_file = b.path("examples/hyper_adaptive.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "boundary", .module = boundary }},
+    }) });
+    const adaptive_objects = b.step("emit-hyper-adaptive", "Emit independent adaptive hyperfunction objects");
+    adaptive_objects.dependOn(&installed_linker.step);
+    for ([_][]const u8{ "producer", "producer-reversed", "consumer", "consumer-invert", "support", "entry" }) |mode| {
+        const run = b.addRunArtifact(adaptive);
+        run.addArg(mode);
+        adaptive_objects.dependOn(&b.addInstallFileWithDir(run.captureStdOut(.{}), .prefix, b.fmt("adaptive/{s}.bmo1", .{mode})).step);
+    }
+    aggregate.dependOn(adaptive_objects);
+    const hyper_multi = b.addExecutable(.{ .name = "hyper-multishot", .root_module = b.createModule(.{
+        .root_source_file = b.path("examples/hyper_multishot.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "boundary", .module = boundary }},
+    }) });
+    const multi_images = b.step("emit-hyper-multishot", "Emit clone-safe recursive participant witness");
+    const multi_run = b.addRunArtifact(hyper_multi);
+    multi_images.dependOn(&b.addInstallFileWithDir(multi_run.captureStdOut(.{}), .prefix, "hyper-multishot.bpi3").step);
+    const multi_reentrant = b.addRunArtifact(hyper_multi);
+    multi_reentrant.addArg("reentrant");
+    multi_images.dependOn(&b.addInstallFileWithDir(multi_reentrant.captureStdOut(.{}), .prefix, "hyper-reentrant.bpi3").step);
+    aggregate.dependOn(multi_images);
+    const demand = b.addExecutable(.{ .name = "hyper-demand", .root_module = b.createModule(.{
+        .root_source_file = b.path("examples/hyper_demand.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "boundary", .module = boundary }},
+    }) });
+    b.step("emit-hyper-demand", "Emit lexical internal-demand interpretation")
+        .dependOn(&b.addRunArtifact(demand).step);
+    const demand_check = b.addRunArtifact(demand);
+    _ = demand_check.captureStdOut(.{});
+    aggregate.dependOn(&demand_check.step);
+    const exchange = b.addExecutable(.{ .name = "owned-exchange", .root_module = b.createModule(.{
+        .root_source_file = b.path("examples/owned_exchange.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "boundary", .module = boundary }},
+    }) });
+    const exchange_images = b.step("emit-owned-exchange", "Emit owned exchange and local disposal witnesses");
+    for ([_][]const u8{ "dispose", "normal" }) |mode| {
+        const run = b.addRunArtifact(exchange);
+        if (std.mem.eql(u8, mode, "normal")) run.addArg(mode);
+        exchange_images.dependOn(&b.addInstallFileWithDir(run.captureStdOut(.{}), .prefix, b.fmt("exchange/{s}.bpi3", .{mode})).step);
+    }
+    aggregate.dependOn(exchange_images);
+    const composed = b.addExecutable(.{ .name = "composed-exchange", .root_module = b.createModule(.{
+        .root_source_file = b.path("examples/composed_exchange.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "boundary", .module = boundary }},
+    }) });
+    const composed_images = b.step("emit-composed-exchange", "Emit owned three-part exchange composition");
+    for ([_][]const u8{ "dispose", "finish", "right-finish" }) |mode| {
+        const run = b.addRunArtifact(composed);
+        if (!std.mem.eql(u8, mode, "dispose")) run.addArg(mode);
+        composed_images.dependOn(&b.addInstallFileWithDir(run.captureStdOut(.{}), .prefix, b.fmt("composed/{s}.bpi3", .{mode})).step);
+    }
+    aggregate.dependOn(composed_images);
+    const composed_negative = b.addSystemCommand(&.{ "node", "test/composed_exchange_negative.mjs" });
+    composed_negative.addArtifactArg(composed);
+    composed_images.dependOn(&composed_negative.step);
+    const exchange_negative = b.addSystemCommand(&.{"node"});
+    exchange_negative.addFileArg(b.path("test/owned_exchange_negative.mjs"));
+    exchange_negative.addArtifactArg(exchange);
+    aggregate.dependOn(&exchange_negative.step);
+    const hyper_reference = b.addSystemCommand(&.{ "node", "--test" });
+    hyper_reference.addFileArg(b.path("test/hyperfunction_reference.test.mjs"));
+    aggregate.dependOn(&hyper_reference.step);
     aggregate.dependOn(data_step);
     aggregate.dependOn(component_step);
     aggregate.dependOn(&program_wasm_run.step);

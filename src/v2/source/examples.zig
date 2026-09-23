@@ -244,6 +244,7 @@ pub const abortCustody = @import("abort_example.zig").build;
 pub const unwind = @import("unwind_example.zig").build;
 pub const reentrant = @import("reentrant_example.zig").build;
 pub const cloned = @import("reentrant_example.zig").cloned;
+pub const reentrantWithResult = @import("reentrant_example.zig").withResult;
 pub const shallowResumptions = @import("shallow_resume_example.zig").build;
 pub const shallowInjection = @import("injection_example.zig").shallow;
 pub const handleOperandOrder = @import("operand_order_example.zig").handle;
