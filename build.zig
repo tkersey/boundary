@@ -140,6 +140,14 @@ pub fn build(b: *std.Build) void {
         .imports = &.{.{ .name = "boundary", .module = boundary }},
     }) });
     b.step("emit-one-effect", "Compile and inspect a complete public authoring example").dependOn(&b.addRunArtifact(one_effect).step);
+    const authoring_branch = b.addExecutable(.{ .name = "authoring-branch", .root_module = b.createModule(.{
+        .root_source_file = b.path("examples/authoring_branch.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "boundary", .module = boundary }},
+    }) });
+    b.step("emit-authoring-branch", "Emit a staged runtime choice example")
+        .dependOn(&b.addRunArtifact(authoring_branch).step);
     b.step("check-authoring", "Check staged typed construction and lowering")
         .dependOn(&b.addRunArtifact(authoring).step);
     const economy = b.step("check-economy", "Check code and constant sharing and emit executable economy workloads");

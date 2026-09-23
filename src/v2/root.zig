@@ -2,6 +2,7 @@
 pub const package_version = "3.0.0-dev.0";
 pub const computation = @import("source.zig");
 pub const source = computation;
+pub const authoring = @import("authoring.zig");
 pub const effect = @import("effect.zig");
 pub const handler = struct {
     pub const Definition = data.program.Handler;
