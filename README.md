@@ -65,11 +65,14 @@ zig build emit-examples
 zig build build-compiler
 ```
 
-The current aggregate includes the independent source oracle and native/wasm32
-codec agreement. It needs Node for those checks; ordinary authoring/data consumers
-need only Zig. The [Lean semantic model](semantics/v2/README.md) is separately
-runnable with `zig build check-formal`; it is not a proof of the shipping Zig
-implementation. No build command publishes a release or merges a PR.
+The current aggregate retains the independent higher-order source oracle,
+current authoring/data checks, and native/wasm32 codec agreement. It needs Node for
+those checks; ordinary authoring/data consumers need only Zig. The historical
+compact model and unfinished generalized-effects study live in the
+[Boundary Semantics research repository](https://github.com/tkersey/boundary-semantics).
+Their Lean checks validate the retained models; they do not establish a checked
+refinement of this compiler or runtime. Production confidence comes from the
+implementation checks above. No build command publishes a release or merges a PR.
 
 Recompile applications for the successor. Old saved executions require their old
 pinned image/runtime pair or explicit completion/abandonment under that pair.
