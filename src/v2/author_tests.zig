@@ -1,0 +1,56 @@
+const std = @import("std");
+const author = @import("author.zig");
+const source = @import("source.zig");
+
+test "structured branches emit one selected external operation" {
+    var raw = source.Builder.init(std.testing.allocator);
+    defer raw.deinit();
+    var a = try author.Session.init(&raw);
+    defer a.deinit();
+    const boolean = try a.scalar(bool);
+    const integer = try a.scalar(u32);
+    const unit = try a.scalar(void);
+    const left = try a.external("author.left", integer, integer);
+    const right = try a.external("author.right", integer, integer);
+    const entry = try a.declare(&.{
+        .{ .name = "select_left", .schema = boolean },
+        .{ .name = "payload", .schema = integer },
+    }, integer, &.{ left, right });
+    var body = try a.body(entry);
+    const selected = try body.parameter("select_left");
+    const payload = try body.parameter("payload");
+    var when_true = try body.child();
+    const left_result = try when_true.bind(try when_true.perform(left, payload));
+    const left_body = try when_true.finish(left_result);
+    var when_false = try body.child();
+    try std.testing.expectError(error.OutOfScope, when_false.perform(right, left_result));
+    try std.testing.expectEqual(author.Category.out_of_scope, a.diagnostic.?.category);
+    const right_result = try when_false.bind(try when_false.perform(right, payload));
+    const right_body = try when_false.finish(right_result);
+    const answer = try body.bind(try body.conditional(selected, left_body, right_body));
+    try body.finishFunction(answer);
+    var compiled = try source.lower(std.testing.allocator, try a.module(entry, unit));
+    defer compiled.deinit();
+    try std.testing.expectEqual(@as(usize, 2), raw.effects.items.len);
+}
+
+test "equal numeric indices from live builders do not confer origin" {
+    var first = source.Builder.init(std.testing.allocator);
+    defer first.deinit();
+    var second = source.Builder.init(std.testing.allocator);
+    defer second.deinit();
+    var a = try author.Session.init(&first);
+    defer a.deinit();
+    var b = try author.Session.init(&second);
+    defer b.deinit();
+    const one = try a.scalar(u32);
+    const two = try b.scalar(u32);
+    try std.testing.expectEqual(one.id, two.id);
+    const operation = try b.external("builder.two", two, two);
+    const entry = try b.declare(&.{}, two, &.{operation});
+    var body = try b.body(entry);
+    var alien_body = try a.body(try a.declare(&.{}, one, &.{}));
+    const alien = try alien_body.constant(u32, 3);
+    try std.testing.expectError(error.WrongBuilder, body.perform(operation, alien));
+    try std.testing.expectEqual(author.Category.wrong_builder, b.diagnostic.?.category);
+}
