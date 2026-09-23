@@ -141,11 +141,9 @@ pub const Ana = struct { function: Id, interface: Id };
 /// Step.emit receives source values and a staged query builder. It may emit zero,
 /// one, or arbitrarily many runtime queries; no host function enters the image.
 /// State must be admitted by the interface's capture bound.
+/// Each call emits a definition using the current Step configuration. Reuse the
+/// returned Ana with start to share code; runtime queries call that same maker.
 pub fn ana(b: *source.Builder, types: Pair, state: Id, comptime Step: type) source.Error!Ana {
-    const cache = try b.specialization(Ana, "boundary.hyper.ana/v1", .{
-        types, state, @typeName(Step),
-    });
-    if (cache.cached) |value| return value;
     const maker = try b.declare(&.{state}, types.forward, &.{}, &.{});
     const body = try b.declare(&.{types.peer_backward}, types.answer_forward, &.{}, &.{});
     try b.define(body, try Step.emit(b, Query{
@@ -155,7 +153,7 @@ pub fn ana(b: *source.Builder, types: Pair, state: Id, comptime Step: type) sour
         .peer = try b.reference(b.parameter(body, 0)),
     }));
     try b.define(maker, try b.pure(try make(b, body, types.forward)));
-    return cache.finish(b, .{ .function = maker, .interface = types.forward });
+    return .{ .function = maker, .interface = types.forward };
 }
 
 pub fn start(b: *source.Builder, definition: Ana, state: Id) source.Error!Id {
@@ -450,4 +448,34 @@ test "hyper identity rejects distinct endpoint types" {
     defer b.deinit();
     const interfaces = try pair(&b, try b.scalar(bool), try b.scalar(u64));
     try std.testing.expectError(error.TypeMismatch, identity(&b, interfaces));
+}
+
+test "ana emits each authored definition and start reuses its code" {
+    const std = @import("std");
+    const Step = struct {
+        var value: u64 = 0;
+        var calls: usize = 0;
+        pub fn emit(b: *source.Builder, query: Query) source.Error!Id {
+            calls += 1;
+            return b.pure(try deferValue(b, query.types.answer_forward, try b.constant(u64, value)));
+        }
+    };
+    var b = source.Builder.init(std.testing.allocator);
+    defer b.deinit();
+    const integer = try b.scalar(u64);
+    const types = try pair(&b, integer, integer);
+    Step.calls = 0;
+    Step.value = 19;
+    const first = try ana(&b, types, integer, Step);
+    Step.value = 23;
+    const second = try ana(&b, types, integer, Step);
+    try std.testing.expectEqual(@as(usize, 2), Step.calls);
+    try std.testing.expect(first.function != second.function);
+    const count = b.functions.items.len;
+    for (0..100) |state| {
+        _ = try start(&b, first, try b.constant(u64, state));
+        _ = try start(&b, second, try b.constant(u64, state));
+    }
+    try std.testing.expectEqual(count, b.functions.items.len);
+    try std.testing.expectEqual(@as(usize, 2), Step.calls);
 }

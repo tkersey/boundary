@@ -3,11 +3,25 @@ const std = @import("std");
 const boundary = @import("boundary");
 const source = boundary.computation;
 const hyper = boundary.library.hyper;
-const Mode = enum { constant, project, identity, distinct, compose, product, sum, stream, unused_fault, fault };
+const Mode = enum {
+    constant,
+    project,
+    identity,
+    distinct,
+    compose,
+    product,
+    sum,
+    stream,
+    unused_fault,
+    fault,
+    ana_config,
+    ana_capture,
+};
 const Application = struct {
     var mode: Mode = .constant;
     pub fn emit(b: *source.Builder) !source.Module {
         if (mode == .compose) return composition(b);
+        if (mode == .ana_config or mode == .ana_capture) return configuredAna(b, mode == .ana_capture);
         if (mode == .product or mode == .sum or mode == .stream) return aggregate(b, mode);
         const integer = try b.scalar(u64);
         const input = if (mode == .distinct) try b.scalar(bool) else integer;
@@ -152,4 +166,51 @@ fn aggregate(b: *source.Builder, mode: Mode) !source.Module {
         }
     }
     return b.module(entry, unit);
+}
+
+// The same host emitter type can select different constants or captured bindings.
+const ConfiguredStep = struct {
+    var value: source.Id = 0;
+    pub fn emit(b: *source.Builder, query: hyper.Query) source.Error!source.Id {
+        return b.pure(try hyper.deferValue(b, query.types.answer_forward, value));
+    }
+};
+fn configuredAna(b: *source.Builder, capture: bool) !source.Module {
+    const integer = try b.scalar(u64);
+    const types = try hyper.pair(b, integer, integer);
+    const entry = try b.declare(&.{}, integer, &.{}, &.{});
+    const first_value = try b.variable(integer);
+    const second_value = try b.variable(integer);
+    ConfiguredStep.value = if (capture)
+        try b.reference(first_value)
+    else
+        try b.constant(u64, 19);
+    const first = try hyper.ana(b, types, integer, ConfiguredStep);
+    ConfiguredStep.value = if (capture)
+        try b.reference(second_value)
+    else
+        try b.constant(u64, 23);
+    const second = try hyper.ana(b, types, integer, ConfiguredStep);
+    const left = try b.variable(integer);
+    const right = try b.variable(integer);
+    const overflow = try b.failureLiteral(try b.constant(void, {}));
+    const sum = try b.value(.{ .schema = integer, .expression = .{ .primitive = .{
+        .opcode = .integer_add,
+        .operands = &.{ try b.reference(left), try b.reference(right) },
+        .failures = &.{.{ .kind = .arithmetic_overflow, .value = overflow }},
+    } } });
+    const with_right = try b.bind(right, try observeAna(b, types, second), try b.pure(sum));
+    const result = try b.bind(left, try observeAna(b, types, first), with_right);
+    const with_second = try b.bind(second_value, try b.pure(try b.constant(u64, 23)), result);
+    try b.define(entry, try b.bind(first_value, try b.pure(try b.constant(u64, 19)), with_second));
+    return b.module(entry, try b.scalar(void));
+}
+fn observeAna(b: *source.Builder, types: hyper.Pair, definition: hyper.Ana) !source.Id {
+    const participant = try b.variable(types.forward);
+    const answer = try b.variable(types.answer_forward);
+    const zero = try b.constant(u64, 0);
+    const argument = try hyper.deferValue(b, types.answer_backward, zero);
+    const projected = try hyper.project(b, types, try b.reference(participant), argument);
+    const observed = try b.bind(answer, projected, try hyper.force(b, try b.reference(answer)));
+    return b.bind(participant, try hyper.start(b, definition, zero), observed);
 }

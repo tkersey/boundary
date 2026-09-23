@@ -51,10 +51,19 @@ argument in its authored body. The library does not silently perform that force.
 `run`/identity require equal endpoint types; `project` permits distinct endpoints.
 Composition with lifted maps supplies checked endpoint adaptation.
 
-`ana` gives `Step.emit` source values for state and a query builder. The step may
-emit zero, one, or several adaptive runtime queries and non-tail work. It is not a
+`ana` gives `Step.emit` source values for state and a query builder. Each authored
+call emits the current step configuration; the Zig step type is not a cache key.
+Keep the returned `Ana` and call `start` to reuse that definition. Runtime queries
+reuse its maker without emitting code. The step may emit zero, one, or several
+adaptive runtime queries and non-tail work. It is not a
 fixed stream schedule. Only finitely authored code is generated; successor states
 and repeated interactions are runtime values.
+
+The `ana_config` and `ana_capture` regressions construct two definitions using
+the same step type, selecting constants and captured bindings respectively. The
+former reproduced the old type-only cache returning 38 instead of 42. Both now
+return 42 through fresh World transfers (33 and 31 transfers). The unit regression
+also starts each retained definition 100 times without adding function bodies.
 
 ## Composition and capture contracts
 
@@ -127,6 +136,8 @@ required fusion/scaling comparisons.
 zig build check --summary all
 zig build emit-hyper-algebra
 node --test test/hyperfunction_reference.test.mjs
+node test/hyperfunction_world.mjs WORLD_ENTRY KERNEL zig-out/hyper/ana_config.bpi3
+node test/hyperfunction_world.mjs WORLD_ENTRY KERNEL zig-out/hyper/ana_capture.bpi3
 node test/hyperfunction_world.mjs WORLD_ENTRY KERNEL zig-out/hyper/compose.bpi3
 node test/hyperfunction_world.mjs WORLD_ENTRY KERNEL zig-out/hyper/fault.bpi3 failed
 node test/hyperfunction_partial.mjs WORLD_ENTRY KERNEL zig-out/hyper/identity.bpi3

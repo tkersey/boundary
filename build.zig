@@ -238,7 +238,10 @@ pub fn build(b: *std.Build) void {
         .imports = &.{.{ .name = "boundary", .module = boundary }},
     }) });
     const algebra_images = b.step("emit-hyper-algebra", "Emit the public pure hyperfunction algebra cases");
-    for ([_][]const u8{ "constant", "project", "identity", "distinct", "compose", "product", "sum", "stream", "unused_fault", "fault" }) |mode| {
+    for ([_][]const u8{
+        "constant",     "project", "identity",   "distinct",    "compose", "product", "sum", "stream",
+        "unused_fault", "fault",   "ana_config", "ana_capture",
+    }) |mode| {
         const run = b.addRunArtifact(algebra);
         run.addArg(mode);
         algebra_images.dependOn(&b.addInstallFileWithDir(run.captureStdOut(.{}), .prefix, b.fmt("hyper/{s}.bpi3", .{mode})).step);
