@@ -15,7 +15,6 @@
         "docs/compositional-execution.md",
         "examples",
         "repo_zig_paths.txt",
-        "semantics",
         "src",
         "test",
         "tools",

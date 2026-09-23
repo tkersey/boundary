@@ -194,14 +194,9 @@ pub fn build(b: *std.Build) void {
     semantics.dependOn(&oracleScopeChecks(b, boundary, optimize).step);
     semantics.dependOn(&borrowReturnChecks(b, boundary, optimize).step);
     semantics.dependOn(&b.addRunArtifact(authoring).step);
-    const formal = b.addSystemCommand(&.{ "lake", "build" });
-    formal.setCwd(b.path("semantics/v2"));
-    formal.has_side_effects = true;
-    const trust = b.addSystemCommand(&.{ "lake", "env", "lean", "Trust.lean" });
-    trust.setCwd(b.path("semantics/v2"));
-    trust.has_side_effects = true;
-    trust.step.dependOn(&formal.step);
-    b.step("check-formal", "Check the independent source semantic model").dependOn(&trust.step);
+    const exact_json = b.addSystemCommand(&.{ "node", "--test" });
+    exact_json.addFileArg(b.path("test/v2/exact_json.test.mjs"));
+    semantics.dependOn(&exact_json.step);
     const aggregate = b.step("check", "Check current authoring, data, source semantics and component linking");
     aggregate.dependOn(data_step);
     aggregate.dependOn(component_step);

@@ -4,8 +4,6 @@
 /zig-pkg/
 /zig-out/
 /.cache/
-/semantics/v2/.lake/
-/semantics/v2/.cache/
 /.ledger/.*/
 /.ledger/**/*.advisory
 test/compile_fail_inputs/.compile_fail_escape_helper_link.zig

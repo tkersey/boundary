@@ -4,6 +4,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
+import { parseExactJson } from "../../tools/v2/exact_json.mjs";
 
 const tag = (value) => typeof value === "string" ? value : Object.keys(value)[0];
 const field = (value) => typeof value === "string" ? undefined : value[tag(value)];
@@ -601,7 +602,7 @@ export function execute(source, initial, responses = [], cancellations = []) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const sources = await Promise.all(process.argv.slice(2).map(async (path) => JSON.parse(await readFile(path, "utf8"))));
+  const sources = await Promise.all(process.argv.slice(2).map(async (path) => parseExactJson(await readFile(path))));
   assert.equal(sources.length, 42);
   for (let index = 0; index < 20; index++) {
     const populated = index % 2 === 1, owned = index >= 12;
