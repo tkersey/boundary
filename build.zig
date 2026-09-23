@@ -158,6 +158,11 @@ pub fn build(b: *std.Build) void {
         .dependOn(&b.addRunArtifact(authoring_responder).step);
     b.step("check-authoring", "Check staged typed construction and lowering")
         .dependOn(&b.addRunArtifact(authoring).step);
+    const public_client = b.addSystemCommand(&.{"node"});
+    public_client.addFileArg(b.path("test/v2/public_authoring_client.mjs"));
+    public_client.has_side_effects = true;
+    b.step("check-public-authoring", "Build an outside-tree client from public package imports")
+        .dependOn(&public_client.step);
     const economy = b.step("check-economy", "Check code and constant sharing and emit executable economy workloads");
     economy.dependOn(&b.addRunArtifact(authoring).step);
     const compiler_options = b.addOptions();
@@ -382,6 +387,7 @@ pub fn build(b: *std.Build) void {
     const public_example_check = b.addRunArtifact(one_effect);
     _ = public_example_check.captureStdOut(.{});
     aggregate.dependOn(&public_example_check.step);
+    aggregate.dependOn(&public_client.step);
     const assets_tests = b.addSystemCommand(&.{ "node", "--test" });
     assets_tests.addFileArg(b.path("test/v2/assets.test.mjs"));
     assets_tests.has_side_effects = true;
