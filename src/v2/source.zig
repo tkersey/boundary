@@ -18,7 +18,7 @@ pub const Diagnostic = @import("source/diagnostic.zig").Diagnostic;
 pub const CompileOptions = @import("source/diagnostic.zig").Options;
 pub const CompileStage = @import("source/diagnostic.zig").Stage;
 pub const Error = data.admission.Error || data.activation_flow.Error ||
-    error{ UndefinedFunction, InvalidSource, UnboundVariable };
+    error{ UndefinedFunction, InvalidSource, UnboundVariable, WrongBuilder, OutOfScope, ClosedBody, SchemaMismatch, InvalidOperation, Poisoned };
 
 /// Application.emit constructs a checked source Module. Its Zig body runs only
 /// while authoring; the result contains all executable code as portable data.

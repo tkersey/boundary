@@ -54,3 +54,32 @@ test "equal numeric indices from live builders do not confer origin" {
     try std.testing.expectError(error.WrongBuilder, body.perform(operation, alien));
     try std.testing.expectEqual(author.Category.wrong_builder, b.diagnostic.?.category);
 }
+
+test "nested authoring closure captures its parent and named dynamic fields check" {
+    var raw = source.Builder.init(std.testing.allocator);
+    defer raw.deinit();
+    var a = try author.Session.init(&raw);
+    defer a.deinit();
+    const integer = try a.scalar(u32);
+    const boolean = try a.scalar(bool);
+    const unit = try a.scalar(void);
+    const record = try a.record(&.{
+        .{ .name = "number", .schema = integer },
+        .{ .name = "flag", .schema = boolean },
+    });
+    const outer = try a.declare(&.{.{ .name = "x", .schema = integer }}, integer, &.{});
+    var body = try a.body(outer);
+    const x = try body.parameter("x");
+    const nested = try body.declare(&.{}, integer, &.{});
+    var nested_body = try a.body(nested);
+    try nested_body.finishFunction(x);
+    const called = try body.bind(try body.call(nested, &.{}));
+    const pair = try body.makeRecord(record, &.{
+        .{ .name = "flag", .value = try body.constant(bool, true) },
+        .{ .name = "number", .value = called },
+    });
+    const field = try body.field(record, pair, "number");
+    try body.finishFunction(field);
+    var compiled = try source.lower(std.testing.allocator, try a.module(outer, unit));
+    defer compiled.deinit();
+}

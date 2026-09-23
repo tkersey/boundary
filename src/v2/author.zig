@@ -5,14 +5,7 @@ const std = @import("std");
 const source = @import("source.zig");
 const p = @import("boundary_data").program;
 
-pub const Error = source.Error || error{
-    WrongBuilder,
-    OutOfScope,
-    ClosedBody,
-    SchemaMismatch,
-    InvalidOperation,
-    Poisoned,
-};
+pub const Error = source.Error;
 
 pub const Category = enum {
     wrong_builder,
@@ -53,11 +46,14 @@ pub const Operation = struct {
     boundary: enum { external, local },
 };
 pub const NamedParameter = struct { name: []const u8, schema: Schema };
+pub const Record = struct { schema: Schema, fields: []const NamedParameter };
+pub const NamedValue = struct { name: []const u8, value: Value };
 pub const Function = struct {
     token: *Token,
     id: p.Id,
     parameters: []const NamedParameter,
     result: Schema,
+    home: ?*Scope = null,
 };
 pub const Value = struct {
     token: *Token,
@@ -107,6 +103,22 @@ pub const Session = struct {
     pub fn dynamicSchema(self: *Session, shape: p.Schema) Error!Schema {
         return .{ .token = self.token, .id = try self.raw.schema(shape) };
     }
+    pub fn record(self: *Session, fields: []const NamedParameter) Error!Record {
+        const a = self.raw.allocator();
+        const names = try a.dupe(NamedParameter, fields);
+        const schemas = try a.alloc(p.Id, fields.len);
+        for (fields, schemas, 0..) |field, *id, index| {
+            try self.checkSchema(field.schema);
+            for (fields[0..index]) |prior| if (std.mem.eql(u8, prior.name, field.name)) return error.InvalidSource;
+            id.* = field.schema.id;
+        }
+        return .{ .schema = try self.dynamicSchema(.{ .product = schemas }), .fields = names };
+    }
+    /// Advanced interoperation. Raw IDs have no recoverable builder provenance;
+    /// callers must supply only IDs produced by this Session's source Builder.
+    pub fn legacy(self: *Session) Legacy {
+        return .{ .session = self };
+    }
     pub fn external(self: *Session, name: []const u8, payload: Schema, result: Schema) Error!Operation {
         try self.checkSchema(payload);
         try self.checkSchema(result);
@@ -137,8 +149,9 @@ pub const Session = struct {
     }
     pub fn body(self: *Session, function: Function) Error!Body {
         try self.check(function.token, "function");
+        if (function.home) |parent| if (!parent.open) return error.ClosedBody;
         const scope = try self.raw.allocator().create(Scope);
-        scope.* = .{ .parent = null };
+        scope.* = .{ .parent = function.home };
         return .{ .session = self, .scope = scope, .function = function };
     }
     pub fn module(self: *Session, entry: Function, failure: Schema) Error!source.Module {
@@ -146,6 +159,25 @@ pub const Session = struct {
         try self.checkSchema(failure);
         if (self.token.poisoned) return error.Poisoned;
         return self.raw.module(entry.id, failure.id);
+    }
+};
+
+pub const Legacy = struct {
+    session: *Session,
+    pub fn schema(self: Legacy, id: p.Id) Error!Schema {
+        if (id >= self.session.raw.schemas.items.len) return error.InvalidSchema;
+        return .{ .token = self.session.token, .id = id };
+    }
+    pub fn operation(self: Legacy, id: p.Id) Error!Operation {
+        if (id >= self.session.raw.effects.items.len) return error.InvalidReference;
+        const effect = self.session.raw.effects.items[@intCast(id)];
+        return .{
+            .token = self.session.token,
+            .id = id,
+            .payload = try self.schema(effect.payload),
+            .result = try self.schema(effect.result),
+            .boundary = if (effect.external) .external else .local,
+        };
     }
 };
 
@@ -206,6 +238,58 @@ pub const Body = struct {
         const id = try self.session.raw.term(.{ .perform = .{ .effect = operation.id, .payload = payload.id } });
         return .{ .token = self.session.token, .id = id, .result = operation.result, .scope = self.scope };
     }
+    pub fn call(self: *Body, function: Function, arguments: []const Value) Error!Computation {
+        try self.active();
+        try self.session.check(function.token, "function");
+        if (!visible(function.home, self.scope)) return error.OutOfScope;
+        if (arguments.len != function.parameters.len) return error.TypeMismatch;
+        const ids = try self.session.raw.allocator().alloc(p.Id, arguments.len);
+        for (arguments, function.parameters, ids) |argument, named, *id| {
+            try self.value(argument);
+            if (argument.schema.id != named.schema.id) {
+                self.session.report(.schema_mismatch, named.name, named.schema.id, argument.schema.id);
+                return error.SchemaMismatch;
+            }
+            id.* = argument.id;
+        }
+        const term = try self.session.raw.term(.{ .call = .{ .function = function.id, .arguments = ids } });
+        return .{ .token = self.session.token, .id = term, .result = function.result, .scope = self.scope };
+    }
+    pub fn apply(self: *Body, callable: Value, arguments: []const Value) Error!Computation {
+        try self.value(callable);
+        const shape = self.session.raw.schemas.items[@intCast(callable.schema.id)];
+        if (shape != .internal or shape.internal != .computation) return error.TypeMismatch;
+        const signature = shape.internal.computation;
+        if (arguments.len != signature.parameters.len) return error.TypeMismatch;
+        const ids = try self.session.raw.allocator().alloc(p.Id, arguments.len);
+        for (arguments, signature.parameters, ids) |argument, expected, *id| {
+            try self.value(argument);
+            if (argument.schema.id != expected) {
+                self.session.report(.schema_mismatch, "callable argument", expected, argument.schema.id);
+                return error.SchemaMismatch;
+            }
+            id.* = argument.id;
+        }
+        const term = try self.session.raw.term(.{ .apply = .{ .computation = callable.id, .arguments = ids } });
+        return .{ .token = self.session.token, .id = term, .result = try self.session.legacy().schema(signature.result), .scope = self.scope };
+    }
+    pub fn product(self: *Body, schema: Schema, fields: []const Value) Error!Value {
+        try self.active();
+        try self.session.checkSchema(schema);
+        const shape = self.session.raw.schemas.items[@intCast(schema.id)];
+        if (shape != .product or shape.product.len != fields.len) return error.TypeMismatch;
+        const ids = try self.session.raw.allocator().alloc(p.Id, fields.len);
+        for (fields, shape.product, ids) |item, expected, *id| {
+            try self.value(item);
+            if (item.schema.id != expected) {
+                self.session.report(.schema_mismatch, "product field", expected, item.schema.id);
+                return error.SchemaMismatch;
+            }
+            id.* = item.id;
+        }
+        const value_id = try self.session.raw.primitive(schema.id, .product, ids, 0);
+        return .{ .token = self.session.token, .id = value_id, .schema = schema, .scope = self.scope };
+    }
     pub fn bind(self: *Body, computation: Computation) Error!Value {
         try self.active();
         try self.session.check(computation.token, "computation");
@@ -226,6 +310,47 @@ pub const Body = struct {
         const scope = try self.session.raw.allocator().create(Scope);
         scope.* = .{ .parent = self.scope };
         return .{ .session = self.session, .scope = scope };
+    }
+    pub fn declare(self: *Body, parameters: []const NamedParameter, result: Schema, effects: []const Operation) Error!Function {
+        try self.active();
+        var function = try self.session.declare(parameters, result, effects);
+        function.home = self.scope;
+        return function;
+    }
+    pub fn lambda(self: *Body, function: Function, schema: Schema) Error!Value {
+        try self.active();
+        try self.session.check(function.token, "function");
+        try self.session.checkSchema(schema);
+        if (!visible(function.home, self.scope)) return error.OutOfScope;
+        const id = try self.session.raw.lambda(function.id, schema.id);
+        return .{ .token = self.session.token, .id = id, .schema = schema, .scope = self.scope };
+    }
+    pub fn makeRecord(self: *Body, descriptor: Record, fields: []const NamedValue) Error!Value {
+        try self.session.checkSchema(descriptor.schema);
+        if (fields.len != descriptor.fields.len) return error.TypeMismatch;
+        const ordered = try self.session.raw.allocator().alloc(Value, fields.len);
+        for (descriptor.fields, ordered) |spec, *slot| {
+            var found: ?Value = null;
+            for (fields) |candidate| if (std.mem.eql(u8, spec.name, candidate.name)) {
+                if (found != null) return error.InvalidSource;
+                found = candidate.value;
+            };
+            slot.* = found orelse return error.InvalidReference;
+        }
+        return self.product(descriptor.schema, ordered);
+    }
+    pub fn field(self: *Body, descriptor: Record, product_value: Value, name: []const u8) Error!Value {
+        try self.value(product_value);
+        try self.session.checkSchema(descriptor.schema);
+        if (product_value.schema.id != descriptor.schema.id) {
+            self.session.report(.schema_mismatch, "product field", descriptor.schema.id, product_value.schema.id);
+            return error.SchemaMismatch;
+        }
+        for (descriptor.fields, 0..) |field_spec, index| if (std.mem.eql(u8, field_spec.name, name)) {
+            const id = try self.session.raw.primitive(field_spec.schema.id, .field, &.{product_value.id}, index);
+            return .{ .token = self.session.token, .id = id, .schema = field_spec.schema, .scope = self.scope };
+        };
+        return error.InvalidReference;
     }
     pub fn conditional(self: *Body, condition: Value, when_true: Computation, when_false: Computation) Error!Computation {
         try self.value(condition);
