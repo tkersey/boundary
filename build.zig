@@ -247,6 +247,19 @@ pub fn build(b: *std.Build) void {
         algebra_images.dependOn(&b.addInstallFileWithDir(run.captureStdOut(.{}), .prefix, b.fmt("hyper/{s}.bpi3", .{mode})).step);
     }
     aggregate.dependOn(algebra_images);
+    const generated = b.addExecutable(.{ .name = "hyper-generated", .root_module = b.createModule(.{
+        .root_source_file = b.path("examples/hyper_generated.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "boundary", .module = boundary }},
+    }) });
+    const generated_install = b.addInstallArtifact(generated, .{});
+    b.step("build-hyper-generated", "Build bounded pure-construction test emitter")
+        .dependOn(&generated_install.step);
+    const generated_check = b.addRunArtifact(generated);
+    generated_check.addArgs(&.{ "193", "5" });
+    _ = generated_check.captureStdOut(.{});
+    aggregate.dependOn(&generated_check.step);
     const fold = b.addExecutable(.{ .name = "hyper-fold", .root_module = b.createModule(.{
         .root_source_file = b.path("examples/hyper_fold.zig"),
         .target = b.graph.host,

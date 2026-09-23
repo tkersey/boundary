@@ -149,6 +149,28 @@ World's `src/embedding/index.mjs`; `KERNEL` is its `zig-out/world-kernel.wasm`, 
 with `zig build build-kernel -Doptimize=ReleaseSafe`. Formatting, diff and source
 inventory checks pass. No existing rejection assertion was removed or weakened.
 
+## Generated pure-construction agreement
+
+The test-only `hyper_generated.zig` emitter constructs bounded depth-three terms
+through the public library: base, constant lift, raw make, push, composition and
+identity. Six observation/law variants across 16 fixed seeds give 96 separately
+compiled Programs. The independent higher-order closure reference interprets the
+same generated choices without importing Boundary lowering or World dispatch.
+It compares run/project results, left/right identity and associativity with lifted
+additions. Distinct endpoints, adaptive ana, partial demand and demanded failures
+remain covered by the separate witnesses above and below.
+
+All 96 cases completed and agreed under the current generic World kernel, with
+63 actual fresh State transfers and a largest image of 2,065 bytes. Generation is
+bounded to at most 15 tree nodes; reference and runtime observation allowances
+are explicit. Exhaustion is a test limitation/failure, never semantic equality.
+These finite cases do not prove universal laws over partial terms.
+
+```sh
+zig build build-hyper-generated -Doptimize=ReleaseSafe
+node test/hyper_generated.mjs zig-out/bin/hyper-generated WORLD_ENTRY KERNEL
+```
+
 ## Foundation and Agent integration
 
 Foundation Boundary #152, World #54 and Agent #32 are merged. Immutable bases:

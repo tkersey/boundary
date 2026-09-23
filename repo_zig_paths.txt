@@ -4,6 +4,7 @@ examples/hyper_adaptive.zig
 examples/hyper_algebra.zig
 examples/hyper_demand.zig
 examples/hyper_fold.zig
+examples/hyper_generated.zig
 examples/hyper_multishot.zig
 examples/hyper_tail.zig
 examples/lazy_hyper.zig
