@@ -46,3 +46,36 @@ test "equal category and index from another live builder is rejected" {
     var body = try right.body(right_entry);
     try std.testing.expectError(error.ForeignBuilder, body.finish(try left.literal(u32, 1)));
 }
+
+test "derived responder interpretation retains residual external effect" {
+    var raw = source.Builder.init(std.testing.allocator);
+    defer raw.deinit();
+    var author = a.Builder.init(&raw);
+    const integer = try author.scalar(u64);
+    const unit = try author.scalar(void);
+    const question = try author.local("authoring/question", integer, integer, .linear);
+    const lookup = try author.external("authoring/lookup", integer, integer);
+    const capability = try author.capability(question);
+    const responder = try author.declare("responder", &.{.{ .name = "key", .schema = integer }}, integer, &.{lookup});
+    var responder_body = try author.body(responder);
+    const external_reply = try responder_body.perform(lookup, try responder_body.parameter("key"));
+    try author.define(responder, try responder_body.finish(external_reply));
+
+    const interpretation = try author.responder(question, responder, &.{lookup}, &.{ integer, capability }, .deep, .linear);
+
+    const work = try author.declare("work", &.{
+        .{ .name = "question", .schema = capability },
+        .{ .name = "key", .schema = integer },
+    }, integer, &.{question});
+    var work_body = try author.body(work);
+    const local_reply = try work_body.performLocal(question, try work_body.parameter("question"), try work_body.parameter("key"));
+    try author.define(work, try work_body.finish(local_reply));
+
+    const entry = try author.declare("entry", &.{.{ .name = "input", .schema = integer }}, integer, &.{lookup});
+    var main = try author.body(entry);
+    const callable = try main.lambda(work, &.{}, .reusable);
+    const handled = try main.handle(interpretation, callable, &.{try main.parameter("input")}, &.{});
+    try author.define(entry, try main.finish(handled));
+    var compiled = try source.lower(std.testing.allocator, try author.module(entry, unit));
+    defer compiled.deinit();
+}

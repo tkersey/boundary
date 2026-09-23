@@ -148,6 +148,14 @@ pub fn build(b: *std.Build) void {
     }) });
     b.step("emit-authoring-branch", "Emit a staged runtime choice example")
         .dependOn(&b.addRunArtifact(authoring_branch).step);
+    const authoring_responder = b.addExecutable(.{ .name = "authoring-responder", .root_module = b.createModule(.{
+        .root_source_file = b.path("examples/authoring_responder.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "boundary", .module = boundary }},
+    }) });
+    b.step("emit-authoring-responder", "Emit an authored responder interpretation")
+        .dependOn(&b.addRunArtifact(authoring_responder).step);
     b.step("check-authoring", "Check staged typed construction and lowering")
         .dependOn(&b.addRunArtifact(authoring).step);
     const economy = b.step("check-economy", "Check code and constant sharing and emit executable economy workloads");
