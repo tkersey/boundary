@@ -103,6 +103,8 @@ signature. Editing an issued value, effect, function, interpretation, or
 finished block's type or origin metadata is rejected.
 `Builder.module` checks named failure values and protected cleanup exit
 descriptions in defined bodies against its declared failure schema.
+If a raw fail value or cleanup lambda lacks authoring provenance, a module with
+a named failure schema rejects it; the low-level source API remains available.
 
 `Builder.external` declares a host-facing operation. `Builder.local` declares
 one interpreted through a nominal capability. Two local effects with identical

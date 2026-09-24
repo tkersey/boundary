@@ -552,7 +552,14 @@ pub const Builder = struct {
     }
 
     fn checkCleanupFailure(self: *Builder, cleanup_id: p.Id, failure: Schema, allocator: std.mem.Allocator) Error!void {
-        const value = self.value_origins.get(cleanup_id) orelse return;
+        const value = self.value_origins.get(cleanup_id) orelse {
+            if (try hasNamedMetadata(failure, allocator)) {
+                self.report(.schema_mismatch, "cleanup exit failure", failure.id, null, null, null);
+                self.diagnostic.?.relationship = "missing raw cleanup provenance";
+                return error.TypeMismatch;
+            }
+            return;
+        };
         const callable = value.schema.callable orelse {
             if (try hasNamedMetadata(failure, allocator)) {
                 self.report(.schema_mismatch, "cleanup exit failure", failure.id, null, null, null);
@@ -606,7 +613,14 @@ pub const Builder = struct {
             try seen.put(allocator, term_id, {});
             switch (input.terms[@intCast(term_id)]) {
                 .fail => |value_id| {
-                    const value = self.value_origins.get(value_id) orelse continue;
+                    const value = self.value_origins.get(value_id) orelse {
+                        if (try hasNamedMetadata(failure, allocator)) {
+                            self.report(.schema_mismatch, "failure value", failure.id, null, null, null);
+                            self.diagnostic.?.relationship = "missing raw failure provenance";
+                            return error.TypeMismatch;
+                        }
+                        continue;
+                    };
                     if (!try sameSchema(value.schema, failure)) {
                         self.report(.schema_mismatch, "failure value", failure.id, value.schema.id, null, null);
                         self.diagnostic.?.relationship = "named module failure layout";

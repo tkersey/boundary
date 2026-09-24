@@ -541,6 +541,54 @@ test "module rejects a raw protection term missing named cleanup provenance" {
     try std.testing.expectEqualStrings("cleanup exit failure", author.diagnostic.?.entity);
 }
 
+test "named module failure rejects a raw fail value without provenance" {
+    var raw = source.Builder.init(std.testing.allocator);
+    defer raw.deinit();
+    var author = a.Builder.init(&raw);
+    const integer = try author.scalar(u64);
+    const first = try author.record(&.{
+        .{ .name = "a", .schema = integer },
+        .{ .name = "b", .schema = integer },
+    });
+    const renamed = try author.record(&.{
+        .{ .name = "b", .schema = integer },
+        .{ .name = "a", .schema = integer },
+    });
+    const entry = try author.declare("raw fail entry", &.{}, integer, &.{});
+    const raw_value = try raw.primitive(first.schema.id, .product, &.{ try raw.constant(u64, 1), try raw.constant(u64, 2) }, 0);
+    try raw.define(entry.id, try raw.term(.{ .fail = raw_value }));
+    try std.testing.expectError(error.TypeMismatch, author.module(entry, renamed.schema));
+    try std.testing.expectEqualStrings("failure value", author.diagnostic.?.entity);
+    try std.testing.expectEqualStrings("missing raw failure provenance", author.diagnostic.?.relationship.?);
+}
+
+test "named module failure rejects a raw cleanup lambda without provenance" {
+    var raw = source.Builder.init(std.testing.allocator);
+    defer raw.deinit();
+    var author = a.Builder.init(&raw);
+    const integer = try author.scalar(u64);
+    const unit = try author.scalar(void);
+    const failure = try author.record(&.{.{ .name = "reason", .schema = integer }});
+    const work = try author.declare("raw cleanup work", &.{}, integer, &.{});
+    var work_body = try author.body(work);
+    try author.define(work, try work_body.finish(try author.literal(u64, 7)));
+    const cleanup = try author.declare("raw cleanup", &.{.{ .name = "exit", .schema = try author.exitInfo(failure.schema) }}, unit, &.{});
+    var cleanup_body = try author.body(cleanup);
+    try author.define(cleanup, try cleanup_body.finish(try author.literal(void, {})));
+    var staging = try author.ambient("raw cleanup staging");
+    const work_callable = try staging.lambda(work, &.{}, .reusable);
+    const cleanup_schema = try author.callableSchema(cleanup, &.{}, .reusable);
+    const raw_cleanup = try raw.lambda(cleanup.id, cleanup_schema.id);
+    const entry = try author.declare("raw cleanup entry", &.{}, integer, &.{});
+    try raw.define(entry.id, try raw.term(.{ .protect = .{
+        .body = work_callable.value.id,
+        .cleanup = raw_cleanup,
+    } }));
+    try std.testing.expectError(error.TypeMismatch, author.module(entry, failure.schema));
+    try std.testing.expectEqualStrings("cleanup exit failure", author.diagnostic.?.entity);
+    try std.testing.expectEqualStrings("missing raw cleanup provenance", author.diagnostic.?.relationship.?);
+}
+
 test "schema comparison visits shared named metadata as a graph" {
     var raw = source.Builder.init(std.testing.allocator);
     defer raw.deinit();
