@@ -216,6 +216,7 @@ pub const Value = struct {
     id: p.Id,
     schema: Schema,
     scope: ?*Scope = null,
+    origin: ?*const ValueOrigin = null,
 };
 pub const Block = struct {
     owner: *Builder,
@@ -279,6 +280,7 @@ const Scope = struct {
 };
 const ExportedValue = struct { schema: Schema, scope: ?*Scope };
 const ExportedTerm = struct { schema: Schema, scope: *Scope };
+const ValueOrigin = struct { schema: Schema, scope: ?*Scope };
 
 fn scopeVisible(introduced: ?*Scope, used: *Scope) bool {
     const origin = introduced orelse return true;
@@ -295,6 +297,7 @@ pub const Builder = struct {
     diagnostic: ?Diagnostic = null,
     function_names: std.AutoHashMapUnmanaged(p.Id, []const u8) = .empty,
     named_layouts: std.ArrayList(*const NamedLayout) = .empty,
+    value_origins: std.AutoHashMapUnmanaged(p.Id, *const ValueOrigin) = .empty,
     value_exports: std.AutoHashMapUnmanaged(p.Id, ExportedValue) = .empty,
     term_exports: std.AutoHashMapUnmanaged(p.Id, ExportedTerm) = .empty,
     poisoned: bool = false,
@@ -316,6 +319,11 @@ pub const Builder = struct {
         self.diagnostic = .{ .category = category, .entity = entity, .expected = expected, .actual = actual, .introduced_in = introduced, .used_in = used };
     }
 
+    fn foreign(self: *Builder, entity: []const u8, used: ?[]const u8) Error!noreturn {
+        self.report(.foreign_builder, entity, null, null, null, used);
+        return error.ForeignBuilder;
+    }
+
     fn checkSchema(self: *Builder, schema: Schema) Error!void {
         errdefer |err| self.onError(err);
         self.diagnostic = null;
@@ -324,6 +332,26 @@ pub const Builder = struct {
             return error.ForeignBuilder;
         }
         if (schema.id >= self.raw.schemas.items.len) return error.InvalidSchema;
+    }
+
+    fn mintValue(self: *Builder, value: Value) Error!Value {
+        errdefer |err| self.onError(err);
+        if (value.id >= self.raw.values.items.len or
+            self.raw.values.items[@intCast(value.id)].schema != value.schema.id)
+            return error.InvalidSource;
+        if (self.value_origins.get(value.id)) |known| {
+            if (!sameSchema(known.schema, value.schema) or known.scope != value.scope)
+                return error.TypeMismatch;
+            var sealed = value;
+            sealed.origin = known;
+            return sealed;
+        }
+        const origin = try self.raw.allocator().create(ValueOrigin);
+        origin.* = .{ .schema = value.schema, .scope = value.scope };
+        try self.value_origins.put(self.raw.allocator(), value.id, origin);
+        var sealed = value;
+        sealed.origin = origin;
+        return sealed;
     }
 
     pub fn scalar(self: *Builder, comptime T: type) Error!Schema {
@@ -347,8 +375,8 @@ pub const Builder = struct {
     pub fn regionSchema(self: *Builder, region_handle: Region) Error!Schema {
         errdefer |err| self.onError(err);
         self.diagnostic = null;
-        if (region_handle.owner != self or region_handle.id >= self.raw.region_count)
-            return error.InvalidReference;
+        if (region_handle.owner != self) return try self.foreign("region", null);
+        if (region_handle.id >= self.raw.region_count) return error.InvalidReference;
         return self.dynamicSchema(.{ .internal = .{ .region = region_handle.id } });
     }
 
@@ -395,11 +423,11 @@ pub const Builder = struct {
         const introduced = try self.raw.allocator().alloc(p.Id, introducers.len);
         const eliminated = try self.raw.allocator().alloc(p.Id, eliminators.len);
         for (introducers, introduced) |function, *id| {
-            if (function.owner != self) return error.ForeignBuilder;
+            if (function.owner != self) return try self.foreign("introducer", null);
             id.* = function.id;
         }
         for (eliminators, eliminated) |function, *id| {
-            if (function.owner != self) return error.ForeignBuilder;
+            if (function.owner != self) return try self.foreign("eliminator", null);
             id.* = function.id;
         }
         try self.raw.resourceAuthority(owned.id, introduced, eliminated);
@@ -563,7 +591,8 @@ pub const Builder = struct {
     pub fn capability(self: *Builder, effect: Effect) Error!Schema {
         errdefer |err| self.onError(err);
         self.diagnostic = null;
-        if (effect.owner != self or effect.external) {
+        if (effect.owner != self) return try self.foreign("effect", null);
+        if (effect.external) {
             self.report(.capability_mismatch, "local effect capability", null, null, null, null);
             return error.InvalidCapability;
         }
@@ -589,12 +618,12 @@ pub const Builder = struct {
         }
         const effect_ids = try self.raw.allocator().alloc(p.Id, effects.len);
         for (effects, effect_ids) |effect, *id| {
-            if (effect.owner != self) return error.ForeignBuilder;
+            if (effect.owner != self) return try self.foreign("effect", null);
             id.* = effect.id;
         }
         const region_ids = try self.raw.allocator().alloc(p.Id, regions.len);
         for (regions, region_ids) |region_handle, *id| {
-            if (region_handle.owner != self) return error.ForeignBuilder;
+            if (region_handle.owner != self) return try self.foreign("region", null);
             id.* = region_handle.id;
         }
         const saved_name = try self.raw.allocator().dupe(u8, name);
@@ -606,7 +635,7 @@ pub const Builder = struct {
     pub fn callableSchema(self: *Builder, function: Function, captures: []const Schema, use: p.Use) Error!Schema {
         self.diagnostic = null;
         errdefer |err| self.onError(err);
-        if (function.owner != self) return error.ForeignBuilder;
+        if (function.owner != self) return try self.foreign("function", null);
         const params = try self.raw.allocator().alloc(p.Id, function.parameters.len);
         for (function.parameters, params) |named, *id| id.* = named.schema.id;
         const bounds = try self.raw.allocator().alloc(p.Id, captures.len);
@@ -633,7 +662,7 @@ pub const Builder = struct {
     pub fn body(self: *Builder, function: Function) Error!Body {
         self.diagnostic = null;
         errdefer |err| self.onError(err);
-        if (function.owner != self) return error.ForeignBuilder;
+        if (function.owner != self) return try self.foreign("function", null);
         const scope = try self.raw.allocator().create(Scope);
         scope.* = .{ .parent = null, .name = function.name, .function = function.id };
         return .{ .author = self, .scope = scope, .function = function };
@@ -652,7 +681,7 @@ pub const Builder = struct {
     pub fn bodyWithin(self: *Builder, parent: *Body, function: Function) Error!Body {
         errdefer |err| self.onError(err);
         try parent.ensureOpen();
-        if (parent.author != self or function.owner != self) return error.ForeignBuilder;
+        if (parent.author != self or function.owner != self) return try self.foreign("function body", parent.scope.name);
         const scope = try self.raw.allocator().create(Scope);
         scope.* = .{ .parent = parent.scope, .name = function.name, .function = function.id };
         return .{ .author = self, .scope = scope, .function = function };
@@ -661,7 +690,7 @@ pub const Builder = struct {
     pub fn define(self: *Builder, function: Function, block: Block) Error!void {
         errdefer |err| self.onError(err);
         self.diagnostic = null;
-        if (function.owner != self or block.owner != self) return error.ForeignBuilder;
+        if (function.owner != self or block.owner != self) return try self.foreign("function definition", null);
         if (block.scope.function != function.id) return error.InvalidBranch;
         if (!sameSchema(block.result, function.result)) {
             self.report(.schema_mismatch, function.name, function.result.id, block.result.id, null, null);
@@ -675,7 +704,7 @@ pub const Builder = struct {
         errdefer |err| self.onError(err);
         self.diagnostic = null;
         if (self.poisoned) return error.InvalidSource;
-        if (entry.owner != self) return error.ForeignBuilder;
+        if (entry.owner != self) return try self.foreign("entry function", null);
         try self.checkSchema(failure);
         return self.raw.module(entry.id, failure.id);
     }
@@ -704,7 +733,7 @@ pub const Builder = struct {
     pub fn literal(self: *Builder, comptime T: type, value: T) Error!Value {
         self.diagnostic = null;
         errdefer |err| self.onError(err);
-        return .{ .owner = self, .id = try self.raw.constant(T, value), .schema = try self.scalar(T) };
+        return self.mintValue(.{ .owner = self, .id = try self.raw.constant(T, value), .schema = try self.scalar(T) });
     }
 
     /// The caller vouches for historical raw-ID provenance. The current catalog
@@ -721,7 +750,7 @@ pub const Builder = struct {
         errdefer |err| self.onError(err);
         const ids = try self.raw.allocator().alloc(p.Id, effects.len);
         for (effects, ids) |effect, *id| {
-            if (effect.owner != self) return error.ForeignBuilder;
+            if (effect.owner != self) return try self.foreign("effect", null);
             id.* = effect.id;
         }
         return ids;
@@ -731,8 +760,8 @@ pub const Builder = struct {
         errdefer |err| self.onError(err);
         const ids = try self.raw.allocator().alloc(p.Id, regions.len);
         for (regions, ids) |region_handle, *id| {
-            if (region_handle.owner != self or region_handle.id >= self.raw.region_count)
-                return error.InvalidReference;
+            if (region_handle.owner != self) return try self.foreign("region", null);
+            if (region_handle.id >= self.raw.region_count) return error.InvalidReference;
             id.* = region_handle.id;
         }
         return ids;
@@ -741,7 +770,8 @@ pub const Builder = struct {
     pub fn interpret(self: *Builder, options: InterpretationOptions) Error!Interpretation {
         self.diagnostic = null;
         errdefer |err| self.onError(err);
-        if (options.operation.owner != self or options.operation.external) return error.InvalidCapability;
+        if (options.operation.owner != self) return try self.foreign("effect", null);
+        if (options.operation.external) return error.InvalidCapability;
         for (options.state, 0..) |named, index| {
             for ([_][]const u8{ "value", "payload", "resume" }) |reserved| {
                 if (std.mem.eql(u8, named.name, reserved)) return error.DuplicateName;
@@ -825,7 +855,7 @@ pub const Builder = struct {
     pub fn responding(self: *Builder, operation: Effect, function: Function, body_result: Schema, residual: []const Effect, capture_bound: []const Schema, mode: p.Mode, use: p.Use) Error!Interpretation {
         errdefer |err| self.onError(err);
         self.diagnostic = null;
-        if (function.owner != self or operation.owner != self) return error.ForeignBuilder;
+        if (function.owner != self or operation.owner != self) return try self.foreign("responder", null);
         if (operation.bodies.len != 0) return error.InvalidArgument;
         try self.checkSchema(body_result);
         if (function.parameters.len != 1 or
@@ -889,7 +919,7 @@ pub const Interop = struct {
             if (hasAuthoringMetadata(schema)) return error.InvalidSource;
             value.scope = body.scope;
         }
-        return value;
+        return body.author.mintValue(value);
     }
 
     pub fn term(body: *Body, id: p.Id, result: Schema) Error!Value {
@@ -920,7 +950,7 @@ pub const Interop = struct {
         errdefer |err| body.author.onError(err);
         try body.ensureOpen();
         try body.author.checkSchema(schema);
-        if (function.owner != body.author) return error.ForeignBuilder;
+        if (function.owner != body.author) return try body.author.foreign("function", body.scope.name);
         const shape = body.author.raw.schemas.items[@intCast(schema.id)];
         if (shape != .internal or shape.internal != .computation) return error.TypeMismatch;
         const signature = shape.internal.computation;
@@ -937,7 +967,7 @@ pub const Interop = struct {
         info.* = .{ .parameters = parameter_schemas, .result = function.result };
         var annotated = schema;
         annotated.callable = info;
-        return .{ .value = .{ .owner = body.author, .schema = annotated, .id = try body.author.raw.lambda(function.id, schema.id), .scope = body.scope } };
+        return .{ .value = try body.author.mintValue(.{ .owner = body.author, .schema = annotated, .id = try body.author.raw.lambda(function.id, schema.id), .scope = body.scope }) };
     }
 
     pub fn rawTerm(block: Block) Error!p.Id {
@@ -976,6 +1006,18 @@ pub const Body = struct {
             self.author.report(.foreign_builder, "value", null, null, null, self.scope.name);
             return error.ForeignBuilder;
         }
+        const origin = self.author.value_origins.get(value.id) orelse {
+            self.author.report(.schema_mismatch, "value origin", null, value.schema.id, null, self.scope.name);
+            return error.InvalidSource;
+        };
+        if (value.origin != origin or !sameSchema(value.schema, origin.schema)) {
+            self.author.report(.schema_mismatch, "value origin", origin.schema.id, value.schema.id, null, self.scope.name);
+            return error.TypeMismatch;
+        }
+        if (value.scope != origin.scope) {
+            self.author.report(.out_of_scope, "value origin", null, null, if (origin.scope) |scope| scope.name else null, self.scope.name);
+            return error.OutOfScope;
+        }
         var ancestor: ?*Scope = self.scope;
         while (ancestor) |scope| : (ancestor = scope.parent) {
             if (value.scope == scope) return;
@@ -991,7 +1033,7 @@ pub const Body = struct {
         try self.ensureOpen();
         const function = self.function orelse return error.InvalidArgument;
         for (function.parameters, 0..) |named, index| if (std.mem.eql(u8, name, named.name)) {
-            return .{ .owner = self.author, .id = try self.author.raw.reference(self.author.raw.parameter(function.id, index)), .schema = named.schema, .scope = self.scope };
+            return self.author.mintValue(.{ .owner = self.author, .id = try self.author.raw.reference(self.author.raw.parameter(function.id, index)), .schema = named.schema, .scope = self.scope });
         };
         self.author.report(.argument_mismatch, try self.author.diagnosticName(name), null, null, null, self.scope.name);
         self.author.diagnostic.?.relationship = "named function parameter";
@@ -1011,7 +1053,7 @@ pub const Body = struct {
         try self.ensureOpen();
         const variable = try self.author.raw.variable(result.id);
         try self.scope.steps.append(self.author.raw.allocator(), .{ .variable = variable, .term = term });
-        return .{ .owner = self.author, .id = try self.author.raw.reference(variable), .schema = result, .scope = self.scope };
+        return self.author.mintValue(.{ .owner = self.author, .id = try self.author.raw.reference(variable), .schema = result, .scope = self.scope });
     }
 
     /// Evaluate one symbolic value once and bind its runtime result for reuse.
@@ -1025,7 +1067,7 @@ pub const Body = struct {
     pub fn perform(self: *Body, effect: Effect, payload: Value) Error!Value {
         errdefer |err| self.author.onError(err);
         try self.check(payload);
-        if (effect.owner != self.author) return error.ForeignBuilder;
+        if (effect.owner != self.author) return try self.author.foreign("effect", self.scope.name);
         if (!effect.external) return error.InvalidCapability;
         if (effect.bodies.len != 0 or effect.use_site_effects.len != 0)
             return error.InvalidArgument;
@@ -1040,7 +1082,8 @@ pub const Body = struct {
         errdefer |err| self.author.onError(err);
         try self.check(payload);
         try self.check(capability);
-        if (effect.owner != self.author or effect.external) return error.InvalidCapability;
+        if (effect.owner != self.author) return try self.author.foreign("effect", self.scope.name);
+        if (effect.external) return error.InvalidCapability;
         if (effect.bodies.len != 0 or effect.use_site_effects.len != 0)
             return error.InvalidArgument;
         const shape = self.author.raw.schemas.items[@intCast(capability.schema.id)];
@@ -1064,7 +1107,8 @@ pub const Body = struct {
         errdefer |err| self.author.onError(err);
         try self.check(capability);
         try self.check(payload);
-        if (effect.owner != self.author or effect.external) return error.InvalidCapability;
+        if (effect.owner != self.author) return try self.author.foreign("effect", self.scope.name);
+        if (effect.external) return error.InvalidCapability;
         if (!sameSchema(payload.schema, effect.payload)) {
             self.author.report(.schema_mismatch, "scoped operation payload", effect.payload.id, payload.schema.id, null, self.scope.name);
             self.author.diagnostic.?.relationship = "declared scoped payload schema";
@@ -1132,7 +1176,7 @@ pub const Body = struct {
         errdefer |err| self.author.onError(err);
         try self.check(resumption);
         try self.check(argument);
-        if (successor.owner != self.author) return error.ForeignBuilder;
+        if (successor.owner != self.author) return try self.author.foreign("interpretation", self.scope.name);
         const shape = self.author.raw.schemas.items[@intCast(resumption.schema.id)];
         if (shape != .internal or shape.internal != .resumption) return error.TypeMismatch;
         const signature = shape.internal.resumption;
@@ -1200,7 +1244,7 @@ pub const Body = struct {
     pub fn handle(self: *Body, interpretation: Interpretation, callable: Callable, arguments: []const Value, state: []const Value) Error!Value {
         errdefer |err| self.author.onError(err);
         try self.check(callable.value);
-        if (interpretation.owner != self.author) return error.ForeignBuilder;
+        if (interpretation.owner != self.author) return try self.author.foreign("interpretation", self.scope.name);
         if (state.len != interpretation.state.len) return error.InvalidArgument;
         const state_ids = try self.author.raw.allocator().alloc(p.Id, state.len);
         for (state, interpretation.state, state_ids) |value, named, *id| {
@@ -1270,8 +1314,10 @@ pub const Body = struct {
             id.* = value.id;
         }
         if (resource) |value| try self.check(value);
-        if (loan_region) |region_handle| if (region_handle.owner != self.author or
-            region_handle.id >= self.author.raw.region_count) return error.InvalidReference;
+        if (loan_region) |region_handle| {
+            if (region_handle.owner != self.author) return try self.author.foreign("region", self.scope.name);
+            if (region_handle.id >= self.author.raw.region_count) return error.InvalidReference;
+        }
         return self.append(try self.author.raw.term(.{ .protect = .{
             .body = work.value.id,
             .cleanup = cleanup.value.id,
@@ -1284,8 +1330,8 @@ pub const Body = struct {
     pub fn withRegion(self: *Body, region_handle: Region, work: Callable, arguments: []const Value) Error!Value {
         errdefer |err| self.author.onError(err);
         try self.check(work.value);
-        if (region_handle.owner != self.author or region_handle.id >= self.author.raw.region_count)
-            return error.InvalidReference;
+        if (region_handle.owner != self.author) return try self.author.foreign("region", self.scope.name);
+        if (region_handle.id >= self.author.raw.region_count) return error.InvalidReference;
         const shape = self.author.raw.schemas.items[@intCast(work.value.schema.id)];
         if (shape != .internal or shape.internal != .computation) return error.TypeMismatch;
         if (work.value.schema.callable) |known| {
@@ -1326,7 +1372,7 @@ pub const Body = struct {
                 representation.schema.id) return error.TypeMismatch;
         if (owned.resource) |known| if (!sameSchema(representation.schema, known.*))
             return error.TypeMismatch;
-        return .{ .owner = self.author, .schema = owned, .scope = self.scope, .id = try self.author.raw.primitive(owned.id, .resource_pack, &.{representation.id}, 0) };
+        return self.author.mintValue(.{ .owner = self.author, .schema = owned, .scope = self.scope, .id = try self.author.raw.primitive(owned.id, .resource_pack, &.{representation.id}, 0) });
     }
 
     pub fn unpackResource(self: *Body, value: Value) Error!Value {
@@ -1348,13 +1394,13 @@ pub const Body = struct {
             try self.author.adoptSchema(self.author.raw.resources.items[@intCast(resource_id)].representation);
         if (representation.id != self.author.raw.resources.items[@intCast(resource_id)].representation)
             return error.TypeMismatch;
-        return .{ .owner = self.author, .schema = representation, .scope = self.scope, .id = try self.author.raw.primitive(representation.id, .resource_unpack, &.{value.id}, 0) };
+        return self.author.mintValue(.{ .owner = self.author, .schema = representation, .scope = self.scope, .id = try self.author.raw.primitive(representation.id, .resource_unpack, &.{value.id}, 0) });
     }
 
     pub fn call(self: *Body, function: Function, arguments: []const Value) Error!Value {
         errdefer |err| self.author.onError(err);
         try self.ensureOpen();
-        if (function.owner != self.author) return error.ForeignBuilder;
+        if (function.owner != self.author) return try self.author.foreign("function", self.scope.name);
         if (arguments.len != function.parameters.len) return error.InvalidArgument;
         const ids = try self.author.raw.allocator().alloc(p.Id, arguments.len);
         for (arguments, function.parameters, ids) |argument, named, *id| {
@@ -1373,7 +1419,7 @@ pub const Body = struct {
         errdefer |err| self.author.onError(err);
         try self.ensureOpen();
         const schema = try self.author.callableSchema(function, captures, use);
-        return .{ .value = .{ .owner = self.author, .schema = schema, .id = try self.author.raw.lambda(function.id, schema.id), .scope = self.scope } };
+        return .{ .value = try self.author.mintValue(.{ .owner = self.author, .schema = schema, .id = try self.author.raw.lambda(function.id, schema.id), .scope = self.scope }) };
     }
 
     pub fn apply(self: *Body, callable: Callable, arguments: []const Value) Error!Value {
@@ -1414,7 +1460,7 @@ pub const Body = struct {
     pub fn product(self: *Body, record: Record, fields: []const NamedValue) Error!Value {
         errdefer |err| self.author.onError(err);
         try self.ensureOpen();
-        if (record.owner != self.author) return error.ForeignBuilder;
+        if (record.owner != self.author) return try self.author.foreign("record", self.scope.name);
         if (fields.len != record.fields.len) return error.InvalidField;
         const ids = try self.author.raw.allocator().alloc(p.Id, fields.len);
         for (record.fields, ids) |declared, *id| {
@@ -1432,20 +1478,20 @@ pub const Body = struct {
             }
             id.* = value.id;
         }
-        return .{ .owner = self.author, .schema = record.schema, .scope = self.scope, .id = try self.author.raw.primitive(record.schema.id, .product, ids, 0) };
+        return self.author.mintValue(.{ .owner = self.author, .schema = record.schema, .scope = self.scope, .id = try self.author.raw.primitive(record.schema.id, .product, ids, 0) });
     }
 
     pub fn field(self: *Body, record: Record, value: Value, name: []const u8) Error!Value {
         errdefer |err| self.author.onError(err);
         try self.check(value);
-        if (record.owner != self.author) return error.ForeignBuilder;
+        if (record.owner != self.author) return try self.author.foreign("record", self.scope.name);
         if (!sameSchema(value.schema, record.schema)) {
             self.author.report(.field_mismatch, try self.author.diagnosticName(name), record.schema.id, value.schema.id, null, self.scope.name);
             self.author.diagnostic.?.relationship = "named record layout";
             return error.TypeMismatch;
         }
         for (record.fields, 0..) |declared, index| if (std.mem.eql(u8, name, declared.name)) {
-            return .{ .owner = self.author, .schema = declared.schema, .scope = self.scope, .id = try self.author.raw.primitive(declared.schema.id, .field, &.{value.id}, index) };
+            return self.author.mintValue(.{ .owner = self.author, .schema = declared.schema, .scope = self.scope, .id = try self.author.raw.primitive(declared.schema.id, .field, &.{value.id}, index) });
         };
         self.author.report(.field_mismatch, try self.author.diagnosticName(name), null, value.schema.id, null, self.scope.name);
         return error.InvalidField;
@@ -1454,14 +1500,14 @@ pub const Body = struct {
     pub fn inject(self: *Body, variant: Variant, name: []const u8, payload: Value) Error!Value {
         errdefer |err| self.author.onError(err);
         try self.check(payload);
-        if (variant.owner != self.author) return error.ForeignBuilder;
+        if (variant.owner != self.author) return try self.author.foreign("variant", self.scope.name);
         for (variant.alternatives, 0..) |alternative, index| if (std.mem.eql(u8, name, alternative.name)) {
             if (!sameSchema(payload.schema, alternative.schema)) {
                 self.author.report(.field_mismatch, alternative.name, alternative.schema.id, payload.schema.id, null, self.scope.name);
                 self.author.diagnostic.?.relationship = "named alternative schema and layout";
                 return error.TypeMismatch;
             }
-            return .{ .owner = self.author, .schema = variant.schema, .scope = self.scope, .id = try self.author.raw.primitive(variant.schema.id, .variant, &.{payload.id}, index) };
+            return self.author.mintValue(.{ .owner = self.author, .schema = variant.schema, .scope = self.scope, .id = try self.author.raw.primitive(variant.schema.id, .variant, &.{payload.id}, index) });
         };
         self.author.report(.field_mismatch, try self.author.diagnosticName(name), null, payload.schema.id, null, self.scope.name);
         return error.InvalidField;
@@ -1470,11 +1516,11 @@ pub const Body = struct {
     pub fn variantCase(self: *Body, variant: Variant, name: []const u8) Error!MatchCase {
         errdefer |err| self.author.onError(err);
         try self.ensureOpen();
-        if (variant.owner != self.author) return error.ForeignBuilder;
+        if (variant.owner != self.author) return try self.author.foreign("variant", self.scope.name);
         for (variant.alternatives, 0..) |alternative, index| if (std.mem.eql(u8, name, alternative.name)) {
             const body = try self.child(name);
             const variable = try self.author.raw.variable(alternative.schema.id);
-            return .{ .body = body, .variant = variant, .index = index, .variable = variable, .payload = .{ .owner = self.author, .schema = alternative.schema, .scope = body.scope, .id = try self.author.raw.reference(variable) } };
+            return .{ .body = body, .variant = variant, .index = index, .variable = variable, .payload = try self.author.mintValue(.{ .owner = self.author, .schema = alternative.schema, .scope = body.scope, .id = try self.author.raw.reference(variable) }) };
         };
         self.author.report(.branch_mismatch, try self.author.diagnosticName(name), variant.schema.id, null, null, self.scope.name);
         self.author.diagnostic.?.relationship = "named variant alternative";
@@ -1484,7 +1530,7 @@ pub const Body = struct {
     pub fn matchVariant(self: *Body, variant: Variant, value: Value, branches: []const FinishedCase) Error!Value {
         errdefer |err| self.author.onError(err);
         try self.check(value);
-        if (variant.owner != self.author) return error.ForeignBuilder;
+        if (variant.owner != self.author) return try self.author.foreign("variant", self.scope.name);
         if (!sameSchema(value.schema, variant.schema) or branches.len != variant.alternatives.len) {
             self.author.report(.branch_mismatch, "tagged variant", variant.schema.id, value.schema.id, null, self.scope.name);
             self.author.diagnostic.?.relationship = "named variant layout and branch count";
@@ -1493,7 +1539,7 @@ pub const Body = struct {
         const cases = try self.author.raw.allocator().alloc(source.ast.SumCase, branches.len);
         var result: ?Schema = null;
         for (branches, 0..) |branch, position| {
-            if (branch.variant.owner != self.author) return error.ForeignBuilder;
+            if (branch.variant.owner != self.author) return try self.author.foreign("variant case", self.scope.name);
             if (!sameSchema(branch.variant.schema, variant.schema)) {
                 self.author.report(.branch_mismatch, "variant case", variant.schema.id, branch.variant.schema.id, branch.block.scope.name, self.scope.name);
                 self.author.diagnostic.?.relationship = "named variant layout";
@@ -1517,7 +1563,7 @@ pub const Body = struct {
         errdefer |err| self.author.onError(err);
         try self.check(item);
         const sequence = try self.author.sequenceSchema(item.schema);
-        return .{ .owner = self.author, .schema = sequence, .scope = self.scope, .id = try self.author.raw.primitive(sequence.id, .sequence, &.{item.id}, 0) };
+        return self.author.mintValue(.{ .owner = self.author, .schema = sequence, .scope = self.scope, .id = try self.author.raw.primitive(sequence.id, .sequence, &.{item.id}, 0) });
     }
 
     pub fn concatSequences(self: *Body, left: Value, right: Value) Error!Value {
@@ -1527,7 +1573,7 @@ pub const Body = struct {
         if (!sameSchema(left.schema, right.schema)) return error.TypeMismatch;
         const shape = self.author.raw.schemas.items[@intCast(left.schema.id)];
         if (shape != .seq) return error.TypeMismatch;
-        return .{ .owner = self.author, .schema = left.schema, .scope = self.scope, .id = try self.author.raw.primitive(left.schema.id, .sequence_concat, &.{ left.id, right.id }, 0) };
+        return self.author.mintValue(.{ .owner = self.author, .schema = left.schema, .scope = self.scope, .id = try self.author.raw.primitive(left.schema.id, .sequence_concat, &.{ left.id, right.id }, 0) });
     }
 
     pub fn checkedAdd(self: *Body, left: Value, right: Value, failure: Value) Error!Value {
@@ -1540,14 +1586,14 @@ pub const Body = struct {
         if (shape != .u8 and shape != .u16 and shape != .u32 and shape != .u64 and
             shape != .i8 and shape != .i16 and shape != .i32 and shape != .i64) return error.TypeMismatch;
         const fault = try self.author.raw.failureLiteral(failure.id);
-        return .{ .owner = self.author, .schema = left.schema, .scope = self.scope, .id = try self.author.raw.value(.{
+        return self.author.mintValue(.{ .owner = self.author, .schema = left.schema, .scope = self.scope, .id = try self.author.raw.value(.{
             .schema = left.schema.id,
             .expression = .{ .primitive = .{
                 .opcode = .integer_add,
                 .operands = &.{ left.id, right.id },
                 .failures = &.{.{ .kind = .arithmetic_overflow, .value = fault }},
             } },
-        }) };
+        }) });
     }
 
     pub fn equal(self: *Body, left: Value, right: Value) Error!Value {
@@ -1556,7 +1602,7 @@ pub const Body = struct {
         try self.check(right);
         if (!sameSchema(left.schema, right.schema)) return error.TypeMismatch;
         const boolean = try self.author.scalar(bool);
-        return .{ .owner = self.author, .schema = boolean, .scope = self.scope, .id = try self.author.raw.primitive(boolean.id, .equal, &.{ left.id, right.id }, 0) };
+        return self.author.mintValue(.{ .owner = self.author, .schema = boolean, .scope = self.scope, .id = try self.author.raw.primitive(boolean.id, .equal, &.{ left.id, right.id }, 0) });
     }
 
     pub fn booleanNot(self: *Body, value: Value) Error!Value {
@@ -1564,7 +1610,7 @@ pub const Body = struct {
         try self.check(value);
         const boolean = try self.author.scalar(bool);
         if (value.schema.id != boolean.id) return error.TypeMismatch;
-        return .{ .owner = self.author, .schema = boolean, .scope = self.scope, .id = try self.author.raw.primitive(boolean.id, .boolean_not, &.{value.id}, 0) };
+        return self.author.mintValue(.{ .owner = self.author, .schema = boolean, .scope = self.scope, .id = try self.author.raw.primitive(boolean.id, .boolean_not, &.{value.id}, 0) });
     }
 
     pub fn select(self: *Body, condition: Value, when_true: Block, when_false: Block) Error!Value {
@@ -1572,7 +1618,7 @@ pub const Body = struct {
         try self.check(condition);
         const boolean = try self.author.scalar(bool);
         if (condition.schema.id != boolean.id) return error.TypeMismatch;
-        if (when_true.owner != self.author or when_false.owner != self.author) return error.ForeignBuilder;
+        if (when_true.owner != self.author or when_false.owner != self.author) return try self.author.foreign("branch", self.scope.name);
         if (when_true.scope.parent != self.scope or when_false.scope.parent != self.scope or
             when_true.scope == when_false.scope) return error.InvalidBranch;
         if (!sameSchema(when_true.result, when_false.result)) {

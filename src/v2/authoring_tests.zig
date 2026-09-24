@@ -222,6 +222,10 @@ test "named records and variants do not alias equal positional schemas" {
     try std.testing.expectEqual(a.Category.field_mismatch, author.diagnostic.?.category);
     try std.testing.expectEqualStrings("named record layout", author.diagnostic.?.relationship.?);
     _ = try body.field(equivalent, value, "left");
+    var relabeled = value;
+    relabeled.schema = renamed.schema;
+    try std.testing.expectError(error.TypeMismatch, body.field(renamed, relabeled, "left"));
+    try std.testing.expectEqual(a.Category.schema_mismatch, author.diagnostic.?.category);
     const accepts_renamed = try author.declare("renamed argument", &.{
         .{ .name = "record", .schema = renamed.schema },
     }, integer, &.{});
@@ -264,6 +268,21 @@ test "named records and variants do not alias equal positional schemas" {
         .{ .name = "left", .value = try author.literal(u64, 2) },
     }));
     try std.testing.expectError(error.TypeMismatch, body.select(try author.literal(bool, true), yes_result, no_result));
+}
+
+test "foreign effect rejection records its diagnostic" {
+    var raw = source.Builder.init(std.testing.allocator);
+    defer raw.deinit();
+    var author = a.Builder.init(&raw);
+    var other_raw = source.Builder.init(std.testing.allocator);
+    defer other_raw.deinit();
+    var other = a.Builder.init(&other_raw);
+    const other_integer = try other.scalar(u64);
+    const foreign = try other.external("foreign/lookup", other_integer, other_integer);
+    var body = try author.ambient("foreign effect");
+    try std.testing.expectError(error.ForeignBuilder, body.perform(foreign, try author.literal(u64, 7)));
+    try std.testing.expectEqual(a.Category.foreign_builder, author.diagnostic.?.category);
+    try std.testing.expectEqualStrings("effect", author.diagnostic.?.entity);
 }
 
 test "named record layout survives direct calls and callable application" {
