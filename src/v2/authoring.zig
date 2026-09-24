@@ -264,7 +264,7 @@ pub const Value = struct {
     owner: *Builder,
     id: p.Id,
     schema: Schema,
-    scope: ?*Scope = null,
+    scope: ?*const Scope = null,
     origin: ?*const ValueOrigin = null,
 };
 pub const FailureLiteral = struct { origin: *const FailureLiteralInfo };
@@ -272,7 +272,7 @@ pub const Block = struct {
     owner: *Builder,
     term: p.Id,
     result: Schema,
-    scope: *Scope,
+    scope: *const Scope,
     origin: ?*const BlockOrigin = null,
 };
 pub const Callable = struct { value: Value };
@@ -326,7 +326,7 @@ pub const InterpretationOptions = struct {
 };
 
 const Scope = struct {
-    parent: ?*Scope,
+    parent: ?*const Scope,
     name: []const u8,
     function: ?p.Id = null,
     open: bool = true,
@@ -336,7 +336,7 @@ const CaseOrigin = struct {
     variant: Schema,
     index: usize,
     variable: p.Id,
-    scope: *Scope,
+    scope: *const Scope,
 };
 const FunctionOrigin = struct {
     parameters: []const Parameter,
@@ -352,7 +352,7 @@ const EffectOrigin = struct {
     bodies: []const Parameter,
     use_site_effects: []const p.Id,
 };
-const BlockOrigin = struct { term: p.Id, result: Schema, scope: *Scope };
+const BlockOrigin = struct { term: p.Id, result: Schema, scope: *const Scope };
 const InterpretationOrigin = struct {
     id: p.Id,
     operation: Effect,
@@ -364,15 +364,15 @@ const InterpretationOrigin = struct {
     state: []const Parameter,
     mode: p.Mode,
 };
-const ExportedValue = struct { schema: Schema, scope: ?*Scope };
-const ExportedTerm = struct { schema: Schema, scope: *Scope };
-const ValueOrigin = struct { schema: Schema, scope: ?*Scope };
+const ExportedValue = struct { schema: Schema, scope: ?*const Scope };
+const ExportedTerm = struct { schema: Schema, scope: *const Scope };
+const ValueOrigin = struct { schema: Schema, scope: ?*const Scope };
 const FailureLiteralInfo = struct { value: Value, literal: p.Id };
 const ModuleOrigin = struct { owner: *Builder, entry: p.Id, failure: Schema };
 
-fn scopeVisible(introduced: ?*Scope, used: *Scope) bool {
+fn scopeVisible(introduced: ?*const Scope, used: *const Scope) bool {
     const origin = introduced orelse return true;
-    var current: ?*Scope = used;
+    var current: ?*const Scope = used;
     while (current) |scope| : (current = scope.parent) {
         if (scope == origin) return true;
     }
@@ -393,7 +393,7 @@ pub const Builder = struct {
     failure_literals: std.AutoHashMapUnmanaged(*const FailureLiteralInfo, void) = .empty,
     checked_add_failures: std.AutoHashMapUnmanaged(p.Id, Schema) = .empty,
     module_origins: std.AutoHashMapUnmanaged(*const ModuleOrigin, void) = .empty,
-    case_origins: std.AutoHashMapUnmanaged(*Scope, *const CaseOrigin) = .empty,
+    case_origins: std.AutoHashMapUnmanaged(*const Scope, *const CaseOrigin) = .empty,
     value_exports: std.AutoHashMapUnmanaged(p.Id, ExportedValue) = .empty,
     term_exports: std.AutoHashMapUnmanaged(p.Id, ExportedTerm) = .empty,
     poisoned: bool = false,
@@ -1433,14 +1433,14 @@ pub const Interop = struct {
 
 pub const Body = struct {
     author: *Builder,
-    scope: *Scope,
+    scope: *const Scope,
     function: ?Function = null,
 
     fn ensureOpen(self: *Body) Error!void {
         errdefer |err| self.author.onError(err);
         self.author.diagnostic = null;
         if (self.author.poisoned) return error.InvalidSource;
-        var current: ?*Scope = self.scope;
+        var current: ?*const Scope = self.scope;
         while (current) |scope| : (current = scope.parent) {
             if (!scope.open) {
                 self.author.report(.closed_body, scope.name, null, null, null, null);
@@ -1450,7 +1450,7 @@ pub const Body = struct {
     }
 
     pub fn abandon(self: *Body) void {
-        self.scope.open = false;
+        @constCast(self.scope).open = false;
     }
 
     fn check(self: *Body, value: Value) Error!void {
@@ -1472,7 +1472,7 @@ pub const Body = struct {
             self.author.report(.out_of_scope, "value origin", null, null, if (origin.scope) |scope| scope.name else null, self.scope.name);
             return error.OutOfScope;
         }
-        var ancestor: ?*Scope = self.scope;
+        var ancestor: ?*const Scope = self.scope;
         while (ancestor) |scope| : (ancestor = scope.parent) {
             if (value.scope == scope) return;
         }
@@ -1523,7 +1523,7 @@ pub const Body = struct {
         errdefer |err| self.author.onError(err);
         try self.ensureOpen();
         const variable = try self.author.raw.variable(result.id);
-        try self.scope.steps.append(self.author.raw.allocator(), .{ .variable = variable, .term = term });
+        try @constCast(self.scope).steps.append(self.author.raw.allocator(), .{ .variable = variable, .term = term });
         return self.author.mintValue(.{ .owner = self.author, .id = try self.author.raw.reference(variable), .schema = result, .scope = self.scope });
     }
 
@@ -2229,7 +2229,13 @@ pub const Body = struct {
         try self.author.checkBlock(when_true);
         try self.author.checkBlock(when_false);
         if (when_true.scope.parent != self.scope or when_false.scope.parent != self.scope or
-            when_true.scope == when_false.scope) return error.InvalidBranch;
+            when_true.scope == when_false.scope)
+        {
+            const offending = if (when_true.scope.parent != self.scope) when_true.scope else when_false.scope;
+            self.author.report(.branch_mismatch, "conditional branches", null, null, offending.name, self.scope.name);
+            self.author.diagnostic.?.relationship = "distinct direct child bodies";
+            return error.InvalidBranch;
+        }
         if (!try sameSchema(when_true.result, when_false.result)) {
             self.author.report(.branch_mismatch, "conditional result", when_true.result.id, when_false.result.id, when_true.scope.name, when_false.scope.name);
             self.author.diagnostic.?.relationship = "joined result layout";
@@ -2265,7 +2271,7 @@ pub const Body = struct {
             const step = self.scope.steps.items[index];
             term = try self.author.raw.bind(step.variable, step.term, term);
         }
-        self.scope.open = false;
+        @constCast(self.scope).open = false;
         return self.author.issueBlock(.{ .owner = self.author, .term = term, .result = result, .scope = self.scope });
     }
 };

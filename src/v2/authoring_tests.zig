@@ -74,6 +74,34 @@ test "abandoning a body invalidates its descendant authoring handles" {
     try std.testing.expectEqualStrings("abandoned", author.diagnostic.?.entity);
 }
 
+test "public scope handles are read-only after body finalization" {
+    var raw = source.Builder.init(std.testing.allocator);
+    defer raw.deinit();
+    var author = a.Builder.init(&raw);
+    var body = try author.ambient("finalized scope");
+    const value = try author.literal(u64, 1);
+    try std.testing.expect(@typeInfo(@TypeOf(body.scope)).pointer.is_const);
+    const value_scope_pointer = @typeInfo(@TypeOf(value.scope)).optional.child;
+    try std.testing.expect(@typeInfo(value_scope_pointer).pointer.is_const);
+    const block = try body.finish(value);
+    try std.testing.expect(@typeInfo(@TypeOf(block.scope)).pointer.is_const);
+    try std.testing.expectError(error.ClosedBody, body.finish(value));
+}
+
+test "conditional branches report a wrong parent scope" {
+    var raw = source.Builder.init(std.testing.allocator);
+    defer raw.deinit();
+    var author = a.Builder.init(&raw);
+    var first = try author.ambient("first parent");
+    var second = try author.ambient("second parent");
+    var child = try first.child("foreign branch");
+    const block = try child.finish(try author.literal(u64, 1));
+    try std.testing.expectError(error.InvalidBranch, second.select(try author.literal(bool, true), block, block));
+    try std.testing.expectEqual(a.Category.branch_mismatch, author.diagnostic.?.category);
+    try std.testing.expectEqualStrings("foreign branch", author.diagnostic.?.introduced_in.?);
+    try std.testing.expectEqualStrings("second parent", author.diagnostic.?.used_in.?);
+}
+
 test "copies of one body share staged effects and one finalization" {
     var raw = source.Builder.init(std.testing.allocator);
     defer raw.deinit();

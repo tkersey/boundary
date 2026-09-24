@@ -82,6 +82,8 @@ of a runtime closure it authored; Boundary's ownership checker governs that.
 `Body.abandon` closes an unfinished body and its descendants for authoring
 without producing a block. A function whose body was abandoned cannot become
 a checked Module until a valid definition is supplied.
+Public body, value, and block handles carry read-only scope references; an
+ordinary caller cannot reopen a finished or abandoned body.
 The raw source builder and its arena must outlive all authoring handles. The
 convenience `authoring.lower` owns and releases both after compilation. If an
 allocation fails while building manually, discard the builder and tear it down;
