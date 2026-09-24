@@ -754,6 +754,38 @@ test "protected work accepts an adopted borrowed schema with its source region" 
     try std.testing.expectError(error.TypeMismatch, body.protect(work_callable, cleanup_callable, &.{}, resource_value, other_loan));
 }
 
+test "adopted borrow of a named resource keeps nominal owner identity" {
+    var raw = source.Builder.init(std.testing.allocator);
+    defer raw.deinit();
+    var author = a.Builder.init(&raw);
+    const integer = try author.scalar(u64);
+    const unit = try author.scalar(void);
+    const representation = try author.record(&.{.{ .name = "value", .schema = integer }});
+    const owned = try author.resource(representation.schema);
+    const other_owned = try author.resource(representation.schema);
+    const loan = author.region();
+    const borrowed = try author.borrowedSchema(owned, loan);
+    const adopted_borrowed = try author.adoptSchema(borrowed.id);
+    const work = try author.declareScoped("named borrowed work", &.{.{ .name = "borrowed", .schema = adopted_borrowed }}, integer, &.{}, &.{loan});
+    var work_body = try author.body(work);
+    try author.define(work, try work_body.finish(try author.literal(u64, 7)));
+    const cleanup = try author.declare("named resource cleanup", &.{
+        .{ .name = "exit", .schema = try author.exitInfo(unit) },
+        .{ .name = "owned", .schema = owned },
+    }, unit, &.{});
+    var cleanup_body = try author.body(cleanup);
+    try author.define(cleanup, try cleanup_body.finish(try author.literal(void, {})));
+    var body = try author.ambient("named borrow");
+    const value = try body.product(representation, &.{.{ .name = "value", .value = try author.literal(u64, 9) }});
+    const resource_value = try body.packResource(owned, value);
+    const other_resource = try body.packResource(other_owned, value);
+    const work_callable = try body.lambda(work, &.{}, .reusable);
+    const cleanup_callable = try body.lambda(cleanup, &.{}, .reusable);
+    _ = try body.protect(work_callable, cleanup_callable, &.{}, resource_value, loan);
+    try std.testing.expectError(error.TypeMismatch, body.protect(work_callable, cleanup_callable, &.{}, other_resource, loan));
+    try std.testing.expectEqualStrings("nominal owned resource identity", author.diagnostic.?.relationship.?);
+}
+
 test "select and named aggregates report source-oriented diagnostics" {
     var raw = source.Builder.init(std.testing.allocator);
     defer raw.deinit();

@@ -164,7 +164,8 @@ parameter and a unit result; module publication checks the exit-info failure
 description against its failure schema. `examples/authoring_borrow.zig`
 exercises a valid borrow and protected release. An adopted borrowed schema is
 also accepted when its source descriptor names the supplied owned resource and
-loan region. Ownership admission remains Boundary's checker, including
+loan region, including resources with named representations. Ownership admission
+remains Boundary's checker, including
 borrow escape and nonduplicable capture restrictions.
 
 ## Errors and compatibility

@@ -1798,18 +1798,25 @@ pub const Body = struct {
                 const borrowed_shape = try self.author.sourceSchema(known.parameters[0].id, "protected borrowed resource");
                 if (borrowed_shape != .internal or borrowed_shape.internal != .borrowed) return error.TypeMismatch;
                 if (loan_region) |region_handle| if (borrowed_shape.internal.borrowed.region != region_handle.id) return error.TypeMismatch;
-                const expected = if (known.parameters[0].borrowed) |borrowed|
-                    borrowed.*
-                else
-                    Schema{ .owner = self.author, .id = borrowed_shape.internal.borrowed.value };
-                if (!try sameSchema(owned.schema, expected)) return error.TypeMismatch;
+                if (known.parameters[0].borrowed) |borrowed| {
+                    if (!try sameSchema(owned.schema, borrowed.*)) return error.TypeMismatch;
+                } else if (owned.schema.id != borrowed_shape.internal.borrowed.value) {
+                    self.author.report(.schema_mismatch, "protected borrowed resource", borrowed_shape.internal.borrowed.value, owned.schema.id, null, self.scope.name);
+                    self.author.diagnostic.?.relationship = "nominal owned resource identity";
+                    return error.TypeMismatch;
+                }
             }
         } else {
             if (signature.parameters.len != arguments.len + loaned) return try self.author.arity("protected work arguments", signature.parameters.len, arguments.len + loaned, self.scope.name);
             if (resource) |owned| {
                 const borrowed_shape = try self.author.sourceSchema(signature.parameters[0], "protected borrowed resource");
                 if (borrowed_shape != .internal or borrowed_shape.internal != .borrowed) return error.TypeMismatch;
-                if (!try sameSchema(owned.schema, .{ .owner = self.author, .id = borrowed_shape.internal.borrowed.value })) return error.TypeMismatch;
+                if (loan_region) |region_handle| if (borrowed_shape.internal.borrowed.region != region_handle.id) return error.TypeMismatch;
+                if (owned.schema.id != borrowed_shape.internal.borrowed.value) {
+                    self.author.report(.schema_mismatch, "protected borrowed resource", borrowed_shape.internal.borrowed.value, owned.schema.id, null, self.scope.name);
+                    self.author.diagnostic.?.relationship = "nominal owned resource identity";
+                    return error.TypeMismatch;
+                }
             }
         }
         const cleanup_info = cleanup.value.schema.callable orelse {
