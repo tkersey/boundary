@@ -369,3 +369,62 @@ test "A14 named-layout and branch result mismatches reject before source admissi
     try testing.expect(c.diagnostic.expected == first);
     try testing.expect(c.diagnostic.actual == second);
 }
+
+fn shallowResidual(allocator: std.mem.Allocator, allow_escape: bool) !void {
+    var raw = source.Builder.init(allocator);
+    defer raw.deinit();
+    const c = try a.Context.init(&raw);
+    const unit = try c.scalar(void);
+    const integer = try c.scalar(u64);
+    const lookup = try c.external("lookup", integer, integer);
+    const question = try c.local("question", integer, integer, .linear);
+    const responder = try c.function("responder", &.{.{ .name = "key", .schema = integer }}, integer, &.{lookup});
+    const response = try c.body(responder);
+    try c.define(responder, try response.ret(try response.perform(lookup, try response.parameter("key"))));
+    const h = try c.responder(question, integer, responder, .{
+        .mode = .shallow,
+        .use = .linear,
+        .residual = &.{ lookup, question },
+        .escaping = if (allow_escape) &.{lookup} else &.{},
+        .captures = &.{},
+    });
+    const schema = try c.handledSchema(h);
+    const work = try c.functionFor("work", schema);
+    const body = try c.body(work);
+    try c.define(work, try body.ret(try body.performLocal(question, try body.parameter("capability"), try body.constant(u64, 19))));
+    const entry = try c.function("entry", &.{}, integer, &.{ lookup, question });
+    const entry_body = try c.body(entry);
+    try c.define(entry, try entry_body.ret(try entry_body.handleWith(h, try entry_body.lambda(work, schema), &.{})));
+    var compiled = try c.compile(allocator, entry, unit);
+    defer compiled.deinit();
+}
+test "A06 A09 shallow residual external effects need an explicit escaping allowance" {
+    try shallowResidual(testing.allocator, true);
+    try testing.expectError(error.InvalidEffect, shallowResidual(testing.allocator, false));
+}
+
+fn oneShotVariant(allocator: std.mem.Allocator, twice: bool) !void {
+    var raw = source.Builder.init(allocator);
+    defer raw.deinit();
+    const c = try a.Context.init(&raw);
+    const unit = try c.scalar(void);
+    const once = try c.callable(&.{}, unit, &.{}, .{ .use = .linear, .captures = &.{} });
+    const sum = try c.alternatives(&.{ .{ .name = "empty", .schema = unit }, .{ .name = "owned", .schema = once } });
+    const entry = try c.function("entry", &.{}, unit, &.{});
+    const body = try c.body(entry);
+    const value = try body.variant(sum, "empty", try body.constant(void, {}));
+    var result = try body.constant(void, {});
+    for (0..@as(usize, if (twice) 2 else 1)) |_| {
+        const empty = try body.caseOf(value, "empty");
+        const owned = try body.caseOf(value, "owned");
+        const used = try owned.body().apply(owned.payload(), &.{});
+        result = try body.match(value, &.{ try empty.ret(empty.payload()), try owned.ret(used) });
+    }
+    try c.define(entry, try body.ret(result));
+    var compiled = try c.compile(allocator, entry, unit);
+    defer compiled.deinit();
+}
+test "A08 symbolic one-shot aggregate construction does not repeat at each use" {
+    try oneShotVariant(testing.allocator, false);
+    try testing.expectError(error.UnavailableSlot, oneShotVariant(testing.allocator, true));
+}

@@ -79,8 +79,8 @@ checks reject foreign contexts, out-of-scope values, incompatible named layouts,
 arguments, branch results and capability instances. Final source/target admission
 still owns effect allowances, affine/linear use, capture safety and borrowed-region
 escape. In particular, one-shot use in mutually exclusive arms is allowed; two
-sequential uses are rejected. Lambda construction binds once rather than silently
-creating a fresh closure at each use.
+sequential uses are rejected. Lambda and aggregate construction bind once rather than silently
+creating a fresh one-shot value at each use.
 
 `scalar(T)` supports the existing portable scalar subset (void, bool and supported
 fixed-width integers). `record` and `alternatives` accept dynamically selected
@@ -113,7 +113,9 @@ Return functions expose `result`; clauses expose `payload`, named state and scop
 bodies, and `resumption`. `resumeValue` continues and returns for postprocessing.
 `resumeWith` installs a successor for a shallow resumption. Deep resumptions return
 the interpretation answer; shallow resumptions return the handled body's input
-schema. For shallow work, explicitly allow effects that its resumed body can use.
+schema. For shallow work, explicitly allow effects that its resumed body can use;
+`escaping` names effects that can select outside attachments (such as residual
+external lookups). The authoritative checker validates this allowance.
 
 `responder` derives the ordinary resume clause from an authored function. Its
 residual effects remain explicit. Body capture and continuation capture bounds are
@@ -232,6 +234,10 @@ Fixed World source: `669a37a563363541f2a92ba3cee644dba7b86a70`, tree
 - kernel: `df7fe1ae0ed0de7b2976c98b1534d1d55f4c341b7148837ce32f42ed8d011084`
 - native companion: `c77e77fd568d52284c3c973080852fa1aa515f6e3c47ac14213d2cc051fc061e`
 
+The native delivery record separately identifies the same World source commit and
+Boundary-data dependency for the digest above. Its bytes were verified locally;
+World was not rebuilt.
+
 The selected archive was externally digest-checked, safely extracted into private
 stable storage, then its supported verifier checked 35 inventory files and ran
 execution/restore smoke. ABI 3; wasm32 ReleaseSmall; 65,536-byte stack; 256 MiB
@@ -252,8 +258,8 @@ migrations (before → after) are:
 |---|---:|---:|---:|---:|---:|
 | one-effect | 85 → 85 | 1 → 1 | 2 → 2 | 0 → 0 | 0 → 0 |
 | ordered twice | 169 → 186 | 3 → 3 | 7 → 9 | 3 → 3 | 1 → 1 |
-| all-choice | 269 → 269 | 4 → 4 | 9 → 9 | 8 → 8 | 1 → 1 |
-| first-choice | 247 → 247 | 4 → 4 | 8 → 8 | 6 → 6 | 1 → 1 |
+| all-choice | 269 → 286 | 4 → 4 | 9 → 11 | 8 → 8 | 1 → 1 |
+| first-choice | 247 → 256 | 4 → 4 | 8 → 9 | 6 → 6 | 1 → 1 |
 | reciprocal demand | 1,234 → 1,290 | 23 → 22 | 57 → 65 | 25 → 24 | 16 → 15 |
 
 The additional bind/jump blocks retain the once-created symbolic values used by
@@ -281,3 +287,11 @@ establish a speedup. Reproduce author/lower/encode with
 `test/build_authoring_economy.zig` and `test/authoring_economy.zig` against the exact
 baseline and candidate source roots; `tools/authoring_stats.zig` reads image counts.
 The test-only low-level twice reference preserves the baseline construction.
+
+
+Local validation for this draft uses the private sibling `../boundary-runtime-61b776`:
+`bundle/runtime` is the verified loader/kernel directory, `world-fixtures` is the
+fixed native companion, and `peers/current/peer.mjs` selects the unchanged locked
+Wasmtime test peer. These are dependency/test artifacts, not alternate source or
+implementation branches. The archive remains alongside the bundle for durable
+reproduction; no historical launcher or task binding is needed.

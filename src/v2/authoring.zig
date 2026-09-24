@@ -21,7 +21,16 @@ pub const Schema = opaque {
     }
     pub fn describe(self: *const Schema, writer: *std.Io.Writer) !void {
         const item = data(SchemaData, self);
-        try writer.writeAll(@tagName(item.owner.raw.schemas.items[@intCast(item.id)]));
+        const shape = item.owner.raw.schemas.items[@intCast(item.id)];
+        if (shape == .internal and shape.internal == .capability) {
+            const instance = shape.internal.capability;
+            if (instance >= item.owner.raw.effects.items.len)
+                return writer.writeAll("capability(invalid instance)");
+            return writer.print("capability({s}, instance {d})", .{
+                item.owner.raw.effects.items[@intCast(instance)].identity, instance,
+            });
+        }
+        try writer.writeAll(@tagName(shape));
         if (item.fields.len != 0) {
             try writer.writeByte('(');
             for (item.fields, 0..) |named, i| {
@@ -61,6 +70,7 @@ pub const HandlerOptions = struct {
     mode: p.Mode,
     use: p.Use,
     residual: []const *const Operation,
+    escaping: []const *const Operation = &.{},
     captures: []const *const Schema,
     body_captures: []const *const Schema = &.{},
     owned_regions: []const *const Region = &.{},
@@ -587,6 +597,7 @@ pub const Context = struct {
             .input = try self.schemaId(op.result),
             .answer = try self.schemaId(resume_answer),
             .effects = residual,
+            .escaping = try self.row(options.escaping),
             .capture_bound = try self.schemaIds(options.captures),
             .handled = &.{op.id},
             .mode = options.mode,
@@ -693,7 +704,11 @@ pub const Context = struct {
         try self.origin(c.owner);
         if (f.scope != c.scope or c.scope.active)
             return self.reject(error.OutOfScope, f.name, "definition belongs to another body");
-        try self.same(f.result, c.schema);
+        self.same(f.result, c.schema) catch |err| {
+            self.diagnostic.entity = f.name;
+            self.diagnostic.relationship = "body result differs from the function result";
+            return err;
+        };
         errdefer self.poisoned = true;
         try self.raw.define(f.id, c.id);
     }
@@ -708,7 +723,8 @@ pub const Context = struct {
         var diagnostic: source.Diagnostic = .{};
         return source.lowerObserved(allocator, module_value, .{ .diagnostic = &diagnostic }) catch |err| {
             var name: []const u8 = "compiled source";
-            if (diagnostic.function) |id| for (self.functions.items) |f| {
+            const function_id = diagnostic.target.function orelse diagnostic.function;
+            if (function_id) |id| for (self.functions.items) |f| {
                 const item = data(FunctionData, f);
                 if (item.id == id) {
                     name = item.name;
@@ -814,7 +830,11 @@ pub const Body = struct {
             };
             const v = try self.useValue(found orelse
                 return c.reject(error.UnknownName, "arguments", "missing declared name"));
-            try c.same(named.schema, v.schema);
+            c.same(named.schema, v.schema) catch |err| {
+                c.diagnostic.entity = named.name;
+                c.diagnostic.relationship = "argument or product field differs from its declared schema";
+                return err;
+            };
             id.* = v.id;
         }
         return ids;
@@ -945,7 +965,12 @@ pub const Body = struct {
         const op = data(OperationData, operation_handle);
         try c.origin(op.owner);
         const cap = try self.useValue(capability_value);
-        try c.same(try c.capability(operation_handle), cap.schema);
+        const expected_capability = try c.capability(operation_handle);
+        c.same(expected_capability, cap.schema) catch |err| {
+            c.diagnostic.entity = op.name;
+            c.diagnostic.relationship = "capability belongs to a different operation instance";
+            return err;
+        };
         const v = try self.useValue(payload);
         try c.same(op.payload, v.schema);
         errdefer c.poisoned = true;
@@ -1041,7 +1066,7 @@ pub const Body = struct {
             try c.same(element, v.schema);
             out.* = v.id;
         }
-        return self.makeValue(try c.raw.primitive(id, .sequence, ids, 0), schema);
+        return self.bind(try c.raw.pure(try c.raw.primitive(id, .sequence, ids, 0)), schema);
     }
     pub fn concat(self: *Body, left: *const Value, right: *const Value) Error!*const Value {
         const a = try self.useValue(left);
@@ -1051,7 +1076,7 @@ pub const Body = struct {
         const id = try c.schemaId(a.schema);
         if (c.raw.schemas.items[@intCast(id)] != .seq) return error.InvalidCategory;
         errdefer c.poisoned = true;
-        return self.makeValue(try c.raw.primitive(id, .sequence_concat, &.{ a.id, b.id }, 0), a.schema);
+        return self.bind(try c.raw.pure(try c.raw.primitive(id, .sequence_concat, &.{ a.id, b.id }, 0)), a.schema);
     }
     pub fn variant(
         self: *Body,
@@ -1067,7 +1092,7 @@ pub const Body = struct {
             if (!std.mem.eql(u8, item.name, name)) continue;
             try c.same(item.schema, v.schema);
             errdefer c.poisoned = true;
-            return self.makeValue(try c.raw.primitive(id, .variant, &.{v.id}, index), schema);
+            return self.bind(try c.raw.pure(try c.raw.primitive(id, .variant, &.{v.id}, index)), schema);
         }
         return c.reject(error.UnknownName, "variant", "unknown alternative");
     }
@@ -1279,7 +1304,10 @@ pub const interop = struct {
         const c = body.context;
         if (id >= c.raw.values.items.len) return error.InvalidReference;
         if (c.raw.values.items[@intCast(id)].schema != try c.schemaId(expected)) return error.SchemaMismatch;
-        return body.makeValue(id, expected);
+        const expression = c.raw.values.items[@intCast(id)].expression;
+        if (expression == .variable or expression == .literal) return body.makeValue(id, expected);
+        errdefer c.poisoned = true;
+        return body.bind(try c.raw.pure(id), expected);
     }
     pub fn valueId(body: *Body, item: *const Value) Error!p.Id {
         return (try body.useValue(item)).id;
