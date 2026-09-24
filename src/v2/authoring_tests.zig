@@ -676,6 +676,86 @@ test "compile rechecks the issued module after a later helper definition" {
     compiled.deinit();
 }
 
+test "protected work accepts an adopted borrowed schema with its source region" {
+    var raw = source.Builder.init(std.testing.allocator);
+    defer raw.deinit();
+    var author = a.Builder.init(&raw);
+    const integer = try author.scalar(u64);
+    const unit = try author.scalar(void);
+    const owned = try author.resource(integer);
+    const loan = author.region();
+    const other_loan = author.region();
+    const borrowed = try author.borrowedSchema(owned, loan);
+    const raw_owned = try author.adoptSchema(owned.id);
+    const raw_borrowed = try author.adoptSchema(borrowed.id);
+    const work = try author.declareScoped("adopted borrowed work", &.{.{ .name = "borrowed", .schema = raw_borrowed }}, integer, &.{}, &.{loan});
+    var work_body = try author.body(work);
+    try author.define(work, try work_body.finish(try author.literal(u64, 7)));
+    const cleanup = try author.declare("adopted owned cleanup", &.{
+        .{ .name = "exit", .schema = try author.exitInfo(unit) },
+        .{ .name = "owned", .schema = raw_owned },
+    }, unit, &.{});
+    var cleanup_body = try author.body(cleanup);
+    try author.define(cleanup, try cleanup_body.finish(try author.literal(void, {})));
+    var body = try author.ambient("adopted borrow");
+    const resource_value = try body.packResource(raw_owned, try author.literal(u64, 9));
+    const work_callable = try body.lambda(work, &.{}, .reusable);
+    const cleanup_callable = try body.lambda(cleanup, &.{}, .reusable);
+    _ = try body.protect(work_callable, cleanup_callable, &.{}, resource_value, loan);
+    try std.testing.expectError(error.TypeMismatch, body.protect(work_callable, cleanup_callable, &.{}, resource_value, other_loan));
+}
+
+test "select and named aggregates report source-oriented diagnostics" {
+    var raw = source.Builder.init(std.testing.allocator);
+    defer raw.deinit();
+    var author = a.Builder.init(&raw);
+    const integer = try author.scalar(u64);
+    const boolean = try author.scalar(bool);
+    var body = try author.ambient("diagnostic joins");
+    var yes = try body.child("yes");
+    var no = try body.child("no");
+    const yes_block = try yes.finish(try author.literal(u64, 1));
+    const no_block = try no.finish(try author.literal(u64, 2));
+    try std.testing.expectError(error.TypeMismatch, body.select(try author.literal(u64, 1), yes_block, no_block));
+    try std.testing.expectEqual(a.Category.schema_mismatch, author.diagnostic.?.category);
+    try std.testing.expectEqualStrings("conditional condition", author.diagnostic.?.entity);
+    var copied = try a.OwnedDiagnostic.copy(std.testing.allocator, author.diagnostic.?);
+    defer copied.deinit();
+
+    const record = try author.record(&.{
+        .{ .name = "a", .schema = integer },
+        .{ .name = "b", .schema = integer },
+    });
+    const one = try author.literal(u64, 1);
+    try std.testing.expectError(error.DuplicateName, body.product(record, &.{
+        .{ .name = "a", .value = one },
+        .{ .name = "a", .value = one },
+    }));
+    try std.testing.expectEqual(a.Category.field_mismatch, author.diagnostic.?.category);
+    try std.testing.expectEqualStrings("duplicate named field", author.diagnostic.?.relationship.?);
+    try std.testing.expectError(error.InvalidField, body.product(record, &.{
+        .{ .name = "a", .value = one },
+        .{ .name = "other", .value = one },
+    }));
+    try std.testing.expectEqualStrings("b", author.diagnostic.?.entity);
+    try std.testing.expectEqualStrings("missing named field", author.diagnostic.?.relationship.?);
+
+    const variant = try author.variant(&.{
+        .{ .name = "left", .schema = integer },
+        .{ .name = "right", .schema = integer },
+    });
+    const tagged = try body.inject(variant, "left", one);
+    var left_case = try body.variantCase(variant, "left");
+    const left_branch = try left_case.finish(try author.literal(u64, 1));
+    var right_case = try body.variantCase(variant, "right");
+    const right_branch = try right_case.finish(try author.literal(bool, true));
+    try std.testing.expectError(error.TypeMismatch, body.matchVariant(variant, tagged, &.{ left_branch, right_branch }));
+    try std.testing.expectEqual(a.Category.branch_mismatch, author.diagnostic.?.category);
+    try std.testing.expectEqualStrings("variant branch result", author.diagnostic.?.entity);
+    try std.testing.expectEqual(integer.id, author.diagnostic.?.expected.?);
+    try std.testing.expectEqual(boolean.id, author.diagnostic.?.actual.?);
+}
+
 test "schema comparison visits shared named metadata as a graph" {
     var raw = source.Builder.init(std.testing.allocator);
     defer raw.deinit();

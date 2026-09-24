@@ -1786,8 +1786,14 @@ pub const Body = struct {
         if (work.value.schema.callable) |known| {
             if (known.parameters.len != arguments.len + loaned) return try self.author.arity("protected work arguments", known.parameters.len, arguments.len + loaned, self.scope.name);
             if (resource) |owned| {
-                const borrowed = known.parameters[0].borrowed orelse return error.TypeMismatch;
-                if (!try sameSchema(owned.schema, borrowed.*)) return error.TypeMismatch;
+                const borrowed_shape = try self.author.sourceSchema(known.parameters[0].id, "protected borrowed resource");
+                if (borrowed_shape != .internal or borrowed_shape.internal != .borrowed) return error.TypeMismatch;
+                if (loan_region) |region_handle| if (borrowed_shape.internal.borrowed.region != region_handle.id) return error.TypeMismatch;
+                const expected = if (known.parameters[0].borrowed) |borrowed|
+                    borrowed.*
+                else
+                    Schema{ .owner = self.author, .id = borrowed_shape.internal.borrowed.value };
+                if (!try sameSchema(owned.schema, expected)) return error.TypeMismatch;
             }
         } else {
             if (signature.parameters.len != arguments.len + loaned) return try self.author.arity("protected work arguments", signature.parameters.len, arguments.len + loaned, self.scope.name);
@@ -2001,10 +2007,18 @@ pub const Body = struct {
         for (declared_fields, ids) |declared, *id| {
             var found: ?Value = null;
             for (fields) |provided| if (std.mem.eql(u8, provided.name, declared.name)) {
-                if (found != null) return error.DuplicateName;
+                if (found != null) {
+                    self.author.report(.field_mismatch, declared.name, declared.schema.id, provided.value.schema.id, null, self.scope.name);
+                    self.author.diagnostic.?.relationship = "duplicate named field";
+                    return error.DuplicateName;
+                }
                 found = provided.value;
             };
-            const value = found orelse return error.InvalidField;
+            const value = found orelse {
+                self.author.report(.field_mismatch, declared.name, declared.schema.id, null, null, self.scope.name);
+                self.author.diagnostic.?.relationship = "missing named field";
+                return error.InvalidField;
+            };
             try self.check(value);
             if (!try sameSchema(value.schema, declared.schema)) {
                 self.author.report(.field_mismatch, declared.name, declared.schema.id, value.schema.id, null, self.scope.name);
@@ -2104,7 +2118,11 @@ pub const Body = struct {
                 return error.InvalidBranch;
             for (branches[0..position]) |other| if (origin.index == other.origin.index) return error.InvalidBranch;
             if (result) |expected| {
-                if (!try sameSchema(expected, branch.block.result)) return error.TypeMismatch;
+                if (!try sameSchema(expected, branch.block.result)) {
+                    self.author.report(.branch_mismatch, "variant branch result", expected.id, branch.block.result.id, branch.block.scope.name, self.scope.name);
+                    self.author.diagnostic.?.relationship = "joined result layout";
+                    return error.TypeMismatch;
+                }
             } else result = branch.block.result;
             cases[origin.index] = .{ .variable = origin.variable, .body = branch.block.term };
         }
@@ -2178,7 +2196,11 @@ pub const Body = struct {
         errdefer |err| self.author.onError(err);
         try self.check(condition);
         const boolean = try self.author.scalar(bool);
-        if (condition.schema.id != boolean.id) return error.TypeMismatch;
+        if (condition.schema.id != boolean.id) {
+            self.author.report(.schema_mismatch, "conditional condition", boolean.id, condition.schema.id, null, self.scope.name);
+            self.author.diagnostic.?.relationship = "Boolean branch condition";
+            return error.TypeMismatch;
+        }
         try self.author.checkBlock(when_true);
         try self.author.checkBlock(when_false);
         if (when_true.scope.parent != self.scope or when_false.scope.parent != self.scope or
