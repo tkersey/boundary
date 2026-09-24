@@ -11,6 +11,9 @@ examples/lazy_hyper.zig
 examples/one_effect.zig
 examples/owned_exchange.zig
 examples/reciprocal_hyper.zig
+examples/structured_branch.zig
+src/v2/authoring.zig
+src/v2/authoring_tests.zig
 src/v2/data/activation.zig
 src/v2/data/activation_borrow_tests.zig
 src/v2/data/activation_flow.zig

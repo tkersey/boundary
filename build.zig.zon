@@ -8,6 +8,7 @@
         "README.md",
         "build.zig",
         "build.zig.zon",
+        "docs/typed-authoring.md",
         "docs/bpi3-wire.md",
         "docs/pst3-wire.md",
         "docs/bmo1-components.md",

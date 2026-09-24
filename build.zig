@@ -133,6 +133,14 @@ pub fn build(b: *std.Build) void {
             compact_fixtures.dependOn(&b.addInstallFileWithDir(run.captureStdOut(.{}), .prefix, b.fmt("{s}-{d}.bpi3", .{ kind, count })).step);
         }
     }
+    const structured = b.addExecutable(.{ .name = "structured-branch", .root_module = b.createModule(.{
+        .root_source_file = b.path("examples/structured_branch.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "boundary", .module = boundary }},
+    }) });
+    b.step("emit-structured-branch", "Emit the public structured runtime branch")
+        .dependOn(&b.addRunArtifact(structured).step);
     const one_effect = b.addExecutable(.{ .name = "one-effect", .root_module = b.createModule(.{
         .root_source_file = b.path("examples/one_effect.zig"),
         .target = b.graph.host,
