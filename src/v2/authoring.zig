@@ -240,7 +240,10 @@ pub const Context = struct {
     fn same(self: *Context, expected: *const Schema, actual: *const Schema) Error!void {
         _ = try self.schemaId(expected);
         _ = try self.schemaId(actual);
-        if (expected != actual) {
+        errdefer |err| if (err == error.OutOfMemory) {
+            self.poisoned = true;
+        };
+        if (!try self.compatible(expected, actual)) {
             self.diagnostic = .{
                 .code = error.SchemaMismatch,
                 .entity = "value",
@@ -250,6 +253,40 @@ pub const Context = struct {
             };
             return error.SchemaMismatch;
         }
+    }
+    /// Allocation identity is only a fast path. Raw schema identity preserves
+    /// nominal contracts; the metadata graph additionally preserves field names.
+    /// Each pair is visited once, including recursive and shared schema graphs.
+    fn compatible(self: *Context, expected: *const Schema, actual: *const Schema) Error!bool {
+        if (expected == actual) return true;
+        const Pair = struct { expected: *const Schema, actual: *const Schema };
+        const allocator = self.raw.allocator();
+        var pending: std.ArrayList(Pair) = .empty;
+        defer pending.deinit(allocator);
+        var seen: std.AutoHashMapUnmanaged(Pair, void) = .empty;
+        defer seen.deinit(allocator);
+        try pending.append(allocator, .{ .expected = expected, .actual = actual });
+        var index: usize = 0;
+        while (index < pending.items.len) : (index += 1) {
+            const pair = pending.items[index];
+            if (pair.expected == pair.actual) continue;
+            const a = data(SchemaData, pair.expected);
+            const b = data(SchemaData, pair.actual);
+            try self.origin(a.owner);
+            try self.origin(b.owner);
+            if (a.id != b.id or a.fields.len != b.fields.len) return false;
+            const visited = try seen.getOrPut(allocator, pair);
+            if (visited.found_existing) continue;
+            for (a.fields, b.fields) |left, right| {
+                if (!std.mem.eql(u8, left.name, right.name)) return false;
+                if (left.schema != right.schema) try pending.append(allocator, .{ .expected = left.schema, .actual = right.schema });
+            }
+            if (a.result) |left| {
+                const right = b.result orelse return false;
+                if (left != right) try pending.append(allocator, .{ .expected = left, .actual = right });
+            } else if (b.result != null) return false;
+        }
+        return true;
     }
     fn fields(self: *Context, input: []const Field) Error![]const Field {
         errdefer self.poisoned = true;
@@ -484,9 +521,26 @@ pub const Context = struct {
         } } }), &.{}, schema);
     }
     pub fn cleanupInfo(self: *Context, failure: *const Schema) Error!*const Schema {
-        const id = try self.schemaId(failure);
+        _ = try self.schemaId(failure);
         errdefer self.poisoned = true;
-        return interop.schema(self, try @import("library/cleanup.zig").exitInfo(self.raw, id));
+        const unit = try self.scalar(void);
+        const text = try self.intern(try self.raw.schema(.text), &.{});
+        const bytes = try self.intern(try self.raw.schema(.bytes), &.{});
+        const reason = try self.alternatives(&.{
+            .{ .name = "0", .schema = text }, .{ .name = "1", .schema = bytes },
+        });
+        const primary = try self.alternatives(&.{
+            .{ .name = "0", .schema = unit },   .{ .name = "1", .schema = failure },
+            .{ .name = "2", .schema = reason }, .{ .name = "3", .schema = unit },
+        });
+        const cancellation = try self.alternatives(&.{
+            .{ .name = "0", .schema = unit }, .{ .name = "1", .schema = reason },
+        });
+        return self.record(&.{
+            .{ .name = "0", .schema = primary },
+            .{ .name = "1", .schema = cancellation },
+            .{ .name = "2", .schema = try self.sequence(failure) },
+        });
     }
     pub fn sequence(self: *Context, element: *const Schema) Error!*const Schema {
         errdefer self.poisoned = true;
@@ -1411,7 +1465,7 @@ pub const interop = struct {
         switch (shape) {
             .product, .sum, .seq => {},
             .internal => |inner| switch (inner) {
-                .computation, .resumption => {},
+                .computation, .resumption, .borrowed => {},
                 else => return c.intern(id, &.{}),
             },
             else => return c.intern(id, &.{}),
@@ -1426,17 +1480,13 @@ pub const interop = struct {
             .internal => |v| if (v == .computation) v.computation.parameters else &.{},
             else => &.{},
         };
-        const fields = try c.raw.allocator().alloc(Field, ids.len);
-        for (ids, fields, 0..) |child, *item, i| item.* = .{
-            .name = try std.fmt.allocPrint(c.raw.allocator(), "{d}", .{i}),
-            .schema = try schema(c, child),
-        };
-        info.fields = fields;
+        info.fields = try positionalFields(c, ids);
         info.result = switch (shape) {
             .seq => |element| try schema(c, element),
             .internal => |v| switch (v) {
                 .computation => |signature| try schema(c, signature.result),
                 .resumption => |signature| try schema(c, signature.answer),
+                .borrowed => |borrow| try schema(c, borrow.value),
                 else => null,
             },
             else => null,
@@ -1458,6 +1508,15 @@ pub const interop = struct {
         for (fields, names, info.fields) |*item, name, old| item.* = .{ .name = name, .schema = old.schema };
         return c.internResult(id, fields, info.result);
     }
+    fn positionalFields(c: *Context, ids: []const p.Id) Error![]const Field {
+        errdefer c.poisoned = true;
+        const fields = try c.raw.allocator().alloc(Field, ids.len);
+        for (ids, fields, 0..) |child, *item, i| item.* = .{
+            .name = try std.fmt.allocPrint(c.raw.allocator(), "{d}", .{i}),
+            .schema = try schema(c, child),
+        };
+        return fields;
+    }
     pub fn operation(c: *Context, id: p.Id) Error!*const Operation {
         try c.ready();
         if (id >= c.raw.effects.items.len) return error.InvalidEffect;
@@ -1469,6 +1528,7 @@ pub const interop = struct {
             .payload = try schema(c, op.payload),
             .result = try schema(c, op.result),
             .external = op.external,
+            .bodies = try positionalFields(c, op.bodies),
         }));
     }
     pub fn region(c: *Context, id: p.Id) Error!*const Region {

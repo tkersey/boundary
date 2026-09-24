@@ -56,6 +56,10 @@ async function execute(image, initialArgs, replies) {
 }
 const empty=new Uint8Array();
 const fixtureCases = {
+  imported_scoped:[{args:empty,replies:[],value:u64(42)}],
+  cleanup_named:[{args:Uint8Array.of(1,...u64(17),0,0),replies:[],value:u64(17)},
+    {args:Uint8Array.of(0,0,0),replies:[],value:u64(0)}],
+  imported_sequence:[{args:Uint8Array.of(3),replies:[],value:Uint8Array.of(3)}],
   reusable_body:[{args:empty,replies:[],value:u64(200)}],
   arithmetic:[{args:empty,replies:[],value:Uint8Array.of(...u64(7),...u64(3),...u64(10),...u64(2),...u64(1))}],
   arithmetic_fail:[{args:empty,replies:[],failure:true}],

@@ -94,7 +94,10 @@ named fields. `sequence` describes homogeneous sequences. `product`, `field`,
 and `describe` inspect the metadata. This is not a serializer for arbitrary Zig
 pointers or recursive native structures; unsupported `scalar` types fail clearly.
 
-Names are compared within declarations; equal raw product shapes do not make
+Compatibility compares builder origin, raw schema identity and the complete named
+metadata graph. Memoized schema pairs handle sharing and recursion without
+repeated unfolding; allocation identity is only a fast path. Names are compared
+within declarations; equal raw product shapes do not make
 incompatible named layouts interchangeable. Operation identity is nominal: two
 `local` calls with identical display names create distinct capabilities.
 `external` explicitly permits environmental performance; `local` requires the
@@ -145,7 +148,10 @@ Errors explain the relationship rather than recommend widening permissions.
 libraries. Its caller promises that raw IDs come from the supplied source builder;
 it checks available bounds, categories and schema relationships. Erased numeric
 provenance cannot be reconstructed. Imported positional schemas use positional
-names unless the adapter supplies checked names. Ordinary covered clients need
+names unless the adapter supplies checked names. Scoped operation imports retain
+their body schemas and expose those operands under positional names. `cleanupInfo`
+retains the supplied typed failure layout in both the primary-failure alternative
+and the cleanup-failures sequence; it does not erase known names through import. Ordinary covered clients need
 neither these adapters nor mutable source catalogs. Finish low-level recursive
 schema definitions before adoption, and keep adopted declarations stable afterward;
 appending independent declarations is supported. Raw catalog mutation is outside
@@ -304,3 +310,11 @@ fixed native companion, and `peers/current/peer.mjs` selects the unchanged locke
 Wasmtime test peer. These are dependency/test artifacts, not alternate source or
 implementation branches. The archive remains alongside the bundle for durable
 reproduction; no historical launcher or task binding is needed.
+
+
+The first serial-review wave identified three metadata-boundary defects. Regression
+cases now cover imported scoped-operation execution, named failure inspection,
+imported/constructed sequence composition, nested-name rejection, borrowed and
+recursive interfaces, shared graphs, and allocation failure during compatibility
+checking. Their original subjects and CAS provenance are retained in the three
+Review Fold records for this execution. Review status remains owned by the draft PR.

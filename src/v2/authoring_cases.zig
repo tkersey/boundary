@@ -23,6 +23,9 @@ pub const Kind = enum {
     dispose,
     region,
     reusable_body,
+    imported_scoped,
+    cleanup_named,
+    imported_sequence,
 };
 
 pub fn build(raw: *source.Builder, kind: Kind) !source.Module {
@@ -35,6 +38,9 @@ pub fn build(raw: *source.Builder, kind: Kind) !source.Module {
         .match => matchCase(raw),
         .configuration => configurationCase(raw),
         .region => regionCase(raw),
+        .imported_scoped => importedScopedCase(raw),
+        .cleanup_named => cleanupNamedCase(raw),
+        .imported_sequence => importedSequenceCase(raw),
         .arithmetic, .arithmetic_fail => arithmeticCase(raw, kind == .arithmetic_fail),
     };
 }
@@ -242,6 +248,69 @@ fn configurationCase(raw: *source.Builder) !source.Module {
     });
     try c.define(entry, try body.ret(result));
     return c.module(entry, try c.scalar(void));
+}
+fn importedScopedCase(raw: *source.Builder) !source.Module {
+    const unit_id = try raw.scalar(void);
+    const integer_id = try raw.scalar(u64);
+    const inside_id = try raw.schema(.{ .internal = .{ .computation = .{
+        .parameters = &.{},
+        .result = integer_id,
+        .use = .linear,
+    } } });
+    const operation_id = try raw.effect(.{ .identity = "imported/scoped", .payload = unit_id, .result = integer_id, .external = false, .bodies = &.{inside_id} });
+    const c = try a.Context.init(raw);
+    const unit = try c.scalar(void);
+    const integer = try c.scalar(u64);
+    const inside = try a.interop.schema(c, inside_id);
+    const operation = try a.interop.operation(c, operation_id);
+    const h = try c.handler(operation, integer, integer, .{ .mode = .deep, .use = .linear, .residual = &.{}, .captures = &.{} });
+    const returns_fn = try c.returnFunction(h);
+    const returns = try c.body(returns_fn);
+    try c.define(returns_fn, try returns.ret(try returns.parameter("result")));
+    const clause_fn = try c.clauseFunction(h);
+    const clause = try c.body(clause_fn);
+    const reply = try clause.apply(try clause.parameter("0"), &.{});
+    try c.define(clause_fn, try clause.ret(try clause.resumeValue(try clause.parameter("resumption"), reply)));
+    const helper = try c.functionFor("inside", inside);
+    const helper_body = try c.body(helper);
+    try c.define(helper, try helper_body.ret(try helper_body.constant(u64, 42)));
+    const work_schema = try c.handledSchema(h);
+    const work = try c.functionFor("work", work_schema);
+    const work_body = try c.body(work);
+    const result = try work_body.performScoped(operation, try work_body.parameter("capability"), try work_body.constant(void, {}), &.{.{ .name = "0", .value = try work_body.lambda(helper, inside) }});
+    try c.define(work, try work_body.ret(result));
+    const entry = try c.function("entry", &.{}, integer, &.{});
+    const body = try c.body(entry);
+    try c.define(entry, try body.ret(try body.handleWith(h, try body.lambda(work, work_schema), &.{})));
+    return c.module(entry, unit);
+}
+fn cleanupNamedCase(raw: *source.Builder) !source.Module {
+    const c = try a.Context.init(raw);
+    const integer = try c.scalar(u64);
+    const failure = try c.record(&.{.{ .name = "code", .schema = integer }});
+    const info = try c.cleanupInfo(failure);
+    const entry = try c.function("inspect cleanup", &.{.{ .name = "exit", .schema = info }}, integer, &.{});
+    const body = try c.body(entry);
+    const primary = try body.field(try body.parameter("exit"), "0");
+    var cases: [4]*const a.FinishedCase = undefined;
+    for ([_][]const u8{ "0", "1", "2", "3" }, 0..) |name, index| {
+        const arm = try body.caseOf(primary, name);
+        const result = if (index == 1) try arm.body().field(arm.payload(), "code") else try arm.body().constant(u64, 0);
+        cases[index] = try arm.ret(result);
+    }
+    try c.define(entry, try body.ret(try body.match(primary, &cases)));
+    return c.module(entry, try c.scalar(void));
+}
+fn importedSequenceCase(raw: *source.Builder) !source.Module {
+    const c = try a.Context.init(raw);
+    const unit = try c.scalar(void);
+    const sequence = try c.sequence(unit);
+    const imported = try a.interop.schema(c, try a.interop.schemaId(c, sequence));
+    const entry = try c.function("compatible sequence", &.{.{ .name = "items", .schema = imported }}, sequence, &.{});
+    const body = try c.body(entry);
+    const result = try body.concat(try body.parameter("items"), try body.sequenceValue(sequence, &.{}));
+    try c.define(entry, try body.ret(result));
+    return c.module(entry, unit);
 }
 pub fn main(init: std.process.Init) !void {
     var args = init.minimal.args.iterate();

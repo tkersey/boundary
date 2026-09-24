@@ -428,3 +428,113 @@ test "A08 symbolic one-shot aggregate construction does not repeat at each use" 
     try oneShotVariant(testing.allocator, false);
     try testing.expectError(error.UnavailableSlot, oneShotVariant(testing.allocator, true));
 }
+
+test "review named cleanup descriptors retain both supplied failure layouts" {
+    var raw = source.Builder.init(testing.allocator);
+    defer raw.deinit();
+    const c = try a.Context.init(&raw);
+    const integer = try c.scalar(u64);
+    const failure = try c.record(&.{.{ .name = "code", .schema = integer }});
+    const other = try c.record(&.{.{ .name = "other", .schema = integer }});
+    const info = try c.cleanupInfo(failure);
+    const other_info = try c.cleanupInfo(other);
+    try testing.expect(info.fields()[0].schema.fields()[1].schema == failure);
+    try testing.expect(info.fields()[2].schema.resultSchema().? == failure);
+    try testing.expect(other_info.fields()[0].schema.fields()[1].schema == other);
+    try testing.expect(info.fields()[0].schema.fields()[1].schema == failure);
+    const raw_info = try @import("library/cleanup.zig").exitInfo(&raw, try a.interop.schemaId(c, failure));
+    try testing.expectEqual(raw_info, try a.interop.schemaId(c, info));
+    const entry = try c.function("inspect cleanup", &.{.{ .name = "exit", .schema = info }}, integer, &.{});
+    const body = try c.body(entry);
+    const primary = try body.field(try body.parameter("exit"), "0");
+    var cases: [4]*const a.FinishedCase = undefined;
+    for ([_][]const u8{ "0", "1", "2", "3" }, 0..) |name, index| {
+        const arm = try body.caseOf(primary, name);
+        const result = if (index == 1) try arm.body().field(arm.payload(), "code") else try arm.body().constant(u64, 0);
+        cases[index] = try arm.ret(result);
+    }
+    try c.define(entry, try body.ret(try body.match(primary, &cases)));
+    var compiled = try c.compile(testing.allocator, entry, try c.scalar(void));
+    defer compiled.deinit();
+}
+
+fn importedSequence(allocator: std.mem.Allocator) !void {
+    var raw = source.Builder.init(allocator);
+    defer raw.deinit();
+    const c = try a.Context.init(&raw);
+    const unit = try c.scalar(void);
+    const sequence = try c.sequence(unit);
+    const imported = try a.interop.schema(c, try a.interop.schemaId(c, sequence));
+    const entry = try c.function("compatible sequence", &.{.{ .name = "items", .schema = imported }}, sequence, &.{});
+    const body = try c.body(entry);
+    const result = try body.concat(try body.parameter("items"), try body.sequenceValue(sequence, &.{}));
+    try c.define(entry, try body.ret(result));
+    _ = try c.module(entry, unit);
+}
+test "review compatible imported sequences compose and tolerate allocation failures" {
+    try testing.checkAllAllocationFailures(testing.allocator, importedSequence, .{});
+}
+
+test "review shared schema graph comparison does not unfold a binary tree" {
+    var raw = source.Builder.init(testing.allocator);
+    defer raw.deinit();
+    const c = try a.Context.init(&raw);
+    const unit = try c.scalar(void);
+    var schema = unit;
+    for (0..28) |_| schema = try c.record(&.{ .{ .name = "0", .schema = schema }, .{ .name = "1", .schema = schema } });
+    const imported = try a.interop.schema(c, try a.interop.schemaId(c, schema));
+    const consume = try c.function("consume", &.{.{ .name = "value", .schema = schema }}, unit, &.{});
+    const consume_body = try c.body(consume);
+    try c.define(consume, try consume_body.ret(try consume_body.constant(void, {})));
+    const entry = try c.function("entry", &.{.{ .name = "value", .schema = imported }}, unit, &.{});
+    const body = try c.body(entry);
+    try c.define(entry, try body.ret(try body.call(consume, &.{.{ .name = "value", .value = try body.parameter("value") }})));
+    // 29 schema nodes describe 2^28 unit leaves; comparison must visit shared pairs once.
+    try testing.expectEqual(@as(usize, 29), raw.schemas.items.len);
+}
+
+test "review equal raw schemas still reject different nested field names" {
+    var raw = source.Builder.init(testing.allocator);
+    defer raw.deinit();
+    const c = try a.Context.init(&raw);
+    const unit = try c.scalar(void);
+    const named = try c.record(&.{.{ .name = "code", .schema = try c.scalar(u64) }});
+    const expected = try c.sequence(named);
+    const imported = try a.interop.schema(c, try a.interop.schemaId(c, expected));
+    const f = try c.function("expects names", &.{.{ .name = "value", .schema = expected }}, unit, &.{});
+    const entry = try c.function("entry", &.{.{ .name = "value", .schema = imported }}, unit, &.{});
+    const body = try c.body(entry);
+    try testing.expectError(error.SchemaMismatch, body.call(f, &.{.{ .name = "value", .value = try body.parameter("value") }}));
+}
+
+test "review importing a scoped operation preserves its operand and clause interface" {
+    var raw = source.Builder.init(testing.allocator);
+    defer raw.deinit();
+    var compiled = try source.lower(testing.allocator, try @import("authoring_cases.zig").build(&raw, .imported_scoped));
+    defer compiled.deinit();
+}
+
+test "review borrowed and recursive callable metadata compose across imports" {
+    var raw = source.Builder.init(testing.allocator);
+    defer raw.deinit();
+    const c = try a.Context.init(&raw);
+    const unit = try c.scalar(void);
+    const region = try c.region();
+    const loan = try c.borrowed(unit, region);
+    const imported_loan = try a.interop.schema(c, try a.interop.schemaId(c, loan));
+    const consume = try c.function("consume loan", &.{.{ .name = "loan", .schema = loan }}, unit, &.{});
+    const caller = try c.function("caller", &.{.{ .name = "loan", .schema = imported_loan }}, unit, &.{});
+    const body = try c.body(caller);
+    _ = try body.call(consume, &.{.{ .name = "loan", .value = try body.parameter("loan") }});
+    const recursive_id = try raw.reserveSchema();
+    try raw.defineSchema(recursive_id, .{ .internal = .{ .computation = .{
+        .parameters = &.{recursive_id},
+        .result = try a.interop.schemaId(c, unit),
+    } } });
+    const recursive = try a.interop.schema(c, recursive_id);
+    const equivalent = try c.callable(recursive.fields(), unit, &.{}, .{ .use = .reusable, .captures = &.{} });
+    const target = try c.function("recursive consumer", &.{.{ .name = "f", .schema = recursive }}, unit, &.{});
+    const input = try c.function("recursive input", &.{.{ .name = "f", .schema = equivalent }}, unit, &.{});
+    const input_body = try c.body(input);
+    _ = try input_body.call(target, &.{.{ .name = "f", .value = try input_body.parameter("f") }});
+}
