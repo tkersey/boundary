@@ -13,6 +13,9 @@ for qualification and live review/readiness status.
 Import the Zig build module `boundary`. Its public namespaces include `effect`,
 `computation`, `handler`, `region`, `program`, `data`, and `library`.
 
+Start with the [typed structured authoring guide](docs/typed-authoring.md) and
+`boundary.authoring` for named values, forward sequencing and derived handlers.
+
 An application implements `emit(builder)` using the checked staged builder.
 `boundary.program.lower(allocator, Application)` compiles that application;
 `boundary.program.compile(allocator, module)` compiles an already constructed

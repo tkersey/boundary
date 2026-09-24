@@ -13,12 +13,21 @@ const RawTypes = struct {
     consumer: hyper.demand.Family,
 };
 pub const Names = struct { external: []const u8, need: []const u8 };
-fn rawTypes(b: *source.Builder, comptime State: type, comptime Result: type, names: Names) source.Error!RawTypes {
+fn rawTypes(
+    b: *source.Builder,
+    comptime State: type,
+    comptime Result: type,
+    names: Names,
+) source.Error!RawTypes {
     const integer = try b.scalar(Result);
     const boolean = try b.scalar(State);
     const cached = try b.specialization(RawTypes, "boundary.hyper-authoring/tasks/v1", .{ integer, boolean, names });
     if (cached.cached) |value| return value;
-    const read = try b.effect(.{ .identity = names.external, .payload = integer, .result = integer });
+    const read = try b.effect(.{
+        .identity = names.external,
+        .payload = integer,
+        .result = integer,
+    });
     const task = try b.reserveSchema();
     const pair = try hyper.pairWith(b, task, task, &.{ integer, boolean });
     try b.defineSchema(task, .{ .internal = .{ .computation = .{
@@ -27,7 +36,15 @@ fn rawTypes(b: *source.Builder, comptime State: type, comptime Result: type, nam
         .effects = &.{read},
         .capture_bound = &.{ boolean, pair.peer_forward, pair.peer_backward },
     } } });
-    return cached.finish(b, .{ .integer = integer, .boolean = boolean, .task = task, .pair = pair, .read = read, .producer = try hyper.demand.family(b, names.need, boolean, integer), .consumer = try hyper.demand.family(b, names.need, boolean, integer) });
+    return cached.finish(b, .{
+        .integer = integer,
+        .boolean = boolean,
+        .task = task,
+        .pair = pair,
+        .read = read,
+        .producer = try hyper.demand.family(b, names.need, boolean, integer),
+        .consumer = try hyper.demand.family(b, names.need, boolean, integer),
+    });
 }
 
 /// The application retains all sequencing and control. Only raw library calls
@@ -40,18 +57,39 @@ pub const Environment = struct {
     read: *const a.Operation,
     raw_types: RawTypes,
 
-    pub fn init(b: *source.Builder, comptime State: type, comptime Result: type, names: Names) a.Error!Environment {
+    pub fn init(
+        b: *source.Builder,
+        comptime State: type,
+        comptime Result: type,
+        names: Names,
+    ) a.Error!Environment {
         const t = try rawTypes(b, State, Result, names);
         const c = try a.Context.init(b);
-        return .{ .context = c, .integer = try a.interop.schema(c, t.integer), .boolean = try a.interop.schema(c, t.boolean), .task = try a.interop.schema(c, t.task), .read = try a.interop.operation(c, t.read), .raw_types = t };
+        return .{
+            .context = c,
+            .integer = try a.interop.schema(c, t.integer),
+            .boolean = try a.interop.schema(c, t.boolean),
+            .task = try a.interop.schema(c, t.task),
+            .read = try a.interop.operation(c, t.read),
+            .raw_types = t,
+        };
     }
     pub fn need(self: Environment, consumer: bool) a.Error!*const a.Operation {
         return a.interop.operation(self.context, (if (consumer) self.raw_types.consumer else self.raw_types.producer).effect);
     }
-    pub fn interpretation(self: Environment, q: hyper.Query, consumer: bool) a.Error!hyper.demand.Interpretation {
+    pub fn interpretation(
+        self: Environment,
+        q: hyper.Query,
+        consumer: bool,
+    ) a.Error!hyper.demand.Interpretation {
         const t = self.raw_types;
         return hyper.demand.interpret(self.context.raw, q, if (consumer) t.consumer else t.producer, t.integer, .{
-            .captures = &.{ t.boolean, t.integer, t.pair.peer_forward, t.pair.peer_backward },
+            .captures = &.{
+                t.boolean,
+                t.integer,
+                t.pair.peer_forward,
+                t.pair.peer_backward,
+            },
             .residual = .{ .effects = &.{t.read} },
         });
     }
@@ -61,10 +99,19 @@ pub const Environment = struct {
     pub fn state(self: Environment, body: *a.Body, q: hyper.Query) a.Error!*const a.Value {
         return a.interop.adoptValue(body, q.state, self.boolean);
     }
-    pub fn bodySchema(self: Environment, interpretation_value: hyper.demand.Interpretation) a.Error!*const a.Schema {
+    pub fn bodySchema(
+        self: Environment,
+        interpretation_value: hyper.demand.Interpretation,
+    ) a.Error!*const a.Schema {
         return a.interop.namedCallable(self.context, interpretation_value.body, &.{"capability"});
     }
-    pub fn handle(self: Environment, body: *a.Body, interpretation_value: hyper.demand.Interpretation, q: hyper.Query, work: *const a.Value) a.Error!*const a.Value {
+    pub fn handle(
+        self: Environment,
+        body: *a.Body,
+        interpretation_value: hyper.demand.Interpretation,
+        q: hyper.Query,
+        work: *const a.Value,
+    ) a.Error!*const a.Value {
         const term = try hyper.demand.handle(self.context.raw, interpretation_value, q.peer, try a.interop.valueId(body, work));
         return a.interop.term(body, term, self.integer);
     }
@@ -82,14 +129,24 @@ pub const Environment = struct {
             }
         });
     }
-    pub fn start(self: Environment, body: *a.Body, definition_value: hyper.Ana, state_value: *const a.Value) a.Error!*const a.Value {
+    pub fn start(
+        self: Environment,
+        body: *a.Body,
+        definition_value: hyper.Ana,
+        state_value: *const a.Value,
+    ) a.Error!*const a.Value {
         const term = try hyper.start(self.context.raw, definition_value, try a.interop.valueId(body, state_value));
         return a.interop.term(body, term, try a.interop.schema(self.context, definition_value.interface));
     }
     pub fn peerSchema(self: Environment) a.Error!*const a.Schema {
         return a.interop.schema(self.context, self.raw_types.pair.peer_forward);
     }
-    pub fn invoke(self: Environment, body: *a.Body, participant: *const a.Value, peer: *const a.Value) a.Error!*const a.Value {
+    pub fn invoke(
+        self: Environment,
+        body: *a.Body,
+        participant: *const a.Value,
+        peer: *const a.Value,
+    ) a.Error!*const a.Value {
         _ = self;
         return body.apply(participant, &.{.{ .name = "0", .value = peer }});
     }

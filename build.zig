@@ -133,6 +133,14 @@ pub fn build(b: *std.Build) void {
             compact_fixtures.dependOn(&b.addInstallFileWithDir(run.captureStdOut(.{}), .prefix, b.fmt("{s}-{d}.bpi3", .{ kind, count })).step);
         }
     }
+    const authoring_cases = b.addExecutable(.{ .name = "authoring-cases", .root_module = b.createModule(.{
+        .root_source_file = b.path("src/v2/authoring_cases.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "boundary_data", .module = data }},
+    }) });
+    b.step("build-authoring-cases", "Build structured authoring execution cases")
+        .dependOn(&b.addInstallArtifact(authoring_cases, .{}).step);
     const client = b.addExecutable(.{ .name = "authoring-client", .root_module = b.createModule(.{
         .root_source_file = b.path("examples/authoring_client.zig"),
         .target = b.graph.host,
@@ -379,6 +387,9 @@ pub fn build(b: *std.Build) void {
     aggregate.dependOn(semantics);
     aggregate.dependOn(economy);
     aggregate.dependOn(source_fixtures);
+    const client_check = b.addRunArtifact(client);
+    _ = client_check.captureStdOut(.{});
+    aggregate.dependOn(&client_check.step);
     const public_example_check = b.addRunArtifact(one_effect);
     _ = public_example_check.captureStdOut(.{});
     aggregate.dependOn(&public_example_check.step);

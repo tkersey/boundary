@@ -14,6 +14,7 @@ examples/owned_exchange.zig
 examples/reciprocal_hyper.zig
 examples/structured_branch.zig
 src/v2/authoring.zig
+src/v2/authoring_cases.zig
 src/v2/authoring_tests.zig
 src/v2/data/activation.zig
 src/v2/data/activation_borrow_tests.zig
@@ -132,9 +133,16 @@ src/v2/source/unwind_example.zig
 src/v2/source/value_cache.zig
 src/v2/source/writer_raise_example.zig
 src/v2/test_root.zig
+test/authoring_economy.zig
+test/authoring_twice_reference.zig
+test/build_authoring_economy.zig
 test/build_hyper_compiler.zig
 test/hyper_allocation.zig
 test/hyper_compile_bench.zig
+test/package_authoring/build.zig
+test/package_authoring/category.zig
+test/package_authoring/data.zig
+test/package_authoring/rejection.zig
 test/v2/borrow_returns.zig
 test/v2/compact_fixtures.zig
 test/v2/compact_wasm.zig
@@ -149,5 +157,6 @@ test/v2/emit_scalar.zig
 test/v2/emit_source.zig
 test/v2/oracle_scopes.zig
 test/v2/snapshot_retention.zig
+tools/authoring_stats.zig
 tools/component_example.zig
 tools/component_link.zig
