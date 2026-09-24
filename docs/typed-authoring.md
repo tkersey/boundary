@@ -98,6 +98,9 @@ product, sum, and sequence schema constructors retain child descriptions too,
 as do the exposed cell and cleanup-exit descriptions. Nested named layouts
 therefore remain checked across calls and effect payloads. The
 metadata does not change BPI3 or make data identity nominal at runtime.
+Copy returned handles as needed; construct a new declaration to change its
+signature. Editing an issued value, effect, function, interpretation, or
+finished block's type or origin metadata is rejected.
 
 `Builder.external` declares a host-facing operation. `Builder.local` declares
 one interpreted through a nominal capability. Two local effects with identical

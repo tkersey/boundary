@@ -294,6 +294,131 @@ test "foreign effect rejection records its diagnostic" {
     try std.testing.expectEqualStrings("effect", author.diagnostic.?.entity);
 }
 
+test "function declarations retain their issued named signatures" {
+    var raw = source.Builder.init(std.testing.allocator);
+    defer raw.deinit();
+    var author = a.Builder.init(&raw);
+    const integer = try author.scalar(u64);
+    const first = try author.record(&.{
+        .{ .name = "a", .schema = integer },
+        .{ .name = "b", .schema = integer },
+    });
+    const renamed = try author.record(&.{
+        .{ .name = "b", .schema = integer },
+        .{ .name = "a", .schema = integer },
+    });
+    const function = try author.declare("named result", &.{}, first.schema, &.{});
+    var relabeled = function;
+    relabeled.result = renamed.schema;
+    try std.testing.expectError(error.TypeMismatch, author.body(relabeled));
+    try std.testing.expectEqual(a.Category.schema_mismatch, author.diagnostic.?.category);
+    var ambient = try author.ambient("caller");
+    try std.testing.expectError(error.TypeMismatch, ambient.call(relabeled, &.{}));
+    const other = try author.declare("other function", &.{.{ .name = "value", .schema = integer }}, first.schema, &.{});
+    var misplaced = try author.body(function);
+    misplaced.function = other;
+    try std.testing.expectError(error.InvalidBranch, misplaced.parameter("value"));
+    try std.testing.expectEqual(a.Category.out_of_scope, author.diagnostic.?.category);
+    var valid = try author.body(function);
+    const value = try valid.product(first, &.{
+        .{ .name = "a", .value = try author.literal(u64, 1) },
+        .{ .name = "b", .value = try author.literal(u64, 2) },
+    });
+    try author.define(function, try valid.finish(value));
+}
+
+test "callable arity failures retain structured counts" {
+    var raw = source.Builder.init(std.testing.allocator);
+    defer raw.deinit();
+    var author = a.Builder.init(&raw);
+    const integer = try author.scalar(u64);
+    const function = try author.declare("one argument", &.{.{ .name = "value", .schema = integer }}, integer, &.{});
+    var body = try author.ambient("arity caller");
+    try std.testing.expectError(error.InvalidArgument, body.call(function, &.{}));
+    try std.testing.expectEqual(a.Category.argument_mismatch, author.diagnostic.?.category);
+    try std.testing.expectEqual(@as(usize, 1), author.diagnostic.?.expected_count.?);
+    try std.testing.expectEqual(@as(usize, 0), author.diagnostic.?.actual_count.?);
+    const callable = try body.lambda(function, &.{}, .reusable);
+    try std.testing.expectError(error.InvalidArgument, body.apply(callable, &.{}));
+    try std.testing.expectEqual(a.Category.argument_mismatch, author.diagnostic.?.category);
+    try std.testing.expectEqualStrings("callable application", author.diagnostic.?.entity);
+    try std.testing.expectEqual(@as(usize, 1), author.diagnostic.?.expected_count.?);
+    try std.testing.expectEqual(@as(usize, 0), author.diagnostic.?.actual_count.?);
+}
+
+test "effect declarations reject named payload relabeling" {
+    var raw = source.Builder.init(std.testing.allocator);
+    defer raw.deinit();
+    var author = a.Builder.init(&raw);
+    const integer = try author.scalar(u64);
+    const left = try author.record(&.{
+        .{ .name = "a", .schema = integer },
+        .{ .name = "b", .schema = integer },
+    });
+    const right = try author.record(&.{
+        .{ .name = "b", .schema = integer },
+        .{ .name = "a", .schema = integer },
+    });
+    const operation = try author.local("named operation", left.schema, integer, .linear);
+    var relabeled = operation;
+    relabeled.payload = right.schema;
+    try std.testing.expectError(error.TypeMismatch, author.interpret(.{
+        .operation = relabeled,
+        .input = integer,
+        .answer = integer,
+        .mode = .deep,
+        .use = .linear,
+    }));
+}
+
+test "finished blocks reject named result relabeling" {
+    var raw = source.Builder.init(std.testing.allocator);
+    defer raw.deinit();
+    var author = a.Builder.init(&raw);
+    const integer = try author.scalar(u64);
+    const left = try author.record(&.{
+        .{ .name = "a", .schema = integer },
+        .{ .name = "b", .schema = integer },
+    });
+    const right = try author.record(&.{
+        .{ .name = "b", .schema = integer },
+        .{ .name = "a", .schema = integer },
+    });
+    const function = try author.declare("block origin", &.{}, right.schema, &.{});
+    var body = try author.body(function);
+    const value = try body.product(left, &.{
+        .{ .name = "a", .value = try author.literal(u64, 1) },
+        .{ .name = "b", .value = try author.literal(u64, 2) },
+    });
+    var block = try body.finish(value);
+    block.result = right.schema;
+    try std.testing.expectError(error.TypeMismatch, author.define(function, block));
+}
+
+test "interpretations reject named answer relabeling" {
+    var raw = source.Builder.init(std.testing.allocator);
+    defer raw.deinit();
+    var author = a.Builder.init(&raw);
+    const integer = try author.scalar(u64);
+    const left = try author.record(&.{
+        .{ .name = "a", .schema = integer },
+        .{ .name = "b", .schema = integer },
+    });
+    const right = try author.record(&.{
+        .{ .name = "b", .schema = integer },
+        .{ .name = "a", .schema = integer },
+    });
+    const operation = try author.local("answer operation", integer, integer, .linear);
+    const interpretation = try author.interpret(.{ .operation = operation, .input = left.schema, .answer = left.schema, .mode = .deep, .use = .linear });
+    const capability = try author.capability(operation);
+    const work = try author.declare("answer work", &.{.{ .name = "capability", .schema = capability }}, left.schema, &.{operation});
+    var body = try author.ambient("answer caller");
+    const callable = try body.lambda(work, &.{}, .reusable);
+    var relabeled = interpretation;
+    relabeled.answer = right.schema;
+    try std.testing.expectError(error.TypeMismatch, body.handle(relabeled, callable, &.{}, &.{}));
+}
+
 test "schema comparison visits shared named metadata as a graph" {
     var raw = source.Builder.init(std.testing.allocator);
     defer raw.deinit();

@@ -7,8 +7,9 @@ import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-const selectedCache = process.argv[2];
-if (!selectedCache) throw new Error('missing parent Zig global cache path');
+const [selectedCache, zigExecutable] = process.argv.slice(2);
+if (!selectedCache || !zigExecutable)
+  throw new Error('missing parent Zig cache path or executable');
 const globalCache = isAbsolute(selectedCache) ? selectedCache : resolve(root, selectedCache);
 const temporary = mkdtempSync(join(tmpdir(), 'boundary-public-authoring-'));
 try {
@@ -22,7 +23,7 @@ try {
   }
   cpSync(join(root, 'test/public_authoring_client'), clientRoot,
     { recursive: true, force: true });
-  const image = execFileSync('zig', ['build', 'test', 'emit',
+  const image = execFileSync(zigExecutable, ['build', 'test', 'emit',
     '-Doptimize=ReleaseSafe', '--global-cache-dir', globalCache],
     { cwd: clientRoot, maxBuffer: 8 << 20,
     timeout: 180000 });
