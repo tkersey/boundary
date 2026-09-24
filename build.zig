@@ -133,6 +133,14 @@ pub fn build(b: *std.Build) void {
             compact_fixtures.dependOn(&b.addInstallFileWithDir(run.captureStdOut(.{}), .prefix, b.fmt("{s}-{d}.bpi3", .{ kind, count })).step);
         }
     }
+    const client = b.addExecutable(.{ .name = "authoring-client", .root_module = b.createModule(.{
+        .root_source_file = b.path("examples/authoring_client.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "boundary", .module = boundary }},
+    }) });
+    b.step("emit-authoring-client", "Emit the public authoring usability client")
+        .dependOn(&b.addRunArtifact(client).step);
     const structured = b.addExecutable(.{ .name = "structured-branch", .root_module = b.createModule(.{
         .root_source_file = b.path("examples/structured_branch.zig"),
         .target = b.graph.host,

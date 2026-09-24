@@ -20,6 +20,36 @@ pub const Operation = opaque {};
 pub const Function = opaque {};
 pub const Value = opaque {};
 pub const Computation = opaque {};
+pub const Handler = opaque {};
+pub const Region = opaque {};
+pub const Case = opaque {
+    pub fn body(self: *const Case) *Body {
+        return data(CaseData, self).body;
+    }
+    pub fn payload(self: *const Case) *const Value {
+        return data(CaseData, self).payload;
+    }
+    pub fn ret(self: *const Case, value: *const Value) Error!*const FinishedCase {
+        const item = data(CaseData, self);
+        const computation = try item.body.ret(value);
+        return handle(FinishedCase, try item.body.context.save(FinishedCaseData, .{ .case = self, .computation = computation }));
+    }
+};
+pub const FinishedCase = opaque {};
+pub const CallableOptions = struct {
+    use: p.Use,
+    captures: []const *const Schema,
+};
+pub const HandlerOptions = struct {
+    mode: p.Mode,
+    use: p.Use,
+    residual: []const *const Operation,
+    captures: []const *const Schema,
+    body_captures: []const *const Schema = &.{},
+    owned_regions: []const *const Region = &.{},
+    borrowed_regions: []const *const Region = &.{},
+    state: []const Field = &.{},
+};
 pub const Field = struct { name: []const u8, schema: *const Schema };
 pub const Argument = struct { name: []const u8, value: *const Value };
 pub const Diagnostic = struct {
@@ -28,6 +58,7 @@ pub const Diagnostic = struct {
     relationship: []const u8 = "",
     expected: ?*const Schema = null,
     actual: ?*const Schema = null,
+    source: ?@import("source.zig").Diagnostic = null,
 
     pub fn render(self: Diagnostic, writer: *std.Io.Writer) !void {
         try writer.print("{s}: {s}: {s}", .{
@@ -39,6 +70,7 @@ const SchemaData = struct {
     owner: *Context,
     id: p.Id,
     fields: []const Field = &.{},
+    result: ?*const Schema = null,
 };
 const OperationData = struct {
     owner: *Context,
@@ -68,6 +100,27 @@ const ComputationData = struct {
     schema: *const Schema,
     scope: *Scope,
 };
+const HandlerData = struct {
+    owner: *Context,
+    id: p.Id,
+    operation: *const Operation,
+    input: *const Schema,
+    answer: *const Schema,
+    resumption: *const Schema,
+    body_schema: *const Schema,
+    returns: *const Function,
+    clause: *const Function,
+    state: []const Field,
+};
+const CaseData = struct {
+    body: *Body,
+    payload: *const Value,
+    sum: *const Value,
+    index: usize,
+    variable: p.Id,
+};
+const FinishedCaseData = struct { case: *const Case, computation: *const Computation };
+const RegionData = struct { owner: *Context, id: p.Id };
 const Scope = struct { parent: ?*Scope, active: bool = true };
 const Binding = struct { variable: p.Id, term: p.Id };
 fn data(comptime T: type, pointer: anytype) *const T {
@@ -83,6 +136,8 @@ pub const Context = struct {
     poisoned: bool = false,
     diagnostic: Diagnostic = .{},
     schemas: std.ArrayList(*const Schema) = .empty,
+    imported: std.AutoHashMapUnmanaged(p.Id, *const Schema) = .empty,
+    functions: std.ArrayList(*const Function) = .empty,
 
     pub fn init(raw: *source.Builder) Error!*Context {
         const self = try raw.allocator().create(Context);
@@ -135,11 +190,14 @@ pub const Context = struct {
         return output;
     }
     fn intern(self: *Context, id: p.Id, names: []const Field) Error!*const Schema {
+        return self.internResult(id, names, null);
+    }
+    fn internResult(self: *Context, id: p.Id, names: []const Field, result: ?*const Schema) Error!*const Schema {
         try self.ready();
         errdefer self.poisoned = true;
         for (self.schemas.items) |existing| {
             const s = data(SchemaData, existing);
-            if (s.id != id or s.fields.len != names.len) continue;
+            if (s.id != id or s.result != result or s.fields.len != names.len) continue;
             var same_names = true;
             for (s.fields, names) |a, b| {
                 if (a.schema != b.schema or !std.mem.eql(u8, a.name, b.name)) same_names = false;
@@ -150,6 +208,7 @@ pub const Context = struct {
             .owner = self,
             .id = id,
             .fields = try self.fields(names),
+            .result = result,
         }));
         try self.schemas.append(self.raw.allocator(), item);
         return item;
@@ -188,6 +247,12 @@ pub const Context = struct {
         }
         return ids;
     }
+    fn saveFunction(self: *Context, item: FunctionData) Error!*const Function {
+        errdefer self.poisoned = true;
+        const result = handle(Function, try self.save(FunctionData, item));
+        try self.functions.append(self.raw.allocator(), result);
+        return result;
+    }
     pub fn function(self: *Context, name: []const u8, parameters: []const Field, result: *const Schema, allowed: []const *const Operation) Error!*const Function {
         try self.ready();
         errdefer self.poisoned = true;
@@ -195,7 +260,183 @@ pub const Context = struct {
         const ids = try self.raw.allocator().alloc(p.Id, names.len);
         for (names, ids) |field, *id| id.* = try self.schemaId(field.schema);
         const id = try self.raw.declare(ids, try self.schemaId(result), try self.row(allowed), &.{});
-        return handle(Function, try self.save(FunctionData, .{ .owner = self, .id = id, .name = try self.label(name), .parameters = names, .result = result }));
+        return try self.saveFunction(.{ .owner = self, .id = id, .name = try self.label(name), .parameters = names, .result = result });
+    }
+    fn schemaIds(self: *Context, schemas: []const *const Schema) Error![]const p.Id {
+        errdefer self.poisoned = true;
+        const ids = try self.raw.allocator().alloc(p.Id, schemas.len);
+        for (schemas, ids) |schema, *id| id.* = try self.schemaId(schema);
+        return ids;
+    }
+    fn regionIds(self: *Context, regions: []const *const Region) Error![]const p.Id {
+        errdefer self.poisoned = true;
+        const ids = try self.raw.allocator().alloc(p.Id, regions.len);
+        for (regions, ids) |region_handle, *id| {
+            const r = data(RegionData, region_handle);
+            try self.origin(r.owner);
+            id.* = r.id;
+        }
+        return ids;
+    }
+    pub fn region(self: *Context) Error!*const Region {
+        try self.ready();
+        return handle(Region, try self.save(RegionData, .{ .owner = self, .id = self.raw.region() }));
+    }
+    pub fn borrowed(self: *Context, schema: *const Schema, region_handle: *const Region) Error!*const Schema {
+        const r = data(RegionData, region_handle);
+        try self.origin(r.owner);
+        errdefer self.poisoned = true;
+        return self.internResult(try self.raw.schema(.{ .internal = .{ .borrowed = .{
+            .value = try self.schemaId(schema),
+            .region = r.id,
+        } } }), &.{}, schema);
+    }
+    pub fn cleanupInfo(self: *Context, failure: *const Schema) Error!*const Schema {
+        const id = try self.schemaId(failure);
+        errdefer self.poisoned = true;
+        return interop.schema(self, try @import("library/cleanup.zig").exitInfo(self.raw, id));
+    }
+    pub fn sequence(self: *Context, element: *const Schema) Error!*const Schema {
+        errdefer self.poisoned = true;
+        const id = try self.raw.schema(.{ .seq = try self.schemaId(element) });
+        return self.internResult(id, &.{}, element);
+    }
+    pub fn alternatives(self: *Context, cases: []const Field) Error!*const Schema {
+        try self.ready();
+        errdefer self.poisoned = true;
+        const ids = try self.raw.allocator().alloc(p.Id, cases.len);
+        for (cases, ids) |item, *id| id.* = try self.schemaId(item.schema);
+        return self.intern(try self.raw.schema(.{ .sum = ids }), cases);
+    }
+    pub fn callable(self: *Context, parameters: []const Field, result: *const Schema, allowed: []const *const Operation, options: CallableOptions) Error!*const Schema {
+        try self.ready();
+        errdefer self.poisoned = true;
+        const names = try self.fields(parameters);
+        const ids = try self.raw.allocator().alloc(p.Id, names.len);
+        for (names, ids) |item, *id| id.* = try self.schemaId(item.schema);
+        const id = try self.raw.schema(.{ .internal = .{ .computation = .{
+            .parameters = ids,
+            .result = try self.schemaId(result),
+            .effects = try self.row(allowed),
+            .capture_bound = try self.schemaIds(options.captures),
+            .use = options.use,
+        } } });
+        return self.internResult(id, names, result);
+    }
+    pub fn capability(self: *Context, operation_handle: *const Operation) Error!*const Schema {
+        const op = data(OperationData, operation_handle);
+        try self.origin(op.owner);
+        if (op.external) return self.reject(error.InvalidCategory, op.name, "external operation has no local capability");
+        errdefer self.poisoned = true;
+        return self.intern(try self.raw.schema(.{ .internal = .{ .capability = op.id } }), &.{});
+    }
+    pub fn functionFor(self: *Context, name: []const u8, schema: *const Schema) Error!*const Function {
+        const id = try self.schemaId(schema);
+        const shape = self.raw.schemas.items[@intCast(id)];
+        if (shape != .internal or shape.internal != .computation)
+            return self.reject(error.InvalidCategory, "function", "requires callable schema");
+        const info = data(SchemaData, schema);
+        const result = info.result orelse return error.InvalidSchema;
+        errdefer self.poisoned = true;
+        const signature = shape.internal.computation;
+        return try self.saveFunction(.{ .owner = self, .id = try self.raw.declare(signature.parameters, signature.result, signature.effects, signature.regions), .name = try self.label(name), .parameters = info.fields, .result = result });
+    }
+    pub fn twice(self: *Context, schema: *const Schema) Error!*const Function {
+        const id = try self.schemaId(schema);
+        const shape = self.raw.schemas.items[@intCast(id)];
+        if (shape != .internal or shape.internal != .computation) return error.InvalidCategory;
+        const signature = shape.internal.computation;
+        if (signature.parameters.len != 0 or signature.use != .reusable) return error.InvalidOwnership;
+        const info = data(SchemaData, schema);
+        const element = info.result orelse return error.InvalidSchema;
+        const pair = try self.record(&.{ .{ .name = "first", .schema = element }, .{ .name = "second", .schema = element } });
+        const effects = try self.raw.allocator().alloc(*const Operation, signature.effects.len);
+        for (signature.effects, effects) |effect_id, *out| out.* = try interop.operation(self, effect_id);
+        const function_handle = try self.function("twice", &.{.{ .name = "callable", .schema = schema }}, pair, effects);
+        const f = data(FunctionData, function_handle);
+        self.raw.functions.items[@intCast(f.id)].regions = signature.regions;
+        const forward = try self.body(function_handle);
+        const callable_value = try forward.parameter("callable");
+        const first = try forward.apply(callable_value, &.{});
+        const second = try forward.apply(callable_value, &.{});
+        const result = try forward.product(pair, &.{ .{ .name = "first", .value = first }, .{ .name = "second", .value = second } });
+        try self.define(function_handle, try forward.ret(result));
+        return function_handle;
+    }
+    pub fn handler(self: *Context, operation_handle: *const Operation, input: *const Schema, answer: *const Schema, options: HandlerOptions) Error!*const Handler {
+        const op = data(OperationData, operation_handle);
+        try self.origin(op.owner);
+        if (op.external) return self.reject(error.InvalidCategory, op.name, "handler requires local operation");
+        errdefer self.poisoned = true;
+        const residual = try self.row(options.residual);
+        const borrowed_ids = try self.regionIds(options.borrowed_regions);
+        const answer_id = try self.schemaId(answer);
+        const resume_id = try self.raw.schema(.{ .internal = .{ .resumption = .{
+            .effect = op.id,
+            .input = try self.schemaId(op.result),
+            .answer = answer_id,
+            .effects = residual,
+            .capture_bound = try self.schemaIds(options.captures),
+            .handled = &.{op.id},
+            .mode = options.mode,
+            .use = options.use,
+            .owned_regions = try self.regionIds(options.owned_regions),
+        } } });
+        const resumption = try self.internResult(resume_id, &.{.{ .name = "reply", .schema = op.result }}, answer);
+        const returns_fields = try self.raw.allocator().alloc(Field, 1 + options.state.len);
+        @memcpy(returns_fields[0..options.state.len], options.state);
+        returns_fields[options.state.len] = .{ .name = "result", .schema = input };
+        const clause_fields = try self.raw.allocator().alloc(Field, 2 + options.state.len);
+        @memcpy(clause_fields[0..options.state.len], options.state);
+        clause_fields[options.state.len] = .{ .name = "payload", .schema = op.payload };
+        clause_fields[clause_fields.len - 1] = .{ .name = "resumption", .schema = resumption };
+        const returns = try self.function("handler return", returns_fields, answer, options.residual);
+        const clause = try self.function("operation clause", clause_fields, answer, options.residual);
+        const rf = data(FunctionData, returns).id;
+        const cf = data(FunctionData, clause).id;
+        self.raw.functions.items[@intCast(rf)].regions = borrowed_ids;
+        self.raw.functions.items[@intCast(cf)].regions = borrowed_ids;
+        const state_ids = try self.raw.allocator().alloc(p.Id, options.state.len);
+        for (options.state, state_ids) |item, *id| id.* = try self.schemaId(item.schema);
+        const body_effects = try self.raw.allocator().alloc(*const Operation, options.residual.len + 1);
+        @memcpy(body_effects[0..options.residual.len], options.residual);
+        body_effects[options.residual.len] = operation_handle;
+        const body_schema = try self.callable(&.{.{ .name = "capability", .schema = try self.capability(operation_handle) }}, input, body_effects, .{ .use = .linear, .captures = options.body_captures });
+        return handle(Handler, try self.save(HandlerData, .{ .owner = self, .id = try self.raw.handler(.{ .mode = options.mode, .input = try self.schemaId(input), .answer = answer_id, .return_function = rf, .clauses = &.{.{ .effect = op.id, .function = cf, .resumption = resume_id }}, .state = state_ids, .effects = residual }), .operation = operation_handle, .input = input, .answer = answer, .resumption = resumption, .body_schema = body_schema, .returns = returns, .clause = clause, .state = try self.fields(options.state) }));
+    }
+    /// Derive the resumption clause from a responder with an explicit residual contract.
+    pub fn responder(self: *Context, operation_handle: *const Operation, answer: *const Schema, responder_function: *const Function, options: HandlerOptions) Error!*const Handler {
+        const op = data(OperationData, operation_handle);
+        const f = data(FunctionData, responder_function);
+        try self.origin(op.owner);
+        try self.origin(f.owner);
+        if (f.parameters.len != 1 or options.state.len != 0) return error.SchemaMismatch;
+        try self.same(op.payload, f.parameters[0].schema);
+        try self.same(op.result, f.result);
+        const h = try self.handler(operation_handle, answer, answer, options);
+        const hd = data(HandlerData, h);
+        const returns = try self.body(hd.returns);
+        try self.define(hd.returns, try returns.ret(try returns.parameter("result")));
+        const clause = try self.body(hd.clause);
+        const reply = try clause.call(responder_function, &.{.{ .name = f.parameters[0].name, .value = try clause.parameter("payload") }});
+        const resumed = try clause.resumeValue(try clause.parameter("resumption"), reply);
+        try self.define(hd.clause, try clause.ret(resumed));
+        return h;
+    }
+    pub fn returnFunction(self: *Context, handler_handle: *const Handler) Error!*const Function {
+        const h = data(HandlerData, handler_handle);
+        try self.origin(h.owner);
+        return h.returns;
+    }
+    pub fn clauseFunction(self: *Context, handler_handle: *const Handler) Error!*const Function {
+        const h = data(HandlerData, handler_handle);
+        try self.origin(h.owner);
+        return h.clause;
+    }
+    pub fn handledSchema(self: *Context, handler_handle: *const Handler) Error!*const Schema {
+        const h = data(HandlerData, handler_handle);
+        try self.origin(h.owner);
+        return h.body_schema;
     }
     pub fn body(self: *Context, function_handle: *const Function) Error!*Body {
         return self.nestedBody(function_handle, null);
@@ -219,6 +460,29 @@ pub const Context = struct {
         try self.same(f.result, c.schema);
         errdefer self.poisoned = true;
         try self.raw.define(f.id, c.id);
+    }
+    /// Source/target admission remains authoritative; diagnostics retain its causal site.
+    pub fn compile(self: *Context, allocator: std.mem.Allocator, entry: *const Function, failure: *const Schema) Error!source.Compiled {
+        const module_value = try self.module(entry, failure);
+        var diagnostic: source.Diagnostic = .{};
+        return source.lowerObserved(allocator, module_value, .{ .diagnostic = &diagnostic }) catch |err| {
+            var name: []const u8 = "compiled source";
+            if (diagnostic.function) |id| for (self.functions.items) |f| {
+                const item = data(FunctionData, f);
+                if (item.id == id) {
+                    name = item.name;
+                    break;
+                }
+            };
+            self.diagnostic = .{ .code = err, .entity = name, .source = diagnostic, .relationship = switch (err) {
+                error.InvalidOwnership, error.OverwrittenOwner, error.UnavailableSlot => "capture, borrow or use obligation failed authoritative admission",
+                error.InvalidEffect => "effect exceeds declared residual allowance",
+                error.TypeMismatch => "argument, result or handler answer relationship differs",
+                error.UnboundVariable => "value is unavailable at this lexical use",
+                else => "authoritative source or target admission rejected the construction",
+            } };
+            return err;
+        };
     }
     /// Copies all source arrays: later low-level builder growth cannot invalidate this snapshot.
     /// Compilation still performs the authoritative source and target admission.
@@ -304,8 +568,7 @@ pub const Body = struct {
     }
     pub fn call(self: *Body, function_handle: *const Function, args: []const Argument) Error!*const Value {
         try self.ready();
-        const f = data(FunctionData, function_handle);
-        try self.context.origin(f.owner);
+        const f = try self.visibleFunction(function_handle);
         errdefer self.context.poisoned = true;
         return self.bind(try self.context.raw.term(.{ .call = .{ .function = f.id, .arguments = try self.arguments(f.parameters, args) } }), f.result);
     }
@@ -326,7 +589,7 @@ pub const Body = struct {
         if (c.raw.schemas.items[@intCast(id)] != .product)
             return c.reject(error.InvalidCategory, "product", "requires a record schema");
         errdefer c.poisoned = true;
-        return self.makeValue(try c.raw.primitive(id, .product, try self.arguments(data(SchemaData, schema).fields, fields), 0), schema);
+        return self.bind(try c.raw.pure(try c.raw.primitive(id, .product, try self.arguments(data(SchemaData, schema).fields, fields), 0)), schema);
     }
     pub fn field(self: *Body, product_value: *const Value, name: []const u8) Error!*const Value {
         const c = self.context;
@@ -334,13 +597,220 @@ pub const Body = struct {
         const s = data(SchemaData, v.schema);
         for (s.fields, 0..) |item, index| if (std.mem.eql(u8, item.name, name)) {
             errdefer c.poisoned = true;
-            return self.makeValue(try c.raw.primitive(try c.schemaId(item.schema), .field, &.{v.id}, index), item.schema);
+            return self.bind(try c.raw.pure(try c.raw.primitive(try c.schemaId(item.schema), .field, &.{v.id}, index)), item.schema);
         };
         return c.reject(error.UnknownName, "field", "unknown named product field");
+    }
+    pub fn closureBody(self: *Body, function_handle: *const Function) Error!*Body {
+        try self.ready();
+        return self.context.nestedBody(function_handle, self.scope);
+    }
+    fn visibleFunction(self: *Body, function_handle: *const Function) Error!*const FunctionData {
+        try self.ready();
+        const f = data(FunctionData, function_handle);
+        try self.context.origin(f.owner);
+        if (f.scope) |scope| if (scope.parent) |parent| {
+            var cursor: ?*Scope = self.scope;
+            while (cursor) |current| : (cursor = current.parent) if (current == parent) return f;
+            return self.context.reject(error.OutOfScope, f.name, "closure belongs to another lexical scope");
+        };
+        return f;
+    }
+    pub fn lambda(self: *Body, function_handle: *const Function, schema: *const Schema) Error!*const Value {
+        const c = self.context;
+        const f = try self.visibleFunction(function_handle);
+        const id = try c.schemaId(schema);
+        const shape = c.raw.schemas.items[@intCast(id)];
+        if (shape != .internal or shape.internal != .computation)
+            return c.reject(error.InvalidCategory, f.name, "lambda requires callable schema");
+        const info = data(SchemaData, schema);
+        try c.same(f.result, info.result orelse return error.InvalidSchema);
+        if (f.parameters.len != info.fields.len) return error.SchemaMismatch;
+        for (f.parameters, info.fields) |actual, expected| {
+            if (!std.mem.eql(u8, actual.name, expected.name)) return error.SchemaMismatch;
+            try c.same(expected.schema, actual.schema);
+        }
+        errdefer c.poisoned = true;
+        return self.makeValue(try c.raw.lambda(f.id, id), schema);
+    }
+    pub fn apply(self: *Body, callable_value: *const Value, args: []const Argument) Error!*const Value {
+        const v = try self.useValue(callable_value);
+        const c = self.context;
+        const info = data(SchemaData, v.schema);
+        const shape = c.raw.schemas.items[@intCast(info.id)];
+        if (shape != .internal or shape.internal != .computation)
+            return c.reject(error.InvalidCategory, "apply", "value is not callable");
+        errdefer c.poisoned = true;
+        return self.bind(try c.raw.term(.{ .apply = .{ .computation = v.id, .arguments = try self.arguments(info.fields, args) } }), info.result orelse return error.InvalidSchema);
+    }
+    pub fn performLocal(self: *Body, operation_handle: *const Operation, capability_value: *const Value, payload: *const Value) Error!*const Value {
+        const c = self.context;
+        const op = data(OperationData, operation_handle);
+        try c.origin(op.owner);
+        const cap = try self.useValue(capability_value);
+        try c.same(try c.capability(operation_handle), cap.schema);
+        const v = try self.useValue(payload);
+        try c.same(op.payload, v.schema);
+        errdefer c.poisoned = true;
+        return self.bind(try c.raw.term(.{ .perform = .{ .effect = op.id, .payload = v.id, .capability = cap.id } }), op.result);
+    }
+    pub fn resumeValue(self: *Body, resumption: *const Value, reply: *const Value) Error!*const Value {
+        const token = try self.useValue(resumption);
+        const v = try self.useValue(reply);
+        const c = self.context;
+        const info = data(SchemaData, token.schema);
+        const shape = c.raw.schemas.items[@intCast(info.id)];
+        if (shape != .internal or shape.internal != .resumption)
+            return c.reject(error.InvalidCategory, "resume", "value is not a resumption");
+        if (info.fields.len != 1) return error.InvalidSchema;
+        try c.same(info.fields[0].schema, v.schema);
+        errdefer c.poisoned = true;
+        return self.bind(try c.raw.term(.{ .resume_value = .{ .resumption = token.id, .argument = v.id } }), info.result orelse return error.InvalidSchema);
+    }
+    pub fn handleWith(self: *Body, handler_handle: *const Handler, callable_value: *const Value, state: []const Argument) Error!*const Value {
+        const c = self.context;
+        const h = data(HandlerData, handler_handle);
+        try c.origin(h.owner);
+        const v = try self.useValue(callable_value);
+        try c.same(h.body_schema, v.schema);
+        errdefer c.poisoned = true;
+        return self.bind(try c.raw.term(.{ .handle = .{ .handler = h.id, .body = v.id, .state = try self.arguments(h.state, state) } }), h.answer);
+    }
+    pub fn checkedAdd(self: *Body, left: *const Value, right: *const Value, failure: *const Value) Error!*const Value {
+        const c = self.context;
+        const a = try self.useValue(left);
+        const b = try self.useValue(right);
+        const f = try self.useValue(failure);
+        try c.same(a.schema, b.schema);
+        errdefer c.poisoned = true;
+        const value_id = try c.raw.value(.{ .schema = try c.schemaId(a.schema), .expression = .{ .primitive = .{ .opcode = .integer_add, .operands = &.{ a.id, b.id }, .failures = &.{.{ .kind = .arithmetic_overflow, .value = try c.raw.failureLiteral(f.id) }} } } });
+        return self.bind(try c.raw.pure(value_id), a.schema);
+    }
+    pub fn sequenceValue(self: *Body, schema: *const Schema, items: []const *const Value) Error!*const Value {
+        const c = self.context;
+        const id = try c.schemaId(schema);
+        const shape = c.raw.schemas.items[@intCast(id)];
+        if (shape != .seq) return error.InvalidCategory;
+        const element = data(SchemaData, schema).result orelse return error.InvalidSchema;
+        errdefer c.poisoned = true;
+        const ids = try c.raw.allocator().alloc(p.Id, items.len);
+        for (items, ids) |item, *out| {
+            const v = try self.useValue(item);
+            try c.same(element, v.schema);
+            out.* = v.id;
+        }
+        return self.makeValue(try c.raw.primitive(id, .sequence, ids, 0), schema);
+    }
+    pub fn concat(self: *Body, left: *const Value, right: *const Value) Error!*const Value {
+        const a = try self.useValue(left);
+        const b = try self.useValue(right);
+        const c = self.context;
+        try c.same(a.schema, b.schema);
+        const id = try c.schemaId(a.schema);
+        if (c.raw.schemas.items[@intCast(id)] != .seq) return error.InvalidCategory;
+        errdefer c.poisoned = true;
+        return self.makeValue(try c.raw.primitive(id, .sequence_concat, &.{ a.id, b.id }, 0), a.schema);
+    }
+    pub fn variant(self: *Body, schema: *const Schema, name: []const u8, payload_value: *const Value) Error!*const Value {
+        const c = self.context;
+        const id = try c.schemaId(schema);
+        const v = try self.useValue(payload_value);
+        if (c.raw.schemas.items[@intCast(id)] != .sum) return error.InvalidCategory;
+        for (data(SchemaData, schema).fields, 0..) |item, index| {
+            if (!std.mem.eql(u8, item.name, name)) continue;
+            try c.same(item.schema, v.schema);
+            errdefer c.poisoned = true;
+            return self.makeValue(try c.raw.primitive(id, .variant, &.{v.id}, index), schema);
+        }
+        return c.reject(error.UnknownName, "variant", "unknown alternative");
+    }
+    pub fn caseOf(self: *Body, sum: *const Value, name: []const u8) Error!*const Case {
+        const v = try self.useValue(sum);
+        const c = self.context;
+        const schema = data(SchemaData, v.schema);
+        if (c.raw.schemas.items[@intCast(schema.id)] != .sum) return error.InvalidCategory;
+        for (schema.fields, 0..) |item, index| {
+            if (!std.mem.eql(u8, item.name, name)) continue;
+            errdefer c.poisoned = true;
+            const arm = try self.branch();
+            const variable = try c.raw.variable(try c.schemaId(item.schema));
+            const payload = try arm.makeValue(try c.raw.reference(variable), item.schema);
+            return handle(Case, try c.save(CaseData, .{ .body = arm, .payload = payload, .sum = sum, .index = index, .variable = variable }));
+        }
+        return c.reject(error.UnknownName, "match", "unknown alternative");
+    }
+    pub fn match(self: *Body, sum: *const Value, cases: []const *const FinishedCase) Error!*const Value {
+        const v = try self.useValue(sum);
+        const c = self.context;
+        const schema = data(SchemaData, v.schema);
+        if (c.raw.schemas.items[@intCast(schema.id)] != .sum or
+            cases.len != schema.fields.len or cases.len == 0) return error.InvalidCategory;
+        errdefer c.poisoned = true;
+        const RawCase = @typeInfo(@FieldType(source.ast.Term, "match_sum")).@"struct".fields[1].type;
+        const raw_cases = try c.raw.allocator().alloc(@typeInfo(RawCase).pointer.child, cases.len);
+        const seen = try c.raw.allocator().alloc(bool, cases.len);
+        @memset(seen, false);
+        var result: ?*const Schema = null;
+        for (cases) |finished| {
+            const f = data(FinishedCaseData, finished);
+            const arm = data(CaseData, f.case);
+            const computation = data(ComputationData, f.computation);
+            try c.origin(computation.owner);
+            if (arm.sum != sum or arm.body.scope.parent != self.scope or
+                arm.index >= cases.len or seen[arm.index]) return error.InvalidBranch;
+            if (result) |expected| try c.same(expected, computation.schema);
+            result = computation.schema;
+            seen[arm.index] = true;
+            raw_cases[arm.index] = .{ .variable = arm.variable, .body = computation.id };
+        }
+        return self.bind(try c.raw.term(.{ .match_sum = .{ .value = v.id, .cases = raw_cases } }), result.?);
+    }
+    pub fn resumeWith(self: *Body, resumption: *const Value, reply: *const Value, successor: *const Handler, state: []const Argument) Error!*const Value {
+        const token = try self.useValue(resumption);
+        const v = try self.useValue(reply);
+        const c = self.context;
+        const info = data(SchemaData, token.schema);
+        const shape = c.raw.schemas.items[@intCast(info.id)];
+        if (shape != .internal or shape.internal != .resumption) return error.InvalidCategory;
+        const h = data(HandlerData, successor);
+        try c.origin(h.owner);
+        if (shape.internal.resumption.mode != .shallow or info.fields.len != 1)
+            return error.InvalidCategory;
+        try c.same(info.fields[0].schema, v.schema);
+        try c.same(info.result orelse return error.InvalidSchema, h.input);
+        errdefer c.poisoned = true;
+        return self.bind(try c.raw.term(.{ .resume_with = .{ .resumption = token.id, .argument = v.id, .handler = h.id, .state = try self.arguments(h.state, state) } }), h.answer);
+    }
+    pub fn dispose(self: *Body, owned: *const Value) Error!*const Value {
+        const v = try self.useValue(owned);
+        const c = self.context;
+        errdefer c.poisoned = true;
+        return self.bind(try c.raw.term(.{ .dispose = v.id }), try c.scalar(void));
+    }
+    pub fn protect(self: *Body, work: *const Value, cleanup: *const Value, args: []const Argument) Error!*const Value {
+        const v = try self.useValue(work);
+        const finalizer = try self.useValue(cleanup);
+        const c = self.context;
+        const info = data(SchemaData, v.schema);
+        const shape = c.raw.schemas.items[@intCast(info.id)];
+        if (shape != .internal or shape.internal != .computation) return error.InvalidCategory;
+        const cleanup_shape = c.raw.schemas.items[@intCast(data(SchemaData, finalizer.schema).id)];
+        if (cleanup_shape != .internal or cleanup_shape.internal != .computation)
+            return error.InvalidCategory;
+        errdefer c.poisoned = true;
+        return self.bind(try c.raw.term(.{ .protect = .{ .body = v.id, .cleanup = finalizer.id, .arguments = try self.arguments(info.fields, args) } }), info.result orelse return error.InvalidSchema);
     }
     pub fn branch(self: *Body) Error!*Body {
         try self.ready();
         return self.context.save(Body, .{ .context = self.context, .scope = try self.context.save(Scope, .{ .parent = self.scope }) });
+    }
+    pub fn block(self: *Body, finished: *const Computation) Error!*const Value {
+        try self.ready();
+        const c = self.context;
+        const value = data(ComputationData, finished);
+        try c.origin(value.owner);
+        if (value.scope.parent != self.scope) return error.InvalidBranch;
+        return self.bind(value.id, value.schema);
     }
     pub fn conditional(self: *Body, condition: *const Value, when_true: *const Computation, when_false: *const Computation) Error!*const Value {
         const c = self.context;
@@ -377,3 +847,136 @@ pub const Body = struct {
         return computation;
     }
 };
+
+/// Explicit low-level integration. Numeric IDs have no recoverable historical
+/// provenance. The caller promises they belong to c.raw; available bounds and
+/// categories are checked. These adapters never certify raw source admission.
+pub const interop = struct {
+    pub fn scope(c: *Context) Error!*Body {
+        try c.ready();
+        return c.save(Body, .{ .context = c, .scope = try c.save(Scope, .{ .parent = null }) });
+    }
+    pub fn adoptValue(body: *Body, id: p.Id, expected: *const Schema) Error!*const Value {
+        try body.ready();
+        const c = body.context;
+        if (id >= c.raw.values.items.len) return error.InvalidReference;
+        if (c.raw.values.items[@intCast(id)].schema != try c.schemaId(expected)) return error.SchemaMismatch;
+        return body.makeValue(id, expected);
+    }
+    pub fn valueId(body: *Body, item: *const Value) Error!p.Id {
+        return (try body.useValue(item)).id;
+    }
+    pub fn term(body: *Body, id: p.Id, result: *const Schema) Error!*const Value {
+        try body.ready();
+        if (id >= body.context.raw.terms.items.len) return error.InvalidReference;
+        _ = try body.context.schemaId(result);
+        return body.bind(id, result);
+    }
+    pub fn computationId(c: *Context, item: *const Computation) Error!p.Id {
+        const v = data(ComputationData, item);
+        try c.origin(v.owner);
+        return v.id;
+    }
+    pub fn schema(c: *Context, id: p.Id) Error!*const Schema {
+        try c.ready();
+        if (id >= c.raw.schemas.items.len) return error.InvalidSchema;
+        if (c.imported.get(id)) |present| return present;
+        errdefer c.poisoned = true;
+        const shape = c.raw.schemas.items[@intCast(id)];
+        switch (shape) {
+            .product, .sum, .seq => {},
+            .internal => |inner| switch (inner) {
+                .computation, .resumption => {},
+                else => return c.intern(id, &.{}),
+            },
+            else => return c.intern(id, &.{}),
+        }
+        // Install a stable placeholder before following recursive schema edges.
+        const info = try c.save(SchemaData, .{ .owner = c, .id = id });
+        const result = handle(Schema, info);
+        try c.imported.put(c.raw.allocator(), id, result);
+        const ids: []const p.Id = switch (shape) {
+            .product => |v| v,
+            .sum => |v| v,
+            .internal => |v| if (v == .computation) v.computation.parameters else &.{},
+            else => &.{},
+        };
+        const fields = try c.raw.allocator().alloc(Field, ids.len);
+        for (ids, fields, 0..) |child, *item, i| item.* = .{
+            .name = try std.fmt.allocPrint(c.raw.allocator(), "{d}", .{i}),
+            .schema = try schema(c, child),
+        };
+        info.fields = fields;
+        info.result = switch (shape) {
+            .seq => |element| try schema(c, element),
+            .internal => |v| switch (v) {
+                .computation => |signature| try schema(c, signature.result),
+                .resumption => |signature| try schema(c, signature.answer),
+                else => null,
+            },
+            else => null,
+        };
+        if (shape == .internal and shape.internal == .resumption) {
+            const input = try schema(c, shape.internal.resumption.input);
+            info.fields = try c.fields(&.{.{ .name = "reply", .schema = input }});
+        }
+        return result;
+    }
+    pub fn namedCallable(c: *Context, id: p.Id, names: []const []const u8) Error!*const Schema {
+        const imported = try schema(c, id);
+        const shape = c.raw.schemas.items[@intCast(id)];
+        if (shape != .internal or shape.internal != .computation) return error.InvalidCategory;
+        const info = data(SchemaData, imported);
+        if (names.len != info.fields.len) return error.SchemaMismatch;
+        errdefer c.poisoned = true;
+        const fields = try c.raw.allocator().alloc(Field, names.len);
+        for (fields, names, info.fields) |*item, name, old| item.* = .{ .name = name, .schema = old.schema };
+        return c.internResult(id, fields, info.result);
+    }
+    pub fn operation(c: *Context, id: p.Id) Error!*const Operation {
+        try c.ready();
+        if (id >= c.raw.effects.items.len) return error.InvalidEffect;
+        const op = c.raw.effects.items[@intCast(id)];
+        return handle(Operation, try c.save(OperationData, .{ .owner = c, .id = id, .name = try c.label(op.identity), .payload = try schema(c, op.payload), .result = try schema(c, op.result), .external = op.external }));
+    }
+    pub fn region(c: *Context, id: p.Id) Error!*const Region {
+        try c.ready();
+        if (id >= c.raw.region_count) return error.InvalidReference;
+        return handle(Region, try c.save(RegionData, .{ .owner = c, .id = id }));
+    }
+    pub fn schemaId(c: *Context, value: *const Schema) Error!p.Id {
+        return c.schemaId(value);
+    }
+    pub fn operationId(c: *Context, value: *const Operation) Error!p.Id {
+        const item = data(OperationData, value);
+        try c.origin(item.owner);
+        return item.id;
+    }
+    pub fn functionId(c: *Context, value: *const Function) Error!p.Id {
+        const item = data(FunctionData, value);
+        try c.origin(item.owner);
+        return item.id;
+    }
+    pub fn handlerId(c: *Context, value: *const Handler) Error!p.Id {
+        const item = data(HandlerData, value);
+        try c.origin(item.owner);
+        return item.id;
+    }
+    pub fn resumptionSchema(c: *Context, value: *const Handler) Error!*const Schema {
+        const item = data(HandlerData, value);
+        try c.origin(item.owner);
+        return item.resumption;
+    }
+    pub fn resultSchema(c: *Context, value: *const Schema) Error!*const Schema {
+        _ = try c.schemaId(value);
+        return data(SchemaData, value).result orelse error.InvalidSchema;
+    }
+};
+
+/// Compatibility adapters retain the existing low-level error set.
+pub fn sourceError(err: Error) source.Error {
+    return switch (err) {
+        error.ForeignHandle, error.OutOfScope, error.ClosedBody, error.PoisonedAuthoring, error.SchemaMismatch, error.UnknownName, error.DuplicateName, error.InvalidCategory, error.InvalidBranch, error.UndefinedBody => error.InvalidSource,
+        else => |other| other,
+    };
+}

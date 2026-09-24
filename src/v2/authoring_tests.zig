@@ -82,3 +82,45 @@ fn allocationWitness(allocator: std.mem.Allocator) !void {
 test "A15 authoring constructors and snapshot tolerate allocation failure" {
     try testing.checkAllAllocationFailures(testing.allocator, allocationWitness, .{});
 }
+
+test "authoring derived responder preserves explicit residual allowance" {
+    var raw = source.Builder.init(testing.allocator);
+    defer raw.deinit();
+    const c = try a.Context.init(&raw);
+    const unit = try c.scalar(void);
+    const integer = try c.scalar(u64);
+    const lookup = try c.external("lookup", integer, integer);
+    const question = try c.local("question", integer, integer, .linear);
+    const responder = try c.function("responder", &.{.{ .name = "key", .schema = integer }}, integer, &.{lookup});
+    const response = try c.body(responder);
+    try c.define(responder, try response.ret(try response.perform(lookup, try response.parameter("key"))));
+    const h = try c.responder(question, integer, responder, .{ .mode = .deep, .use = .linear, .residual = &.{lookup}, .captures = &.{} });
+    const schema = try c.handledSchema(h);
+    const work = try c.functionFor("work", schema);
+    const body = try c.body(work);
+    const result = try body.performLocal(question, try body.parameter("capability"), try body.constant(u64, 19));
+    try c.define(work, try body.ret(result));
+    const entry = try c.function("entry", &.{}, integer, &.{lookup});
+    const main = try c.body(entry);
+    try c.define(entry, try main.ret(try main.handleWith(h, try main.lambda(work, schema), &.{})));
+    var compiled = try source.lower(testing.allocator, try c.module(entry, unit));
+    defer compiled.deinit();
+}
+
+test "authoring nested callable captures parent named value" {
+    var raw = source.Builder.init(testing.allocator);
+    defer raw.deinit();
+    const c = try a.Context.init(&raw);
+    const integer = try c.scalar(u64);
+    const entry = try c.function("entry", &.{.{ .name = "x", .schema = integer }}, integer, &.{});
+    const body = try c.body(entry);
+    const x = try body.parameter("x");
+    const schema = try c.callable(&.{}, integer, &.{}, .{ .use = .reusable, .captures = &.{integer} });
+    const nested = try c.functionFor("nested", schema);
+    const inner = try body.closureBody(nested);
+    try c.define(nested, try inner.ret(x));
+    const result = try body.apply(try body.lambda(nested, schema), &.{});
+    try c.define(entry, try body.ret(result));
+    var compiled = try source.lower(testing.allocator, try c.module(entry, try c.scalar(void)));
+    defer compiled.deinit();
+}

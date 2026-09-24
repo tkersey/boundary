@@ -1,4 +1,5 @@
 build.zig
+examples/authoring_client.zig
 examples/composed_exchange.zig
 examples/hyper_adaptive.zig
 examples/hyper_algebra.zig
@@ -73,6 +74,7 @@ src/v2/library/cleanup.zig
 src/v2/library/combinators.zig
 src/v2/library/generator.zig
 src/v2/library/hyper.zig
+src/v2/library/hyper_authoring.zig
 src/v2/library/hyper_need.zig
 src/v2/library/raise.zig
 src/v2/library/reader.zig

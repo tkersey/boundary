@@ -58,3 +58,40 @@ slice. Allocation-failure injection covers its constructors and snapshot.
 `test/structured_authoring.mjs RUNTIME_DIR IMAGE` executes both branches with the
 verified kernel: false returns 42 without a request; true requests payload 19 and
 returns the independently supplied reply 71 after fresh-instance restoration.
+
+## Integration progress
+
+The second slice adds callables, nested lexical captures, named application,
+checked addition, local capabilities, derived responders, handlers and resumptions,
+sequence construction, tagged cases and protection entry points. The handler body
+and continuation have separate capture allowances. All four requested migrations
+now use the new surface; the hyperfunction bridge contains only interface setup
+and checked calls into the existing library.
+
+The new client in `examples/authoring_client.zig` constructs a reusable callable,
+invokes it twice under a responder with an external residual lookup, and selects
+that work using a runtime Boolean. Its alternate branch performs checked addition.
+Native/Node execution agrees on two distinct reply sequences and on overflow in
+both branches. The image is 501 bytes. Building this client outside the source tree
+and its rejected sibling remain pending.
+
+Further newly executed evidence:
+
+- Focused tests preserve valid nested capture and reject foreign/escaped values.
+- Existing scoped-choice tests retain borrowed-cell returns, owned regions and
+  protected-resource capture rejection/acceptance.
+- `zig build check-authoring -Doptimize=ReleaseSafe` passed after the integrations.
+- `zig build emit-examples check-semantics -Doptimize=ReleaseSafe` passed: 42
+  independent source fixtures plus cancellation/cleanup scenarios.
+- The existing World source-agreement driver, pointed at the selected runtime,
+  passed 6,433 native/Node comparisons over those 42 newly emitted fixtures.
+- Baseline and migrated one-effect images are both 85 bytes and agree on two
+  independently supplied replies.
+- Baseline and migrated recursive demand agree for replies 19 and 29 (results 42
+  and 52), and maximal-u64 reply (authored failure), using actual State across
+  fresh native/Node instances. The candidate is 1,220 bytes versus 1,234 baseline;
+  successful quantum-1 runs take 85 versus 83 transfers. Transfer counts are
+  scheduling observations, not extra external effects.
+
+Full A01–A18 coverage, public-package construction, economic timing and serial
+review convergence are still in progress. This draft does not claim completion.
