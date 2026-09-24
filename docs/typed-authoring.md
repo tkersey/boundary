@@ -61,6 +61,8 @@ equal result schemas. Values from the parent can be read in children; a sibling
 local cannot be read in another branch or after the join. The join's returned
 value belongs to the parent. A nested function body created by `bodyWithin`
 can capture its parent; Boundary checks its explicit capture bound and use.
+Copies of the same `Body` share one scope-owned statement sequence; finishing
+any copy closes that scope after all of its staged statements have been folded.
 
 `Body.lambda` creates a symbolic callable expression. Repeating that expression
 may construct distinct runtime closures. Use `Body.bindValue` when subsequent
@@ -88,6 +90,11 @@ schema IDs do not need to be `comptime`. `productSchema`, `sumSchema`, and
 `sequenceSchema` also accept checked schema handles. Portable records and
 variants are explicit; this API does not serialize arbitrary Zig pointers or
 recursive host objects.
+Names are authoring metadata. Two records or variants may have the same
+positional source schema ID while assigning different names to those positions.
+The high-level handles retain the named layout across declarations, calls,
+applications, handlers, and joins, and reject a mismatched named access. The
+metadata does not change BPI3 or make data identity nominal at runtime.
 
 `Builder.external` declares a host-facing operation. `Builder.local` declares
 one interpreted through a nominal capability. Two local effects with identical
@@ -109,6 +116,11 @@ and region allowances remain explicit. `Body.resumeValue`, `resumeWith`, and
 `resumeComputation` expose the relevant continuation forms. The handled body
 result (`input`) and outer handler result (`answer`) may differ. A clause can
 return an answer without resuming when its declared use permits that.
+For a deep handler, a resumption returns the outer answer; for a shallow
+handler, it returns the handled input. A shallow continuation may be attached
+to a compatible deep or shallow successor. A resumed computation receives the
+operation's declared use-site capability parameters, when any, and may only
+exercise their explicit effect allowance.
 
 For a common question/responder pattern, `Builder.responding` takes an authored
 responder function, the handled body's result schema, an explicit residual row,
@@ -141,11 +153,12 @@ builder remain valid until its raw source arena is destroyed. Labels are
 metadata: changing them does not change executable BPI3 bytes or force delayed
 work.
 
-`authoring.lowerDiagnosed(allocator, Application, &diagnostic)` copies a failed
-diagnostic out of the emitter arena for later inspection. The caller owns the
-returned `OwnedDiagnostic` and calls `deinit`. Allocating this durable copy can
-itself return `OutOfMemory`; the underlying construction still publishes no
-Module. Plain `authoring.lower` is the simpler success path.
+For an error that must be inspected after teardown, use a manually owned
+`Builder` and call `OwnedDiagnostic.copy(allocator, builder.diagnostic.?)`
+immediately after the reported error. The caller owns that snapshot and calls
+`deinit`. Allocating it can return `OutOfMemory`. A later authoring operation
+clears the borrowed diagnostic before reporting its own result; no stale
+diagnostic is inferred from an arbitrary application callback's final error.
 
 The low-level `boundary.computation.Builder` API remains public. `adoptSchema`,
 `adoptEffect`, `adoptRegion`, and `authoring.Interop` form an explicit bridge for
@@ -229,6 +242,7 @@ runtime input; fresh-State request/reply/failure traces match the baseline.
 One paired representative workflow used three isolated-cache ReleaseSafe native
 emitter builds, nine already-built process emissions, and 40 warm-kernel World
 start/reply replays per version. Medians were baseline→candidate: build
-12.464→12.846 s, emission 2.498→2.506 ms, and replay 0.589→0.616 ms. These
-small local observations are an explained fixed authoring/block overhead, not
-a throughput guarantee or a reason to change World's selected package.
+12.532→12.939 s, emission 2.550→2.632 ms, and replay 0.660→0.658 ms. These
+local paired observations show a modest build/emission cost; the warm replay
+difference is negligible at this scale. They are not a throughput guarantee or
+a reason to change World's selected package.

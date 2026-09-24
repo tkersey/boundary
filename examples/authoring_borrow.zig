@@ -7,7 +7,10 @@ pub const Application = struct {
     pub fn emit(author: *a.Builder) !a.Module {
         const integer = try author.scalar(u64);
         const unit = try author.scalar(void);
-        const owned = try author.resource(integer);
+        const representation = try author.record(&.{
+            .{ .name = "value", .schema = integer },
+        });
+        const owned = try author.resource(representation.schema);
         const loan = author.region();
         const borrowed = try author.borrowedSchema(owned, loan);
         const exit_info = try author.exitInfo(unit);
@@ -21,11 +24,13 @@ pub const Application = struct {
         }, unit, &.{});
         try author.resourceAuthority(owned, &.{acquire}, &.{ read, release });
         var acquire_body = try author.body(acquire);
-        const resource_value = try acquire_body.packResource(owned, try author.literal(u64, 41));
+        const resource_value = try acquire_body.packResource(owned, try acquire_body.product(representation, &.{
+            .{ .name = "value", .value = try author.literal(u64, 41) },
+        }));
         try author.define(acquire, try acquire_body.finish(resource_value));
         var read_body = try author.body(read);
         const extracted = try read_body.unpackResource(try read_body.parameter("borrowed"));
-        try author.define(read, try read_body.finish(extracted));
+        try author.define(read, try read_body.finish(try read_body.field(representation, extracted, "value")));
         var release_body = try author.body(release);
         _ = try release_body.bindValue(try release_body.unpackResource(try release_body.parameter("owned")));
         try author.define(release, try release_body.finish(try author.literal(void, {})));
