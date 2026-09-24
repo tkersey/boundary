@@ -59,6 +59,8 @@ encode, request/reply, restore, and result path without private imports.
 `Body.checkedAdd` takes a `FailureLiteral` from `Builder.literalFailure`; its
 overflow payload is encoded in the image. `Body.fail` takes an ordinary runtime
 `Value` and can fail with a computed payload.
+`Body.equal` accepts integer or Boolean operands; record and variant equality
+is not a source primitive.
 
 Build each runtime branch as a child body and finish it. `Body.select` joins
 equal result schemas. Values from the parent can be read in children; a sibling
@@ -146,8 +148,9 @@ exercise their explicit effect allowance.
 For a common question/responder pattern, `Builder.responding` takes an authored
 responder function, the handled body's result schema, an explicit residual row,
 capture bound, mode, and use. It derives the identity return clause and the
-resumption call. The responder's declared effects must fit the residual row;
-interpreting the local question does not make its external lookup pure. See
+resumption call. The responder's declared effects must fit the residual row,
+and its region allowance is carried into the derived clause. Interpreting
+the local question does not make its external lookup pure. See
 `examples/authoring_responder.zig` and the outside-tree client. Shallow state
 reattachment and a deep answer-changing bypass are shown in
 `examples/authoring_shallow.zig` and `examples/authoring_bypass.zig`.

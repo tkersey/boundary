@@ -133,6 +133,54 @@ test "derived responder interpretation retains residual external effect" {
     defer compiled.deinit();
 }
 
+test "derived responder clause retains the responder region allowance" {
+    var raw = source.Builder.init(std.testing.allocator);
+    defer raw.deinit();
+    var author = a.Builder.init(&raw);
+    const integer = try author.scalar(u64);
+    const unit = try author.scalar(void);
+    const loan = author.region();
+    const question = try author.local("region question", integer, integer, .linear);
+    const capability = try author.capability(question);
+    const responder = try author.declareScoped("region responder", &.{.{ .name = "key", .schema = integer }}, integer, &.{}, &.{loan});
+    var responder_body = try author.body(responder);
+    try author.define(responder, try responder_body.finish(try responder_body.parameter("key")));
+    const interpretation = try author.responder(question, responder, &.{}, &.{ integer, capability }, .deep, .linear);
+    try std.testing.expectEqualSlices(@TypeOf(loan.id), &.{loan.id}, interpretation.clause.regions);
+
+    const work = try author.declare("region work", &.{
+        .{ .name = "question", .schema = capability },
+        .{ .name = "key", .schema = integer },
+    }, integer, &.{question});
+    var work_body = try author.body(work);
+    const reply = try work_body.performLocal(question, try work_body.parameter("question"), try work_body.parameter("key"));
+    try author.define(work, try work_body.finish(reply));
+    const entry = try author.declareScoped("region entry", &.{.{ .name = "input", .schema = integer }}, integer, &.{}, &.{loan});
+    var main = try author.body(entry);
+    const handled = try main.handle(interpretation, try main.lambda(work, &.{}, .reusable), &.{try main.parameter("input")}, &.{});
+    try author.define(entry, try main.finish(handled));
+    var compiled = try author.compile(std.testing.allocator, try author.module(entry, unit));
+    compiled.deinit();
+}
+
+test "equality admits only integer and Boolean operand schemas" {
+    var raw = source.Builder.init(std.testing.allocator);
+    defer raw.deinit();
+    var author = a.Builder.init(&raw);
+    const integer = try author.scalar(u64);
+    const record = try author.record(&.{.{ .name = "value", .schema = integer }});
+    const variant = try author.variant(&.{.{ .name = "value", .schema = integer }});
+    var body = try author.ambient("equality operands");
+    const product = try body.product(record, &.{.{ .name = "value", .value = try author.literal(u64, 1) }});
+    try std.testing.expectError(error.TypeMismatch, body.equal(product, product));
+    try std.testing.expectEqual(a.Category.argument_mismatch, author.diagnostic.?.category);
+    try std.testing.expectEqualStrings("equality operands", author.diagnostic.?.entity);
+    const tagged = try body.inject(variant, "value", try author.literal(u64, 1));
+    try std.testing.expectError(error.TypeMismatch, body.equal(tagged, tagged));
+    _ = try body.equal(try author.literal(u64, 1), try author.literal(u64, 2));
+    _ = try body.equal(try author.literal(bool, true), try author.literal(bool, false));
+}
+
 fn imageWithLabel(label: []const u8) ![]u8 {
     var raw = source.Builder.init(std.testing.allocator);
     defer raw.deinit();

@@ -1314,6 +1314,9 @@ pub const Builder = struct {
                 return error.InvalidCapability;
             }
         }
+        const borrowed_regions = try self.raw.allocator().alloc(Region, function.regions.len);
+        for (function.regions, borrowed_regions) |id, *region_handle|
+            region_handle.* = try self.adoptRegion(id);
         const result = try self.interpret(.{
             .operation = operation,
             .input = body_result,
@@ -1322,6 +1325,7 @@ pub const Builder = struct {
             .use = use,
             .residual = residual,
             .capture_bound = capture_bound,
+            .borrowed_regions = borrowed_regions,
         });
         var returns = try self.body(result.returns);
         try self.define(result.returns, try returns.finish(try returns.parameter("value")));
@@ -2185,6 +2189,12 @@ pub const Body = struct {
         try self.check(left);
         try self.check(right);
         if (!try sameSchema(left.schema, right.schema)) return error.TypeMismatch;
+        const shape = self.author.raw.schemas.items[@intCast(left.schema.id)];
+        if (!@import("boundary_data").admission.integer(shape) and shape != .boolean) {
+            self.author.report(.argument_mismatch, "equality operands", null, left.schema.id, null, self.scope.name);
+            self.author.diagnostic.?.relationship = "integer or Boolean operand schema";
+            return error.TypeMismatch;
+        }
         const boolean = try self.author.scalar(bool);
         return self.author.mintValue(.{ .owner = self.author, .schema = boolean, .scope = self.scope, .id = try self.author.raw.primitive(boolean.id, .equal, &.{ left.id, right.id }, 0) });
     }
