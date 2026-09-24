@@ -3,8 +3,7 @@ const std = @import("std");
 const boundary = @import("boundary");
 
 pub const Application = struct {
-    pub fn emit(b: *boundary.computation.Builder) !boundary.computation.Module {
-        var author = boundary.authoring.Builder.init(b);
+    pub fn emit(author: *boundary.authoring.Builder) !boundary.authoring.Module {
         const integer = try author.scalar(u32);
         const unit = try author.scalar(void);
         const lookup = try author.external("example.lookup.v2", integer, integer);
@@ -17,7 +16,7 @@ pub const Application = struct {
 };
 
 pub fn main(init: std.process.Init) !void {
-    var compiled = try boundary.program.lower(init.gpa, Application);
+    var compiled = try boundary.authoring.lower(init.gpa, Application);
     defer compiled.deinit();
     const bytes = try init.gpa.alloc(u8, try boundary.data.program_image.encodedLength(compiled.program));
     defer init.gpa.free(bytes);

@@ -188,6 +188,38 @@ pub fn build(b: *std.Build) void {
     }) });
     b.step("emit-authoring-twice", "Emit independent twice caller")
         .dependOn(&b.addRunArtifact(authoring_twice).step);
+    const authoring_protect = b.addExecutable(.{ .name = "authoring-protect", .root_module = b.createModule(.{
+        .root_source_file = b.path("examples/authoring_protect.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "boundary", .module = boundary }},
+    }) });
+    b.step("emit-authoring-protect", "Emit local cleanup across a request")
+        .dependOn(&b.addRunArtifact(authoring_protect).step);
+    const authoring_config = b.addExecutable(.{ .name = "authoring-config", .root_module = b.createModule(.{
+        .root_source_file = b.path("examples/authoring_config.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "boundary", .module = boundary }},
+    }) });
+    b.step("emit-authoring-config", "Emit distinct configurations and reused declaration")
+        .dependOn(&b.addRunArtifact(authoring_config).step);
+    const authoring_scoped = b.addExecutable(.{ .name = "authoring-scoped", .root_module = b.createModule(.{
+        .root_source_file = b.path("examples/authoring_scoped.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "boundary", .module = boundary }},
+    }) });
+    b.step("emit-authoring-scoped", "Emit named scoped operation body")
+        .dependOn(&b.addRunArtifact(authoring_scoped).step);
+    const authoring_borrow = b.addExecutable(.{ .name = "authoring-borrow", .root_module = b.createModule(.{
+        .root_source_file = b.path("examples/authoring_borrow.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "boundary", .module = boundary }},
+    }) });
+    b.step("emit-authoring-borrow", "Emit protected owned/borrowed resource use")
+        .dependOn(&b.addRunArtifact(authoring_borrow).step);
     b.step("check-authoring", "Check staged typed construction and lowering")
         .dependOn(&b.addRunArtifact(authoring).step);
     const public_client = b.addSystemCommand(&.{"node"});
@@ -252,6 +284,15 @@ pub fn build(b: *std.Build) void {
     exact_json.addFileArg(b.path("test/v2/exact_json.test.mjs"));
     semantics.dependOn(&exact_json.step);
     const aggregate = b.step("check", "Check current authoring, data, source semantics and component linking");
+    for ([_]*std.Build.Step.Compile{
+        authoring_branch, authoring_responder, authoring_lazy,    authoring_shallow,
+        authoring_bypass, authoring_twice,     authoring_protect, authoring_config,
+        authoring_scoped, authoring_borrow,
+    }) |artifact| {
+        const run = b.addRunArtifact(artifact);
+        _ = run.captureStdOut(.{});
+        aggregate.dependOn(&run.step);
+    }
     const lazy_hyper = b.addExecutable(.{ .name = "lazy-hyper", .root_module = b.createModule(.{
         .root_source_file = b.path("examples/lazy_hyper.zig"),
         .target = b.graph.host,

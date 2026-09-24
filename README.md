@@ -10,6 +10,9 @@ for qualification and live review/readiness status.
 
 ## Author and compile
 
+For the scoped, forward staged API and a complete public-package client, see
+[typed, structured authoring](docs/typed-authoring.md).
+
 Import the Zig build module `boundary`. Its public namespaces include `effect`,
 `computation`, `handler`, `region`, `program`, `data`, and `library`.
 

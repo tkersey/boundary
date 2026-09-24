@@ -3,6 +3,32 @@
 const std = @import("std");
 const source = @import("source.zig");
 const p = @import("boundary_data").program;
+pub const Module = source.Module;
+pub const Compiled = source.Compiled;
+
+/// The application callback constructs source; execution remains in World.
+pub fn lower(allocator: std.mem.Allocator, comptime Application: type) !Compiled {
+    var raw = source.Builder.init(allocator);
+    defer raw.deinit();
+    var builder = Builder.init(&raw);
+    return builder.compile(allocator, try Application.emit(&builder));
+}
+
+/// Keep diagnostics beyond the emitter arena's lifetime when requested.
+pub fn lowerDiagnosed(allocator: std.mem.Allocator, comptime Application: type, output: *?OwnedDiagnostic) !Compiled {
+    output.* = null;
+    var raw = source.Builder.init(allocator);
+    defer raw.deinit();
+    var builder = Builder.init(&raw);
+    const module = Application.emit(&builder) catch |err| {
+        if (builder.diagnostic) |detail| output.* = try OwnedDiagnostic.copy(allocator, detail);
+        return err;
+    };
+    return builder.compile(allocator, module) catch |err| {
+        if (builder.diagnostic) |detail| output.* = try OwnedDiagnostic.copy(allocator, detail);
+        return err;
+    };
+}
 
 pub const Error = source.Error || error{
     ForeignBuilder,
@@ -61,6 +87,38 @@ pub const Diagnostic = struct {
     }
 };
 
+pub const OwnedDiagnostic = struct {
+    allocator: std.mem.Allocator,
+    detail: Diagnostic,
+
+    pub fn copy(allocator: std.mem.Allocator, borrowed: Diagnostic) !OwnedDiagnostic {
+        const entity = try allocator.dupe(u8, borrowed.entity);
+        errdefer allocator.free(entity);
+        const introduced = if (borrowed.introduced_in) |name|
+            try allocator.dupe(u8, name)
+        else
+            null;
+        errdefer if (introduced) |name| allocator.free(name);
+        const used = if (borrowed.used_in) |name|
+            try allocator.dupe(u8, name)
+        else
+            null;
+        errdefer if (used) |name| allocator.free(name);
+        var detail = borrowed;
+        detail.entity = entity;
+        detail.introduced_in = introduced;
+        detail.used_in = used;
+        return .{ .allocator = allocator, .detail = detail };
+    }
+
+    pub fn deinit(self: *OwnedDiagnostic) void {
+        self.allocator.free(self.detail.entity);
+        if (self.detail.introduced_in) |name| self.allocator.free(name);
+        if (self.detail.used_in) |name| self.allocator.free(name);
+        self.* = undefined;
+    }
+};
+
 pub const Schema = struct { owner: *Builder, id: p.Id };
 pub const Region = struct { owner: *Builder, id: p.Id };
 pub const Effect = struct {
@@ -69,6 +127,8 @@ pub const Effect = struct {
     payload: Schema,
     result: Schema,
     external: bool,
+    bodies: []const Parameter = &.{},
+    use_site_effects: []const p.Id = &.{},
 };
 pub const Parameter = struct { name: []const u8, schema: Schema };
 pub const Field = Parameter;
@@ -161,6 +221,10 @@ pub const Builder = struct {
         return .{ .raw = raw };
     }
 
+    fn onError(self: *Builder, err: anyerror) void {
+        if (err == error.OutOfMemory) self.poisoned = true;
+    }
+
     fn report(self: *Builder, category: Category, entity: []const u8, expected: ?p.Id, actual: ?p.Id, introduced: ?[]const u8, used: ?[]const u8) void {
         self.diagnostic = .{ .category = category, .entity = entity, .expected = expected, .actual = actual, .introduced_in = introduced, .used_in = used };
     }
@@ -174,6 +238,7 @@ pub const Builder = struct {
     }
 
     pub fn scalar(self: *Builder, comptime T: type) Error!Schema {
+        errdefer |err| self.onError(err);
         return .{ .owner = self, .id = try self.raw.scalar(T) };
     }
 
@@ -201,7 +266,40 @@ pub const Builder = struct {
         } } });
     }
 
+    pub fn resource(self: *Builder, representation: Schema) Error!Schema {
+        try self.checkSchema(representation);
+        return self.adoptSchema(try self.raw.resource(representation.id));
+    }
+
+    pub fn borrowedSchema(self: *Builder, owned: Schema, region_handle: Region) Error!Schema {
+        try self.checkSchema(owned);
+        _ = try self.regionSchema(region_handle);
+        const shape = self.raw.schemas.items[@intCast(owned.id)];
+        if (shape != .internal or shape.internal != .abstract_resource)
+            return error.TypeMismatch;
+        return self.dynamicSchema(.{ .internal = .{ .borrowed = .{
+            .value = owned.id,
+            .region = region_handle.id,
+        } } });
+    }
+
+    pub fn resourceAuthority(self: *Builder, owned: Schema, introducers: []const Function, eliminators: []const Function) Error!void {
+        try self.checkSchema(owned);
+        const introduced = try self.raw.allocator().alloc(p.Id, introducers.len);
+        const eliminated = try self.raw.allocator().alloc(p.Id, eliminators.len);
+        for (introducers, introduced) |function, *id| {
+            if (function.owner != self) return error.ForeignBuilder;
+            id.* = function.id;
+        }
+        for (eliminators, eliminated) |function, *id| {
+            if (function.owner != self) return error.ForeignBuilder;
+            id.* = function.id;
+        }
+        try self.raw.resourceAuthority(owned.id, introduced, eliminated);
+    }
+
     fn dynamicSchema(self: *Builder, shape: p.Schema) Error!Schema {
+        errdefer |err| self.onError(err);
         return .{ .owner = self, .id = try self.raw.schema(shape) };
     }
 
@@ -211,12 +309,18 @@ pub const Builder = struct {
     }
 
     pub fn adoptEffect(self: *Builder, id: p.Id) Error!Effect {
+        errdefer |err| self.onError(err);
         if (id >= self.raw.effects.items.len) return error.InvalidReference;
         const original = self.raw.effects.items[@intCast(id)];
-        return .{ .owner = self, .id = id, .payload = try self.adoptSchema(original.payload), .result = try self.adoptSchema(original.result), .external = original.external };
+        const bodies = try self.raw.allocator().alloc(Parameter, original.bodies.len);
+        for (original.bodies, bodies, 0..) |schema_id, *named, index| {
+            named.* = .{ .name = try std.fmt.allocPrint(self.raw.allocator(), "body{d}", .{index}), .schema = try self.adoptSchema(schema_id) };
+        }
+        return .{ .owner = self, .id = id, .payload = try self.adoptSchema(original.payload), .result = try self.adoptSchema(original.result), .external = original.external, .bodies = bodies, .use_site_effects = original.use_site_effects };
     }
 
     pub fn sumSchema(self: *Builder, alternatives: []const Schema) Error!Schema {
+        errdefer |err| self.onError(err);
         const ids = try self.raw.allocator().alloc(p.Id, alternatives.len);
         for (alternatives, ids) |alternative, *id| {
             try self.checkSchema(alternative);
@@ -230,7 +334,13 @@ pub const Builder = struct {
         return self.dynamicSchema(.{ .seq = element.id });
     }
 
+    pub fn exitInfo(self: *Builder, failure: Schema) Error!Schema {
+        try self.checkSchema(failure);
+        return self.adoptSchema(try @import("library/cleanup.zig").exitInfo(self.raw, failure.id));
+    }
+
     pub fn productSchema(self: *Builder, fields: []const Schema) Error!Schema {
+        errdefer |err| self.onError(err);
         const ids = try self.raw.allocator().alloc(p.Id, fields.len);
         for (fields, ids) |field, *id| {
             try self.checkSchema(field);
@@ -240,6 +350,7 @@ pub const Builder = struct {
     }
 
     pub fn record(self: *Builder, fields: []const Field) Error!Record {
+        errdefer |err| self.onError(err);
         const copied = try self.raw.allocator().alloc(Field, fields.len);
         const schemas = try self.raw.allocator().alloc(Schema, fields.len);
         for (fields, copied, schemas, 0..) |field, *copy, *schema, index| {
@@ -252,6 +363,7 @@ pub const Builder = struct {
     }
 
     pub fn variant(self: *Builder, alternatives: []const Field) Error!Variant {
+        errdefer |err| self.onError(err);
         const copied = try self.raw.allocator().alloc(Field, alternatives.len);
         const schemas = try self.raw.allocator().alloc(Schema, alternatives.len);
         for (alternatives, copied, schemas, 0..) |field, *copy, *schema, index| {
@@ -264,6 +376,7 @@ pub const Builder = struct {
     }
 
     fn declareEffect(self: *Builder, name: []const u8, payload: Schema, result: Schema, is_external: bool, control_use: p.Use) Error!Effect {
+        errdefer |err| self.onError(err);
         try self.checkSchema(payload);
         try self.checkSchema(result);
         const id = try self.raw.effect(.{ .identity = name, .payload = payload.id, .result = result.id, .external = is_external, .control_use = control_use });
@@ -276,6 +389,24 @@ pub const Builder = struct {
 
     pub fn local(self: *Builder, name: []const u8, payload: Schema, result: Schema, use: p.Use) Error!Effect {
         return self.declareEffect(name, payload, result, false, use);
+    }
+
+    pub fn scopedLocal(self: *Builder, name: []const u8, payload: Schema, result: Schema, bodies: []const Parameter, use_site_effects: []const Effect, use: p.Use) Error!Effect {
+        errdefer |err| self.onError(err);
+        try self.checkSchema(payload);
+        try self.checkSchema(result);
+        const copied = try self.raw.allocator().alloc(Parameter, bodies.len);
+        const body_ids = try self.raw.allocator().alloc(p.Id, bodies.len);
+        for (bodies, copied, body_ids, 0..) |named, *target, *id, index| {
+            try self.checkSchema(named.schema);
+            for (bodies[0..index]) |earlier| if (std.mem.eql(u8, earlier.name, named.name))
+                return error.DuplicateName;
+            target.* = .{ .name = try self.raw.allocator().dupe(u8, named.name), .schema = named.schema };
+            id.* = named.schema.id;
+        }
+        const site_effects = try self.effectIds(use_site_effects);
+        const id = try self.raw.effect(.{ .identity = name, .payload = payload.id, .result = result.id, .bodies = body_ids, .use_site_effects = site_effects, .control_use = use, .external = false });
+        return .{ .owner = self, .id = id, .payload = payload, .result = result, .external = false, .bodies = copied, .use_site_effects = site_effects };
     }
 
     pub fn capability(self: *Builder, effect: Effect) Error!Schema {
@@ -319,7 +450,28 @@ pub const Builder = struct {
         return .{ .owner = self, .id = id, .name = saved_name, .parameters = copied, .result = result, .effects = effect_ids, .regions = region_ids };
     }
 
+    pub fn callableSchema(self: *Builder, function: Function, captures: []const Schema, use: p.Use) Error!Schema {
+        errdefer |err| self.onError(err);
+        if (function.owner != self) return error.ForeignBuilder;
+        const params = try self.raw.allocator().alloc(p.Id, function.parameters.len);
+        for (function.parameters, params) |named, *id| id.* = named.schema.id;
+        const bounds = try self.raw.allocator().alloc(p.Id, captures.len);
+        for (captures, bounds) |schema, *id| {
+            try self.checkSchema(schema);
+            id.* = schema.id;
+        }
+        return self.dynamicSchema(.{ .internal = .{ .computation = .{
+            .parameters = params,
+            .result = function.result.id,
+            .effects = function.effects,
+            .capture_bound = bounds,
+            .use = use,
+            .regions = function.regions,
+        } } });
+    }
+
     pub fn body(self: *Builder, function: Function) Error!Body {
+        errdefer |err| self.onError(err);
         if (function.owner != self) return error.ForeignBuilder;
         const scope = try self.raw.allocator().create(Scope);
         scope.* = .{ .parent = null, .name = function.name, .function = function.id };
@@ -329,12 +481,14 @@ pub const Builder = struct {
     /// A source-library staging callback can supply lexical context that it owns.
     /// Raw adoption into this context is confined to Interop below.
     pub fn ambient(self: *Builder, name: []const u8) Error!Body {
+        errdefer |err| self.onError(err);
         const scope = try self.raw.allocator().create(Scope);
         scope.* = .{ .parent = null, .name = try self.raw.allocator().dupe(u8, name) };
         return .{ .author = self, .scope = scope };
     }
 
     pub fn bodyWithin(self: *Builder, parent: *Body, function: Function) Error!Body {
+        errdefer |err| self.onError(err);
         try parent.ensureOpen();
         if (parent.author != self or function.owner != self) return error.ForeignBuilder;
         const scope = try self.raw.allocator().create(Scope);
@@ -379,6 +533,7 @@ pub const Builder = struct {
     }
 
     pub fn literal(self: *Builder, comptime T: type, value: T) Error!Value {
+        errdefer |err| self.onError(err);
         return .{ .owner = self, .id = try self.raw.constant(T, value), .schema = try self.scalar(T) };
     }
 
@@ -411,6 +566,7 @@ pub const Builder = struct {
     }
 
     pub fn interpret(self: *Builder, options: InterpretationOptions) Error!Interpretation {
+        errdefer |err| self.onError(err);
         if (options.operation.owner != self or options.operation.external) return error.InvalidCapability;
         try self.checkSchema(options.input);
         try self.checkSchema(options.answer);
@@ -446,10 +602,11 @@ pub const Builder = struct {
         const return_params = try self.raw.allocator().alloc(Parameter, state.len + 1);
         @memcpy(return_params[0..state.len], state);
         return_params[state.len] = .{ .name = "value", .schema = options.input };
-        const clause_params = try self.raw.allocator().alloc(Parameter, state.len + 2);
+        const clause_params = try self.raw.allocator().alloc(Parameter, state.len + options.operation.bodies.len + 2);
         @memcpy(clause_params[0..state.len], state);
         clause_params[state.len] = .{ .name = "payload", .schema = options.operation.payload };
-        clause_params[state.len + 1] = .{ .name = "resume", .schema = token };
+        @memcpy(clause_params[state.len + 1 ..][0..options.operation.bodies.len], options.operation.bodies);
+        clause_params[clause_params.len - 1] = .{ .name = "resume", .schema = token };
         const returns = try self.declareScoped("handler return", return_params, options.answer, options.return_effects orelse options.residual, options.borrowed_regions);
         const clause = try self.declareScoped("handler clause", clause_params, options.answer, options.residual, options.borrowed_regions);
         const id = try self.raw.handler(.{
@@ -471,6 +628,7 @@ pub const Builder = struct {
 
     pub fn responding(self: *Builder, operation: Effect, function: Function, body_result: Schema, residual: []const Effect, capture_bound: []const Schema, mode: p.Mode, use: p.Use) Error!Interpretation {
         if (function.owner != self or operation.owner != self) return error.ForeignBuilder;
+        if (operation.bodies.len != 0) return error.InvalidArgument;
         try self.checkSchema(body_result);
         if (function.parameters.len != 1 or function.parameters[0].schema.id != operation.payload.id or
             function.result.id != operation.result.id) return error.TypeMismatch;
@@ -558,10 +716,18 @@ pub const Body = struct {
     steps: std.ArrayList(Step) = .empty,
 
     fn ensureOpen(self: *Body) Error!void {
-        if (!self.scope.open) {
-            self.author.report(.closed_body, self.scope.name, null, null, null, null);
-            return error.ClosedBody;
+        if (self.author.poisoned) return error.InvalidSource;
+        var current: ?*Scope = self.scope;
+        while (current) |scope| : (current = scope.parent) {
+            if (!scope.open) {
+                self.author.report(.closed_body, scope.name, null, null, null, null);
+                return error.ClosedBody;
+            }
         }
+    }
+
+    pub fn abandon(self: *Body) void {
+        self.scope.open = false;
     }
 
     fn check(self: *Body, value: Value) Error!void {
@@ -597,6 +763,7 @@ pub const Body = struct {
     }
 
     fn append(self: *Body, term: p.Id, result: Schema) Error!Value {
+        errdefer |err| self.author.onError(err);
         try self.ensureOpen();
         const variable = try self.author.raw.variable(result.id);
         try self.steps.append(self.author.raw.allocator(), .{ .variable = variable, .term = term });
@@ -614,6 +781,8 @@ pub const Body = struct {
         try self.check(payload);
         if (effect.owner != self.author) return error.ForeignBuilder;
         if (!effect.external) return error.InvalidCapability;
+        if (effect.bodies.len != 0 or effect.use_site_effects.len != 0)
+            return error.InvalidArgument;
         if (payload.schema.id != effect.payload.id) {
             self.author.report(.schema_mismatch, "operation payload", effect.payload.id, payload.schema.id, null, self.scope.name);
             return error.TypeMismatch;
@@ -625,6 +794,8 @@ pub const Body = struct {
         try self.check(payload);
         try self.check(capability);
         if (effect.owner != self.author or effect.external) return error.InvalidCapability;
+        if (effect.bodies.len != 0 or effect.use_site_effects.len != 0)
+            return error.InvalidArgument;
         const shape = self.author.raw.schemas.items[@intCast(capability.schema.id)];
         if (shape != .internal or shape.internal != .capability or shape.internal.capability != effect.id) {
             self.author.report(.capability_mismatch, "operation capability", null, capability.schema.id, null, self.scope.name);
@@ -635,6 +806,41 @@ pub const Body = struct {
             .effect = effect.id,
             .capability = capability.id,
             .payload = payload.id,
+        } }), effect.result);
+    }
+
+    pub fn performScoped(self: *Body, effect: Effect, capability: Value, payload: Value, bodies: []const Callable, use_site_capabilities: []const Value) Error!Value {
+        try self.check(capability);
+        try self.check(payload);
+        if (effect.owner != self.author or effect.external) return error.InvalidCapability;
+        if (payload.schema.id != effect.payload.id or bodies.len != effect.bodies.len or
+            use_site_capabilities.len != effect.use_site_effects.len) return error.TypeMismatch;
+        const cap_shape = self.author.raw.schemas.items[@intCast(capability.schema.id)];
+        if (cap_shape != .internal or cap_shape.internal != .capability or
+            cap_shape.internal.capability != effect.id) return error.InvalidCapability;
+        const body_ids = try self.author.raw.allocator().alloc(p.Id, bodies.len);
+        for (bodies, effect.bodies, body_ids) |work, named, *id| {
+            try self.check(work.value);
+            if (work.value.schema.id != named.schema.id) {
+                self.author.report(.argument_mismatch, named.name, named.schema.id, work.value.schema.id, null, self.scope.name);
+                return error.TypeMismatch;
+            }
+            id.* = work.value.id;
+        }
+        const site_ids = try self.author.raw.allocator().alloc(p.Id, use_site_capabilities.len);
+        for (use_site_capabilities, effect.use_site_effects, site_ids) |value, effect_id, *id| {
+            try self.check(value);
+            const shape = self.author.raw.schemas.items[@intCast(value.schema.id)];
+            if (shape != .internal or shape.internal != .capability or
+                shape.internal.capability != effect_id) return error.InvalidCapability;
+            id.* = value.id;
+        }
+        return self.append(try self.author.raw.term(.{ .perform = .{
+            .effect = effect.id,
+            .capability = capability.id,
+            .payload = payload.id,
+            .bodies = body_ids,
+            .use_site_capabilities = site_ids,
         } }), effect.result);
     }
 
@@ -780,6 +986,34 @@ pub const Body = struct {
         return self.append(try self.author.raw.term(.{ .dispose = value.id }), try self.author.scalar(void));
     }
 
+    pub fn packResource(self: *Body, owned: Schema, representation: Value) Error!Value {
+        try self.check(representation);
+        try self.author.checkSchema(owned);
+        const shape = self.author.raw.schemas.items[@intCast(owned.id)];
+        if (shape != .internal or shape.internal != .abstract_resource)
+            return error.TypeMismatch;
+        const resource_id = shape.internal.abstract_resource;
+        if (resource_id >= self.author.raw.resources.items.len or
+            self.author.raw.resources.items[@intCast(resource_id)].representation !=
+                representation.schema.id) return error.TypeMismatch;
+        return .{ .owner = self.author, .schema = owned, .scope = self.scope, .id = try self.author.raw.primitive(owned.id, .resource_pack, &.{representation.id}, 0) };
+    }
+
+    pub fn unpackResource(self: *Body, value: Value) Error!Value {
+        try self.check(value);
+        var schema = self.author.raw.schemas.items[@intCast(value.schema.id)];
+        if (schema == .internal and schema.internal == .borrowed) {
+            schema = self.author.raw.schemas.items[@intCast(schema.internal.borrowed.value)];
+        }
+        if (schema != .internal or schema.internal != .abstract_resource)
+            return error.TypeMismatch;
+        const resource_id = schema.internal.abstract_resource;
+        if (resource_id >= self.author.raw.resources.items.len)
+            return error.InvalidReference;
+        const representation = try self.author.adoptSchema(self.author.raw.resources.items[@intCast(resource_id)].representation);
+        return .{ .owner = self.author, .schema = representation, .scope = self.scope, .id = try self.author.raw.primitive(representation.id, .resource_unpack, &.{value.id}, 0) };
+    }
+
     pub fn call(self: *Body, function: Function, arguments: []const Value) Error!Value {
         try self.ensureOpen();
         if (function.owner != self.author) return error.ForeignBuilder;
@@ -798,22 +1032,7 @@ pub const Body = struct {
 
     pub fn lambda(self: *Body, function: Function, captures: []const Schema, use: p.Use) Error!Callable {
         try self.ensureOpen();
-        if (function.owner != self.author) return error.ForeignBuilder;
-        const params = try self.author.raw.allocator().alloc(p.Id, function.parameters.len);
-        for (function.parameters, params) |named, *id| id.* = named.schema.id;
-        const bounds = try self.author.raw.allocator().alloc(p.Id, captures.len);
-        for (captures, bounds) |schema, *id| {
-            try self.author.checkSchema(schema);
-            id.* = schema.id;
-        }
-        const schema = try self.author.dynamicSchema(.{ .internal = .{ .computation = .{
-            .parameters = params,
-            .result = function.result.id,
-            .effects = function.effects,
-            .capture_bound = bounds,
-            .use = use,
-            .regions = function.regions,
-        } } });
+        const schema = try self.author.callableSchema(function, captures, use);
         return .{ .value = .{ .owner = self.author, .schema = schema, .id = try self.author.raw.lambda(function.id, schema.id), .scope = self.scope } };
     }
 
@@ -1003,6 +1222,7 @@ pub const Body = struct {
     }
 
     fn close(self: *Body, terminal: p.Id, result: Schema) Error!Block {
+        errdefer |err| self.author.onError(err);
         try self.ensureOpen();
         var term = terminal;
         var index = self.steps.items.len;

@@ -5,8 +5,7 @@ const boundary = @import("boundary");
 const a = boundary.authoring;
 
 pub const Application = struct {
-    pub fn emit(raw: *boundary.computation.Builder) !boundary.computation.Module {
-        var author = a.Builder.init(raw);
+    pub fn emit(author: *a.Builder) !a.Module {
         const integer = try author.scalar(u64);
         const boolean = try author.scalar(bool);
         const unit = try author.scalar(void);
@@ -78,7 +77,7 @@ pub const Application = struct {
 };
 
 pub fn main(init: std.process.Init) !void {
-    var compiled = try boundary.program.lower(init.gpa, Application);
+    var compiled = try a.lower(init.gpa, Application);
     defer compiled.deinit();
     const bytes = try init.gpa.alloc(u8, try boundary.data.program_image.encodedLength(compiled.program));
     defer init.gpa.free(bytes);

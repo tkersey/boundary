@@ -1,4 +1,13 @@
 build.zig
+examples/authoring_borrow.zig
+examples/authoring_branch.zig
+examples/authoring_bypass.zig
+examples/authoring_config.zig
+examples/authoring_lazy.zig
+examples/authoring_protect.zig
+examples/authoring_responder.zig
+examples/authoring_scoped.zig
+examples/authoring_shallow.zig
 examples/composed_exchange.zig
 examples/hyper_adaptive.zig
 examples/hyper_algebra.zig
@@ -11,6 +20,8 @@ examples/lazy_hyper.zig
 examples/one_effect.zig
 examples/owned_exchange.zig
 examples/reciprocal_hyper.zig
+src/v2/authoring.zig
+src/v2/authoring_tests.zig
 src/v2/data/activation.zig
 src/v2/data/activation_borrow_tests.zig
 src/v2/data/activation_flow.zig
@@ -70,6 +81,7 @@ src/v2/library/cleanup.zig
 src/v2/library/combinators.zig
 src/v2/library/generator.zig
 src/v2/library/hyper.zig
+src/v2/library/hyper_authoring.zig
 src/v2/library/hyper_need.zig
 src/v2/library/raise.zig
 src/v2/library/reader.zig
@@ -130,6 +142,8 @@ src/v2/test_root.zig
 test/build_hyper_compiler.zig
 test/hyper_allocation.zig
 test/hyper_compile_bench.zig
+test/public_authoring_client/build.zig
+test/public_authoring_client/main.zig
 test/v2/borrow_returns.zig
 test/v2/compact_fixtures.zig
 test/v2/compact_wasm.zig
@@ -137,6 +151,7 @@ test/v2/compare_activation_flow.zig
 test/v2/decode_retention.zig
 test/v2/economy_v1.zig
 test/v2/economy_v2.zig
+test/v2/emit_authoring_twice.zig
 test/v2/emit_capacity.zig
 test/v2/emit_compact.zig
 test/v2/emit_economy.zig

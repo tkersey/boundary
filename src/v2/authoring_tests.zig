@@ -59,6 +59,21 @@ test "equal category and index from another live builder is rejected" {
     try std.testing.expectError(error.OutOfScope, body.finish(try other_body.parameter("arg")));
 }
 
+test "abandoning a body invalidates its descendant authoring handles" {
+    var raw = source.Builder.init(std.testing.allocator);
+    defer raw.deinit();
+    var author = a.Builder.init(&raw);
+    const integer = try author.scalar(u64);
+    const entry = try author.declare("entry", &.{}, integer, &.{});
+    var body = try author.body(entry);
+    var branch = try body.child("abandoned");
+    var nested = try branch.child("descendant");
+    branch.abandon();
+    try std.testing.expectError(error.ClosedBody, nested.finish(try author.literal(u64, 1)));
+    try std.testing.expectEqual(a.Category.closed_body, author.diagnostic.?.category);
+    try std.testing.expectEqualStrings("abandoned", author.diagnostic.?.entity);
+}
+
 test "derived responder interpretation retains residual external effect" {
     var raw = source.Builder.init(std.testing.allocator);
     defer raw.deinit();
@@ -149,6 +164,11 @@ test "runtime selected record schemas and tagged alternatives check named fields
         .{ .name = "chosen", .value = try author.literal(bool, false) },
     }));
     try std.testing.expectEqual(a.Category.field_mismatch, author.diagnostic.?.category);
+    const callable = try author.declare("expects integer", &.{
+        .{ .name = "argument", .schema = integer },
+    }, integer, &.{});
+    try std.testing.expectError(error.TypeMismatch, body2.call(callable, &.{try author.literal(bool, false)}));
+    try std.testing.expectEqual(a.Category.argument_mismatch, author.diagnostic.?.category);
 }
 
 test "nested closure capture is scoped and bounded by its declared permission" {
@@ -174,6 +194,7 @@ test "nested closure capture is scoped and bounded by its declared permission" {
             try std.testing.expectError(error.InvalidOwnership, author.compile(std.testing.allocator, module));
             try std.testing.expectEqual(a.Category.ownership_use, author.diagnostic.?.category);
             try std.testing.expect(author.diagnostic.?.source_detail != null);
+            try std.testing.expect(!std.mem.eql(u8, author.diagnostic.?.entity, "source declaration"));
         }
     }
 }
@@ -254,6 +275,7 @@ test "one-shot callable admits mutually exclusive uses and rejects sequential du
         } else {
             try std.testing.expectError(error.UnavailableSlot, author.compile(std.testing.allocator, module));
             try std.testing.expectEqual(a.Category.ownership_use, author.diagnostic.?.category);
+            try std.testing.expect(!std.mem.eql(u8, author.diagnostic.?.entity, "source declaration"));
         }
     }
 }
@@ -285,4 +307,118 @@ test "reusable closure cannot capture a bound one-shot callable" {
         try std.testing.expect(err == error.InvalidOwnership or err == error.UnavailableSlot);
         try std.testing.expectEqual(a.Category.ownership_use, author.diagnostic.?.category);
     }
+}
+
+test "handler answer and resumption diagnostics retain causal labels" {
+    var raw = source.Builder.init(std.testing.allocator);
+    defer raw.deinit();
+    var author = a.Builder.init(&raw);
+    const integer = try author.scalar(u64);
+    const question = try author.local("question", integer, integer, .linear);
+    const interpretation = try author.interpret(.{
+        .operation = question,
+        .input = integer,
+        .answer = integer,
+        .mode = .deep,
+        .use = .linear,
+    });
+    var returns = try author.body(interpretation.returns);
+    try std.testing.expectError(error.TypeMismatch, author.define(interpretation.returns, try returns.finish(try author.literal(bool, false))));
+    try std.testing.expectEqual(a.Category.schema_mismatch, author.diagnostic.?.category);
+    try std.testing.expectEqualStrings("handler return", author.diagnostic.?.entity);
+    var clause = try author.body(interpretation.clause);
+    try std.testing.expectError(error.TypeMismatch, clause.resumeValue(try clause.parameter("resume"), try author.literal(bool, false)));
+    try std.testing.expectEqualStrings("resumption input", author.diagnostic.?.entity);
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    try author.diagnostic.?.render(&output.writer);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "expected schema") != null);
+}
+
+test "scoped operation checks its named body schema" {
+    var raw = source.Builder.init(std.testing.allocator);
+    defer raw.deinit();
+    var author = a.Builder.init(&raw);
+    const integer = try author.scalar(u64);
+    const boolean = try author.scalar(bool);
+    const unit = try author.scalar(void);
+    const expected = try author.declare("expected body", &.{}, integer, &.{});
+    const body_schema = try author.callableSchema(expected, &.{}, .reusable);
+    const operation = try author.scopedLocal("scoped", unit, integer, &.{.{ .name = "body", .schema = body_schema }}, &.{}, .linear);
+    const capability = try author.capability(operation);
+    const wrong = try author.declare("wrong body", &.{}, boolean, &.{});
+    const entry = try author.declare("entry", &.{
+        .{ .name = "cap", .schema = capability },
+    }, integer, &.{operation});
+    var body = try author.body(entry);
+    try std.testing.expectError(error.TypeMismatch, body.performScoped(operation, try body.parameter("cap"), try author.literal(void, {}), &.{try body.lambda(wrong, &.{}, .reusable)}, &.{}));
+    try std.testing.expectEqual(a.Category.argument_mismatch, author.diagnostic.?.category);
+    try std.testing.expectEqualStrings("body", author.diagnostic.?.entity);
+}
+
+test "diagnosed public lowering owns its authoring explanation" {
+    const Invalid = struct {
+        pub fn emit(author: *a.Builder) !a.Module {
+            const integer = try author.scalar(u64);
+            const entry = try author.declare("bad call", &.{
+                .{ .name = "value", .schema = integer },
+            }, integer, &.{});
+            var body = try author.body(entry);
+            const callee = try author.declare("expects integer", &.{
+                .{ .name = "value", .schema = integer },
+            }, integer, &.{});
+            _ = try body.call(callee, &.{try author.literal(bool, false)});
+            unreachable;
+        }
+    };
+    var diagnostic: ?a.OwnedDiagnostic = null;
+    try std.testing.expectError(error.TypeMismatch, a.lowerDiagnosed(std.testing.allocator, Invalid, &diagnostic));
+    var owned = diagnostic orelse return error.MissingDiagnostic;
+    defer owned.deinit();
+    try std.testing.expectEqual(a.Category.argument_mismatch, owned.detail.category);
+    try std.testing.expectEqualStrings("expects integer", owned.detail.entity);
+    var text: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer text.deinit();
+    try owned.detail.render(&text.writer);
+    try std.testing.expect(std.mem.indexOf(u8, text.written(), "argument_mismatch") != null);
+}
+
+fn diagnosticCopyAttempt(allocator: std.mem.Allocator) !void {
+    var owned = try a.OwnedDiagnostic.copy(allocator, .{
+        .category = .out_of_scope,
+        .entity = "branch value",
+        .introduced_in = "left",
+        .used_in = "right",
+    });
+    defer owned.deinit();
+    try std.testing.expectEqualStrings("branch value", owned.detail.entity);
+}
+
+test "diagnostic ownership handles every failed allocation" {
+    try diagnosticCopyAttempt(std.testing.allocator);
+    try std.testing.checkAllAllocationFailures(std.testing.allocator, diagnosticCopyAttempt, .{});
+}
+
+test "an exhausted authoring builder cannot publish a Module" {
+    var bytes: [16 * 1024]u8 = undefined;
+    var fixed = std.heap.FixedBufferAllocator.init(&bytes);
+    var raw = source.Builder.init(fixed.allocator());
+    defer raw.deinit();
+    var author = a.Builder.init(&raw);
+    const integer = try author.scalar(u64);
+    const unit = try author.scalar(void);
+    const entry = try author.declare("entry", &.{}, integer, &.{});
+    var body = try author.body(entry);
+    try author.define(entry, try body.finish(try author.literal(u64, 1)));
+    var exhausted = false;
+    for (0..10_000) |_| {
+        _ = author.declare("allocation pressure", &.{}, integer, &.{}) catch |err| {
+            try std.testing.expectEqual(error.OutOfMemory, err);
+            exhausted = true;
+            break;
+        };
+    }
+    try std.testing.expect(exhausted);
+    try std.testing.expect(author.poisoned);
+    try std.testing.expectError(error.InvalidSource, author.module(entry, unit));
 }
