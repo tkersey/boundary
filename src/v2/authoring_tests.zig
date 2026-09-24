@@ -257,6 +257,7 @@ test "named records and variants do not alias equal positional schemas" {
     try std.testing.expectEqual(left.schema.id, right.schema.id);
     const tagged = try body.inject(left, "left", try author.literal(u64, 7));
     var a_case = try body.variantCase(right, "right");
+    try std.testing.expect(@typeInfo(@TypeOf(a_case.origin)).pointer.is_const);
     const a_branch = try a_case.finish(a_case.payload);
     var b_case = try body.variantCase(right, "left");
     const b_branch = try b_case.finish(b_case.payload);
@@ -1219,6 +1220,29 @@ test "scoped operation checks its named body schema" {
     try std.testing.expectError(error.TypeMismatch, body.performScoped(operation, try body.parameter("cap"), try author.literal(void, {}), &.{try body.lambda(wrong, &.{}, .reusable)}, &.{}));
     try std.testing.expectEqual(a.Category.argument_mismatch, author.diagnostic.?.category);
     try std.testing.expectEqualStrings("body", author.diagnostic.?.entity);
+}
+
+test "scoped use-site capability mismatch reports its source relation" {
+    var raw = source.Builder.init(std.testing.allocator);
+    defer raw.deinit();
+    var author = a.Builder.init(&raw);
+    const unit = try author.scalar(void);
+    const allowed = try author.local("allowed use-site", unit, unit, .linear);
+    const wrong = try author.local("wrong use-site", unit, unit, .linear);
+    const scoped = try author.scopedLocal("scoped use-site", unit, unit, &.{}, &.{allowed}, .linear);
+    const entry = try author.declare("scoped entry", &.{
+        .{ .name = "scoped", .schema = try author.capability(scoped) },
+        .{ .name = "allowed", .schema = try author.capability(allowed) },
+        .{ .name = "wrong", .schema = try author.capability(wrong) },
+    }, unit, &.{scoped});
+    var body = try author.body(entry);
+    const capability = try body.parameter("scoped");
+    const payload = try author.literal(void, {});
+    try std.testing.expectError(error.InvalidCapability, body.performScoped(scoped, capability, payload, &.{}, &.{try body.parameter("wrong")}));
+    try std.testing.expectEqual(a.Category.capability_mismatch, author.diagnostic.?.category);
+    try std.testing.expectEqualStrings("scoped use-site capability", author.diagnostic.?.entity);
+    try std.testing.expectEqualStrings("declared use-site effect instance", author.diagnostic.?.relationship.?);
+    _ = try body.performScoped(scoped, capability, payload, &.{}, &.{try body.parameter("allowed")});
 }
 
 test "local and scoped payload mismatches report the failed schema relation" {

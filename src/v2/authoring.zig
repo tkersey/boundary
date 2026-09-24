@@ -283,7 +283,7 @@ pub const FinishedCase = struct {
 pub const MatchCase = struct {
     body: Body,
     payload: Value,
-    origin: *CaseOrigin,
+    origin: *const CaseOrigin,
 
     pub fn finish(self: *MatchCase, result: Value) Error!FinishedCase {
         const author = self.body.author;
@@ -393,7 +393,7 @@ pub const Builder = struct {
     failure_literals: std.AutoHashMapUnmanaged(*const FailureLiteralInfo, void) = .empty,
     checked_add_failures: std.AutoHashMapUnmanaged(p.Id, Schema) = .empty,
     module_origins: std.AutoHashMapUnmanaged(*const ModuleOrigin, void) = .empty,
-    case_origins: std.AutoHashMapUnmanaged(*Scope, *CaseOrigin) = .empty,
+    case_origins: std.AutoHashMapUnmanaged(*Scope, *const CaseOrigin) = .empty,
     value_exports: std.AutoHashMapUnmanaged(p.Id, ExportedValue) = .empty,
     term_exports: std.AutoHashMapUnmanaged(p.Id, ExportedTerm) = .empty,
     poisoned: bool = false,
@@ -1611,7 +1611,12 @@ pub const Body = struct {
             try self.check(value);
             const shape = self.author.raw.schemas.items[@intCast(value.schema.id)];
             if (shape != .internal or shape.internal != .capability or
-                shape.internal.capability != effect_id) return error.InvalidCapability;
+                shape.internal.capability != effect_id)
+            {
+                self.author.report(.capability_mismatch, "scoped use-site capability", null, value.schema.id, null, self.scope.name);
+                self.author.diagnostic.?.relationship = "declared use-site effect instance";
+                return error.InvalidCapability;
+            }
             id.* = value.id;
         }
         return self.append(try self.author.raw.term(.{ .perform = .{
