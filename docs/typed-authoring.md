@@ -168,6 +168,13 @@ Boundary's source checker remains authoritative. The reciprocal example keeps
 `hyper.ana` and demand interpretation in the existing library while the small
 `hyper_authoring` adapter contains raw interoperation. Ordinary application
 code and the package client need no catalog access or raw AST records.
+IDs exported from a typed value or block retain their authoring schema in the
+bridge, so re-adoption under a same-shaped but differently named layout rejects.
+Their lexical origin is retained too, so re-adoption cannot move a branch-local
+value or finished branch block into its parent.
+An unrelated raw ID has no recoverable named-layout provenance and cannot be
+adopted as a named handle; advanced callers keep using the low-level source API
+for that path.
 
 ## What the migrations remove
 
@@ -189,6 +196,8 @@ and `allScoped` signatures are preserved.
 
 `zig build check-public-authoring` copies the normal package into an external
 temporary directory and builds/tests the retained client through public imports.
+It forwards the parent Zig global-cache choice to that nested build, including
+an explicit `--global-cache-dir` override.
 Runtime scripts in `test/v2` and the client directory accept an independently
 verified World bundle and fixed native companion as arguments. No World source,
 kernel, capacity, or wire format is changed by this API.
@@ -242,7 +251,7 @@ runtime input; fresh-State request/reply/failure traces match the baseline.
 One paired representative workflow used three isolated-cache ReleaseSafe native
 emitter builds, nine already-built process emissions, and 40 warm-kernel World
 start/reply replays per version. Medians were baseline→candidate: build
-12.532→12.939 s, emission 2.550→2.632 ms, and replay 0.660→0.658 ms. These
+12.603→13.065 s, emission 2.521→2.555 ms, and replay 0.585→0.627 ms. These
 local paired observations show a modest build/emission cost; the warm replay
 difference is negligible at this scale. They are not a throughput guarantee or
 a reason to change World's selected package.

@@ -224,6 +224,7 @@ pub fn build(b: *std.Build) void {
         .dependOn(&b.addRunArtifact(authoring).step);
     const public_client = b.addSystemCommand(&.{"node"});
     public_client.addFileArg(b.path("test/v2/public_authoring_client.mjs"));
+    public_client.addArg(b.graph.global_cache_root.path orelse ".");
     public_client.has_side_effects = true;
     b.step("check-public-authoring", "Build an outside-tree client from public package imports")
         .dependOn(&public_client.step);

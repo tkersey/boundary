@@ -52,7 +52,7 @@ fn stepForward(raw: *source.Builder, q: hyper.Query, comptime consumer: bool) a.
     const delayed_task = try a.Interop.lambdaAs(&descriptor_body, task, try author.adoptSchema(t.task));
     try author.define(descriptor, try descriptor_body.finish(delayed_task.value));
     const result = try a.Interop.lambdaAs(&frame, descriptor, try author.adoptSchema(q.types.answer_forward));
-    return a.Interop.rawTerm(try frame.finish(result.value));
+    return try a.Interop.rawTerm(try frame.finish(result.value));
 }
 
 const Producer = struct {

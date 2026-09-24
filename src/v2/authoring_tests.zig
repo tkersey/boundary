@@ -294,6 +294,41 @@ test "named record layout survives direct calls and callable application" {
     compiled.deinit();
 }
 
+test "raw interop cannot relabel an exported named value or term" {
+    var raw = source.Builder.init(std.testing.allocator);
+    defer raw.deinit();
+    var author = a.Builder.init(&raw);
+    const integer = try author.scalar(u64);
+    const left = try author.record(&.{
+        .{ .name = "a", .schema = integer },
+        .{ .name = "b", .schema = integer },
+    });
+    const right = try author.record(&.{
+        .{ .name = "b", .schema = integer },
+        .{ .name = "a", .schema = integer },
+    });
+    var body = try author.ambient("interop");
+    const value = try body.product(left, &.{
+        .{ .name = "a", .value = try author.literal(u64, 11) },
+        .{ .name = "b", .value = try author.literal(u64, 22) },
+    });
+    const raw_id = try a.Interop.rawValue(&body, value);
+    try std.testing.expectError(error.TypeMismatch, a.Interop.adoptValue(&body, raw_id, right.schema));
+    _ = try a.Interop.adoptValue(&body, raw_id, left.schema);
+    const unknown = try raw.primitive(left.schema.id, .product, &.{
+        try raw.constant(u64, 1), try raw.constant(u64, 2),
+    }, 0);
+    try std.testing.expectError(error.InvalidSource, a.Interop.adoptValue(&body, unknown, left.schema));
+    var child = try body.child("term");
+    const local = try child.checkedAdd(try author.literal(u64, 1), try author.literal(u64, 2), try author.literal(void, {}));
+    const local_id = try a.Interop.rawValue(&child, local);
+    try std.testing.expectError(error.OutOfScope, a.Interop.adoptValue(&body, local_id, integer));
+    _ = try a.Interop.adoptValue(&child, local_id, integer);
+    const term = try a.Interop.rawTerm(try child.finish(value));
+    try std.testing.expectError(error.TypeMismatch, a.Interop.term(&body, term, right.schema));
+    try std.testing.expectError(error.OutOfScope, a.Interop.term(&body, term, left.schema));
+}
+
 test "nested closure capture is scoped and bounded by its declared permission" {
     for ([_]bool{ true, false }) |allowed| {
         var raw = source.Builder.init(std.testing.allocator);
@@ -456,6 +491,12 @@ test "handler answer and resumption diagnostics retain causal labels" {
     defer output.deinit();
     try author.diagnostic.?.render(&output.writer);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "expected schema") != null);
+    const without_cap = try author.declare("without capability", &.{}, integer, &.{});
+    try std.testing.expectError(error.InvalidArgument, clause.handle(interpretation, try clause.lambda(without_cap, &.{}, .reusable), &.{}, &.{}));
+    try std.testing.expectEqual(a.Category.argument_mismatch, author.diagnostic.?.category);
+    try std.testing.expectEqualStrings("handled body capability", author.diagnostic.?.entity);
+    _ = author.region();
+    try std.testing.expect(author.diagnostic == null);
 }
 
 test "scoped operation checks its named body schema" {
@@ -477,6 +518,44 @@ test "scoped operation checks its named body schema" {
     try std.testing.expectError(error.TypeMismatch, body.performScoped(operation, try body.parameter("cap"), try author.literal(void, {}), &.{try body.lambda(wrong, &.{}, .reusable)}, &.{}));
     try std.testing.expectEqual(a.Category.argument_mismatch, author.diagnostic.?.category);
     try std.testing.expectEqualStrings("body", author.diagnostic.?.entity);
+}
+
+test "handler name collision rejects before declaring either function" {
+    var raw = source.Builder.init(std.testing.allocator);
+    defer raw.deinit();
+    var author = a.Builder.init(&raw);
+    const integer = try author.scalar(u64);
+    const unit = try author.scalar(void);
+    const question = try author.local("name collision", unit, integer, .affine);
+    const initial_count = raw.functions.items.len;
+    for ([_][]const u8{ "value", "payload", "resume" }) |name| {
+        try std.testing.expectError(error.DuplicateName, author.interpret(.{
+            .operation = question,
+            .input = integer,
+            .answer = integer,
+            .mode = .deep,
+            .use = .affine,
+            .state = &.{.{ .name = name, .schema = integer }},
+        }));
+        try std.testing.expectEqual(initial_count, raw.functions.items.len);
+    }
+    const valid = try author.interpret(.{
+        .operation = question,
+        .input = integer,
+        .answer = integer,
+        .mode = .deep,
+        .use = .affine,
+        .state = &.{.{ .name = "phase", .schema = integer }},
+    });
+    var returns = try author.body(valid.returns);
+    try author.define(valid.returns, try returns.finish(try returns.parameter("value")));
+    var clause = try author.body(valid.clause);
+    try author.define(valid.clause, try clause.finish(try author.literal(u64, 7)));
+    const entry = try author.declare("entry", &.{}, integer, &.{});
+    var body = try author.body(entry);
+    try author.define(entry, try body.finish(try author.literal(u64, 1)));
+    var compiled = try author.compile(std.testing.allocator, try author.module(entry, unit));
+    compiled.deinit();
 }
 
 test "shallow resumption answer is handled input while outer answer may change" {
@@ -601,7 +680,8 @@ test "explicit diagnostic snapshot remains accurate across teardown and later er
     var owned = try a.OwnedDiagnostic.copy(std.testing.allocator, author.diagnostic orelse return error.MissingDiagnostic);
     defer owned.deinit();
     try std.testing.expectError(error.InvalidArgument, body.parameter("missing"));
-    try std.testing.expect(author.diagnostic == null);
+    try std.testing.expectEqualStrings("missing", author.diagnostic.?.entity);
+    try std.testing.expectEqualStrings("named function parameter", author.diagnostic.?.relationship.?);
     raw.deinit();
     alive = false;
     try std.testing.expectEqual(a.Category.argument_mismatch, owned.detail.category);
@@ -610,6 +690,30 @@ test "explicit diagnostic snapshot remains accurate across teardown and later er
     defer text.deinit();
     try owned.detail.render(&text.writer);
     try std.testing.expect(std.mem.indexOf(u8, text.written(), "argument_mismatch") != null);
+}
+
+test "diagnostic field names survive caller buffer mutation" {
+    var raw = source.Builder.init(std.testing.allocator);
+    defer raw.deinit();
+    var author = a.Builder.init(&raw);
+    const integer = try author.scalar(u64);
+    const record = try author.record(&.{.{ .name = "value", .schema = integer }});
+    var body = try author.ambient("diagnostic names");
+    const product = try body.product(record, &.{
+        .{ .name = "value", .value = try author.literal(u64, 7) },
+    });
+    var field_name = [_]u8{ 'm', 'i', 's', 's' };
+    try std.testing.expectError(error.InvalidField, body.field(record, product, &field_name));
+    field_name[0] = 'x';
+    try std.testing.expectEqualStrings("miss", author.diagnostic.?.entity);
+    var snapshot = try a.OwnedDiagnostic.copy(std.testing.allocator, author.diagnostic.?);
+    defer snapshot.deinit();
+    const variant = try author.variant(&.{.{ .name = "left", .schema = integer }});
+    var tag_name = [_]u8{ 'l', 'e', 'f', 't' };
+    try std.testing.expectError(error.TypeMismatch, body.inject(variant, &tag_name, try author.literal(bool, false)));
+    tag_name[0] = 'x';
+    try std.testing.expectEqualStrings("left", author.diagnostic.?.entity);
+    try std.testing.expectEqualStrings("miss", snapshot.detail.entity);
 }
 
 fn diagnosticCopyAttempt(allocator: std.mem.Allocator) !void {
@@ -650,4 +754,50 @@ test "an exhausted authoring builder cannot publish a Module" {
     try std.testing.expect(exhausted);
     try std.testing.expect(author.poisoned);
     try std.testing.expectError(error.InvalidSource, author.module(entry, unit));
+}
+
+test "resource, parameter, child, and variant allocation failures poison publication" {
+    const Mode = enum { resource, parameter, child, variant_case };
+    const Pressure = struct {
+        fn run(author: *a.Builder, body: *a.Body, variant: a.Variant, integer: a.Schema, mode: Mode) a.Error!void {
+            switch (mode) {
+                .resource => _ = try author.resource(integer),
+                .parameter => _ = try body.parameter("x"),
+                .child => _ = try body.child("fresh child"),
+                .variant_case => _ = try body.variantCase(variant, "value"),
+            }
+        }
+    };
+    for ([_]Mode{
+        .resource, .parameter, .child, .variant_case,
+    }) |mode| {
+        var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+        var raw = source.Builder.init(failing.allocator());
+        var author = a.Builder.init(&raw);
+        const integer = try author.scalar(u64);
+        const unit = try author.scalar(void);
+        const entry = try author.declare("entry", &.{}, integer, &.{});
+        var entry_body = try author.body(entry);
+        try author.define(entry, try entry_body.finish(try author.literal(u64, 1)));
+        const helper = try author.declare("helper", &.{
+            .{ .name = "x", .schema = integer },
+        }, integer, &.{});
+        var body = try author.body(helper);
+        const variant = try author.variant(&.{.{ .name = "value", .schema = integer }});
+        failing.fail_index = failing.alloc_index;
+        failing.resize_fail_index = failing.resize_index;
+        var exhausted = false;
+        for (0..10_000) |_| {
+            Pressure.run(&author, &body, variant, integer, mode) catch |err| {
+                try std.testing.expectEqual(error.OutOfMemory, err);
+                exhausted = true;
+                break;
+            };
+        }
+        try std.testing.expect(exhausted);
+        try std.testing.expect(author.poisoned);
+        try std.testing.expectError(error.InvalidSource, author.module(entry, unit));
+        raw.deinit();
+        try std.testing.expectEqual(failing.allocated_bytes, failing.freed_bytes);
+    }
 }

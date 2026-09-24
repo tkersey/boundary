@@ -3,10 +3,13 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { cpSync, mkdtempSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+const selectedCache = process.argv[2];
+if (!selectedCache) throw new Error('missing parent Zig global cache path');
+const globalCache = isAbsolute(selectedCache) ? selectedCache : resolve(root, selectedCache);
 const temporary = mkdtempSync(join(tmpdir(), 'boundary-public-authoring-'));
 try {
   const packageRoot = join(temporary, 'boundary');
@@ -20,7 +23,8 @@ try {
   cpSync(join(root, 'test/public_authoring_client'), clientRoot,
     { recursive: true, force: true });
   const image = execFileSync('zig', ['build', 'test', 'emit',
-    '-Doptimize=ReleaseSafe'], { cwd: clientRoot, maxBuffer: 8 << 20,
+    '-Doptimize=ReleaseSafe', '--global-cache-dir', globalCache],
+    { cwd: clientRoot, maxBuffer: 8 << 20,
     timeout: 180000 });
   assert.equal(image.subarray(0, 8).toString(), 'ABL_BPI3');
   console.log(JSON.stringify({ check: 'public package authoring client',
