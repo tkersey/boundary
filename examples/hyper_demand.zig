@@ -67,11 +67,11 @@ const Consumer = struct {
 };
 
 const Application = struct {
-    pub fn emit(raw: *source.Builder) !source.Module {
+    pub fn emit(author: *a.Builder) !a.Module {
+        const raw = author.raw;
         const t = try bridge.types(raw);
         const producer = try hyper.ana(raw, t.pair, t.boolean, Producer);
         const consumer = try hyper.ana(raw, hyper.swap(t.pair), t.boolean, Consumer);
-        var author = a.Builder.init(raw);
         const integer = try author.adoptSchema(t.integer);
         const read = try author.adoptEffect(t.read);
         const entry = try author.declare("main", &.{}, integer, &.{read});
@@ -91,7 +91,7 @@ const Application = struct {
 };
 
 pub fn main(init: std.process.Init) !void {
-    var compiled = try boundary.program.lower(init.gpa, Application);
+    var compiled = try a.lower(init.gpa, Application);
     defer compiled.deinit();
     const bytes = try init.gpa.alloc(u8, try boundary.data.program_image.encodedLength(compiled.program));
     defer init.gpa.free(bytes);

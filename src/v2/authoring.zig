@@ -3,7 +3,7 @@
 const std = @import("std");
 const source = @import("source.zig");
 const p = @import("boundary_data").program;
-pub const Module = source.Module;
+pub const Module = struct { origin: *const ModuleOrigin };
 pub const Compiled = source.Compiled;
 
 /// The application callback constructs source; execution remains in World.
@@ -368,6 +368,7 @@ const ExportedValue = struct { schema: Schema, scope: ?*Scope };
 const ExportedTerm = struct { schema: Schema, scope: *Scope };
 const ValueOrigin = struct { schema: Schema, scope: ?*Scope };
 const FailureLiteralInfo = struct { value: Value, literal: p.Id };
+const ModuleOrigin = struct { owner: *Builder, input: source.Module, failure: Schema };
 
 fn scopeVisible(introduced: ?*Scope, used: *Scope) bool {
     const origin = introduced orelse return true;
@@ -391,6 +392,7 @@ pub const Builder = struct {
     value_origins: std.AutoHashMapUnmanaged(p.Id, *const ValueOrigin) = .empty,
     failure_literals: std.AutoHashMapUnmanaged(*const FailureLiteralInfo, void) = .empty,
     checked_add_failures: std.AutoHashMapUnmanaged(p.Id, Schema) = .empty,
+    module_origins: std.AutoHashMapUnmanaged(*const ModuleOrigin, void) = .empty,
     case_origins: std.AutoHashMapUnmanaged(*Scope, *CaseOrigin) = .empty,
     value_exports: std.AutoHashMapUnmanaged(p.Id, ExportedValue) = .empty,
     term_exports: std.AutoHashMapUnmanaged(p.Id, ExportedTerm) = .empty,
@@ -1119,22 +1121,33 @@ pub const Builder = struct {
         try self.raw.define(function.id, block.term);
     }
 
-    pub fn module(self: *Builder, entry: Function, failure: Schema) Error!source.Module {
+    pub fn module(self: *Builder, entry: Function, failure: Schema) Error!Module {
         errdefer |err| self.onError(err);
         self.diagnostic = null;
         if (self.poisoned) return error.InvalidSource;
         try self.checkFunction(entry);
         try self.checkSchema(failure);
-        const result = self.raw.module(entry.id, failure.id);
-        try self.checkFailureLayouts(result, failure);
-        return result;
+        const input = self.raw.module(entry.id, failure.id);
+        try self.checkFailureLayouts(input, failure);
+        const origin = try self.raw.allocator().create(ModuleOrigin);
+        origin.* = .{ .owner = self, .input = input, .failure = failure };
+        try self.module_origins.put(self.raw.allocator(), origin, {});
+        return .{ .origin = origin };
     }
 
-    pub fn compile(self: *Builder, allocator: std.mem.Allocator, input: source.Module) source.Error!source.Compiled {
+    pub fn compile(self: *Builder, allocator: std.mem.Allocator, published: Module) Error!source.Compiled {
+        errdefer |err| self.onError(err);
         self.diagnostic = null;
         if (self.poisoned) return error.InvalidSource;
+        if (!self.module_origins.contains(published.origin)) {
+            self.report(.foreign_builder, "module", null, null, null, null);
+            return error.ForeignBuilder;
+        }
+        const origin = published.origin;
+        if (origin.owner != self) return error.ForeignBuilder;
+        try self.checkFailureLayouts(origin.input, origin.failure);
         var detail: source.Diagnostic = .{};
-        return source.lowerObserved(allocator, input, .{ .diagnostic = &detail }) catch |err| {
+        return source.lowerObserved(allocator, origin.input, .{ .diagnostic = &detail }) catch |err| {
             self.onError(err);
             const category: Category = switch (err) {
                 error.UnboundVariable => .out_of_scope,
@@ -1147,7 +1160,7 @@ pub const Builder = struct {
             else
                 "source declaration";
             self.diagnostic = .{ .category = category, .entity = name, .source_detail = detail };
-            return err;
+            return @errorCast(err);
         };
     }
 

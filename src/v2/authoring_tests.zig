@@ -36,7 +36,7 @@ test "forward runtime choice emits one external operation and checks builder and
     const joined = try body.select(condition, yes_block, no_block);
     try std.testing.expectError(error.OutOfScope, body.finish(fetched));
     try author.define(entry, try body.finish(joined));
-    var compiled = try source.lower(std.testing.allocator, try author.module(entry, unit));
+    var compiled = try author.compile(std.testing.allocator, try author.module(entry, unit));
     defer compiled.deinit();
 }
 
@@ -88,9 +88,10 @@ test "copies of one body share staged effects and one finalization" {
     try author.define(entry, try body.finish(try author.literal(u64, 0)));
     const ignored = try author.literal(u64, 1);
     const module = try author.module(entry, unit);
-    const top = module.terms[@intCast(module.functions[@intCast(entry.id)].body.?)];
+    const raw_view = raw.module(entry.id, unit.id);
+    const top = raw_view.terms[@intCast(raw_view.functions[@intCast(entry.id)].body.?)];
     try std.testing.expect(top == .bind);
-    try std.testing.expect(module.terms[@intCast(top.bind.value)] == .perform);
+    try std.testing.expect(raw_view.terms[@intCast(top.bind.value)] == .perform);
     try std.testing.expectError(error.ClosedBody, copy.finish(ignored));
     var compiled = try author.compile(std.testing.allocator, module);
     compiled.deinit();
@@ -128,7 +129,7 @@ test "derived responder interpretation retains residual external effect" {
     const callable = try main.lambda(work, &.{}, .reusable);
     const handled = try main.handle(interpretation, callable, &.{try main.parameter("input")}, &.{});
     try author.define(entry, try main.finish(handled));
-    var compiled = try source.lower(std.testing.allocator, try author.module(entry, unit));
+    var compiled = try author.compile(std.testing.allocator, try author.module(entry, unit));
     defer compiled.deinit();
 }
 
@@ -179,7 +180,7 @@ test "runtime selected record schemas and tagged alternatives check named fields
     const found = try present.finish(present.payload);
     const matched = try body.matchVariant(variant, try body.parameter("input"), &.{ absent, found });
     try author.define(entry, try body.finish(matched));
-    var compiled = try source.lower(std.testing.allocator, try author.module(entry, try author.scalar(void)));
+    var compiled = try author.compile(std.testing.allocator, try author.module(entry, try author.scalar(void)));
     defer compiled.deinit();
     var body2 = try author.ambient("field mismatch");
     try std.testing.expectError(error.TypeMismatch, body2.product(record, &.{
@@ -636,6 +637,38 @@ test "named module failure rejects a raw primitive failure without provenance" {
     try raw.define(entry.id, try raw.pure(sum));
     try std.testing.expectError(error.TypeMismatch, author.module(entry, failure.schema));
     try std.testing.expectEqualStrings("missing primitive failure provenance", author.diagnostic.?.relationship.?);
+}
+
+test "compile rechecks the issued module after a later helper definition" {
+    var raw = source.Builder.init(std.testing.allocator);
+    defer raw.deinit();
+    var author = a.Builder.init(&raw);
+    const integer = try author.scalar(u64);
+    const left = try author.record(&.{
+        .{ .name = "a", .schema = integer },
+        .{ .name = "b", .schema = integer },
+    });
+    const right = try author.record(&.{
+        .{ .name = "b", .schema = integer },
+        .{ .name = "a", .schema = integer },
+    });
+    const entry = try author.declare("published entry", &.{}, integer, &.{});
+    var entry_body = try author.body(entry);
+    try author.define(entry, try entry_body.finish(try author.literal(u64, 7)));
+    const helper = try author.declare("late helper", &.{}, integer, &.{});
+    var helper_body = try author.body(helper);
+    const failed = try helper_body.product(right, &.{
+        .{ .name = "b", .value = try author.literal(u64, 1) },
+        .{ .name = "a", .value = try author.literal(u64, 2) },
+    });
+    const helper_block = try helper_body.fail(failed, integer);
+    const left_module = try author.module(entry, left.schema);
+    const right_module = try author.module(entry, right.schema);
+    try author.define(helper, helper_block);
+    try std.testing.expectError(error.TypeMismatch, author.compile(std.testing.allocator, left_module));
+    try std.testing.expectEqualStrings("failure value", author.diagnostic.?.entity);
+    var compiled = try author.compile(std.testing.allocator, right_module);
+    compiled.deinit();
 }
 
 test "schema comparison visits shared named metadata as a graph" {
