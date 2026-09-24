@@ -140,8 +140,95 @@ pub fn build(b: *std.Build) void {
         .imports = &.{.{ .name = "boundary", .module = boundary }},
     }) });
     b.step("emit-one-effect", "Compile and inspect a complete public authoring example").dependOn(&b.addRunArtifact(one_effect).step);
+    const authoring_branch = b.addExecutable(.{ .name = "authoring-branch", .root_module = b.createModule(.{
+        .root_source_file = b.path("examples/authoring_branch.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "boundary", .module = boundary }},
+    }) });
+    b.step("emit-authoring-branch", "Emit a staged runtime choice example")
+        .dependOn(&b.addRunArtifact(authoring_branch).step);
+    const authoring_responder = b.addExecutable(.{ .name = "authoring-responder", .root_module = b.createModule(.{
+        .root_source_file = b.path("examples/authoring_responder.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "boundary", .module = boundary }},
+    }) });
+    b.step("emit-authoring-responder", "Emit an authored responder interpretation")
+        .dependOn(&b.addRunArtifact(authoring_responder).step);
+    const authoring_lazy = b.addExecutable(.{ .name = "authoring-lazy", .root_module = b.createModule(.{
+        .root_source_file = b.path("examples/authoring_lazy.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "boundary", .module = boundary }},
+    }) });
+    b.step("emit-authoring-lazy", "Emit selective delayed authoring")
+        .dependOn(&b.addRunArtifact(authoring_lazy).step);
+    const authoring_shallow = b.addExecutable(.{ .name = "authoring-shallow", .root_module = b.createModule(.{
+        .root_source_file = b.path("examples/authoring_shallow.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "boundary", .module = boundary }},
+    }) });
+    b.step("emit-authoring-shallow", "Emit explicit shallow interpretation")
+        .dependOn(&b.addRunArtifact(authoring_shallow).step);
+    const authoring_bypass = b.addExecutable(.{ .name = "authoring-bypass", .root_module = b.createModule(.{
+        .root_source_file = b.path("examples/authoring_bypass.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "boundary", .module = boundary }},
+    }) });
+    b.step("emit-authoring-bypass", "Emit answer-changing deep interpretation")
+        .dependOn(&b.addRunArtifact(authoring_bypass).step);
+    const authoring_twice = b.addExecutable(.{ .name = "authoring-twice", .root_module = b.createModule(.{
+        .root_source_file = b.path("test/v2/emit_authoring_twice.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "boundary", .module = boundary }},
+    }) });
+    b.step("emit-authoring-twice", "Emit independent twice caller")
+        .dependOn(&b.addRunArtifact(authoring_twice).step);
+    const authoring_protect = b.addExecutable(.{ .name = "authoring-protect", .root_module = b.createModule(.{
+        .root_source_file = b.path("examples/authoring_protect.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "boundary", .module = boundary }},
+    }) });
+    b.step("emit-authoring-protect", "Emit local cleanup across a request")
+        .dependOn(&b.addRunArtifact(authoring_protect).step);
+    const authoring_config = b.addExecutable(.{ .name = "authoring-config", .root_module = b.createModule(.{
+        .root_source_file = b.path("examples/authoring_config.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "boundary", .module = boundary }},
+    }) });
+    b.step("emit-authoring-config", "Emit distinct configurations and reused declaration")
+        .dependOn(&b.addRunArtifact(authoring_config).step);
+    const authoring_scoped = b.addExecutable(.{ .name = "authoring-scoped", .root_module = b.createModule(.{
+        .root_source_file = b.path("examples/authoring_scoped.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "boundary", .module = boundary }},
+    }) });
+    b.step("emit-authoring-scoped", "Emit named scoped operation body")
+        .dependOn(&b.addRunArtifact(authoring_scoped).step);
+    const authoring_borrow = b.addExecutable(.{ .name = "authoring-borrow", .root_module = b.createModule(.{
+        .root_source_file = b.path("examples/authoring_borrow.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "boundary", .module = boundary }},
+    }) });
+    b.step("emit-authoring-borrow", "Emit protected owned/borrowed resource use")
+        .dependOn(&b.addRunArtifact(authoring_borrow).step);
     b.step("check-authoring", "Check staged typed construction and lowering")
         .dependOn(&b.addRunArtifact(authoring).step);
+    const public_client = b.addSystemCommand(&.{"node"});
+    public_client.addFileArg(b.path("test/v2/public_authoring_client.mjs"));
+    public_client.addArg(b.graph.global_cache_root.path orelse ".");
+    public_client.addArg(b.graph.zig_exe);
+    public_client.has_side_effects = true;
+    b.step("check-public-authoring", "Build an outside-tree client from public package imports")
+        .dependOn(&public_client.step);
     const economy = b.step("check-economy", "Check code and constant sharing and emit executable economy workloads");
     economy.dependOn(&b.addRunArtifact(authoring).step);
     const compiler_options = b.addOptions();
@@ -199,6 +286,15 @@ pub fn build(b: *std.Build) void {
     exact_json.addFileArg(b.path("test/v2/exact_json.test.mjs"));
     semantics.dependOn(&exact_json.step);
     const aggregate = b.step("check", "Check current authoring, data, source semantics and component linking");
+    for ([_]*std.Build.Step.Compile{
+        authoring_branch, authoring_responder, authoring_lazy,    authoring_shallow,
+        authoring_bypass, authoring_twice,     authoring_protect, authoring_config,
+        authoring_scoped, authoring_borrow,
+    }) |artifact| {
+        const run = b.addRunArtifact(artifact);
+        _ = run.captureStdOut(.{});
+        aggregate.dependOn(&run.step);
+    }
     const lazy_hyper = b.addExecutable(.{ .name = "lazy-hyper", .root_module = b.createModule(.{
         .root_source_file = b.path("examples/lazy_hyper.zig"),
         .target = b.graph.host,
@@ -366,6 +462,7 @@ pub fn build(b: *std.Build) void {
     const public_example_check = b.addRunArtifact(one_effect);
     _ = public_example_check.captureStdOut(.{});
     aggregate.dependOn(&public_example_check.step);
+    aggregate.dependOn(&public_client.step);
     const assets_tests = b.addSystemCommand(&.{ "node", "--test" });
     assets_tests.addFileArg(b.path("test/v2/assets.test.mjs"));
     assets_tests.has_side_effects = true;

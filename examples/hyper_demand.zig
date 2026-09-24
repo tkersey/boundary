@@ -1,91 +1,97 @@
-//! Reciprocal ana steps expressed using lexical internal Need effects.
+//! Reciprocal ana steps use structured source authoring around existing hyperfunctions.
 const std = @import("std");
 const boundary = @import("boundary");
 const source = boundary.computation;
+const a = boundary.authoring;
 const hyper = boundary.library.hyper;
-const Id = source.Id;
-const Types = struct {
-    integer: Id,
-    boolean: Id,
-    task: Id,
-    pair: hyper.Pair,
-    read: Id,
-    producer: hyper.demand.Family,
-    consumer: hyper.demand.Family,
-};
-fn types(b: *source.Builder) !Types {
-    const cache = try b.specialization(Types, "example.hyper-demand/v1", .{});
-    if (cache.cached) |value| return value;
-    const integer = try b.scalar(u64);
-    const boolean = try b.scalar(bool);
-    const read = try b.effect(.{ .identity = "hyper/reference", .payload = integer, .result = integer });
-    const task = try b.reserveSchema();
-    const pair = try hyper.pairWith(b, task, task, &.{ integer, boolean });
-    try b.defineSchema(task, .{ .internal = .{ .computation = .{
-        .parameters = &.{},
-        .result = integer,
-        .effects = &.{read},
-        .capture_bound = &.{ boolean, pair.peer_forward, pair.peer_backward },
-    } } });
-    return cache.finish(b, .{ .integer = integer, .boolean = boolean, .task = task, .pair = pair, .read = read, .producer = try hyper.demand.family(b, "hyper/need", boolean, integer), .consumer = try hyper.demand.family(b, "hyper/need", boolean, integer) });
+const bridge = boundary.library.hyper_authoring;
+
+fn step(raw: *source.Builder, q: hyper.Query, comptime consumer: bool) source.Error!source.Id {
+    return stepForward(raw, q, consumer) catch |err| return a.sourceError(err);
 }
-fn step(b: *source.Builder, q: hyper.Query, consumer: bool) !Id {
-    const t = try types(b);
+
+fn stepForward(raw: *source.Builder, q: hyper.Query, comptime consumer: bool) a.Error!source.Id {
+    const t = try bridge.types(raw);
+    var author = a.Builder.init(raw);
+    var frame = try author.ambient(if (consumer) "consumer step" else "producer step");
+    const integer = try author.adoptSchema(t.integer);
+    const boolean = try author.adoptSchema(t.boolean);
+    const read = try author.adoptEffect(t.read);
     const need = if (consumer) t.consumer else t.producer;
-    const interpretation = try hyper.demand.interpret(b, q, need, t.integer, .{
-        .captures = &.{ t.boolean, t.integer, t.pair.peer_forward, t.pair.peer_backward },
-        .residual = .{ .effects = &.{t.read} },
-    });
-    const body = try b.declare(&.{need.capability}, t.integer, &.{ t.read, need.effect }, &.{});
-    const contribution = try b.variable(t.integer);
-    const plus = try b.value(.{ .schema = t.integer, .expression = .{ .primitive = .{
-        .opcode = .integer_add,
-        .operands = &.{ try b.reference(contribution), try b.constant(u64, if (consumer) 13 else 10) },
-        .failures = &.{.{ .kind = .arithmetic_overflow, .value = try b.failureLiteral(try b.constant(void, {})) }},
-    } } });
-    const query = try hyper.demand.request(b, need, try b.reference(b.parameter(body, 0)), try b.constant(bool, true));
-    const nested = try b.bind(contribution, query, try b.pure(plus));
-    try b.define(body, if (consumer) try b.term(.{ .conditional = .{
-        .condition = q.state,
-        .when_true = try b.term(.{ .perform = .{ .effect = t.read, .payload = try b.constant(u64, 19) } }),
-        .when_false = nested,
-    } }) else nested);
-    const task = try b.declare(&.{}, t.integer, &.{t.read}, &.{});
-    try b.define(task, try hyper.demand.handle(b, interpretation, q.peer, try b.lambda(body, interpretation.body)));
-    const descriptor = try b.declare(&.{}, t.task, &.{}, &.{});
-    try b.define(descriptor, try b.pure(try b.lambda(task, t.task)));
-    return b.pure(try b.lambda(descriptor, q.types.answer_forward));
+    const need_effect = try author.adoptEffect(need.effect);
+    const capability = try author.adoptSchema(need.capability);
+    const state = try a.Interop.adoptValue(&frame, q.state, boolean);
+    const peer = try a.Interop.adoptValue(&frame, q.peer, try author.adoptSchema(q.types.peer_backward));
+    const interpretation = try bridge.interpretation(raw, q, need, t);
+
+    const work = try author.declare("demand and contribute", &.{.{ .name = "need", .schema = capability }}, integer, &.{ read, need_effect });
+    var body = try author.bodyWithin(&frame, work);
+    const cap = try body.parameter("need");
+    const failure = try author.literalFailure(void, {});
+    const contribution = if (consumer) blk: {
+        var yes = try body.child("external reference");
+        const external = try yes.perform(read, try author.literal(u64, 19));
+        var no = try body.child("internal demand");
+        const demanded = try bridge.request(&no, need, cap, try author.literal(bool, true), integer);
+        const added = try no.checkedAdd(demanded, try author.literal(u64, 13), failure);
+        break :blk try body.select(state, try yes.finish(external), try no.finish(added));
+    } else blk: {
+        const demanded = try bridge.request(&body, need, cap, try author.literal(bool, true), integer);
+        break :blk try body.checkedAdd(demanded, try author.literal(u64, 10), failure);
+    };
+    try author.define(work, try body.finish(contribution));
+
+    const task = try author.declare("demand task", &.{}, integer, &.{read});
+    var task_body = try author.bodyWithin(&frame, task);
+    const callable = try a.Interop.lambdaAs(&task_body, work, try author.adoptSchema(interpretation.body));
+    const interpreted = try bridge.install(&task_body, interpretation, peer, callable, integer);
+    try author.define(task, try task_body.finish(interpreted));
+
+    const descriptor = try author.declare("delayed task descriptor", &.{}, try author.adoptSchema(t.task), &.{});
+    var descriptor_body = try author.bodyWithin(&frame, descriptor);
+    const delayed_task = try a.Interop.lambdaAs(&descriptor_body, task, try author.adoptSchema(t.task));
+    try author.define(descriptor, try descriptor_body.finish(delayed_task.value));
+    const result = try a.Interop.lambdaAs(&frame, descriptor, try author.adoptSchema(q.types.answer_forward));
+    return try a.Interop.rawTerm(try frame.finish(result.value));
 }
+
 const Producer = struct {
-    pub fn emit(b: *source.Builder, q: hyper.Query) !Id {
-        return step(b, q, false);
+    pub fn emit(raw: *source.Builder, q: hyper.Query) source.Error!source.Id {
+        return step(raw, q, false);
     }
 };
 const Consumer = struct {
-    pub fn emit(b: *source.Builder, q: hyper.Query) !Id {
-        return step(b, q, true);
+    pub fn emit(raw: *source.Builder, q: hyper.Query) source.Error!source.Id {
+        return step(raw, q, true);
     }
 };
+
 const Application = struct {
-    pub fn emit(b: *source.Builder) !source.Module {
-        const t = try types(b);
-        const producer = try hyper.ana(b, t.pair, t.boolean, Producer);
-        const consumer = try hyper.ana(b, hyper.swap(t.pair), t.boolean, Consumer);
-        const entry = try b.declare(&.{}, t.integer, &.{t.read}, &.{});
-        const p = try b.variable(t.pair.forward);
-        const c = try b.variable(t.pair.backward);
-        const peer = try b.declare(&.{}, t.pair.forward, &.{}, &.{});
-        try b.define(peer, try b.pure(try b.reference(p)));
-        const delayed = try b.variable(t.pair.answer_backward);
-        const task = try b.variable(t.task);
-        const run = try b.bind(delayed, try hyper.invoke(b, try b.reference(c), try b.lambda(peer, t.pair.peer_forward)), try b.bind(task, try hyper.force(b, try b.reference(delayed)), try hyper.force(b, try b.reference(task))));
-        const started = try b.bind(c, try hyper.start(b, consumer, try b.constant(bool, false)), run);
-        try b.define(entry, try b.bind(p, try hyper.start(b, producer, try b.constant(bool, false)), started));
-        return b.module(entry, try b.scalar(void));
+    pub fn emit(author: *a.Builder) !a.Module {
+        const raw = author.raw;
+        const t = try bridge.types(raw);
+        const producer = try hyper.ana(raw, t.pair, t.boolean, Producer);
+        const consumer = try hyper.ana(raw, hyper.swap(t.pair), t.boolean, Consumer);
+        const integer = try author.adoptSchema(t.integer);
+        const read = try author.adoptEffect(t.read);
+        const entry = try author.declare("main", &.{}, integer, &.{read});
+        var body = try author.body(entry);
+        const p = try bridge.start(&body, producer, try author.literal(bool, false), try author.adoptSchema(t.pair.forward));
+        const c = try bridge.start(&body, consumer, try author.literal(bool, false), try author.adoptSchema(t.pair.backward));
+        const peer = try author.declare("producer peer", &.{}, try author.adoptSchema(t.pair.forward), &.{});
+        var peer_body = try author.bodyWithin(&body, peer);
+        try author.define(peer, try peer_body.finish(p));
+        const peer_value = try a.Interop.lambdaAs(&body, peer, try author.adoptSchema(t.pair.peer_forward));
+        const delayed = try bridge.invoke(&body, c, peer_value, try author.adoptSchema(t.pair.answer_backward));
+        const task = try bridge.force(&body, delayed, try author.adoptSchema(t.task));
+        const result = try bridge.force(&body, task, integer);
+        try author.define(entry, try body.finish(result));
+        return author.module(entry, try author.scalar(void));
     }
 };
+
 pub fn main(init: std.process.Init) !void {
-    var compiled = try boundary.program.lower(init.gpa, Application);
+    var compiled = try a.lower(init.gpa, Application);
     defer compiled.deinit();
     const bytes = try init.gpa.alloc(u8, try boundary.data.program_image.encodedLength(compiled.program));
     defer init.gpa.free(bytes);

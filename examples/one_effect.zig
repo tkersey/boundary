@@ -3,19 +3,20 @@ const std = @import("std");
 const boundary = @import("boundary");
 
 pub const Application = struct {
-    pub fn emit(b: *boundary.computation.Builder) !boundary.computation.Module {
-        const integer = try b.scalar(u32);
-        const unit = try b.scalar(void);
-        const lookup = try b.effect(.{ .identity = "example.lookup.v2", .payload = integer, .result = integer });
-        const entry = try b.declare(&.{integer}, integer, &.{lookup}, &.{});
-        const argument = try b.reference(b.parameter(entry, 0));
-        try b.define(entry, try b.term(.{ .perform = .{ .effect = lookup, .payload = argument } }));
-        return b.module(entry, unit);
+    pub fn emit(author: *boundary.authoring.Builder) !boundary.authoring.Module {
+        const integer = try author.scalar(u32);
+        const unit = try author.scalar(void);
+        const lookup = try author.external("example.lookup.v2", integer, integer);
+        const entry = try author.declare("main", &.{.{ .name = "input", .schema = integer }}, integer, &.{lookup});
+        var body = try author.body(entry);
+        const answer = try body.perform(lookup, try body.parameter("input"));
+        try author.define(entry, try body.finish(answer));
+        return author.module(entry, unit);
     }
 };
 
 pub fn main(init: std.process.Init) !void {
-    var compiled = try boundary.program.lower(init.gpa, Application);
+    var compiled = try boundary.authoring.lower(init.gpa, Application);
     defer compiled.deinit();
     const bytes = try init.gpa.alloc(u8, try boundary.data.program_image.encodedLength(compiled.program));
     defer init.gpa.free(bytes);
