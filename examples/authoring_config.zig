@@ -4,7 +4,7 @@ const boundary = @import("boundary");
 const a = boundary.authoring;
 const Setting = struct { increment: u64 };
 
-fn configured(author: *a.Builder, integer: a.Schema, failure: a.Value, setting: Setting) !a.Function {
+fn configured(author: *a.Builder, integer: a.Schema, failure: a.FailureLiteral, setting: Setting) !a.Function {
     const function = try author.declare("configured", &.{
         .{ .name = "input", .schema = integer },
     }, integer, &.{});
@@ -17,7 +17,7 @@ fn configured(author: *a.Builder, integer: a.Schema, failure: a.Value, setting: 
 pub const Application = struct {
     pub fn emit(author: *a.Builder) !a.Module {
         const integer = try author.scalar(u64);
-        const failure = try author.literal(void, {});
+        const failure = try author.literalFailure(void, {});
         const one = try configured(author, integer, failure, Setting{ .increment = 1 });
         const two = try configured(author, integer, failure, Setting{ .increment = 2 });
         const result = try author.record(&.{

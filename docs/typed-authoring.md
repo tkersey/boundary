@@ -56,6 +56,10 @@ encode, request/reply, restore, and result path without private imports.
 | Calling a staging callback creates source | `Body.apply` runs a symbolic callable under World |
 | Creating `Body.lambda` records code and its environment | Applying the callable forces that code when demanded |
 
+`Body.checkedAdd` takes a `FailureLiteral` from `Builder.literalFailure`; its
+overflow payload is encoded in the image. `Body.fail` takes an ordinary runtime
+`Value` and can fail with a computed payload.
+
 Build each runtime branch as a child body and finish it. `Body.select` joins
 equal result schemas. Values from the parent can be read in children; a sibling
 local cannot be read in another branch or after the join. The join's returned

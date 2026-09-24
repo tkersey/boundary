@@ -20,7 +20,7 @@ pub const Application = struct {
         const question = try author.local("client/question", integer, integer, .linear);
         const lookup = try author.external("client/lookup", integer, integer);
         const capability = try author.capability(question);
-        const failure = try author.literal(void, {});
+        const failure = try author.literalFailure(void, {});
 
         const responder = try author.declare("lookup responder", &.{
             .{ .name = "key", .schema = integer },
@@ -103,7 +103,7 @@ test "foreign nominal capability and escaped branch value reject" {
     try std.testing.expectError(error.InvalidCapability, body.performLocal(question, try body.parameter("cap"), try author.literal(u64, 1)));
     try std.testing.expectEqual(a.Category.capability_mismatch, author.diagnostic.?.category);
     var branch = try body.child("branch");
-    const local = try branch.checkedAdd(try author.literal(u64, 1), try author.literal(u64, 2), try author.literal(void, {}));
+    const local = try branch.checkedAdd(try author.literal(u64, 1), try author.literal(u64, 2), try author.literalFailure(void, {}));
     _ = try branch.finish(local);
     try std.testing.expectError(error.OutOfScope, body.finish(local));
 }

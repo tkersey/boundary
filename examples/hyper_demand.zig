@@ -27,7 +27,7 @@ fn stepForward(raw: *source.Builder, q: hyper.Query, comptime consumer: bool) a.
     const work = try author.declare("demand and contribute", &.{.{ .name = "need", .schema = capability }}, integer, &.{ read, need_effect });
     var body = try author.bodyWithin(&frame, work);
     const cap = try body.parameter("need");
-    const failure = try author.literal(void, {});
+    const failure = try author.literalFailure(void, {});
     const contribution = if (consumer) blk: {
         var yes = try body.child("external reference");
         const external = try yes.perform(read, try author.literal(u64, 19));

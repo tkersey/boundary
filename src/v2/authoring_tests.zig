@@ -589,6 +589,55 @@ test "named module failure rejects a raw cleanup lambda without provenance" {
     try std.testing.expectEqualStrings("missing raw cleanup provenance", author.diagnostic.?.relationship.?);
 }
 
+test "checked addition uses a distinct literal failure handle" {
+    var raw = source.Builder.init(std.testing.allocator);
+    defer raw.deinit();
+    var author = a.Builder.init(&raw);
+    const integer = try author.scalar(u64);
+    const unit = try author.scalar(void);
+    const literal = try author.literalFailure(void, {});
+    try std.testing.expect(@TypeOf(literal) != a.Value);
+    const entry = try author.declare("checked addition entry", &.{}, integer, &.{});
+    var body = try author.body(entry);
+    const sum = try body.checkedAdd(try author.literal(u64, 1), try author.literal(u64, 2), literal);
+    try author.define(entry, try body.finish(sum));
+    _ = try author.module(entry, unit);
+}
+
+test "named module failure checks reachable checked-add literal provenance" {
+    var raw = source.Builder.init(std.testing.allocator);
+    defer raw.deinit();
+    var author = a.Builder.init(&raw);
+    const integer = try author.scalar(u64);
+    const failure = try author.record(&.{.{ .name = "reason", .schema = integer }});
+    const entry = try author.declare("checked failure entry", &.{}, integer, &.{});
+    var body = try author.body(entry);
+    const sum = try body.checkedAdd(try author.literal(u64, 1), try author.literal(u64, 2), try author.literalFailure(void, {}));
+    try author.define(entry, try body.finish(sum));
+    try std.testing.expectError(error.TypeMismatch, author.module(entry, failure.schema));
+    try std.testing.expectEqualStrings("checked failure literal", author.diagnostic.?.entity);
+}
+
+test "named module failure rejects a raw primitive failure without provenance" {
+    var raw = source.Builder.init(std.testing.allocator);
+    defer raw.deinit();
+    var author = a.Builder.init(&raw);
+    const integer = try author.scalar(u64);
+    const failure = try author.record(&.{.{ .name = "reason", .schema = integer }});
+    const entry = try author.declare("raw primitive failure", &.{}, integer, &.{});
+    const bytes = [_]u8{0} ** 8;
+    const raw_literal = try raw.literal(.{ .schema = failure.schema.id, .bytes = &bytes });
+    const fault = try raw.failureLiteral(raw_literal);
+    const sum = try raw.value(.{ .schema = integer.id, .expression = .{ .primitive = .{
+        .opcode = .integer_add,
+        .operands = &.{ try raw.constant(u64, 1), try raw.constant(u64, 2) },
+        .failures = &.{.{ .kind = .arithmetic_overflow, .value = fault }},
+    } } });
+    try raw.define(entry.id, try raw.pure(sum));
+    try std.testing.expectError(error.TypeMismatch, author.module(entry, failure.schema));
+    try std.testing.expectEqualStrings("missing primitive failure provenance", author.diagnostic.?.relationship.?);
+}
+
 test "schema comparison visits shared named metadata as a graph" {
     var raw = source.Builder.init(std.testing.allocator);
     defer raw.deinit();
@@ -635,7 +684,7 @@ test "named record layout survives direct calls and callable application" {
     });
     const directly = try body.call(identity, &.{value});
     const applied = try body.apply(try body.lambda(identity, &.{}, .reusable), &.{value});
-    const sum = try body.checkedAdd(try body.field(record, directly, "left"), try body.field(record, applied, "right"), try author.literal(void, {}));
+    const sum = try body.checkedAdd(try body.field(record, directly, "left"), try body.field(record, applied, "right"), try author.literalFailure(void, {}));
     try author.define(entry, try body.finish(sum));
     var compiled = try author.compile(std.testing.allocator, try author.module(entry, try author.scalar(void)));
     compiled.deinit();
@@ -757,7 +806,7 @@ test "raw interop cannot relabel an exported named value or term" {
     }, 0);
     try std.testing.expectError(error.InvalidSource, a.Interop.adoptValue(&body, unknown, left.schema));
     var child = try body.child("term");
-    const local = try child.checkedAdd(try author.literal(u64, 1), try author.literal(u64, 2), try author.literal(void, {}));
+    const local = try child.checkedAdd(try author.literal(u64, 1), try author.literal(u64, 2), try author.literalFailure(void, {}));
     const local_id = try a.Interop.rawValue(&child, local);
     try std.testing.expectError(error.OutOfScope, a.Interop.adoptValue(&body, local_id, integer));
     _ = try a.Interop.adoptValue(&child, local_id, integer);

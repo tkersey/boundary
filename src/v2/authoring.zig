@@ -267,6 +267,7 @@ pub const Value = struct {
     scope: ?*Scope = null,
     origin: ?*const ValueOrigin = null,
 };
+pub const FailureLiteral = struct { origin: *const FailureLiteralInfo };
 pub const Block = struct {
     owner: *Builder,
     term: p.Id,
@@ -366,6 +367,7 @@ const InterpretationOrigin = struct {
 const ExportedValue = struct { schema: Schema, scope: ?*Scope };
 const ExportedTerm = struct { schema: Schema, scope: *Scope };
 const ValueOrigin = struct { schema: Schema, scope: ?*Scope };
+const FailureLiteralInfo = struct { value: Value, literal: p.Id };
 
 fn scopeVisible(introduced: ?*Scope, used: *Scope) bool {
     const origin = introduced orelse return true;
@@ -387,6 +389,8 @@ pub const Builder = struct {
     interpretation_origins: std.AutoHashMapUnmanaged(*const InterpretationOrigin, void) = .empty,
     named_layouts: std.ArrayList(*const NamedLayout) = .empty,
     value_origins: std.AutoHashMapUnmanaged(p.Id, *const ValueOrigin) = .empty,
+    failure_literals: std.AutoHashMapUnmanaged(*const FailureLiteralInfo, void) = .empty,
+    checked_add_failures: std.AutoHashMapUnmanaged(p.Id, Schema) = .empty,
     case_origins: std.AutoHashMapUnmanaged(*Scope, *CaseOrigin) = .empty,
     value_exports: std.AutoHashMapUnmanaged(p.Id, ExportedValue) = .empty,
     term_exports: std.AutoHashMapUnmanaged(p.Id, ExportedTerm) = .empty,
@@ -603,8 +607,11 @@ pub const Builder = struct {
         var scratch = std.heap.ArenaAllocator.init(self.raw.arena.child_allocator);
         defer scratch.deinit();
         const allocator = scratch.allocator();
+        const named_failure = try hasNamedMetadata(failure, allocator);
         var pending: std.ArrayList(p.Id) = .empty;
+        var pending_values: std.ArrayList(p.Id) = .empty;
         var seen: std.AutoHashMapUnmanaged(p.Id, void) = .empty;
+        var seen_values: std.AutoHashMapUnmanaged(p.Id, void) = .empty;
         for (input.functions) |function| if (function.body) |term|
             try pending.append(allocator, term);
         while (pending.pop()) |term_id| {
@@ -612,9 +619,11 @@ pub const Builder = struct {
             if (seen.contains(term_id)) continue;
             try seen.put(allocator, term_id, {});
             switch (input.terms[@intCast(term_id)]) {
+                .value => |value_id| try pending_values.append(allocator, value_id),
                 .fail => |value_id| {
+                    try pending_values.append(allocator, value_id);
                     const value = self.value_origins.get(value_id) orelse {
-                        if (try hasNamedMetadata(failure, allocator)) {
+                        if (named_failure) {
                             self.report(.schema_mismatch, "failure value", failure.id, null, null, null);
                             self.diagnostic.?.relationship = "missing raw failure provenance";
                             return error.TypeMismatch;
@@ -627,19 +636,90 @@ pub const Builder = struct {
                         return error.TypeMismatch;
                     }
                 },
-                .protect => |term| try self.checkCleanupFailure(term.cleanup, failure, allocator),
+                .protect => |term| {
+                    try self.checkCleanupFailure(term.cleanup, failure, allocator);
+                    try pending_values.append(allocator, term.body);
+                    try pending_values.append(allocator, term.cleanup);
+                    for (term.arguments) |argument| try pending_values.append(allocator, argument);
+                    if (term.resource) |owned_resource| try pending_values.append(allocator, owned_resource);
+                },
                 .bind => |term| {
                     try pending.append(allocator, term.value);
                     try pending.append(allocator, term.next);
                 },
                 .conditional => |term| {
+                    try pending_values.append(allocator, term.condition);
                     try pending.append(allocator, term.when_true);
                     try pending.append(allocator, term.when_false);
                 },
-                .match_sum => |term| for (term.cases) |case|
-                    try pending.append(allocator, case.body),
-                .unpack_product => |term| try pending.append(allocator, term.body),
+                .call => |term| for (term.arguments) |argument|
+                    try pending_values.append(allocator, argument),
+                .apply => |term| {
+                    try pending_values.append(allocator, term.computation);
+                    for (term.arguments) |argument| try pending_values.append(allocator, argument);
+                },
+                .perform => |term| {
+                    try pending_values.append(allocator, term.payload);
+                    if (term.capability) |capability_value| try pending_values.append(allocator, capability_value);
+                    for (term.bodies) |scoped_body| try pending_values.append(allocator, scoped_body);
+                    for (term.use_site_capabilities) |site_capability| try pending_values.append(allocator, site_capability);
+                },
+                .handle => |term| {
+                    try pending_values.append(allocator, term.body);
+                    for (term.arguments) |argument| try pending_values.append(allocator, argument);
+                    for (term.state) |state| try pending_values.append(allocator, state);
+                },
+                .resume_value => |term| {
+                    try pending_values.append(allocator, term.resumption);
+                    try pending_values.append(allocator, term.argument);
+                },
+                .resume_with => |term| {
+                    try pending_values.append(allocator, term.resumption);
+                    try pending_values.append(allocator, term.argument);
+                    for (term.state) |state| try pending_values.append(allocator, state);
+                },
+                .resume_computation => |term| {
+                    try pending_values.append(allocator, term.resumption);
+                    try pending_values.append(allocator, term.computation);
+                },
+                .with_region => |term| {
+                    try pending_values.append(allocator, term.body);
+                    for (term.arguments) |argument| try pending_values.append(allocator, argument);
+                },
+                .dispose => |value_id| try pending_values.append(allocator, value_id),
+                .match_sum => |term| {
+                    try pending_values.append(allocator, term.value);
+                    for (term.cases) |case| try pending.append(allocator, case.body);
+                },
+                .unpack_product => |term| {
+                    try pending_values.append(allocator, term.value);
+                    try pending.append(allocator, term.body);
+                },
                 .yield_then => |next| try pending.append(allocator, next),
+            }
+        }
+        while (pending_values.pop()) |value_id| {
+            if (value_id >= input.values.len) return error.InvalidReference;
+            if (seen_values.contains(value_id)) continue;
+            try seen_values.put(allocator, value_id, {});
+            switch (input.values[@intCast(value_id)].expression) {
+                .primitive => |primitive| {
+                    for (primitive.operands) |operand| try pending_values.append(allocator, operand);
+                    if (primitive.failures.len == 0) continue;
+                    const authored = self.checked_add_failures.get(value_id) orelse {
+                        if (named_failure) {
+                            self.report(.schema_mismatch, "checked failure literal", failure.id, null, null, null);
+                            self.diagnostic.?.relationship = "missing primitive failure provenance";
+                            return error.TypeMismatch;
+                        }
+                        continue;
+                    };
+                    if (!try sameSchema(authored, failure)) {
+                        self.report(.schema_mismatch, "checked failure literal", failure.id, authored.id, null, null);
+                        self.diagnostic.?.relationship = "named module failure layout";
+                        return error.TypeMismatch;
+                    }
+                },
                 else => {},
             }
         }
@@ -1075,6 +1155,16 @@ pub const Builder = struct {
         self.diagnostic = null;
         errdefer |err| self.onError(err);
         return self.mintValue(.{ .owner = self, .id = try self.raw.constant(T, value), .schema = try self.scalar(T) });
+    }
+
+    /// Checked arithmetic embeds an authored failure literal in the source image.
+    pub fn literalFailure(self: *Builder, comptime T: type, value: T) Error!FailureLiteral {
+        errdefer |err| self.onError(err);
+        const authored = try self.literal(T, value);
+        const origin = try self.raw.allocator().create(FailureLiteralInfo);
+        origin.* = .{ .value = authored, .literal = try self.raw.failureLiteral(authored.id) };
+        try self.failure_literals.put(self.raw.allocator(), origin, {});
+        return .{ .origin = origin };
     }
 
     /// The caller vouches for historical raw-ID provenance. The current catalog
@@ -2027,24 +2117,30 @@ pub const Body = struct {
         return self.author.mintValue(.{ .owner = self.author, .schema = left.schema, .scope = self.scope, .id = try self.author.raw.primitive(left.schema.id, .sequence_concat, &.{ left.id, right.id }, 0) });
     }
 
-    pub fn checkedAdd(self: *Body, left: Value, right: Value, failure: Value) Error!Value {
+    pub fn checkedAdd(self: *Body, left: Value, right: Value, failure: FailureLiteral) Error!Value {
         errdefer |err| self.author.onError(err);
         try self.check(left);
         try self.check(right);
-        try self.check(failure);
+        if (!self.author.failure_literals.contains(failure.origin)) {
+            self.author.report(.argument_mismatch, "checked addition failure", null, null, null, self.scope.name);
+            self.author.diagnostic.?.relationship = "issued literal failure";
+            return error.InvalidSource;
+        }
+        try self.check(failure.origin.value);
         if (!try sameSchema(left.schema, right.schema)) return error.TypeMismatch;
         const shape = self.author.raw.schemas.items[@intCast(left.schema.id)];
         if (shape != .u8 and shape != .u16 and shape != .u32 and shape != .u64 and
             shape != .i8 and shape != .i16 and shape != .i32 and shape != .i64) return error.TypeMismatch;
-        const fault = try self.author.raw.failureLiteral(failure.id);
-        return self.author.mintValue(.{ .owner = self.author, .schema = left.schema, .scope = self.scope, .id = try self.author.raw.value(.{
+        const id = try self.author.raw.value(.{
             .schema = left.schema.id,
             .expression = .{ .primitive = .{
                 .opcode = .integer_add,
                 .operands = &.{ left.id, right.id },
-                .failures = &.{.{ .kind = .arithmetic_overflow, .value = fault }},
+                .failures = &.{.{ .kind = .arithmetic_overflow, .value = failure.origin.literal }},
             } },
-        }) });
+        });
+        try self.author.checked_add_failures.put(self.author.raw.allocator(), id, failure.origin.value.schema);
+        return self.author.mintValue(.{ .owner = self.author, .schema = left.schema, .scope = self.scope, .id = id });
     }
 
     pub fn equal(self: *Body, left: Value, right: Value) Error!Value {
