@@ -52,6 +52,9 @@ request, including after restoration.
 No native callback enters the Program. Inspecting schemas or diagnostics does not
 force delayed work. Recursive function declarations can be used before definition;
 all declarations must be defined before `module` or `compile` publishes a snapshot.
+Publication also compares the declared named failure layout with executable
+arithmetic faults and protected cleanup contracts, including late helper
+definitions. Abandoned staging branches do not contribute executable uses.
 The recursive adapter retains the existing finite `hyper.ana` construction.
 
 Keep the source builder at a stable address. Contexts, handles, copied names and
@@ -66,8 +69,9 @@ being authored. The runtime lifetime of those captures is checked independently.
 Sibling values and branch-local values cannot escape directly: use `conditional`,
 `block` or `match` to produce a parent-scope result.
 
-A construction allocation failure poisons the affected context when partial work
-could remain. Discard it and tear down its source builder. No successful checked
+Construction errors, including allocation and named-argument validation failures,
+may poison the context. After an error, retain its diagnostic, discard the context
+and tear down its source builder; general transactional recovery is not promised. No successful checked
 module is returned from a failed operation. Diagnostic handles remain valid until
 that builder is destroyed; `renderAlloc` returns caller-owned text.
 
@@ -95,7 +99,8 @@ and `describe` inspect the metadata. This is not a serializer for arbitrary Zig
 pointers or recursive native structures; unsupported `scalar` types fail clearly.
 
 Compatibility compares builder origin, raw schema identity and the complete named
-metadata graph. Memoized schema pairs handle sharing and recursion without
+metadata graph, including callable and resumption capture bounds. Memoized schema
+pairs handle sharing and recursion without
 repeated unfolding; allocation identity is only a fast path. Names are compared
 within declarations; equal raw product shapes do not make
 incompatible named layouts interchangeable. Operation identity is nominal: two
@@ -318,3 +323,11 @@ imported/constructed sequence composition, nested-name rejection, borrowed and
 recursive interfaces, shared graphs, and allocation failure during compatibility
 checking. Their original subjects and CAS provenance are retained in the three
 Review Fold records for this execution. Review status remains owned by the draft PR.
+
+
+A later review wave exposed failure-layout publication and capture-bound metadata
+gaps, plus missing rejection diagnostics. Their regressions cover failure producers,
+cleanup consumers, late definitions, abandoned branches, callable/resumption bounds,
+stale diagnostic replacement and allocation failure. Allocation injection additionally
+exposed a pre-existing stale target-diagnostic location after projection; target
+admission now clears prior-pass locations before reporting a new failure.

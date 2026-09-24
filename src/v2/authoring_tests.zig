@@ -538,3 +538,119 @@ test "review borrowed and recursive callable metadata compose across imports" {
     const input_body = try c.body(input);
     _ = try input_body.call(target, &.{.{ .name = "f", .value = try input_body.parameter("f") }});
 }
+
+fn namedFaultPublication(allocator: std.mem.Allocator, mismatch: bool, late: bool, abandoned: bool) !void {
+    var raw = source.Builder.init(allocator);
+    defer raw.deinit();
+    const c = try a.Context.init(&raw);
+    const integer = try c.scalar(u64);
+    const declared = try c.record(&.{.{ .name = "code", .schema = integer }});
+    const actual = if (mismatch) try c.record(&.{.{ .name = "other", .schema = integer }}) else declared;
+    const entry = try c.function("entry", &.{}, integer, &.{});
+    const body = try c.body(entry);
+    if (late) try c.define(entry, try body.ret(try body.constant(u64, 42)));
+    const target = if (late) try c.function("late helper", &.{}, integer, &.{}) else entry;
+    const work = if (late) try c.body(target) else if (abandoned) try body.branch() else body;
+    const literal = try raw.literal(.{ .schema = try a.interop.schemaId(c, actual), .bytes = &.{ 9, 0, 0, 0, 0, 0, 0, 0 } });
+    const failure = try a.interop.adoptValue(work, literal, actual);
+    const result = try work.checkedAdd(try work.constant(u64, 1), try work.constant(u64, 2), failure);
+    if (abandoned) {
+        work.abandon();
+        try c.define(entry, try body.ret(try body.constant(u64, 42)));
+    } else try c.define(target, try work.ret(result));
+    var compiled = try c.compile(allocator, entry, declared);
+    defer compiled.deinit();
+}
+test "review publication checks named faults including later helpers and ignores abandoned work" {
+    try namedFaultPublication(testing.allocator, false, false, false);
+    try namedFaultPublication(testing.allocator, false, true, false);
+    try testing.expectError(error.SchemaMismatch, namedFaultPublication(testing.allocator, true, false, false));
+    try testing.expectError(error.SchemaMismatch, namedFaultPublication(testing.allocator, true, true, false));
+    try namedFaultPublication(testing.allocator, true, false, true);
+}
+
+fn namedCleanupPublication(allocator: std.mem.Allocator, mismatch: bool) !void {
+    var raw = source.Builder.init(allocator);
+    defer raw.deinit();
+    const c = try a.Context.init(&raw);
+    const unit = try c.scalar(void);
+    const integer = try c.scalar(u64);
+    const declared = try c.record(&.{.{ .name = "code", .schema = integer }});
+    const actual = if (mismatch) try c.record(&.{.{ .name = "other", .schema = integer }}) else declared;
+    const work_schema = try c.callable(&.{}, integer, &.{}, .{ .use = .linear, .captures = &.{} });
+    const work = try c.functionFor("work", work_schema);
+    const work_body = try c.body(work);
+    try c.define(work, try work_body.ret(try work_body.constant(u64, 42)));
+    const cleanup_schema = try c.callable(&.{.{ .name = "exit", .schema = try c.cleanupInfo(actual) }}, unit, &.{}, .{ .use = .linear, .captures = &.{} });
+    const cleanup = try c.functionFor("cleanup", cleanup_schema);
+    const cleanup_body = try c.body(cleanup);
+    try c.define(cleanup, try cleanup_body.ret(try cleanup_body.constant(void, {})));
+    const entry = try c.function("entry", &.{}, integer, &.{});
+    const body = try c.body(entry);
+    try c.define(entry, try body.ret(try body.protect(try body.lambda(work, work_schema), try body.lambda(cleanup, cleanup_schema), &.{})));
+    var compiled = try c.compile(allocator, entry, declared);
+    defer compiled.deinit();
+}
+test "review publication checks cleanup failure interpretation" {
+    try namedCleanupPublication(testing.allocator, false);
+    try testing.expectError(error.SchemaMismatch, namedCleanupPublication(testing.allocator, true));
+}
+
+test "review callable and resumption compatibility retain named capture bounds" {
+    var raw = source.Builder.init(testing.allocator);
+    defer raw.deinit();
+    const c = try a.Context.init(&raw);
+    const unit = try c.scalar(void);
+    const integer = try c.scalar(u64);
+    const left = try c.record(&.{.{ .name = "left", .schema = integer }});
+    const right = try c.record(&.{.{ .name = "right", .schema = integer }});
+    const first = try c.callable(&.{}, unit, &.{}, .{ .use = .reusable, .captures = &.{left} });
+    const second = try c.callable(&.{}, unit, &.{}, .{ .use = .reusable, .captures = &.{right} });
+    const use = try c.function("use", &.{.{ .name = "work", .schema = first }}, unit, &.{});
+    const entry = try c.function("entry", &.{.{ .name = "work", .schema = second }}, unit, &.{});
+    const body = try c.body(entry);
+    try testing.expectError(error.SchemaMismatch, body.call(use, &.{.{ .name = "work", .value = try body.parameter("work") }}));
+    // The failed construction is intentionally followed only by teardown.
+}
+
+test "review twice rejection replaces stale diagnostics with its own relationship" {
+    var raw = source.Builder.init(testing.allocator);
+    defer raw.deinit();
+    const c = try a.Context.init(&raw);
+    const unit = try c.scalar(void);
+    const linear = try c.callable(&.{}, unit, &.{}, .{ .use = .linear, .captures = &.{} });
+    c.diagnostic = .{ .code = error.UnknownName, .entity = "earlier", .relationship = "stale" };
+    try testing.expectError(error.InvalidOwnership, c.twice(linear));
+    try testing.expectEqual(error.InvalidOwnership, c.diagnostic.code.?);
+    try testing.expectEqualStrings("twice", c.diagnostic.entity);
+    const rendered = try c.diagnostic.renderAlloc(testing.allocator);
+    defer testing.allocator.free(rendered);
+    try testing.expect(std.mem.indexOf(u8, rendered, "reusable zero-argument") != null);
+}
+
+fn publicationAllocation(allocator: std.mem.Allocator) !void {
+    try namedFaultPublication(allocator, false, true, false);
+    try namedCleanupPublication(allocator, false);
+}
+test "review publication metadata and traversal tolerate allocation failure" {
+    try testing.checkAllAllocationFailures(testing.allocator, publicationAllocation, .{});
+}
+
+test "review resumption capture contracts preserve nested names" {
+    var raw = source.Builder.init(testing.allocator);
+    defer raw.deinit();
+    const c = try a.Context.init(&raw);
+    const unit = try c.scalar(void);
+    const integer = try c.scalar(u64);
+    const left = try c.record(&.{.{ .name = "left", .schema = integer }});
+    const right = try c.record(&.{.{ .name = "right", .schema = integer }});
+    const operation = try c.local("capture", unit, unit, .multi);
+    const first = try c.handler(operation, unit, unit, .{ .mode = .deep, .use = .multi, .residual = &.{}, .captures = &.{left} });
+    const second = try c.handler(operation, unit, unit, .{ .mode = .deep, .use = .multi, .residual = &.{}, .captures = &.{right} });
+    const first_token = try a.interop.resumptionSchema(c, first);
+    const second_token = try a.interop.resumptionSchema(c, second);
+    const use = try c.function("use", &.{.{ .name = "token", .schema = first_token }}, unit, &.{});
+    const caller = try c.function("caller", &.{.{ .name = "token", .schema = second_token }}, unit, &.{});
+    const body = try c.body(caller);
+    try testing.expectError(error.SchemaMismatch, body.call(use, &.{.{ .name = "token", .value = try body.parameter("token") }}));
+}

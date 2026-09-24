@@ -141,6 +141,13 @@ fn lowerInternal(
 
 fn checkTarget(allocator: std.mem.Allocator, compiler: *Compiler, program: ir.Program, imports: []const p.Id, component: bool, borrows: []const data.borrow_contract.Summary, origins: ?[]const p.Id, options: source.CompileOptions) Error!data.activation_flow.Facts {
     if (component) return data.activation_ownership.analyzeComponent(allocator, program, imports, borrows);
+    // Admission can fail before setting a location (notably on allocation).
+    // A previous pass's function ID belongs to a different, unprojected catalog.
+    if (options.diagnostic) |diagnostic| {
+        diagnostic.target = .{};
+        diagnostic.function = null;
+        diagnostic.variable = null;
+    }
     return data.activation_ownership.analyzeDiagnosed(allocator, program, if (options.diagnostic) |diagnostic| &diagnostic.target else null) catch |err|
         {
             if (options.diagnostic) |diagnostic| {

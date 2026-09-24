@@ -137,6 +137,7 @@ const SchemaData = struct {
     id: p.Id,
     fields: []const Field = &.{},
     result: ?*const Schema = null,
+    captures: []const *const Schema = &.{},
 };
 const OperationData = struct {
     owner: *Context,
@@ -189,6 +190,11 @@ const CaseData = struct {
 const FinishedCaseData = struct { case: *const Case, computation: *const Computation };
 const RegionData = struct { owner: *Context, id: p.Id };
 const Scope = struct { parent: ?*Scope, active: bool = true };
+const PublicationUse = struct {
+    anchor: union(enum) { value: p.Id, term: p.Id },
+    schema: *const Schema,
+    cleanup: bool = false,
+};
 const Binding = struct { variable: p.Id, term: p.Id };
 fn data(comptime T: type, pointer: anytype) *const T {
     return @ptrCast(@alignCast(pointer));
@@ -205,6 +211,7 @@ pub const Context = struct {
     schemas: std.ArrayList(*const Schema) = .empty,
     imported: std.AutoHashMapUnmanaged(p.Id, *const Schema) = .empty,
     functions: std.ArrayList(*const Function) = .empty,
+    publication_uses: std.ArrayList(PublicationUse) = .empty,
 
     pub fn init(raw: *source.Builder) Error!*Context {
         const self = try raw.allocator().create(Context);
@@ -274,12 +281,16 @@ pub const Context = struct {
             const b = data(SchemaData, pair.actual);
             try self.origin(a.owner);
             try self.origin(b.owner);
-            if (a.id != b.id or a.fields.len != b.fields.len) return false;
+            if (a.id != b.id or a.fields.len != b.fields.len or a.captures.len != b.captures.len)
+                return false;
             const visited = try seen.getOrPut(allocator, pair);
             if (visited.found_existing) continue;
             for (a.fields, b.fields) |left, right| {
                 if (!std.mem.eql(u8, left.name, right.name)) return false;
                 if (left.schema != right.schema) try pending.append(allocator, .{ .expected = left.schema, .actual = right.schema });
+            }
+            for (a.captures, b.captures) |left, right| {
+                if (left != right) try pending.append(allocator, .{ .expected = left, .actual = right });
             }
             if (a.result) |left| {
                 const right = b.result orelse return false;
@@ -308,11 +319,21 @@ pub const Context = struct {
         names: []const Field,
         result: ?*const Schema,
     ) Error!*const Schema {
+        return self.internComplete(id, names, result, &.{});
+    }
+    fn internComplete(
+        self: *Context,
+        id: p.Id,
+        names: []const Field,
+        result: ?*const Schema,
+        captures: []const *const Schema,
+    ) Error!*const Schema {
         try self.ready();
         errdefer self.poisoned = true;
         for (self.schemas.items) |existing| {
             const s = data(SchemaData, existing);
-            if (s.id != id or s.result != result or s.fields.len != names.len) continue;
+            if (s.id != id or s.result != result or s.fields.len != names.len or
+                !std.mem.eql(*const Schema, s.captures, captures)) continue;
             var same_names = true;
             for (s.fields, names) |a, b| {
                 if (a.schema != b.schema or !std.mem.eql(u8, a.name, b.name)) same_names = false;
@@ -324,6 +345,7 @@ pub const Context = struct {
             .id = id,
             .fields = try self.fields(names),
             .result = result,
+            .captures = try self.raw.allocator().dupe(*const Schema, captures),
         }));
         try self.schemas.append(self.raw.allocator(), item);
         return item;
@@ -371,7 +393,7 @@ pub const Context = struct {
         for (names, ids) |item, *id| {
             id.* = try self.schemaId(item.schema);
             const shape = self.raw.schemas.items[@intCast(id.*)];
-            if (shape != .internal or shape.internal != .computation) return error.InvalidCategory;
+            if (shape != .internal or shape.internal != .computation) return self.reject(error.InvalidCategory, "scoped operation", "body operands must be callable");
         }
         const id = try self.raw.effect(.{
             .identity = name,
@@ -574,7 +596,7 @@ pub const Context = struct {
             .use = options.use,
             .regions = try self.regionIds(options.regions),
         } } });
-        return self.internResult(id, names, result);
+        return self.internComplete(id, names, result, options.captures);
     }
     pub fn capability(self: *Context, operation_handle: *const Operation) Error!*const Schema {
         const op = data(OperationData, operation_handle);
@@ -593,7 +615,7 @@ pub const Context = struct {
         if (shape != .internal or shape.internal != .computation)
             return self.reject(error.InvalidCategory, "function", "requires callable schema");
         const info = data(SchemaData, schema);
-        const result = info.result orelse return error.InvalidSchema;
+        const result = info.result orelse return self.reject(error.InvalidSchema, "function declaration", "callable metadata lacks its result");
         errdefer self.poisoned = true;
         const signature = shape.internal.computation;
         return try self.saveFunction(.{
@@ -607,11 +629,12 @@ pub const Context = struct {
     pub fn twice(self: *Context, schema: *const Schema) Error!*const Function {
         const id = try self.schemaId(schema);
         const shape = self.raw.schemas.items[@intCast(id)];
-        if (shape != .internal or shape.internal != .computation) return error.InvalidCategory;
+        if (shape != .internal or shape.internal != .computation) return self.reject(error.InvalidCategory, "twice", "requires a reusable zero-argument callable");
         const signature = shape.internal.computation;
-        if (signature.parameters.len != 0 or signature.use != .reusable) return error.InvalidOwnership;
+        if (signature.parameters.len != 0 or signature.use != .reusable)
+            return self.reject(error.InvalidOwnership, "twice", "requires a reusable zero-argument callable");
         const info = data(SchemaData, schema);
-        const element = info.result orelse return error.InvalidSchema;
+        const element = info.result orelse return self.reject(error.InvalidSchema, "twice", "requires a reusable zero-argument callable");
         const pair = try self.record(&.{
             .{ .name = "first", .schema = element },
             .{ .name = "second", .schema = element },
@@ -704,7 +727,7 @@ pub const Context = struct {
             .use = options.use,
             .owned_regions = try self.regionIds(options.owned_regions),
         } } });
-        const resumption = try self.internResult(resume_id, &.{.{ .name = "reply", .schema = op.result }}, resume_answer);
+        const resumption = try self.internComplete(resume_id, &.{.{ .name = "reply", .schema = op.result }}, resume_answer, options.captures);
         const functions = try self.handlerFunctions(op, input, answer, resumption, options);
         const rf = data(FunctionData, functions.returns).id;
         const cf = data(FunctionData, functions.clause).id;
@@ -824,7 +847,7 @@ pub const Context = struct {
         var diagnostic: source.Diagnostic = .{};
         return source.lowerObserved(allocator, module_value, .{ .diagnostic = &diagnostic }) catch |err| {
             var name: []const u8 = "compiled source";
-            const function_id = diagnostic.target.function orelse diagnostic.function;
+            const function_id = diagnostic.function;
             if (function_id) |id| for (self.functions.items) |f| {
                 const item = data(FunctionData, f);
                 if (item.id == id) {
@@ -842,6 +865,58 @@ pub const Context = struct {
             return err;
         };
     }
+    fn notePublication(self: *Context, use: PublicationUse) Error!void {
+        errdefer self.poisoned = true;
+        try self.publication_uses.append(self.raw.allocator(), use);
+    }
+    fn publication(self: *Context, failure: *const Schema) Error!void {
+        if (self.publication_uses.items.len == 0) return;
+        var scratch = std.heap.ArenaAllocator.init(self.raw.allocator());
+        defer scratch.deinit();
+        const allocator = scratch.allocator();
+        const terms = try allocator.alloc(bool, self.raw.terms.items.len);
+        const values = try allocator.alloc(bool, self.raw.values.items.len);
+        @memset(terms, false);
+        @memset(values, false);
+        var pending_terms: std.ArrayList(p.Id) = .empty;
+        var pending_values: std.ArrayList(p.Id) = .empty;
+        for (self.raw.functions.items) |definition| if (definition.body) |term_id|
+            try pending_terms.append(allocator, term_id);
+        var refs: @import("source/check.zig").References = .{ .allocator = allocator };
+        while (pending_terms.pop()) |id| {
+            if (id >= terms.len) return error.InvalidReference;
+            if (terms[@intCast(id)]) continue;
+            terms[@intCast(id)] = true;
+            refs.values.clearRetainingCapacity();
+            refs.terms.clearRetainingCapacity();
+            refs.bound.clearRetainingCapacity();
+            try refs.collect(self.raw.terms.items[@intCast(id)]);
+            try pending_terms.appendSlice(allocator, refs.terms.items);
+            try pending_values.appendSlice(allocator, refs.values.items);
+        }
+        while (pending_values.pop()) |id| {
+            if (id >= values.len) return error.InvalidReference;
+            if (values[@intCast(id)]) continue;
+            values[@intCast(id)] = true;
+            const expression = self.raw.values.items[@intCast(id)].expression;
+            if (expression == .primitive)
+                try pending_values.appendSlice(allocator, expression.primitive.operands);
+        }
+        var cleanup: ?*const Schema = null;
+        for (self.publication_uses.items) |use| {
+            const included = switch (use.anchor) {
+                .value => |id| id < values.len and values[@intCast(id)],
+                .term => |id| id < terms.len and terms[@intCast(id)],
+            };
+            if (!included) continue;
+            if (use.cleanup and cleanup == null) cleanup = try self.cleanupInfo(failure);
+            self.same(if (use.cleanup) cleanup.? else failure, use.schema) catch |err| {
+                self.diagnostic.entity = if (use.cleanup) "cleanup" else "authored failure";
+                self.diagnostic.relationship = "named failure layout differs from module failure contract";
+                return err;
+            };
+        }
+    }
     /// Copies all source arrays: later low-level builder growth cannot invalidate this snapshot.
     /// Compilation still performs the authoritative source and target admission.
     pub fn module(
@@ -855,6 +930,7 @@ pub const Context = struct {
         for (self.raw.functions.items) |function_item| if (function_item.body == null)
             return self.reject(error.UndefinedBody, f.name, "all declarations must be defined");
         errdefer self.poisoned = true;
+        try self.publication(failure);
         return source.own(source.Module, self.raw.allocator(), self.raw.module(f.id, failure_id));
     }
 };
@@ -1168,13 +1244,16 @@ pub const Body = struct {
             const zero = try self.useValue(failures.division_by_zero orelse
                 return c.reject(error.InvalidCategory, "division", "requires an authored zero-divisor failure"));
             faults[1] = .{ .kind = .division_by_zero, .value = try c.raw.failureLiteral(zero.id) };
-        } else if (failures.division_by_zero != null) return error.InvalidCategory;
+        } else if (failures.division_by_zero != null)
+            return c.reject(error.InvalidCategory, "arithmetic", "zero-divisor failure only applies to division or remainder");
         errdefer c.poisoned = true;
         const value_id = try c.raw.value(.{ .schema = schema, .expression = .{ .primitive = .{
             .opcode = opcode,
             .operands = &.{ a.id, b.id },
             .failures = faults[0..@as(usize, if (division) 2 else 1)],
         } } });
+        try c.notePublication(.{ .anchor = .{ .value = value_id }, .schema = overflow.schema });
+        if (division) try c.notePublication(.{ .anchor = .{ .value = value_id }, .schema = (try self.useValue(failures.division_by_zero.?)).schema });
         return self.bind(try c.raw.pure(value_id), a.schema);
     }
     pub fn sequenceValue(
@@ -1185,8 +1264,8 @@ pub const Body = struct {
         const c = self.context;
         const id = try c.schemaId(schema);
         const shape = c.raw.schemas.items[@intCast(id)];
-        if (shape != .seq) return error.InvalidCategory;
-        const element = data(SchemaData, schema).result orelse return error.InvalidSchema;
+        if (shape != .seq) return c.reject(error.InvalidCategory, "sequence", "requires a sequence schema and matching element metadata");
+        const element = data(SchemaData, schema).result orelse return c.reject(error.InvalidSchema, "sequence", "requires a sequence schema and matching element metadata");
         errdefer c.poisoned = true;
         const ids = try c.raw.allocator().alloc(p.Id, items.len);
         for (items, ids) |item, *out| {
@@ -1202,7 +1281,7 @@ pub const Body = struct {
         const c = self.context;
         try c.same(a.schema, b.schema);
         const id = try c.schemaId(a.schema);
-        if (c.raw.schemas.items[@intCast(id)] != .seq) return error.InvalidCategory;
+        if (c.raw.schemas.items[@intCast(id)] != .seq) return c.reject(error.InvalidCategory, "concatenation", "requires sequence operands");
         errdefer c.poisoned = true;
         return self.bind(try c.raw.pure(try c.raw.primitive(id, .sequence_concat, &.{ a.id, b.id }, 0)), a.schema);
     }
@@ -1215,7 +1294,7 @@ pub const Body = struct {
         const c = self.context;
         const id = try c.schemaId(schema);
         const v = try self.useValue(payload_value);
-        if (c.raw.schemas.items[@intCast(id)] != .sum) return error.InvalidCategory;
+        if (c.raw.schemas.items[@intCast(id)] != .sum) return c.reject(error.InvalidCategory, "variant", "requires a tagged alternative schema");
         for (data(SchemaData, schema).fields, 0..) |item, index| {
             if (!std.mem.eql(u8, item.name, name)) continue;
             try c.same(item.schema, v.schema);
@@ -1228,7 +1307,7 @@ pub const Body = struct {
         const v = try self.useValue(sum);
         const c = self.context;
         const schema = data(SchemaData, v.schema);
-        if (c.raw.schemas.items[@intCast(schema.id)] != .sum) return error.InvalidCategory;
+        if (c.raw.schemas.items[@intCast(schema.id)] != .sum) return c.reject(error.InvalidCategory, "match case", "requires a tagged alternative value");
         for (schema.fields, 0..) |item, index| {
             if (!std.mem.eql(u8, item.name, name)) continue;
             errdefer c.poisoned = true;
@@ -1254,7 +1333,7 @@ pub const Body = struct {
         const c = self.context;
         const schema = data(SchemaData, v.schema);
         if (c.raw.schemas.items[@intCast(schema.id)] != .sum or
-            cases.len != schema.fields.len or cases.len == 0) return error.InvalidCategory;
+            cases.len != schema.fields.len or cases.len == 0) return c.reject(error.InvalidCategory, "match", "cases must cover this value once and return compatible schemas");
         errdefer c.poisoned = true;
         const RawCase = @typeInfo(@FieldType(source.ast.Term, "match_sum")).@"struct".fields[1].type;
         const raw_cases = try c.raw.allocator().alloc(@typeInfo(RawCase).pointer.child, cases.len);
@@ -1267,7 +1346,7 @@ pub const Body = struct {
             const computation = data(ComputationData, f.computation);
             try c.origin(computation.owner);
             if (arm.sum != sum or arm.body.scope.parent != self.scope or
-                arm.index >= cases.len or seen[arm.index]) return error.InvalidBranch;
+                arm.index >= cases.len or seen[arm.index]) return c.reject(error.InvalidBranch, "match", "cases must cover this value once and return compatible schemas");
             if (result) |expected| try c.same(expected, computation.schema);
             result = computation.schema;
             seen[arm.index] = true;
@@ -1287,13 +1366,13 @@ pub const Body = struct {
         const c = self.context;
         const info = data(SchemaData, token.schema);
         const shape = c.raw.schemas.items[@intCast(info.id)];
-        if (shape != .internal or shape.internal != .resumption) return error.InvalidCategory;
+        if (shape != .internal or shape.internal != .resumption) return c.reject(error.InvalidCategory, "resumption", "resumeWith requires a shallow token and compatible successor");
         const h = data(HandlerData, successor);
         try c.origin(h.owner);
         if (shape.internal.resumption.mode != .shallow or info.fields.len != 1)
-            return error.InvalidCategory;
+            return c.reject(error.InvalidCategory, "resumption", "resumeWith requires a shallow token and compatible successor");
         try c.same(info.fields[0].schema, v.schema);
-        try c.same(info.result orelse return error.InvalidSchema, h.input);
+        try c.same(info.result orelse return c.reject(error.InvalidSchema, "resumption", "resumeWith requires a shallow token and compatible successor"), h.input);
         errdefer c.poisoned = true;
         return self.bind(try c.raw.term(.{
             .resume_with = .{
@@ -1322,8 +1401,8 @@ pub const Body = struct {
         const v = try self.useValue(work);
         const info = data(SchemaData, v.schema);
         const shape = c.raw.schemas.items[@intCast(info.id)];
-        if (shape != .internal or shape.internal != .computation) return error.InvalidCategory;
-        if (info.fields.len == 0) return error.SchemaMismatch;
+        if (shape != .internal or shape.internal != .computation) return c.reject(error.InvalidCategory, "region", "requires a callable with the matching implicit region parameter");
+        if (info.fields.len == 0) return c.reject(error.SchemaMismatch, "region", "requires a callable with the matching implicit region parameter");
         const token_id = try c.schemaId(info.fields[0].schema);
         const token = c.raw.schemas.items[@intCast(token_id)];
         if (token != .internal or token.internal != .region or token.internal.region != r.id)
@@ -1335,7 +1414,7 @@ pub const Body = struct {
                 .body = v.id,
                 .arguments = try self.arguments(info.fields[1..], args),
             },
-        }), info.result orelse return error.InvalidSchema);
+        }), info.result orelse return c.reject(error.InvalidSchema, "region", "requires a callable with the matching implicit region parameter"));
     }
     pub fn protect(
         self: *Body,
@@ -1348,18 +1427,23 @@ pub const Body = struct {
         const c = self.context;
         const info = data(SchemaData, v.schema);
         const shape = c.raw.schemas.items[@intCast(info.id)];
-        if (shape != .internal or shape.internal != .computation) return error.InvalidCategory;
+        if (shape != .internal or shape.internal != .computation) return c.reject(error.InvalidCategory, "protection", "requires callable body and cleanup contracts");
         const cleanup_shape = c.raw.schemas.items[@intCast(data(SchemaData, finalizer.schema).id)];
         if (cleanup_shape != .internal or cleanup_shape.internal != .computation)
-            return error.InvalidCategory;
+            return c.reject(error.InvalidCategory, "protection", "requires callable body and cleanup contracts");
+        const cleanup_info = data(SchemaData, finalizer.schema);
+        if (cleanup_info.fields.len != 1)
+            return c.reject(error.SchemaMismatch, "cleanup", "requires one exit-information parameter");
         errdefer c.poisoned = true;
-        return self.bind(try c.raw.term(.{
+        const term = try c.raw.term(.{
             .protect = .{
                 .body = v.id,
                 .cleanup = finalizer.id,
                 .arguments = try self.arguments(info.fields, args),
             },
-        }), info.result orelse return error.InvalidSchema);
+        });
+        try c.notePublication(.{ .anchor = .{ .term = term }, .schema = cleanup_info.fields[0].schema, .cleanup = true });
+        return self.bind(term, info.result orelse return c.reject(error.InvalidSchema, "protection", "requires callable body and cleanup contracts"));
     }
     pub fn branch(self: *Body) Error!*Body {
         try self.ready();
@@ -1373,7 +1457,7 @@ pub const Body = struct {
         const c = self.context;
         const value = data(ComputationData, finished);
         try c.origin(value.owner);
-        if (value.scope.parent != self.scope) return error.InvalidBranch;
+        if (value.scope.parent != self.scope) return c.reject(error.InvalidBranch, "block", "completed body must belong to this parent scope");
         return self.bind(value.id, value.schema);
     }
     pub fn conditional(
@@ -1495,6 +1579,14 @@ pub const interop = struct {
             const input = try schema(c, shape.internal.resumption.input);
             info.fields = try c.fields(&.{.{ .name = "reply", .schema = input }});
         }
+        const capture_ids: []const p.Id = if (shape == .internal) switch (shape.internal) {
+            .computation => |signature| signature.capture_bound,
+            .resumption => |signature| signature.capture_bound,
+            else => &.{},
+        } else &.{};
+        const captures = try c.raw.allocator().alloc(*const Schema, capture_ids.len);
+        for (capture_ids, captures) |child, *item| item.* = try schema(c, child);
+        info.captures = captures;
         return result;
     }
     pub fn namedCallable(c: *Context, id: p.Id, names: []const []const u8) Error!*const Schema {
@@ -1506,7 +1598,7 @@ pub const interop = struct {
         errdefer c.poisoned = true;
         const fields = try c.raw.allocator().alloc(Field, names.len);
         for (fields, names, info.fields) |*item, name, old| item.* = .{ .name = name, .schema = old.schema };
-        return c.internResult(id, fields, info.result);
+        return c.internComplete(id, fields, info.result, info.captures);
     }
     fn positionalFields(c: *Context, ids: []const p.Id) Error![]const Field {
         errdefer c.poisoned = true;
