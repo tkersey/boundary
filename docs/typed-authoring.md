@@ -143,7 +143,10 @@ For protected owned resources, `Builder.resource`, `borrowedSchema`,
 `resourceAuthority`, and `Body.packResource`/`unpackResource` expose the current
 nominal resource contract. `Builder.region` and `declareScoped` keep the region
 allowance explicit; `Body.protect` installs local cleanup and transfers the
-owned value to it. `examples/authoring_borrow.zig` exercises a valid borrow and
+owned value to it. The cleanup callable needs an authored exit-info first
+parameter and a unit result; module publication checks the exit-info failure
+description against its failure schema. `examples/authoring_borrow.zig`
+exercises a valid borrow and
 protected release. Ownership admission remains Boundary's checker, including
 borrow escape and nonduplicable capture restrictions.
 

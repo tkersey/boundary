@@ -481,6 +481,66 @@ test "module failure layout reaches authored cleanup exits" {
     _ = try author.module(entry, left.schema);
 }
 
+test "protected cleanup requires an authored exit-info parameter and unit result" {
+    var raw = source.Builder.init(std.testing.allocator);
+    defer raw.deinit();
+    var author = a.Builder.init(&raw);
+    const integer = try author.scalar(u64);
+    const unit = try author.scalar(void);
+    const failure = try author.record(&.{.{ .name = "reason", .schema = integer }});
+    const work = try author.declare("cleanup check work", &.{}, integer, &.{});
+    var work_body = try author.body(work);
+    try author.define(work, try work_body.finish(try author.literal(u64, 7)));
+    var body = try author.ambient("cleanup checks");
+    const work_callable = try body.lambda(work, &.{}, .reusable);
+
+    const wrong_input = try author.declare("wrong exit input", &.{.{ .name = "exit", .schema = integer }}, unit, &.{});
+    var wrong_input_body = try author.body(wrong_input);
+    try author.define(wrong_input, try wrong_input_body.finish(try author.literal(void, {})));
+    try std.testing.expectError(error.TypeMismatch, body.protect(work_callable, try body.lambda(wrong_input, &.{}, .reusable), &.{}, null, null));
+    try std.testing.expectEqualStrings("cleanup exit parameter", author.diagnostic.?.entity);
+
+    const exit_info = try author.exitInfo(failure.schema);
+    const wrong_output = try author.declare("wrong cleanup result", &.{.{ .name = "exit", .schema = exit_info }}, integer, &.{});
+    var wrong_output_body = try author.body(wrong_output);
+    try author.define(wrong_output, try wrong_output_body.finish(try author.literal(u64, 1)));
+    try std.testing.expectError(error.TypeMismatch, body.protect(work_callable, try body.lambda(wrong_output, &.{}, .reusable), &.{}, null, null));
+    try std.testing.expectEqualStrings("cleanup result", author.diagnostic.?.entity);
+
+    const raw_exit = try author.adoptSchema(exit_info.id);
+    const adopted = try author.declare("adopted exit", &.{.{ .name = "exit", .schema = raw_exit }}, unit, &.{});
+    var adopted_body = try author.body(adopted);
+    try author.define(adopted, try adopted_body.finish(try author.literal(void, {})));
+    try std.testing.expectError(error.TypeMismatch, body.protect(work_callable, try body.lambda(adopted, &.{}, .reusable), &.{}, null, null));
+    try std.testing.expectEqualStrings("cleanup exit parameter", author.diagnostic.?.entity);
+}
+
+test "module rejects a raw protection term missing named cleanup provenance" {
+    var raw = source.Builder.init(std.testing.allocator);
+    defer raw.deinit();
+    var author = a.Builder.init(&raw);
+    const integer = try author.scalar(u64);
+    const unit = try author.scalar(void);
+    const failure = try author.record(&.{.{ .name = "reason", .schema = integer }});
+    const work = try author.declare("raw protect work", &.{}, integer, &.{});
+    var work_body = try author.body(work);
+    try author.define(work, try work_body.finish(try author.literal(u64, 7)));
+    const raw_exit = try author.adoptSchema((try author.exitInfo(failure.schema)).id);
+    const cleanup = try author.declare("raw protect cleanup", &.{.{ .name = "exit", .schema = raw_exit }}, unit, &.{});
+    var cleanup_body = try author.body(cleanup);
+    try author.define(cleanup, try cleanup_body.finish(try author.literal(void, {})));
+    var staging = try author.ambient("raw protection staging");
+    const work_callable = try staging.lambda(work, &.{}, .reusable);
+    const cleanup_callable = try staging.lambda(cleanup, &.{}, .reusable);
+    const entry = try author.declare("raw protection entry", &.{}, integer, &.{});
+    try raw.define(entry.id, try raw.term(.{ .protect = .{
+        .body = work_callable.value.id,
+        .cleanup = cleanup_callable.value.id,
+    } }));
+    try std.testing.expectError(error.TypeMismatch, author.module(entry, failure.schema));
+    try std.testing.expectEqualStrings("cleanup exit failure", author.diagnostic.?.entity);
+}
+
 test "schema comparison visits shared named metadata as a graph" {
     var raw = source.Builder.init(std.testing.allocator);
     defer raw.deinit();

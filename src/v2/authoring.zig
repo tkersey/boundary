@@ -561,9 +561,30 @@ pub const Builder = struct {
             }
             return;
         };
-        if (callable.parameters.len == 0) return;
-        const exit_info = callable.parameters[0].structure orelse return;
-        if (exit_info.kind != .exit_info or exit_info.children.len != 1) return;
+        if (callable.parameters.len == 0) {
+            if (try hasNamedMetadata(failure, allocator)) {
+                self.report(.schema_mismatch, "cleanup exit failure", failure.id, null, null, null);
+                self.diagnostic.?.relationship = "missing cleanup exit parameter";
+                return error.TypeMismatch;
+            }
+            return;
+        }
+        const exit_info = callable.parameters[0].structure orelse {
+            if (try hasNamedMetadata(failure, allocator)) {
+                self.report(.schema_mismatch, "cleanup exit failure", failure.id, callable.parameters[0].id, null, null);
+                self.diagnostic.?.relationship = "missing named cleanup exit provenance";
+                return error.TypeMismatch;
+            }
+            return;
+        };
+        if (exit_info.kind != .exit_info or exit_info.children.len != 1) {
+            if (try hasNamedMetadata(failure, allocator)) {
+                self.report(.schema_mismatch, "cleanup exit failure", failure.id, callable.parameters[0].id, null, null);
+                self.diagnostic.?.relationship = "invalid cleanup exit description";
+                return error.TypeMismatch;
+            }
+            return;
+        }
         if (!try sameSchema(exit_info.children[0], failure)) {
             self.report(.schema_mismatch, "cleanup exit failure", failure.id, exit_info.children[0].id, null, null);
             self.diagnostic.?.relationship = "named module failure layout";
@@ -1640,6 +1661,8 @@ pub const Body = struct {
         try self.check(cleanup.value);
         const shape = self.author.raw.schemas.items[@intCast(work.value.schema.id)];
         if (shape != .internal or shape.internal != .computation) return error.TypeMismatch;
+        const cleanup_shape = self.author.raw.schemas.items[@intCast(cleanup.value.schema.id)];
+        if (cleanup_shape != .internal or cleanup_shape.internal != .computation) return error.TypeMismatch;
         const signature = shape.internal.computation;
         const loaned: usize = @intFromBool(resource != null);
         if (work.value.schema.callable) |known| {
@@ -1656,11 +1679,31 @@ pub const Body = struct {
                 if (!try sameSchema(owned.schema, .{ .owner = self.author, .id = borrowed_shape.internal.borrowed.value })) return error.TypeMismatch;
             }
         }
-        if (cleanup.value.schema.callable) |known| {
-            if (known.parameters.len != loaned + 1) return try self.author.arity("cleanup arguments", known.parameters.len, loaned + 1, self.scope.name);
-            if (resource) |owned| if (!try sameSchema(owned.schema, known.parameters[1]))
-                return error.TypeMismatch;
+        const cleanup_info = cleanup.value.schema.callable orelse {
+            self.author.report(.schema_mismatch, "cleanup signature", null, cleanup.value.schema.id, null, self.scope.name);
+            self.author.diagnostic.?.relationship = "missing authored cleanup signature";
+            return error.TypeMismatch;
+        };
+        if (cleanup_info.parameters.len != loaned + 1) return try self.author.arity("cleanup arguments", cleanup_info.parameters.len, loaned + 1, self.scope.name);
+        if (cleanup_shape.internal.computation.parameters.len != loaned + 1) return try self.author.arity("cleanup arguments", cleanup_shape.internal.computation.parameters.len, loaned + 1, self.scope.name);
+        const exit_info = cleanup_info.parameters[0].structure orelse {
+            self.author.report(.schema_mismatch, "cleanup exit parameter", null, cleanup_info.parameters[0].id, null, self.scope.name);
+            self.author.diagnostic.?.relationship = "authored exit-info description";
+            return error.TypeMismatch;
+        };
+        if (exit_info.kind != .exit_info or exit_info.children.len != 1) {
+            self.author.report(.schema_mismatch, "cleanup exit parameter", null, cleanup_info.parameters[0].id, null, self.scope.name);
+            self.author.diagnostic.?.relationship = "authored exit-info description";
+            return error.TypeMismatch;
         }
+        const unit = try self.author.scalar(void);
+        if (cleanup_shape.internal.computation.result != unit.id or !try sameSchema(cleanup_info.result, unit)) {
+            self.author.report(.schema_mismatch, "cleanup result", unit.id, cleanup_info.result.id, null, self.scope.name);
+            self.author.diagnostic.?.relationship = "unit cleanup result";
+            return error.TypeMismatch;
+        }
+        if (resource) |owned| if (!try sameSchema(owned.schema, cleanup_info.parameters[1]))
+            return error.TypeMismatch;
         const ids = try self.author.raw.allocator().alloc(p.Id, arguments.len);
         for (arguments, ids, 0..) |value, *id, index| {
             try self.check(value);
