@@ -551,6 +551,58 @@ pub const Builder = struct {
         }
     }
 
+    fn checkCleanupFailure(self: *Builder, cleanup_id: p.Id, failure: Schema) Error!void {
+        const value = self.value_origins.get(cleanup_id) orelse return;
+        const callable = value.schema.callable orelse return;
+        if (callable.parameters.len == 0) return;
+        const exit_info = callable.parameters[0].structure orelse return;
+        if (exit_info.kind != .exit_info or exit_info.children.len != 1) return;
+        if (!try sameSchema(exit_info.children[0], failure)) {
+            self.report(.schema_mismatch, "cleanup exit failure", failure.id, exit_info.children[0].id, null, null);
+            self.diagnostic.?.relationship = "named module failure layout";
+            return error.TypeMismatch;
+        }
+    }
+
+    fn checkFailureLayouts(self: *Builder, input: source.Module, failure: Schema) Error!void {
+        var scratch = std.heap.ArenaAllocator.init(self.raw.arena.child_allocator);
+        defer scratch.deinit();
+        const allocator = scratch.allocator();
+        var pending: std.ArrayList(p.Id) = .empty;
+        var seen: std.AutoHashMapUnmanaged(p.Id, void) = .empty;
+        for (input.functions) |function| if (function.body) |term|
+            try pending.append(allocator, term);
+        while (pending.pop()) |term_id| {
+            if (term_id >= input.terms.len) return error.InvalidReference;
+            if (seen.contains(term_id)) continue;
+            try seen.put(allocator, term_id, {});
+            switch (input.terms[@intCast(term_id)]) {
+                .fail => |value_id| {
+                    const value = self.value_origins.get(value_id) orelse continue;
+                    if (!try sameSchema(value.schema, failure)) {
+                        self.report(.schema_mismatch, "failure value", failure.id, value.schema.id, null, null);
+                        self.diagnostic.?.relationship = "named module failure layout";
+                        return error.TypeMismatch;
+                    }
+                },
+                .protect => |term| try self.checkCleanupFailure(term.cleanup, failure),
+                .bind => |term| {
+                    try pending.append(allocator, term.value);
+                    try pending.append(allocator, term.next);
+                },
+                .conditional => |term| {
+                    try pending.append(allocator, term.when_true);
+                    try pending.append(allocator, term.when_false);
+                },
+                .match_sum => |term| for (term.cases) |case|
+                    try pending.append(allocator, case.body),
+                .unpack_product => |term| try pending.append(allocator, term.body),
+                .yield_then => |next| try pending.append(allocator, next),
+                else => {},
+            }
+        }
+    }
+
     fn checkSchema(self: *Builder, schema: Schema) Error!void {
         errdefer |err| self.onError(err);
         self.diagnostic = null;
@@ -951,7 +1003,9 @@ pub const Builder = struct {
         if (self.poisoned) return error.InvalidSource;
         try self.checkFunction(entry);
         try self.checkSchema(failure);
-        return self.raw.module(entry.id, failure.id);
+        const result = self.raw.module(entry.id, failure.id);
+        try self.checkFailureLayouts(result, failure);
+        return result;
     }
 
     pub fn compile(self: *Builder, allocator: std.mem.Allocator, input: source.Module) source.Error!source.Compiled {

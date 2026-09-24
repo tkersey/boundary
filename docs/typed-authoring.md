@@ -101,6 +101,8 @@ metadata does not change BPI3 or make data identity nominal at runtime.
 Copy returned handles as needed; construct a new declaration to change its
 signature. Editing an issued value, effect, function, interpretation, or
 finished block's type or origin metadata is rejected.
+`Builder.module` checks named failure values and protected cleanup exit
+descriptions in defined bodies against its declared failure schema.
 
 `Builder.external` declares a host-facing operation. `Builder.local` declares
 one interpreted through a nominal capability. Two local effects with identical

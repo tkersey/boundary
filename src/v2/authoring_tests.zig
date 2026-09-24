@@ -419,6 +419,68 @@ test "interpretations reject named answer relabeling" {
     try std.testing.expectError(error.TypeMismatch, body.handle(relabeled, callable, &.{}, &.{}));
 }
 
+test "module failure layout follows defined authored failures" {
+    var raw = source.Builder.init(std.testing.allocator);
+    defer raw.deinit();
+    var author = a.Builder.init(&raw);
+    const integer = try author.scalar(u64);
+    const left = try author.record(&.{
+        .{ .name = "a", .schema = integer },
+        .{ .name = "b", .schema = integer },
+    });
+    const right = try author.record(&.{
+        .{ .name = "b", .schema = integer },
+        .{ .name = "a", .schema = integer },
+    });
+    const entry = try author.declare("failure entry", &.{}, integer, &.{});
+    var body = try author.body(entry);
+    const failure = try body.product(left, &.{
+        .{ .name = "a", .value = try author.literal(u64, 1) },
+        .{ .name = "b", .value = try author.literal(u64, 2) },
+    });
+    try author.define(entry, try body.fail(failure, integer));
+    try std.testing.expectError(error.TypeMismatch, author.module(entry, right.schema));
+    try std.testing.expectEqual(a.Category.schema_mismatch, author.diagnostic.?.category);
+    try std.testing.expectEqualStrings("failure value", author.diagnostic.?.entity);
+
+    var unused = try author.ambient("unused failure");
+    const unrelated = try unused.product(right, &.{
+        .{ .name = "b", .value = try author.literal(u64, 3) },
+        .{ .name = "a", .value = try author.literal(u64, 4) },
+    });
+    _ = try unused.fail(unrelated, integer);
+    _ = try author.module(entry, left.schema);
+}
+
+test "module failure layout reaches authored cleanup exits" {
+    var raw = source.Builder.init(std.testing.allocator);
+    defer raw.deinit();
+    var author = a.Builder.init(&raw);
+    const integer = try author.scalar(u64);
+    const unit = try author.scalar(void);
+    const left = try author.record(&.{
+        .{ .name = "a", .schema = integer },
+        .{ .name = "b", .schema = integer },
+    });
+    const right = try author.record(&.{
+        .{ .name = "b", .schema = integer },
+        .{ .name = "a", .schema = integer },
+    });
+    const work = try author.declare("cleanup work", &.{}, integer, &.{});
+    var work_body = try author.body(work);
+    try author.define(work, try work_body.finish(try author.literal(u64, 7)));
+    const cleanup = try author.declare("cleanup exit", &.{.{ .name = "exit", .schema = try author.exitInfo(left.schema) }}, unit, &.{});
+    var cleanup_body = try author.body(cleanup);
+    try author.define(cleanup, try cleanup_body.finish(try author.literal(void, {})));
+    const entry = try author.declare("cleanup entry", &.{}, integer, &.{});
+    var body = try author.body(entry);
+    const protected = try body.protect(try body.lambda(work, &.{}, .reusable), try body.lambda(cleanup, &.{}, .reusable), &.{}, null, null);
+    try author.define(entry, try body.finish(protected));
+    try std.testing.expectError(error.TypeMismatch, author.module(entry, right.schema));
+    try std.testing.expectEqualStrings("cleanup exit failure", author.diagnostic.?.entity);
+    _ = try author.module(entry, left.schema);
+}
+
 test "schema comparison visits shared named metadata as a graph" {
     var raw = source.Builder.init(std.testing.allocator);
     defer raw.deinit();
