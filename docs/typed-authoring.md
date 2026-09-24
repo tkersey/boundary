@@ -110,9 +110,10 @@ descriptions in defined bodies against its declared failure schema.
 If a raw fail value or cleanup lambda lacks authoring provenance, a module with
 a named failure schema rejects it; the low-level source API remains available.
 `Builder.module` returns an issued authoring Module that retains that failure
-description. `Builder.compile` checks it again against the captured source view
-before lowering, including definitions of already staged helpers added after
-module construction. Source terms added after publication are outside that view.
+description and entry identity. `Builder.compile` rebuilds the current source
+view, checks the retained failure description again, then lowers that same
+view. Later declarations and helper definitions are included while the builder
+remains alive; the Module is a builder-bound handle, not a source snapshot.
 
 `Builder.external` declares a host-facing operation. `Builder.local` declares
 one interpreted through a nominal capability. Two local effects with identical

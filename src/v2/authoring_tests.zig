@@ -664,6 +664,11 @@ test "compile rechecks the issued module after a later helper definition" {
     const helper_block = try helper_body.fail(failed, integer);
     const left_module = try author.module(entry, left.schema);
     const right_module = try author.module(entry, right.schema);
+    for (0..100) |_| {
+        const unrelated = try author.declare("unrelated", &.{}, integer, &.{});
+        var unrelated_body = try author.body(unrelated);
+        try author.define(unrelated, try unrelated_body.finish(try author.literal(u64, 0)));
+    }
     try author.define(helper, helper_block);
     try std.testing.expectError(error.TypeMismatch, author.compile(std.testing.allocator, left_module));
     try std.testing.expectEqualStrings("failure value", author.diagnostic.?.entity);

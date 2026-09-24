@@ -368,7 +368,7 @@ const ExportedValue = struct { schema: Schema, scope: ?*Scope };
 const ExportedTerm = struct { schema: Schema, scope: *Scope };
 const ValueOrigin = struct { schema: Schema, scope: ?*Scope };
 const FailureLiteralInfo = struct { value: Value, literal: p.Id };
-const ModuleOrigin = struct { owner: *Builder, input: source.Module, failure: Schema };
+const ModuleOrigin = struct { owner: *Builder, entry: p.Id, failure: Schema };
 
 fn scopeVisible(introduced: ?*Scope, used: *Scope) bool {
     const origin = introduced orelse return true;
@@ -1130,7 +1130,7 @@ pub const Builder = struct {
         const input = self.raw.module(entry.id, failure.id);
         try self.checkFailureLayouts(input, failure);
         const origin = try self.raw.allocator().create(ModuleOrigin);
-        origin.* = .{ .owner = self, .input = input, .failure = failure };
+        origin.* = .{ .owner = self, .entry = entry.id, .failure = failure };
         try self.module_origins.put(self.raw.allocator(), origin, {});
         return .{ .origin = origin };
     }
@@ -1145,9 +1145,10 @@ pub const Builder = struct {
         }
         const origin = published.origin;
         if (origin.owner != self) return error.ForeignBuilder;
-        try self.checkFailureLayouts(origin.input, origin.failure);
+        const input = self.raw.module(origin.entry, origin.failure.id);
+        try self.checkFailureLayouts(input, origin.failure);
         var detail: source.Diagnostic = .{};
-        return source.lowerObserved(allocator, origin.input, .{ .diagnostic = &detail }) catch |err| {
+        return source.lowerObserved(allocator, input, .{ .diagnostic = &detail }) catch |err| {
             self.onError(err);
             const category: Category = switch (err) {
                 error.UnboundVariable => .out_of_scope,
