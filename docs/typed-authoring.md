@@ -283,15 +283,15 @@ with 20 warmed in-process emission observations per pair. Median microseconds:
 
 | Stage | Baseline | Candidate |
 |---|---:|---:|
-| Native authoring | 0.250 | 0.750 |
-| Lower/check | 4.750 | 5.625 |
-| Encode | 2.042 | 2.000 |
-| Existing World replay, 20 paired observations | 157.292 | 151.834 |
+| Native authoring | 0.250 | 0.708 |
+| Lower/check | 4.750 | 5.500 |
+| Encode | 2.000 | 2.000 |
+| Existing World replay, 20 paired observations | 135.125 | 115.500 |
 
-Warmed incremental native-emitter build medians were 170.2 and 177.4 ms. These are
+Warmed incremental native-emitter build medians were 164.2 and 165.4 ms. These are
 local bounded measurements, not cold-build or speedup claims. The added native
 cost comes from owned labels/handles, explicit bindings and the source snapshot;
-it adds about 1.4 microseconds to this small emission. Replay variation does not
+it adds about 1.2 microseconds to this small emission. Replay variation does not
 establish a speedup. Reproduce author/lower/encode with
 `test/build_authoring_economy.zig` and `test/authoring_economy.zig` against the exact
 baseline and candidate source roots; `tools/authoring_stats.zig` reads image counts.

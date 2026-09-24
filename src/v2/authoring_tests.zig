@@ -149,7 +149,7 @@ fn oneShot(allocator: std.mem.Allocator, sequential: bool) !void {
     const work = try c.functionFor("once", once);
     const work_body = try c.body(work);
     try c.define(work, try work_body.ret(try work_body.constant(u64, 7)));
-    const entry = try c.function("entry", &.{}, integer, &.{});
+    const entry = try c.function("entry", &.{.{ .name = "choose", .schema = try c.scalar(bool) }}, integer, &.{});
     const body = try c.body(entry);
     const owned = try body.lambda(work, once);
     const result = if (sequential) blk: {
@@ -158,7 +158,7 @@ fn oneShot(allocator: std.mem.Allocator, sequential: bool) !void {
     } else blk: {
         const left = try body.branch();
         const right = try body.branch();
-        break :blk try body.conditional(try body.constant(bool, true), try left.ret(try left.apply(owned, &.{})), try right.ret(try right.apply(owned, &.{})));
+        break :blk try body.conditional(try body.parameter("choose"), try left.ret(try left.apply(owned, &.{})), try right.ret(try right.apply(owned, &.{})));
     };
     try c.define(entry, try body.ret(result));
     var compiled = try c.compile(allocator, entry, unit);
