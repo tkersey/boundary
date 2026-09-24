@@ -194,6 +194,9 @@ test "runtime selected record schemas and tagged alternatives check named fields
 }
 
 test "named records and variants do not alias equal positional schemas" {
+    try std.testing.expect(!@hasField(a.Record, "fields"));
+    try std.testing.expect(!@hasField(a.Variant, "alternatives"));
+    try std.testing.expect(!@hasField(a.FinishedCase, "index"));
     var raw = source.Builder.init(std.testing.allocator);
     defer raw.deinit();
     var author = a.Builder.init(&raw);
@@ -256,6 +259,12 @@ test "named records and variants do not alias equal positional schemas" {
     const a_branch = try a_case.finish(a_case.payload);
     var b_case = try body.variantCase(right, "left");
     const b_branch = try b_case.finish(b_case.payload);
+    const right_tagged = try body.inject(right, "right", try author.literal(u64, 8));
+    var swapped_origin = a_branch;
+    swapped_origin.origin = b_branch.origin;
+    try std.testing.expectError(error.InvalidBranch, body.matchVariant(right, right_tagged, &.{ swapped_origin, b_branch }));
+    try std.testing.expectEqual(a.Category.branch_mismatch, author.diagnostic.?.category);
+    _ = try body.matchVariant(right, right_tagged, &.{ a_branch, b_branch });
     try std.testing.expectError(error.TypeMismatch, body.matchVariant(right, tagged, &.{ a_branch, b_branch }));
     try std.testing.expectEqual(a.Category.branch_mismatch, author.diagnostic.?.category);
     try std.testing.expectError(error.InvalidBranch, body.matchVariant(left, tagged, &.{ a_branch, b_branch }));
@@ -283,6 +292,30 @@ test "foreign effect rejection records its diagnostic" {
     try std.testing.expectError(error.ForeignBuilder, body.perform(foreign, try author.literal(u64, 7)));
     try std.testing.expectEqual(a.Category.foreign_builder, author.diagnostic.?.category);
     try std.testing.expectEqualStrings("effect", author.diagnostic.?.entity);
+}
+
+test "schema comparison visits shared named metadata as a graph" {
+    var raw = source.Builder.init(std.testing.allocator);
+    defer raw.deinit();
+    var author = a.Builder.init(&raw);
+    const integer = try author.scalar(u64);
+    const named = try author.record(&.{.{ .name = "left", .schema = integer }});
+    const renamed = try author.record(&.{.{ .name = "right", .schema = integer }});
+    var left = named.schema;
+    var equivalent = named.schema;
+    var different = renamed.schema;
+    for (0..28) |_| {
+        left = try author.productSchema(&.{ left, left });
+        equivalent = try author.productSchema(&.{ equivalent, equivalent });
+        different = try author.productSchema(&.{ different, different });
+    }
+    const consumer = try author.declare("consume graph", &.{.{ .name = "value", .schema = left }}, integer, &.{});
+    const rejected = try author.declare("reject graph", &.{.{ .name = "value", .schema = different }}, integer, &.{});
+    const producer = try author.declare("produce graph", &.{.{ .name = "value", .schema = equivalent }}, integer, &.{});
+    var body = try author.body(producer);
+    const value = try body.parameter("value");
+    _ = try body.call(consumer, &.{value});
+    try std.testing.expectError(error.TypeMismatch, body.call(rejected, &.{value}));
 }
 
 test "named record layout survives direct calls and callable application" {
@@ -436,6 +469,41 @@ test "raw interop cannot relabel an exported named value or term" {
     const term = try a.Interop.rawTerm(try child.finish(value));
     try std.testing.expectError(error.TypeMismatch, a.Interop.term(&body, term, right.schema));
     try std.testing.expectError(error.OutOfScope, a.Interop.term(&body, term, left.schema));
+}
+
+test "raw interop rejects malformed nested schema references before indexing" {
+    var raw = source.Builder.init(std.testing.allocator);
+    defer raw.deinit();
+    var author = a.Builder.init(&raw);
+    const integer = try author.scalar(u64);
+    var body = try author.ambient("malformed interop");
+
+    const resumption_id = try raw.schema(.{ .internal = .{ .resumption = .{
+        .effect = 999,
+        .input = integer.id,
+        .answer = integer.id,
+        .handled = &.{},
+        .mode = .deep,
+        .use = .linear,
+    } } });
+    const work_id = try raw.schema(.{ .internal = .{ .computation = .{
+        .parameters = &.{},
+        .result = integer.id,
+    } } });
+    const resumption = try a.Interop.adoptValue(&body, try raw.reference(try raw.variable(resumption_id)), try author.adoptSchema(resumption_id));
+    const work = try a.Interop.adoptValue(&body, try raw.reference(try raw.variable(work_id)), try author.adoptSchema(work_id));
+    try std.testing.expectError(error.InvalidReference, body.resumeComputation(resumption, try body.asCallable(work)));
+    try std.testing.expectEqual(a.Category.capability_mismatch, author.diagnostic.?.category);
+
+    const operation = try author.local("malformed/operation", integer, integer, .linear);
+    const handler = try author.interpret(.{ .operation = operation, .input = integer, .answer = integer, .mode = .deep, .use = .linear });
+    const invalid_callable_id = try raw.schema(.{ .internal = .{ .computation = .{
+        .parameters = &.{999},
+        .result = integer.id,
+    } } });
+    const invalid_callable = try a.Interop.adoptValue(&body, try raw.reference(try raw.variable(invalid_callable_id)), try author.adoptSchema(invalid_callable_id));
+    try std.testing.expectError(error.InvalidSchema, body.handle(handler, try body.asCallable(invalid_callable), &.{}, &.{}));
+    try std.testing.expectEqual(a.Category.schema_mismatch, author.diagnostic.?.category);
 }
 
 test "nested closure capture is scoped and bounded by its declared permission" {

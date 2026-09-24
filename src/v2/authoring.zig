@@ -132,54 +132,97 @@ const StructureInfo = struct { kind: StructureKind, children: []const Schema };
 const CallableInfo = struct { parameters: []const Schema, result: Schema };
 const ResumptionInfo = struct { input: Schema, answer: Schema };
 
-fn sameSchema(left: Schema, right: Schema) bool {
-    if (left.owner != right.owner or left.id != right.id or left.layout != right.layout)
-        return false;
-    if (left.structure) |a| {
-        if (right.structure) |b| {
-            if (a.kind != b.kind or a.children.len != b.children.len) return false;
-            for (a.children, b.children) |x, y| if (!sameSchema(x, y)) return false;
-        } else if (hasNamedMetadata(left)) return false;
-    } else if (right.structure != null and hasNamedMetadata(right)) return false;
-    if (left.callable) |a| {
-        if (right.callable) |b| {
-            if (a.parameters.len != b.parameters.len or !sameSchema(a.result, b.result)) return false;
-            for (a.parameters, b.parameters) |x, y| if (!sameSchema(x, y)) return false;
-        } else if (hasNamedMetadata(left)) return false;
-    } else if (right.callable != null and hasNamedMetadata(right)) return false;
-    if (left.resumption) |a| {
-        if (right.resumption) |b| {
-            if (!sameSchema(a.input, b.input) or !sameSchema(a.answer, b.answer)) return false;
-        } else if (hasNamedMetadata(left)) return false;
-    } else if (right.resumption != null and hasNamedMetadata(right)) return false;
-    if (left.resource) |a| {
-        if (right.resource) |b| {
-            if (!sameSchema(a.*, b.*)) return false;
-        } else if (hasNamedMetadata(left)) return false;
-    } else if (right.resource != null and hasNamedMetadata(right)) return false;
-    if (left.borrowed) |a| {
-        if (right.borrowed) |b| {
-            if (!sameSchema(a.*, b.*)) return false;
-        } else if (hasNamedMetadata(left)) return false;
-    } else if (right.borrowed != null and hasNamedMetadata(right)) return false;
-    return true;
+const SchemaPair = struct { left: Schema, right: Schema };
+
+fn sameMetadataPointers(left: Schema, right: Schema) bool {
+    return left.structure == right.structure and left.callable == right.callable and
+        left.resumption == right.resumption and left.resource == right.resource and
+        left.borrowed == right.borrowed;
 }
 
-fn hasNamedMetadata(schema: Schema) bool {
-    if (schema.layout != null) return true;
-    if (schema.structure) |info| {
-        for (info.children) |child| if (hasNamedMetadata(child)) return true;
+fn hasNamedMetadata(schema: Schema, allocator: std.mem.Allocator) Error!bool {
+    var pending: std.ArrayList(Schema) = .empty;
+    var seen: std.AutoHashMapUnmanaged(Schema, void) = .empty;
+    try pending.append(allocator, schema);
+    while (pending.pop()) |current| {
+        if (current.layout != null) return true;
+        if (seen.contains(current)) continue;
+        try seen.put(allocator, current, {});
+        if (current.structure) |info| for (info.children) |child| try pending.append(allocator, child);
+        if (current.callable) |info| {
+            try pending.append(allocator, info.result);
+            for (info.parameters) |parameter| try pending.append(allocator, parameter);
+        }
+        if (current.resumption) |info| {
+            try pending.append(allocator, info.input);
+            try pending.append(allocator, info.answer);
+        }
+        if (current.resource) |representation| try pending.append(allocator, representation.*);
+        if (current.borrowed) |owned| try pending.append(allocator, owned.*);
     }
-    if (schema.callable) |info| {
-        if (hasNamedMetadata(info.result)) return true;
-        for (info.parameters) |parameter| if (hasNamedMetadata(parameter)) return true;
-    }
-    if (schema.resumption) |info| {
-        if (hasNamedMetadata(info.input) or hasNamedMetadata(info.answer)) return true;
-    }
-    if (schema.resource) |representation| if (hasNamedMetadata(representation.*)) return true;
-    if (schema.borrowed) |owned| if (hasNamedMetadata(owned.*)) return true;
     return false;
+}
+
+fn sameSchema(left: Schema, right: Schema) Error!bool {
+    if (left.owner != right.owner or left.id != right.id or left.layout != right.layout)
+        return false;
+    if (sameMetadataPointers(left, right)) return true;
+    var scratch = std.heap.ArenaAllocator.init(left.owner.raw.arena.child_allocator);
+    defer scratch.deinit();
+    const allocator = scratch.allocator();
+    var pending: std.ArrayList(SchemaPair) = .empty;
+    var seen: std.AutoHashMapUnmanaged(SchemaPair, void) = .empty;
+    try pending.append(allocator, .{ .left = left, .right = right });
+    while (pending.pop()) |pair| {
+        const a = pair.left;
+        const b = pair.right;
+        if (a.owner != b.owner or a.id != b.id or a.layout != b.layout) return false;
+        if (sameMetadataPointers(a, b)) continue;
+        if (seen.contains(pair)) continue;
+        try seen.put(allocator, pair, {});
+        if (a.structure != b.structure) {
+            if (a.structure) |x| {
+                if (b.structure) |y| {
+                    if (x.kind != y.kind or x.children.len != y.children.len) return false;
+                    for (x.children, y.children) |child_a, child_b|
+                        try pending.append(allocator, .{ .left = child_a, .right = child_b });
+                } else if (try hasNamedMetadata(a, allocator)) return false;
+            } else if (try hasNamedMetadata(b, allocator)) return false;
+        }
+        if (a.callable != b.callable) {
+            if (a.callable) |x| {
+                if (b.callable) |y| {
+                    if (x.parameters.len != y.parameters.len) return false;
+                    try pending.append(allocator, .{ .left = x.result, .right = y.result });
+                    for (x.parameters, y.parameters) |parameter_a, parameter_b|
+                        try pending.append(allocator, .{ .left = parameter_a, .right = parameter_b });
+                } else if (try hasNamedMetadata(a, allocator)) return false;
+            } else if (try hasNamedMetadata(b, allocator)) return false;
+        }
+        if (a.resumption != b.resumption) {
+            if (a.resumption) |x| {
+                if (b.resumption) |y| {
+                    try pending.append(allocator, .{ .left = x.input, .right = y.input });
+                    try pending.append(allocator, .{ .left = x.answer, .right = y.answer });
+                } else if (try hasNamedMetadata(a, allocator)) return false;
+            } else if (try hasNamedMetadata(b, allocator)) return false;
+        }
+        if (a.resource != b.resource) {
+            if (a.resource) |x| {
+                if (b.resource) |y| {
+                    try pending.append(allocator, .{ .left = x.*, .right = y.* });
+                } else if (try hasNamedMetadata(a, allocator)) return false;
+            } else if (try hasNamedMetadata(b, allocator)) return false;
+        }
+        if (a.borrowed != b.borrowed) {
+            if (a.borrowed) |x| {
+                if (b.borrowed) |y| {
+                    try pending.append(allocator, .{ .left = x.*, .right = y.* });
+                } else if (try hasNamedMetadata(a, allocator)) return false;
+            } else if (try hasNamedMetadata(b, allocator)) return false;
+        }
+    }
+    return true;
 }
 
 fn hasAuthoringMetadata(schema: Schema) bool {
@@ -200,8 +243,8 @@ pub const Effect = struct {
 pub const Parameter = struct { name: []const u8, schema: Schema };
 pub const Field = Parameter;
 pub const NamedValue = struct { name: []const u8, value: Value };
-pub const Record = struct { owner: *Builder, schema: Schema, fields: []const Field };
-pub const Variant = struct { owner: *Builder, schema: Schema, alternatives: []const Field };
+pub const Record = struct { owner: *Builder, schema: Schema };
+pub const Variant = struct { owner: *Builder, schema: Schema };
 pub const Function = struct {
     owner: *Builder,
     id: p.Id,
@@ -226,20 +269,24 @@ pub const Block = struct {
 };
 pub const Callable = struct { value: Value };
 pub const FinishedCase = struct {
-    variant: Variant,
-    index: usize,
-    variable: p.Id,
     block: Block,
+    origin: *const CaseOrigin,
 };
 pub const MatchCase = struct {
     body: Body,
     payload: Value,
-    variant: Variant,
-    index: usize,
-    variable: p.Id,
+    origin: *CaseOrigin,
 
     pub fn finish(self: *MatchCase, result: Value) Error!FinishedCase {
-        return .{ .variant = self.variant, .index = self.index, .variable = self.variable, .block = try self.body.finish(result) };
+        const author = self.body.author;
+        if (author.case_origins.get(self.body.scope) != self.origin) {
+            author.report(.branch_mismatch, "variant case origin", null, null, null, self.body.scope.name);
+            return error.InvalidBranch;
+        }
+        const block = try self.body.finish(result);
+        self.origin.term = block.term;
+        self.origin.result = block.result;
+        return .{ .block = block, .origin = self.origin };
     }
 };
 pub const Interpretation = struct {
@@ -278,6 +325,14 @@ const Scope = struct {
     open: bool = true,
     steps: std.ArrayList(Step) = .empty,
 };
+const CaseOrigin = struct {
+    variant: Schema,
+    index: usize,
+    variable: p.Id,
+    scope: *Scope,
+    term: ?p.Id = null,
+    result: ?Schema = null,
+};
 const ExportedValue = struct { schema: Schema, scope: ?*Scope };
 const ExportedTerm = struct { schema: Schema, scope: *Scope };
 const ValueOrigin = struct { schema: Schema, scope: ?*Scope };
@@ -298,6 +353,7 @@ pub const Builder = struct {
     function_names: std.AutoHashMapUnmanaged(p.Id, []const u8) = .empty,
     named_layouts: std.ArrayList(*const NamedLayout) = .empty,
     value_origins: std.AutoHashMapUnmanaged(p.Id, *const ValueOrigin) = .empty,
+    case_origins: std.AutoHashMapUnmanaged(*Scope, *CaseOrigin) = .empty,
     value_exports: std.AutoHashMapUnmanaged(p.Id, ExportedValue) = .empty,
     term_exports: std.AutoHashMapUnmanaged(p.Id, ExportedTerm) = .empty,
     poisoned: bool = false,
@@ -334,13 +390,29 @@ pub const Builder = struct {
         if (schema.id >= self.raw.schemas.items.len) return error.InvalidSchema;
     }
 
+    fn sourceSchema(self: *Builder, id: p.Id, entity: []const u8) Error!p.Schema {
+        if (id >= self.raw.schemas.items.len) {
+            self.report(.schema_mismatch, entity, null, id, null, null);
+            return error.InvalidSchema;
+        }
+        return self.raw.schemas.items[@intCast(id)];
+    }
+
+    fn sourceEffect(self: *Builder, id: p.Id, entity: []const u8) Error!p.Effect {
+        if (id >= self.raw.effects.items.len) {
+            self.report(.capability_mismatch, entity, null, id, null, null);
+            return error.InvalidReference;
+        }
+        return self.raw.effects.items[@intCast(id)];
+    }
+
     fn mintValue(self: *Builder, value: Value) Error!Value {
         errdefer |err| self.onError(err);
         if (value.id >= self.raw.values.items.len or
             self.raw.values.items[@intCast(value.id)].schema != value.schema.id)
             return error.InvalidSource;
         if (self.value_origins.get(value.id)) |known| {
-            if (!sameSchema(known.schema, value.schema) or known.scope != value.scope)
+            if (!try sameSchema(known.schema, value.schema) or known.scope != value.scope)
                 return error.TypeMismatch;
             var sealed = value;
             sealed.origin = known;
@@ -507,7 +579,7 @@ pub const Builder = struct {
             var equal = true;
             for (existing.fields, fields) |left, right| {
                 if (!std.mem.eql(u8, left.name, right.name) or
-                    !sameSchema(left.schema, right.schema))
+                    !try sameSchema(left.schema, right.schema))
                 {
                     equal = false;
                     break;
@@ -534,7 +606,7 @@ pub const Builder = struct {
         }
         var schema = try self.productSchema(schemas);
         schema.layout = try self.namedLayout(.record, copied);
-        return .{ .owner = self, .schema = schema, .fields = copied };
+        return .{ .owner = self, .schema = schema };
     }
 
     pub fn variant(self: *Builder, alternatives: []const Field) Error!Variant {
@@ -550,7 +622,7 @@ pub const Builder = struct {
         }
         var schema = try self.sumSchema(schemas);
         schema.layout = try self.namedLayout(.variant, copied);
-        return .{ .owner = self, .schema = schema, .alternatives = copied };
+        return .{ .owner = self, .schema = schema };
     }
 
     fn declareEffect(self: *Builder, name: []const u8, payload: Schema, result: Schema, is_external: bool, control_use: p.Use) Error!Effect {
@@ -692,7 +764,7 @@ pub const Builder = struct {
         self.diagnostic = null;
         if (function.owner != self or block.owner != self) return try self.foreign("function definition", null);
         if (block.scope.function != function.id) return error.InvalidBranch;
-        if (!sameSchema(block.result, function.result)) {
+        if (!try sameSchema(block.result, function.result)) {
             self.report(.schema_mismatch, function.name, function.result.id, block.result.id, null, null);
             self.diagnostic.?.relationship = "declared result layout";
             return error.TypeMismatch;
@@ -859,8 +931,8 @@ pub const Builder = struct {
         if (operation.bodies.len != 0) return error.InvalidArgument;
         try self.checkSchema(body_result);
         if (function.parameters.len != 1 or
-            !sameSchema(function.parameters[0].schema, operation.payload) or
-            !sameSchema(function.result, operation.result)) return error.TypeMismatch;
+            !try sameSchema(function.parameters[0].schema, operation.payload) or
+            !try sameSchema(function.result, operation.result)) return error.TypeMismatch;
         const allowed = try self.effectIds(residual);
         for (function.effects) |effect_id| {
             if (std.mem.indexOfScalar(p.Id, allowed, effect_id) == null) {
@@ -894,7 +966,7 @@ pub const Interop = struct {
         errdefer |err| body.author.onError(err);
         try body.check(value);
         if (body.author.value_exports.get(value.id)) |known| {
-            if (!sameSchema(known.schema, value.schema) or known.scope != value.scope)
+            if (!try sameSchema(known.schema, value.schema) or known.scope != value.scope)
                 return error.InvalidSource;
         } else try body.author.value_exports.put(body.author.raw.allocator(), value.id, .{ .schema = value.schema, .scope = value.scope });
         return value.id;
@@ -905,7 +977,7 @@ pub const Interop = struct {
         try body.ensureOpen();
         var value = try body.author.adoptValue(id, schema);
         if (body.author.value_exports.get(id)) |exported| {
-            if (!sameSchema(exported.schema, schema)) {
+            if (!try sameSchema(exported.schema, schema)) {
                 body.author.report(.schema_mismatch, "interop value", exported.schema.id, schema.id, null, body.scope.name);
                 body.author.diagnostic.?.relationship = "exported named layout";
                 return error.TypeMismatch;
@@ -928,7 +1000,7 @@ pub const Interop = struct {
         try body.author.checkSchema(result);
         if (id >= body.author.raw.terms.items.len) return error.InvalidReference;
         if (body.author.term_exports.get(id)) |exported| {
-            if (!sameSchema(exported.schema, result)) return error.TypeMismatch;
+            if (!try sameSchema(exported.schema, result)) return error.TypeMismatch;
             if (!scopeVisible(exported.scope, body.scope)) return error.OutOfScope;
         } else if (hasAuthoringMetadata(result)) return error.InvalidSource;
         return body.append(id, result);
@@ -940,7 +1012,7 @@ pub const Interop = struct {
         try body.author.checkSchema(result);
         if (id >= body.author.raw.terms.items.len) return error.InvalidReference;
         if (body.author.term_exports.get(id)) |exported| {
-            if (!sameSchema(exported.schema, result)) return error.TypeMismatch;
+            if (!try sameSchema(exported.schema, result)) return error.TypeMismatch;
             if (!scopeVisible(exported.scope, body.scope)) return error.OutOfScope;
         } else if (hasAuthoringMetadata(result)) return error.InvalidSource;
         return body.close(id, result);
@@ -1010,7 +1082,7 @@ pub const Body = struct {
             self.author.report(.schema_mismatch, "value origin", null, value.schema.id, null, self.scope.name);
             return error.InvalidSource;
         };
-        if (value.origin != origin or !sameSchema(value.schema, origin.schema)) {
+        if (value.origin != origin or !try sameSchema(value.schema, origin.schema)) {
             self.author.report(.schema_mismatch, "value origin", origin.schema.id, value.schema.id, null, self.scope.name);
             return error.TypeMismatch;
         }
@@ -1026,6 +1098,13 @@ pub const Body = struct {
             self.author.report(.out_of_scope, "value", null, null, value.scope.?.name, self.scope.name);
             return error.OutOfScope;
         }
+    }
+
+    fn namedFields(self: *Body, schema: Schema, kind: LayoutKind) Error![]const Field {
+        try self.author.checkSchema(schema);
+        if (schema.layout) |layout| if (layout.kind == kind) return layout.fields;
+        self.author.report(.schema_mismatch, if (kind == .record) "record layout" else "variant layout", null, schema.id, null, self.scope.name);
+        return error.InvalidSchema;
     }
 
     pub fn parameter(self: *Body, name: []const u8) Error!Value {
@@ -1071,7 +1150,7 @@ pub const Body = struct {
         if (!effect.external) return error.InvalidCapability;
         if (effect.bodies.len != 0 or effect.use_site_effects.len != 0)
             return error.InvalidArgument;
-        if (!sameSchema(payload.schema, effect.payload)) {
+        if (!try sameSchema(payload.schema, effect.payload)) {
             self.author.report(.schema_mismatch, "operation payload", effect.payload.id, payload.schema.id, null, self.scope.name);
             return error.TypeMismatch;
         }
@@ -1091,7 +1170,7 @@ pub const Body = struct {
             self.author.report(.capability_mismatch, "operation capability", null, capability.schema.id, null, self.scope.name);
             return error.InvalidCapability;
         }
-        if (!sameSchema(payload.schema, effect.payload)) {
+        if (!try sameSchema(payload.schema, effect.payload)) {
             self.author.report(.schema_mismatch, "local operation payload", effect.payload.id, payload.schema.id, null, self.scope.name);
             self.author.diagnostic.?.relationship = "declared local payload schema";
             return error.TypeMismatch;
@@ -1109,7 +1188,7 @@ pub const Body = struct {
         try self.check(payload);
         if (effect.owner != self.author) return try self.author.foreign("effect", self.scope.name);
         if (effect.external) return error.InvalidCapability;
-        if (!sameSchema(payload.schema, effect.payload)) {
+        if (!try sameSchema(payload.schema, effect.payload)) {
             self.author.report(.schema_mismatch, "scoped operation payload", effect.payload.id, payload.schema.id, null, self.scope.name);
             self.author.diagnostic.?.relationship = "declared scoped payload schema";
             return error.TypeMismatch;
@@ -1127,7 +1206,7 @@ pub const Body = struct {
         const body_ids = try self.author.raw.allocator().alloc(p.Id, bodies.len);
         for (bodies, effect.bodies, body_ids) |work, named, *id| {
             try self.check(work.value);
-            if (!sameSchema(work.value.schema, named.schema)) {
+            if (!try sameSchema(work.value.schema, named.schema)) {
                 self.author.report(.argument_mismatch, named.name, named.schema.id, work.value.schema.id, null, self.scope.name);
                 return error.TypeMismatch;
             }
@@ -1159,7 +1238,7 @@ pub const Body = struct {
         const signature = shape.internal.resumption;
         const info = resumption.schema.resumption;
         const input_matches = if (info) |known|
-            sameSchema(argument.schema, known.input)
+            try sameSchema(argument.schema, known.input)
         else
             argument.schema.id == signature.input;
         if (!input_matches) {
@@ -1182,11 +1261,11 @@ pub const Body = struct {
         const signature = shape.internal.resumption;
         const info = resumption.schema.resumption;
         const input_matches = if (info) |known|
-            sameSchema(argument.schema, known.input)
+            try sameSchema(argument.schema, known.input)
         else
             signature.input == argument.schema.id;
         const successor_matches = if (info) |known|
-            sameSchema(successor.input, known.answer)
+            try sameSchema(successor.input, known.answer)
         else
             signature.answer == successor.input.id;
         if (signature.mode != .shallow or signature.effect != successor.operation.id or
@@ -1199,7 +1278,7 @@ pub const Body = struct {
         const ids = try self.author.raw.allocator().alloc(p.Id, state.len);
         for (state, successor.state, ids) |value, named, *id| {
             try self.check(value);
-            if (!sameSchema(value.schema, named.schema)) return error.TypeMismatch;
+            if (!try sameSchema(value.schema, named.schema)) return error.TypeMismatch;
             id.* = value.id;
         }
         return self.append(try self.author.raw.term(.{ .resume_with = .{
@@ -1220,11 +1299,11 @@ pub const Body = struct {
         const work = self.author.raw.schemas.items[@intCast(computation.value.schema.id)];
         if (work != .internal or work.internal != .computation) return error.TypeMismatch;
         const thunk = work.internal.computation;
-        const effect = self.author.raw.effects.items[@intCast(signature.effect)];
+        const effect = try self.author.sourceEffect(signature.effect, "resumption effect");
         if (thunk.result != signature.input or
             thunk.parameters.len != effect.use_site_effects.len) return error.TypeMismatch;
         for (thunk.parameters, effect.use_site_effects) |schema_id, effect_id| {
-            const parameter_schema = self.author.raw.schemas.items[@intCast(schema_id)];
+            const parameter_schema = try self.author.sourceSchema(schema_id, "resumption computation parameter");
             if (parameter_schema != .internal or parameter_schema.internal != .capability or
                 parameter_schema.internal.capability != effect_id) return error.InvalidCapability;
         }
@@ -1233,7 +1312,7 @@ pub const Body = struct {
                 return error.InvalidCapability;
         }
         if (resumption.schema.resumption) |known| if (computation.value.schema.callable) |callable_info| {
-            if (!sameSchema(callable_info.result, known.input)) return error.TypeMismatch;
+            if (!try sameSchema(callable_info.result, known.input)) return error.TypeMismatch;
         };
         return self.append(try self.author.raw.term(.{ .resume_computation = .{
             .resumption = resumption.id,
@@ -1249,14 +1328,14 @@ pub const Body = struct {
         const state_ids = try self.author.raw.allocator().alloc(p.Id, state.len);
         for (state, interpretation.state, state_ids) |value, named, *id| {
             try self.check(value);
-            if (!sameSchema(value.schema, named.schema)) return error.TypeMismatch;
+            if (!try sameSchema(value.schema, named.schema)) return error.TypeMismatch;
             id.* = value.id;
         }
         const argument_ids = try self.author.raw.allocator().alloc(p.Id, arguments.len);
         const shape = self.author.raw.schemas.items[@intCast(callable.value.schema.id)];
         if (shape != .internal or shape.internal != .computation) return error.TypeMismatch;
         if (callable.value.schema.callable) |known| {
-            if (!sameSchema(known.result, interpretation.input)) return error.TypeMismatch;
+            if (!try sameSchema(known.result, interpretation.input)) return error.TypeMismatch;
         } else if (shape.internal.computation.result != interpretation.input.id)
             return error.TypeMismatch;
         const parameters = shape.internal.computation.parameters;
@@ -1265,7 +1344,7 @@ pub const Body = struct {
             self.author.diagnostic.?.relationship = "one injected capability parameter";
             return error.InvalidArgument;
         }
-        const cap = self.author.raw.schemas.items[@intCast(parameters[0])];
+        const cap = try self.author.sourceSchema(parameters[0], "handled body capability");
         if (cap != .internal or cap.internal != .capability or
             cap.internal.capability != interpretation.operation.id) return error.InvalidCapability;
         for (arguments, argument_ids, 0..) |value, *id, index| {
@@ -1274,7 +1353,7 @@ pub const Body = struct {
                 known.parameters[index + 1]
             else
                 Schema{ .owner = self.author, .id = parameters[index + 1] };
-            if (!sameSchema(value.schema, expected)) {
+            if (!try sameSchema(value.schema, expected)) {
                 self.author.report(.argument_mismatch, "handled body argument", parameters[index + 1], value.schema.id, null, self.scope.name);
                 return error.TypeMismatch;
             }
@@ -1299,18 +1378,18 @@ pub const Body = struct {
             if (known.parameters.len != arguments.len + loaned) return error.InvalidArgument;
             if (resource) |owned| {
                 const borrowed = known.parameters[0].borrowed orelse return error.TypeMismatch;
-                if (!sameSchema(owned.schema, borrowed.*)) return error.TypeMismatch;
+                if (!try sameSchema(owned.schema, borrowed.*)) return error.TypeMismatch;
             }
         }
         if (cleanup.value.schema.callable) |known| {
             if (known.parameters.len != loaned + 1) return error.InvalidArgument;
-            if (resource) |owned| if (!sameSchema(owned.schema, known.parameters[1]))
+            if (resource) |owned| if (!try sameSchema(owned.schema, known.parameters[1]))
                 return error.TypeMismatch;
         }
         const ids = try self.author.raw.allocator().alloc(p.Id, arguments.len);
         for (arguments, ids, 0..) |value, *id, index| {
             try self.check(value);
-            if (work.value.schema.callable) |known| if (!sameSchema(value.schema, known.parameters[index + loaned])) return error.TypeMismatch;
+            if (work.value.schema.callable) |known| if (!try sameSchema(value.schema, known.parameters[index + loaned])) return error.TypeMismatch;
             id.* = value.id;
         }
         if (resource) |value| try self.check(value);
@@ -1336,14 +1415,14 @@ pub const Body = struct {
         if (shape != .internal or shape.internal != .computation) return error.TypeMismatch;
         if (work.value.schema.callable) |known| {
             if (known.parameters.len != arguments.len + 1) return error.InvalidArgument;
-            const first = self.author.raw.schemas.items[@intCast(known.parameters[0].id)];
+            const first = try self.author.sourceSchema(known.parameters[0].id, "region body parameter");
             if (first != .internal or first.internal != .region or
                 first.internal.region != region_handle.id) return error.TypeMismatch;
         }
         const ids = try self.author.raw.allocator().alloc(p.Id, arguments.len);
         for (arguments, ids, 0..) |value, *id, index| {
             try self.check(value);
-            if (work.value.schema.callable) |known| if (!sameSchema(value.schema, known.parameters[index + 1])) return error.TypeMismatch;
+            if (work.value.schema.callable) |known| if (!try sameSchema(value.schema, known.parameters[index + 1])) return error.TypeMismatch;
             id.* = value.id;
         }
         return self.append(try self.author.raw.term(.{ .with_region = .{
@@ -1370,7 +1449,7 @@ pub const Body = struct {
         if (resource_id >= self.author.raw.resources.items.len or
             self.author.raw.resources.items[@intCast(resource_id)].representation !=
                 representation.schema.id) return error.TypeMismatch;
-        if (owned.resource) |known| if (!sameSchema(representation.schema, known.*))
+        if (owned.resource) |known| if (!try sameSchema(representation.schema, known.*))
             return error.TypeMismatch;
         return self.author.mintValue(.{ .owner = self.author, .schema = owned, .scope = self.scope, .id = try self.author.raw.primitive(owned.id, .resource_pack, &.{representation.id}, 0) });
     }
@@ -1380,7 +1459,7 @@ pub const Body = struct {
         try self.check(value);
         var schema = self.author.raw.schemas.items[@intCast(value.schema.id)];
         if (schema == .internal and schema.internal == .borrowed) {
-            schema = self.author.raw.schemas.items[@intCast(schema.internal.borrowed.value)];
+            schema = try self.author.sourceSchema(schema.internal.borrowed.value, "borrowed representation");
         }
         if (schema != .internal or schema.internal != .abstract_resource)
             return error.TypeMismatch;
@@ -1405,7 +1484,7 @@ pub const Body = struct {
         const ids = try self.author.raw.allocator().alloc(p.Id, arguments.len);
         for (arguments, function.parameters, ids) |argument, named, *id| {
             try self.check(argument);
-            if (!sameSchema(argument.schema, named.schema)) {
+            if (!try sameSchema(argument.schema, named.schema)) {
                 self.author.report(.argument_mismatch, function.name, named.schema.id, argument.schema.id, null, self.scope.name);
                 self.author.diagnostic.?.relationship = "callable argument layout";
                 return error.TypeMismatch;
@@ -1436,7 +1515,7 @@ pub const Body = struct {
                 known.parameters[index]
             else
                 Schema{ .owner = self.author, .id = schema_id };
-            if (!sameSchema(argument.schema, expected)) {
+            if (!try sameSchema(argument.schema, expected)) {
                 self.author.report(.argument_mismatch, "callable argument", schema_id, argument.schema.id, null, self.scope.name);
                 self.author.diagnostic.?.relationship = "callable argument layout";
                 return error.TypeMismatch;
@@ -1461,9 +1540,10 @@ pub const Body = struct {
         errdefer |err| self.author.onError(err);
         try self.ensureOpen();
         if (record.owner != self.author) return try self.author.foreign("record", self.scope.name);
-        if (fields.len != record.fields.len) return error.InvalidField;
+        const declared_fields = try self.namedFields(record.schema, .record);
+        if (fields.len != declared_fields.len) return error.InvalidField;
         const ids = try self.author.raw.allocator().alloc(p.Id, fields.len);
-        for (record.fields, ids) |declared, *id| {
+        for (declared_fields, ids) |declared, *id| {
             var found: ?Value = null;
             for (fields) |provided| if (std.mem.eql(u8, provided.name, declared.name)) {
                 if (found != null) return error.DuplicateName;
@@ -1471,7 +1551,7 @@ pub const Body = struct {
             };
             const value = found orelse return error.InvalidField;
             try self.check(value);
-            if (!sameSchema(value.schema, declared.schema)) {
+            if (!try sameSchema(value.schema, declared.schema)) {
                 self.author.report(.field_mismatch, declared.name, declared.schema.id, value.schema.id, null, self.scope.name);
                 self.author.diagnostic.?.relationship = "named field schema and layout";
                 return error.TypeMismatch;
@@ -1485,12 +1565,13 @@ pub const Body = struct {
         errdefer |err| self.author.onError(err);
         try self.check(value);
         if (record.owner != self.author) return try self.author.foreign("record", self.scope.name);
-        if (!sameSchema(value.schema, record.schema)) {
+        const declared_fields = try self.namedFields(record.schema, .record);
+        if (!try sameSchema(value.schema, record.schema)) {
             self.author.report(.field_mismatch, try self.author.diagnosticName(name), record.schema.id, value.schema.id, null, self.scope.name);
             self.author.diagnostic.?.relationship = "named record layout";
             return error.TypeMismatch;
         }
-        for (record.fields, 0..) |declared, index| if (std.mem.eql(u8, name, declared.name)) {
+        for (declared_fields, 0..) |declared, index| if (std.mem.eql(u8, name, declared.name)) {
             return self.author.mintValue(.{ .owner = self.author, .schema = declared.schema, .scope = self.scope, .id = try self.author.raw.primitive(declared.schema.id, .field, &.{value.id}, index) });
         };
         self.author.report(.field_mismatch, try self.author.diagnosticName(name), null, value.schema.id, null, self.scope.name);
@@ -1501,8 +1582,9 @@ pub const Body = struct {
         errdefer |err| self.author.onError(err);
         try self.check(payload);
         if (variant.owner != self.author) return try self.author.foreign("variant", self.scope.name);
-        for (variant.alternatives, 0..) |alternative, index| if (std.mem.eql(u8, name, alternative.name)) {
-            if (!sameSchema(payload.schema, alternative.schema)) {
+        const alternatives = try self.namedFields(variant.schema, .variant);
+        for (alternatives, 0..) |alternative, index| if (std.mem.eql(u8, name, alternative.name)) {
+            if (!try sameSchema(payload.schema, alternative.schema)) {
                 self.author.report(.field_mismatch, alternative.name, alternative.schema.id, payload.schema.id, null, self.scope.name);
                 self.author.diagnostic.?.relationship = "named alternative schema and layout";
                 return error.TypeMismatch;
@@ -1517,10 +1599,15 @@ pub const Body = struct {
         errdefer |err| self.author.onError(err);
         try self.ensureOpen();
         if (variant.owner != self.author) return try self.author.foreign("variant", self.scope.name);
-        for (variant.alternatives, 0..) |alternative, index| if (std.mem.eql(u8, name, alternative.name)) {
+        const alternatives = try self.namedFields(variant.schema, .variant);
+        for (alternatives, 0..) |alternative, index| if (std.mem.eql(u8, name, alternative.name)) {
             const body = try self.child(name);
             const variable = try self.author.raw.variable(alternative.schema.id);
-            return .{ .body = body, .variant = variant, .index = index, .variable = variable, .payload = try self.author.mintValue(.{ .owner = self.author, .schema = alternative.schema, .scope = body.scope, .id = try self.author.raw.reference(variable) }) };
+            const payload = try self.author.mintValue(.{ .owner = self.author, .schema = alternative.schema, .scope = body.scope, .id = try self.author.raw.reference(variable) });
+            const origin = try self.author.raw.allocator().create(CaseOrigin);
+            origin.* = .{ .variant = variant.schema, .index = index, .variable = variable, .scope = body.scope };
+            try self.author.case_origins.put(self.author.raw.allocator(), body.scope, origin);
+            return .{ .body = body, .payload = payload, .origin = origin };
         };
         self.author.report(.branch_mismatch, try self.author.diagnosticName(name), variant.schema.id, null, null, self.scope.name);
         self.author.diagnostic.?.relationship = "named variant alternative";
@@ -1531,7 +1618,8 @@ pub const Body = struct {
         errdefer |err| self.author.onError(err);
         try self.check(value);
         if (variant.owner != self.author) return try self.author.foreign("variant", self.scope.name);
-        if (!sameSchema(value.schema, variant.schema) or branches.len != variant.alternatives.len) {
+        const alternatives = try self.namedFields(variant.schema, .variant);
+        if (!try sameSchema(value.schema, variant.schema) or branches.len != alternatives.len) {
             self.author.report(.branch_mismatch, "tagged variant", variant.schema.id, value.schema.id, null, self.scope.name);
             self.author.diagnostic.?.relationship = "named variant layout and branch count";
             return error.TypeMismatch;
@@ -1539,19 +1627,30 @@ pub const Body = struct {
         const cases = try self.author.raw.allocator().alloc(source.ast.SumCase, branches.len);
         var result: ?Schema = null;
         for (branches, 0..) |branch, position| {
-            if (branch.variant.owner != self.author) return try self.author.foreign("variant case", self.scope.name);
-            if (!sameSchema(branch.variant.schema, variant.schema)) {
-                self.author.report(.branch_mismatch, "variant case", variant.schema.id, branch.variant.schema.id, branch.block.scope.name, self.scope.name);
+            if (branch.block.owner != self.author) return try self.author.foreign("variant case", self.scope.name);
+            const origin = self.author.case_origins.get(branch.block.scope) orelse {
+                self.author.report(.branch_mismatch, "variant case origin", null, null, null, self.scope.name);
+                return error.InvalidBranch;
+            };
+            if (branch.origin != origin or origin.scope != branch.block.scope or
+                origin.term == null or origin.term.? != branch.block.term or
+                origin.result == null or !try sameSchema(origin.result.?, branch.block.result))
+            {
+                self.author.report(.branch_mismatch, "variant case origin", null, null, null, self.scope.name);
+                return error.InvalidBranch;
+            }
+            if (!try sameSchema(origin.variant, variant.schema)) {
+                self.author.report(.branch_mismatch, "variant case", variant.schema.id, origin.variant.id, branch.block.scope.name, self.scope.name);
                 self.author.diagnostic.?.relationship = "named variant layout";
                 return error.InvalidBranch;
             }
-            if (branch.block.scope.parent != self.scope or branch.index >= cases.len)
+            if (branch.block.scope.parent != self.scope or origin.index >= cases.len)
                 return error.InvalidBranch;
-            for (branches[0..position]) |other| if (branch.index == other.index) return error.InvalidBranch;
+            for (branches[0..position]) |other| if (origin.index == other.origin.index) return error.InvalidBranch;
             if (result) |expected| {
-                if (!sameSchema(expected, branch.block.result)) return error.TypeMismatch;
+                if (!try sameSchema(expected, branch.block.result)) return error.TypeMismatch;
             } else result = branch.block.result;
-            cases[branch.index] = .{ .variable = branch.variable, .body = branch.block.term };
+            cases[origin.index] = .{ .variable = origin.variable, .body = branch.block.term };
         }
         return self.append(try self.author.raw.term(.{ .match_sum = .{
             .value = value.id,
@@ -1570,7 +1669,7 @@ pub const Body = struct {
         errdefer |err| self.author.onError(err);
         try self.check(left);
         try self.check(right);
-        if (!sameSchema(left.schema, right.schema)) return error.TypeMismatch;
+        if (!try sameSchema(left.schema, right.schema)) return error.TypeMismatch;
         const shape = self.author.raw.schemas.items[@intCast(left.schema.id)];
         if (shape != .seq) return error.TypeMismatch;
         return self.author.mintValue(.{ .owner = self.author, .schema = left.schema, .scope = self.scope, .id = try self.author.raw.primitive(left.schema.id, .sequence_concat, &.{ left.id, right.id }, 0) });
@@ -1581,7 +1680,7 @@ pub const Body = struct {
         try self.check(left);
         try self.check(right);
         try self.check(failure);
-        if (!sameSchema(left.schema, right.schema)) return error.TypeMismatch;
+        if (!try sameSchema(left.schema, right.schema)) return error.TypeMismatch;
         const shape = self.author.raw.schemas.items[@intCast(left.schema.id)];
         if (shape != .u8 and shape != .u16 and shape != .u32 and shape != .u64 and
             shape != .i8 and shape != .i16 and shape != .i32 and shape != .i64) return error.TypeMismatch;
@@ -1600,7 +1699,7 @@ pub const Body = struct {
         errdefer |err| self.author.onError(err);
         try self.check(left);
         try self.check(right);
-        if (!sameSchema(left.schema, right.schema)) return error.TypeMismatch;
+        if (!try sameSchema(left.schema, right.schema)) return error.TypeMismatch;
         const boolean = try self.author.scalar(bool);
         return self.author.mintValue(.{ .owner = self.author, .schema = boolean, .scope = self.scope, .id = try self.author.raw.primitive(boolean.id, .equal, &.{ left.id, right.id }, 0) });
     }
@@ -1621,7 +1720,7 @@ pub const Body = struct {
         if (when_true.owner != self.author or when_false.owner != self.author) return try self.author.foreign("branch", self.scope.name);
         if (when_true.scope.parent != self.scope or when_false.scope.parent != self.scope or
             when_true.scope == when_false.scope) return error.InvalidBranch;
-        if (!sameSchema(when_true.result, when_false.result)) {
+        if (!try sameSchema(when_true.result, when_false.result)) {
             self.author.report(.branch_mismatch, "conditional result", when_true.result.id, when_false.result.id, when_true.scope.name, when_false.scope.name);
             self.author.diagnostic.?.relationship = "joined result layout";
             return error.TypeMismatch;
