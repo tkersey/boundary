@@ -1014,6 +1014,32 @@ test "raw interop cannot relabel an exported named value or term" {
     try std.testing.expectError(error.OutOfScope, a.Interop.term(&body, term, left.schema));
 }
 
+test "raw literal adoption keeps global scope across function bodies" {
+    var raw = source.Builder.init(std.testing.allocator);
+    defer raw.deinit();
+    var author = a.Builder.init(&raw);
+    const integer = try author.scalar(u64);
+    const unit = try author.scalar(void);
+    const literal_id = try raw.constant(u64, 7);
+    const first = try author.declare("first raw literal", &.{}, integer, &.{});
+    const second = try author.declare("second raw literal", &.{}, integer, &.{});
+    var first_body = try author.body(first);
+    var second_body = try author.body(second);
+    const first_value = try a.Interop.adoptValue(&first_body, literal_id, integer);
+    const second_value = try a.Interop.adoptValue(&second_body, literal_id, integer);
+    try std.testing.expect(first_value.scope == null and second_value.scope == null);
+    try author.define(first, try first_body.finish(first_value));
+    try author.define(second, try second_body.finish(second_value));
+    var compiled = try author.compile(std.testing.allocator, try author.module(first, unit));
+    compiled.deinit();
+
+    const local_id = try raw.reference(try raw.variable(integer.id));
+    var first_scope = try author.ambient("first local adoption");
+    var second_scope = try author.ambient("second local adoption");
+    _ = try a.Interop.adoptValue(&first_scope, local_id, integer);
+    try std.testing.expectError(error.TypeMismatch, a.Interop.adoptValue(&second_scope, local_id, integer));
+}
+
 test "metadata-free raw callable cannot satisfy a named handler result" {
     var raw = source.Builder.init(std.testing.allocator);
     defer raw.deinit();

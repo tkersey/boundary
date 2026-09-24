@@ -1367,7 +1367,10 @@ pub const Interop = struct {
             value.scope = exported.scope;
         } else {
             if (hasAuthoringMetadata(schema)) return error.InvalidSource;
-            value.scope = body.scope;
+            value.scope = switch (body.author.raw.values.items[@intCast(id)].expression) {
+                .literal => null,
+                else => body.scope,
+            };
         }
         return body.author.mintValue(value);
     }
