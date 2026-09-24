@@ -20,6 +20,7 @@ pub const region = struct {
 pub const library = struct {
     pub const hyper = @import("library/hyper.zig");
     pub const hyper_authoring = @import("library/hyper_authoring.zig");
+    pub const combinators = @import("library/combinators.zig");
     pub const choice = @import("library/choice.zig");
     pub const generator = @import("library/generator.zig");
     pub const cleanup = @import("library/cleanup.zig");

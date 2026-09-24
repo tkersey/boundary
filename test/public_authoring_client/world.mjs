@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-const [bundle, imagePath, kernelSha256] = process.argv.slice(2);
+const [bundle, imagePath, kernelSha256, nativePath] = process.argv.slice(2);
 if (!bundle || !imagePath || !kernelSha256) {
   throw new Error('usage: node world.mjs BUNDLE IMAGE KERNEL_SHA256');
 }
@@ -19,22 +20,32 @@ const kernel = async () => Kernel.create({
   bytes: readFileSync(join(bundle, 'runtime/world-kernel.wasm')),
   expectedSha256: kernelSha256,
 });
+const invoke = (instance, inputBytes) => {
+  const wasm = instance.invoke(inputBytes);
+  if (nativePath) {
+    const native = spawnSync(nativePath, ['invoke'], { input: inputBytes,
+      maxBuffer: 8 << 20, timeout: 30000 });
+    assert.equal(native.status, 0, native.stderr.toString());
+    assert.deepEqual(new Uint8Array(native.stdout), wasm);
+  }
+  return decodeOutcome(wasm);
+};
 const input = (enabled, number, offset) => new Uint8Array([
   enabled ? 1 : 0, ...word(number), ...word(offset),
 ]);
 
 async function run(enabled, number, offset, replies) {
   const k = await kernel();
-  let outcome = decodeOutcome(k.invoke(encodeInput({ image,
-    initialArgs: input(enabled, number, offset) })));
+  let outcome = invoke(k, encodeInput({ image,
+    initialArgs: input(enabled, number, offset) }));
   const requests = [];
   for (let index = 0; index < 8 && outcome.kind === 'requested'; index++) {
     const request = await decodeRequest(outcome.request);
     requests.push({ identity: request.semanticIdentity,
       payload: Buffer.from(request.payload).toString('hex') });
     assert.ok(index < replies.length, 'unexpected extra request');
-    outcome = decodeOutcome(k.invoke(encodeInput({ image, state: outcome.state,
-      control: 'reply', value: await encodeResult(outcome.request, word(replies[index])) })));
+    outcome = invoke(k, encodeInput({ image, state: outcome.state,
+      control: 'reply', value: await encodeResult(outcome.request, word(replies[index])) }));
   }
   return { outcome, requests };
 }
@@ -60,4 +71,5 @@ console.log(JSON.stringify({
   pure: 10, effectful: 48, requests: effectful.requests,
   pureOverflow: 'failed without requests',
   effectOverflow: 'failed after one request',
+  nativeAgreement: !!nativePath,
 }));

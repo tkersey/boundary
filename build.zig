@@ -156,6 +156,38 @@ pub fn build(b: *std.Build) void {
     }) });
     b.step("emit-authoring-responder", "Emit an authored responder interpretation")
         .dependOn(&b.addRunArtifact(authoring_responder).step);
+    const authoring_lazy = b.addExecutable(.{ .name = "authoring-lazy", .root_module = b.createModule(.{
+        .root_source_file = b.path("examples/authoring_lazy.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "boundary", .module = boundary }},
+    }) });
+    b.step("emit-authoring-lazy", "Emit selective delayed authoring")
+        .dependOn(&b.addRunArtifact(authoring_lazy).step);
+    const authoring_shallow = b.addExecutable(.{ .name = "authoring-shallow", .root_module = b.createModule(.{
+        .root_source_file = b.path("examples/authoring_shallow.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "boundary", .module = boundary }},
+    }) });
+    b.step("emit-authoring-shallow", "Emit explicit shallow interpretation")
+        .dependOn(&b.addRunArtifact(authoring_shallow).step);
+    const authoring_bypass = b.addExecutable(.{ .name = "authoring-bypass", .root_module = b.createModule(.{
+        .root_source_file = b.path("examples/authoring_bypass.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "boundary", .module = boundary }},
+    }) });
+    b.step("emit-authoring-bypass", "Emit answer-changing deep interpretation")
+        .dependOn(&b.addRunArtifact(authoring_bypass).step);
+    const authoring_twice = b.addExecutable(.{ .name = "authoring-twice", .root_module = b.createModule(.{
+        .root_source_file = b.path("test/v2/emit_authoring_twice.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "boundary", .module = boundary }},
+    }) });
+    b.step("emit-authoring-twice", "Emit independent twice caller")
+        .dependOn(&b.addRunArtifact(authoring_twice).step);
     b.step("check-authoring", "Check staged typed construction and lowering")
         .dependOn(&b.addRunArtifact(authoring).step);
     const public_client = b.addSystemCommand(&.{"node"});

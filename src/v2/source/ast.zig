@@ -13,6 +13,7 @@ pub const Value = struct {
     },
 };
 pub const Operation = struct { effect: Id, capability: ?Id = null, payload: Id, bodies: []const Id = &.{}, use_site_capabilities: []const Id = &.{} };
+pub const SumCase = struct { variable: Id, body: Id };
 pub const Term = union(enum) {
     value: Id,
     bind: struct { variable: Id, value: Id, next: Id },
@@ -29,7 +30,7 @@ pub const Term = union(enum) {
     dispose: Id,
     fail: Id,
     yield_then: Id,
-    match_sum: struct { value: Id, cases: []const struct { variable: Id, body: Id } },
+    match_sum: struct { value: Id, cases: []const SumCase },
     unpack_product: struct { value: Id, variables: []const Id, body: Id },
 };
 pub const Function = struct {

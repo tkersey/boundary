@@ -1,6 +1,15 @@
 const std = @import("std");
 const source = @import("source.zig");
 const a = @import("authoring.zig");
+const data = @import("boundary_data");
+
+test "ordinary declarations use distinct Zig categories" {
+    comptime {
+        if (a.Schema == a.Effect or a.Schema == a.Function or a.Function == a.Value or
+            a.Callable == a.Effect or a.Region == a.Schema)
+            @compileError("authoring categories collapsed");
+    }
+}
 
 test "forward runtime choice emits one external operation and checks builder and branch scope" {
     var raw = source.Builder.init(std.testing.allocator);
@@ -45,6 +54,9 @@ test "equal category and index from another live builder is rejected" {
     const right_entry = try right.declare("entry", &.{}, right_schema, &.{});
     var body = try right.body(right_entry);
     try std.testing.expectError(error.ForeignBuilder, body.finish(try left.literal(u32, 1)));
+    const other = try right.declare("other", &.{.{ .name = "arg", .schema = right_schema }}, right_schema, &.{});
+    var other_body = try right.body(other);
+    try std.testing.expectError(error.OutOfScope, body.finish(try other_body.parameter("arg")));
 }
 
 test "derived responder interpretation retains residual external effect" {
@@ -60,6 +72,9 @@ test "derived responder interpretation retains residual external effect" {
     var responder_body = try author.body(responder);
     const external_reply = try responder_body.perform(lookup, try responder_body.parameter("key"));
     try author.define(responder, try responder_body.finish(external_reply));
+
+    try std.testing.expectError(error.InvalidCapability, author.responding(question, responder, integer, &.{}, &.{ integer, capability }, .deep, .linear));
+    try std.testing.expectEqual(a.Category.residual_effect_disallowed, author.diagnostic.?.category);
 
     const interpretation = try author.responder(question, responder, &.{lookup}, &.{ integer, capability }, .deep, .linear);
 
@@ -78,4 +93,196 @@ test "derived responder interpretation retains residual external effect" {
     try author.define(entry, try main.finish(handled));
     var compiled = try source.lower(std.testing.allocator, try author.module(entry, unit));
     defer compiled.deinit();
+}
+
+fn imageWithLabel(label: []const u8) ![]u8 {
+    var raw = source.Builder.init(std.testing.allocator);
+    defer raw.deinit();
+    var author = a.Builder.init(&raw);
+    const integer = try author.scalar(u64);
+    const entry = try author.declare(label, &.{}, integer, &.{});
+    var body = try author.body(entry);
+    try author.define(entry, try body.finish(try author.literal(u64, 42)));
+    var compiled = try author.compile(std.testing.allocator, try author.module(entry, try author.scalar(void)));
+    defer compiled.deinit();
+    const bytes = try std.testing.allocator.alloc(u8, try data.program_image.encodedLength(compiled.program));
+    errdefer std.testing.allocator.free(bytes);
+    _ = try compiled.encode(std.testing.allocator, bytes);
+    return bytes;
+}
+
+test "diagnostic labels do not change executable bytes" {
+    const first = try imageWithLabel("alpha label");
+    defer std.testing.allocator.free(first);
+    const second = try imageWithLabel("beta label");
+    defer std.testing.allocator.free(second);
+    try std.testing.expectEqualSlices(u8, first, second);
+}
+
+test "runtime selected record schemas and tagged alternatives check named fields" {
+    var raw = source.Builder.init(std.testing.allocator);
+    defer raw.deinit();
+    var author = a.Builder.init(&raw);
+    const integer = try author.scalar(u64);
+    const boolean = try author.scalar(bool);
+    var configuration = true;
+    const chosen = if (configuration) integer else boolean;
+    configuration = false;
+    try std.testing.expect(!configuration);
+    const record = try author.record(&.{.{ .name = "chosen", .schema = chosen }});
+    const variant = try author.variant(&.{
+        .{ .name = "missing", .schema = try author.scalar(void) },
+        .{ .name = "present", .schema = integer },
+    });
+    const entry = try author.declare("entry", &.{.{ .name = "input", .schema = variant.schema }}, integer, &.{});
+    var body = try author.body(entry);
+    var missing = try body.variantCase(variant, "missing");
+    const absent = try missing.finish(try author.literal(u64, 0));
+    var present = try body.variantCase(variant, "present");
+    const found = try present.finish(present.payload);
+    const matched = try body.matchVariant(variant, try body.parameter("input"), &.{ absent, found });
+    try author.define(entry, try body.finish(matched));
+    var compiled = try source.lower(std.testing.allocator, try author.module(entry, try author.scalar(void)));
+    defer compiled.deinit();
+    var body2 = try author.ambient("field mismatch");
+    try std.testing.expectError(error.TypeMismatch, body2.product(record, &.{
+        .{ .name = "chosen", .value = try author.literal(bool, false) },
+    }));
+    try std.testing.expectEqual(a.Category.field_mismatch, author.diagnostic.?.category);
+}
+
+test "nested closure capture is scoped and bounded by its declared permission" {
+    for ([_]bool{ true, false }) |allowed| {
+        var raw = source.Builder.init(std.testing.allocator);
+        defer raw.deinit();
+        var author = a.Builder.init(&raw);
+        const integer = try author.scalar(u64);
+        const entry = try author.declare("outer", &.{.{ .name = "value", .schema = integer }}, integer, &.{});
+        var outer = try author.body(entry);
+        const captured = try outer.parameter("value");
+        const inner = try author.declare("nested", &.{}, integer, &.{});
+        var nested = try author.bodyWithin(&outer, inner);
+        try author.define(inner, try nested.finish(captured));
+        const closure = try outer.lambda(inner, if (allowed) &.{integer} else &.{}, .reusable);
+        const result = try outer.apply(closure, &.{});
+        try author.define(entry, try outer.finish(result));
+        const module = try author.module(entry, try author.scalar(void));
+        if (allowed) {
+            var compiled = try author.compile(std.testing.allocator, module);
+            compiled.deinit();
+        } else {
+            try std.testing.expectError(error.InvalidOwnership, author.compile(std.testing.allocator, module));
+            try std.testing.expectEqual(a.Category.ownership_use, author.diagnostic.?.category);
+            try std.testing.expect(author.diagnostic.?.source_detail != null);
+        }
+    }
+}
+
+fn allocationAttempt(allocator: std.mem.Allocator) !void {
+    var raw = source.Builder.init(allocator);
+    defer raw.deinit();
+    var author = a.Builder.init(&raw);
+    const integer = try author.scalar(u64);
+    const boolean = try author.scalar(bool);
+    const input = try author.record(&.{.{ .name = "number", .schema = integer }});
+    const variant = try author.variant(&.{
+        .{ .name = "none", .schema = try author.scalar(void) },
+        .{ .name = "some", .schema = integer },
+    });
+    _ = variant;
+    const lookup = try author.external("allocation/lookup", integer, integer);
+    const entry = try author.declare("allocation entry", &.{
+        .{ .name = "query", .schema = boolean },
+        .{ .name = "record", .schema = input.schema },
+    }, integer, &.{lookup});
+    var body = try author.body(entry);
+    const number = try body.field(input, try body.parameter("record"), "number");
+    var yes = try body.child("request");
+    const requested = try yes.perform(lookup, number);
+    var no = try body.child("pure");
+    const selected = try body.select(try body.parameter("query"), try yes.finish(requested), try no.finish(number));
+    try author.define(entry, try body.finish(selected));
+    var compiled = try author.compile(allocator, try author.module(entry, try author.scalar(void)));
+    defer compiled.deinit();
+    const bytes = try allocator.alloc(u8, try data.program_image.encodedLength(compiled.program));
+    defer allocator.free(bytes);
+    _ = try compiled.encode(allocator, bytes);
+    try std.testing.expectEqualStrings("ABL_BPI3", bytes[0..8]);
+}
+
+test "authoring constructors and finalization release each failed allocation" {
+    try allocationAttempt(std.testing.allocator);
+    try std.testing.checkAllAllocationFailures(std.testing.allocator, allocationAttempt, .{});
+}
+
+test "one-shot callable admits mutually exclusive uses and rejects sequential duplication" {
+    for ([_]bool{ true, false }) |exclusive| {
+        var raw = source.Builder.init(std.testing.allocator);
+        defer raw.deinit();
+        var author = a.Builder.init(&raw);
+        const integer = try author.scalar(u64);
+        const boolean = try author.scalar(bool);
+        const pair = try author.record(&.{
+            .{ .name = "first", .schema = integer },
+            .{ .name = "second", .schema = integer },
+        });
+        const work = try author.declare("one shot", &.{}, integer, &.{});
+        var work_body = try author.body(work);
+        try author.define(work, try work_body.finish(try author.literal(u64, 9)));
+        const entry = try author.declare("entry", &.{.{ .name = "side", .schema = boolean }}, if (exclusive) integer else pair.schema, &.{});
+        var body = try author.body(entry);
+        const callable = try body.asCallable(try body.bindValue((try body.lambda(work, &.{}, .linear)).value));
+        const result = if (exclusive) blk: {
+            var yes = try body.child("yes");
+            const left = try yes.apply(callable, &.{});
+            var no = try body.child("no");
+            const right = try no.apply(callable, &.{});
+            break :blk try body.select(try body.parameter("side"), try yes.finish(left), try no.finish(right));
+        } else blk: {
+            const first = try body.apply(callable, &.{});
+            const second = try body.apply(callable, &.{});
+            break :blk try body.product(pair, &.{
+                .{ .name = "first", .value = first },
+                .{ .name = "second", .value = second },
+            });
+        };
+        try author.define(entry, try body.finish(result));
+        const module = try author.module(entry, try author.scalar(void));
+        if (exclusive) {
+            var compiled = try author.compile(std.testing.allocator, module);
+            compiled.deinit();
+        } else {
+            try std.testing.expectError(error.UnavailableSlot, author.compile(std.testing.allocator, module));
+            try std.testing.expectEqual(a.Category.ownership_use, author.diagnostic.?.category);
+        }
+    }
+}
+
+test "reusable closure cannot capture a bound one-shot callable" {
+    var raw = source.Builder.init(std.testing.allocator);
+    defer raw.deinit();
+    var author = a.Builder.init(&raw);
+    const integer = try author.scalar(u64);
+    const one_shot = try author.declare("one shot", &.{}, integer, &.{});
+    var work_body = try author.body(one_shot);
+    try author.define(one_shot, try work_body.finish(try author.literal(u64, 9)));
+    const entry = try author.declare("entry", &.{}, integer, &.{});
+    var outer = try author.body(entry);
+    const owned = try outer.asCallable(try outer.bindValue((try outer.lambda(one_shot, &.{}, .linear)).value));
+    const nested = try author.declare("reusable nested", &.{}, integer, &.{});
+    var inner = try author.bodyWithin(&outer, nested);
+    const result = try inner.apply(owned, &.{});
+    try author.define(nested, try inner.finish(result));
+    const reused = try outer.lambda(nested, &.{owned.value.schema}, .reusable);
+    const answer = try outer.apply(reused, &.{});
+    try author.define(entry, try outer.finish(answer));
+    const module = try author.module(entry, try author.scalar(void));
+    if (author.compile(std.testing.allocator, module)) |compiled| {
+        var unexpected = compiled;
+        unexpected.deinit();
+        return error.ExpectedOwnershipRejection;
+    } else |err| {
+        try std.testing.expect(err == error.InvalidOwnership or err == error.UnavailableSlot);
+        try std.testing.expectEqual(a.Category.ownership_use, author.diagnostic.?.category);
+    }
 }
