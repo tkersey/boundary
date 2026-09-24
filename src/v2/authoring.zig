@@ -116,6 +116,7 @@ pub const Schema = struct {
     owner: *Builder,
     id: p.Id,
     layout: ?*const NamedLayout = null,
+    structure: ?*const StructureInfo = null,
     callable: ?*const CallableInfo = null,
     resumption: ?*const ResumptionInfo = null,
     resource: ?*const Schema = null,
@@ -126,12 +127,20 @@ const NamedLayout = struct {
     kind: LayoutKind,
     fields: []const Field,
 };
+const StructureKind = enum { product, sum, sequence, cell, exit_info };
+const StructureInfo = struct { kind: StructureKind, children: []const Schema };
 const CallableInfo = struct { parameters: []const Schema, result: Schema };
 const ResumptionInfo = struct { input: Schema, answer: Schema };
 
 fn sameSchema(left: Schema, right: Schema) bool {
     if (left.owner != right.owner or left.id != right.id or left.layout != right.layout)
         return false;
+    if (left.structure) |a| {
+        if (right.structure) |b| {
+            if (a.kind != b.kind or a.children.len != b.children.len) return false;
+            for (a.children, b.children) |x, y| if (!sameSchema(x, y)) return false;
+        } else if (hasNamedMetadata(left)) return false;
+    } else if (right.structure != null and hasNamedMetadata(right)) return false;
     if (left.callable) |a| {
         if (right.callable) |b| {
             if (a.parameters.len != b.parameters.len or !sameSchema(a.result, b.result)) return false;
@@ -158,6 +167,9 @@ fn sameSchema(left: Schema, right: Schema) bool {
 
 fn hasNamedMetadata(schema: Schema) bool {
     if (schema.layout != null) return true;
+    if (schema.structure) |info| {
+        for (info.children) |child| if (hasNamedMetadata(child)) return true;
+    }
     if (schema.callable) |info| {
         if (hasNamedMetadata(info.result)) return true;
         for (info.parameters) |parameter| if (hasNamedMetadata(parameter)) return true;
@@ -171,7 +183,7 @@ fn hasNamedMetadata(schema: Schema) bool {
 }
 
 fn hasAuthoringMetadata(schema: Schema) bool {
-    return schema.layout != null or schema.callable != null or
+    return schema.layout != null or schema.structure != null or schema.callable != null or
         schema.resumption != null or schema.resource != null or
         schema.borrowed != null;
 }
@@ -344,10 +356,10 @@ pub const Builder = struct {
         errdefer |err| self.onError(err);
         _ = try self.regionSchema(region_handle);
         try self.checkSchema(element);
-        return self.dynamicSchema(.{ .internal = .{ .cell = .{
+        return self.withChildren(try self.dynamicSchema(.{ .internal = .{ .cell = .{
             .element = element.id,
             .region = region_handle.id,
-        } } });
+        } } }), .cell, &.{element});
     }
 
     pub fn resource(self: *Builder, representation: Schema) Error!Schema {
@@ -417,6 +429,15 @@ pub const Builder = struct {
         return .{ .owner = self, .id = id, .payload = try self.adoptSchema(original.payload), .result = try self.adoptSchema(original.result), .external = original.external, .bodies = bodies, .use_site_effects = original.use_site_effects };
     }
 
+    fn withChildren(self: *Builder, base: Schema, kind: StructureKind, children: []const Schema) Error!Schema {
+        errdefer |err| self.onError(err);
+        const info = try self.raw.allocator().create(StructureInfo);
+        info.* = .{ .kind = kind, .children = try self.raw.allocator().dupe(Schema, children) };
+        var result = base;
+        result.structure = info;
+        return result;
+    }
+
     pub fn sumSchema(self: *Builder, alternatives: []const Schema) Error!Schema {
         self.diagnostic = null;
         errdefer |err| self.onError(err);
@@ -425,19 +446,19 @@ pub const Builder = struct {
             try self.checkSchema(alternative);
             id.* = alternative.id;
         }
-        return self.dynamicSchema(.{ .sum = ids });
+        return self.withChildren(try self.dynamicSchema(.{ .sum = ids }), .sum, alternatives);
     }
 
     pub fn sequenceSchema(self: *Builder, element: Schema) Error!Schema {
         errdefer |err| self.onError(err);
         try self.checkSchema(element);
-        return self.dynamicSchema(.{ .seq = element.id });
+        return self.withChildren(try self.dynamicSchema(.{ .seq = element.id }), .sequence, &.{element});
     }
 
     pub fn exitInfo(self: *Builder, failure: Schema) Error!Schema {
         errdefer |err| self.onError(err);
         try self.checkSchema(failure);
-        return self.adoptSchema(try @import("library/cleanup.zig").exitInfo(self.raw, failure.id));
+        return self.withChildren(try self.adoptSchema(try @import("library/cleanup.zig").exitInfo(self.raw, failure.id)), .exit_info, &.{failure});
     }
 
     pub fn productSchema(self: *Builder, fields: []const Schema) Error!Schema {
@@ -448,7 +469,7 @@ pub const Builder = struct {
             try self.checkSchema(field);
             id.* = field.id;
         }
-        return self.dynamicSchema(.{ .product = ids });
+        return self.withChildren(try self.dynamicSchema(.{ .product = ids }), .product, fields);
     }
 
     fn namedLayout(self: *Builder, kind: LayoutKind, fields: []const Field) Error!*const NamedLayout {
@@ -1027,7 +1048,11 @@ pub const Body = struct {
             self.author.report(.capability_mismatch, "operation capability", null, capability.schema.id, null, self.scope.name);
             return error.InvalidCapability;
         }
-        if (!sameSchema(payload.schema, effect.payload)) return error.TypeMismatch;
+        if (!sameSchema(payload.schema, effect.payload)) {
+            self.author.report(.schema_mismatch, "local operation payload", effect.payload.id, payload.schema.id, null, self.scope.name);
+            self.author.diagnostic.?.relationship = "declared local payload schema";
+            return error.TypeMismatch;
+        }
         return self.append(try self.author.raw.term(.{ .perform = .{
             .effect = effect.id,
             .capability = capability.id,
@@ -1040,11 +1065,21 @@ pub const Body = struct {
         try self.check(capability);
         try self.check(payload);
         if (effect.owner != self.author or effect.external) return error.InvalidCapability;
-        if (!sameSchema(payload.schema, effect.payload) or bodies.len != effect.bodies.len or
-            use_site_capabilities.len != effect.use_site_effects.len) return error.TypeMismatch;
+        if (!sameSchema(payload.schema, effect.payload)) {
+            self.author.report(.schema_mismatch, "scoped operation payload", effect.payload.id, payload.schema.id, null, self.scope.name);
+            self.author.diagnostic.?.relationship = "declared scoped payload schema";
+            return error.TypeMismatch;
+        }
+        if (bodies.len != effect.bodies.len or
+            use_site_capabilities.len != effect.use_site_effects.len)
+            return error.TypeMismatch;
         const cap_shape = self.author.raw.schemas.items[@intCast(capability.schema.id)];
         if (cap_shape != .internal or cap_shape.internal != .capability or
-            cap_shape.internal.capability != effect.id) return error.InvalidCapability;
+            cap_shape.internal.capability != effect.id)
+        {
+            self.author.report(.capability_mismatch, "scoped operation capability", null, capability.schema.id, null, self.scope.name);
+            return error.InvalidCapability;
+        }
         const body_ids = try self.author.raw.allocator().alloc(p.Id, bodies.len);
         for (bodies, effect.bodies, body_ids) |work, named, *id| {
             try self.check(work.value);

@@ -94,6 +94,9 @@ Names are authoring metadata. Two records or variants may have the same
 positional source schema ID while assigning different names to those positions.
 The high-level handles retain the named layout across declarations, calls,
 applications, handlers, and joins, and reject a mismatched named access. The
+product, sum, and sequence schema constructors retain child descriptions too,
+as do the exposed cell and cleanup-exit descriptions. Nested named layouts
+therefore remain checked across calls and effect payloads. The
 metadata does not change BPI3 or make data identity nominal at runtime.
 
 `Builder.external` declares a host-facing operation. `Builder.local` declares
@@ -224,7 +227,7 @@ target admission retain general authority.
 | A11 | `authoring_config_world.mjs` obtains 11/12/11 from same-type configurations and one reused declaration. |
 | A12 | `authoring_lazy_world.mjs` leaves an unused failing delayed body undemanded and fails when demanded. |
 | A13 | `hyper_demand_world.mjs` restores reciprocal State in fresh Node processes; `authoring_wasmtime.mjs` compares Node/Wasmtime/native transfer. |
-| A14 | Runtime-selected named record and variant schemas lower; wrong fields and callable arguments reject. |
+| A14 | Runtime-selected named record and variant schemas lower; wrong fields, callable arguments, and nested product/sum/sequence layouts reject. |
 | A15 | Allocation-failure iteration covers constructors, finalization, encoding, and owned diagnostics; an exhausted builder cannot publish a Module. |
 | A16 | `zig build check-public-authoring` builds/tests an outside-tree public-package client, whose World driver checks execution. |
 | A17 | Structured category, entity, schema, scope, and source detail tests cover authoring and ownership failures; label-only edits emit equal bytes. |

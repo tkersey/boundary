@@ -294,6 +294,96 @@ test "named record layout survives direct calls and callable application" {
     compiled.deinit();
 }
 
+test "structural product sum and sequence schemas retain named children" {
+    var raw = source.Builder.init(std.testing.allocator);
+    defer raw.deinit();
+    var author = a.Builder.init(&raw);
+    const integer = try author.scalar(u64);
+    const unit = try author.scalar(void);
+    const left = try author.record(&.{.{ .name = "left", .schema = integer }});
+    const right = try author.record(&.{.{ .name = "right", .schema = integer }});
+    const sequence_left = try author.sequenceSchema(left.schema);
+    const sequence_right = try author.sequenceSchema(right.schema);
+    try std.testing.expectEqual(sequence_left.id, sequence_right.id);
+    const identity = try author.declare("sequence identity", &.{
+        .{ .name = "items", .schema = sequence_left },
+    }, sequence_left, &.{});
+    var identity_body = try author.body(identity);
+    try author.define(identity, try identity_body.finish(try identity_body.parameter("items")));
+    const entry = try author.declare("entry", &.{
+        .{ .name = "items", .schema = sequence_left },
+    }, sequence_left, &.{});
+    var entry_body = try author.body(entry);
+    const returned = try entry_body.call(identity, &.{try entry_body.parameter("items")});
+    try author.define(entry, try entry_body.finish(returned));
+    var compiled = try author.compile(std.testing.allocator, try author.module(entry, unit));
+    compiled.deinit();
+
+    var body = try author.ambient("nested layouts");
+    const left_value = try body.product(left, &.{
+        .{ .name = "left", .value = try author.literal(u64, 11) },
+    });
+    const right_value = try body.product(right, &.{
+        .{ .name = "right", .value = try author.literal(u64, 22) },
+    });
+    const left_items = try body.singletonSequence(left_value);
+    const right_items = try body.singletonSequence(right_value);
+    try std.testing.expectError(error.TypeMismatch, body.concatSequences(left_items, right_items));
+    const receives_right = try author.declare("right sequence", &.{
+        .{ .name = "items", .schema = sequence_right },
+    }, unit, &.{});
+    try std.testing.expectError(error.TypeMismatch, body.call(receives_right, &.{left_items}));
+    const lookup = try author.external("sequence/lookup", sequence_right, unit);
+    try std.testing.expectError(error.TypeMismatch, body.perform(lookup, left_items));
+    try std.testing.expectEqual(a.Category.schema_mismatch, author.diagnostic.?.category);
+
+    const product_left = try author.productSchema(&.{left.schema});
+    const product_right = try author.productSchema(&.{right.schema});
+    const sum_left = try author.sumSchema(&.{left.schema});
+    const sum_right = try author.sumSchema(&.{right.schema});
+    try std.testing.expectEqual(product_left.id, product_right.id);
+    try std.testing.expectEqual(sum_left.id, sum_right.id);
+    const wrong_product = try author.declare("wrong product", &.{
+        .{ .name = "value", .schema = product_right },
+    }, unit, &.{});
+    const wrong_sum = try author.declare("wrong sum", &.{
+        .{ .name = "value", .schema = sum_right },
+    }, unit, &.{});
+    const product_entry = try author.declare("product source", &.{
+        .{ .name = "value", .schema = product_left },
+    }, unit, &.{});
+    const sum_entry = try author.declare("sum source", &.{
+        .{ .name = "value", .schema = sum_left },
+    }, unit, &.{});
+    var product_body = try author.body(product_entry);
+    var sum_body = try author.body(sum_entry);
+    try std.testing.expectError(error.TypeMismatch, product_body.call(wrong_product, &.{try product_body.parameter("value")}));
+    try std.testing.expectError(error.TypeMismatch, sum_body.call(wrong_sum, &.{try sum_body.parameter("value")}));
+    const region = author.region();
+    const cell_left = try author.cellSchema(region, left.schema);
+    const cell_right = try author.cellSchema(region, right.schema);
+    const exit_left = try author.exitInfo(left.schema);
+    const exit_right = try author.exitInfo(right.schema);
+    try std.testing.expectEqual(cell_left.id, cell_right.id);
+    try std.testing.expectEqual(exit_left.id, exit_right.id);
+    const wrong_cell = try author.declare("wrong cell", &.{
+        .{ .name = "value", .schema = cell_right },
+    }, unit, &.{});
+    const wrong_exit = try author.declare("wrong exit", &.{
+        .{ .name = "value", .schema = exit_right },
+    }, unit, &.{});
+    const cell_source = try author.declare("cell source", &.{
+        .{ .name = "value", .schema = cell_left },
+    }, unit, &.{});
+    const exit_source = try author.declare("exit source", &.{
+        .{ .name = "value", .schema = exit_left },
+    }, unit, &.{});
+    var cell_body = try author.body(cell_source);
+    var exit_body = try author.body(exit_source);
+    try std.testing.expectError(error.TypeMismatch, cell_body.call(wrong_cell, &.{try cell_body.parameter("value")}));
+    try std.testing.expectError(error.TypeMismatch, exit_body.call(wrong_exit, &.{try exit_body.parameter("value")}));
+}
+
 test "raw interop cannot relabel an exported named value or term" {
     var raw = source.Builder.init(std.testing.allocator);
     defer raw.deinit();
@@ -518,6 +608,30 @@ test "scoped operation checks its named body schema" {
     try std.testing.expectError(error.TypeMismatch, body.performScoped(operation, try body.parameter("cap"), try author.literal(void, {}), &.{try body.lambda(wrong, &.{}, .reusable)}, &.{}));
     try std.testing.expectEqual(a.Category.argument_mismatch, author.diagnostic.?.category);
     try std.testing.expectEqualStrings("body", author.diagnostic.?.entity);
+}
+
+test "local and scoped payload mismatches report the failed schema relation" {
+    var raw = source.Builder.init(std.testing.allocator);
+    defer raw.deinit();
+    var author = a.Builder.init(&raw);
+    const integer = try author.scalar(u64);
+    const unit = try author.scalar(void);
+    const local = try author.local("local", integer, unit, .linear);
+    const scoped = try author.scopedLocal("scoped", integer, unit, &.{}, &.{}, .linear);
+    const local_cap = try author.capability(local);
+    const scoped_cap = try author.capability(scoped);
+    const entry = try author.declare("entry", &.{
+        .{ .name = "local", .schema = local_cap },
+        .{ .name = "scoped", .schema = scoped_cap },
+    }, unit, &.{ local, scoped });
+    var body = try author.body(entry);
+    const wrong = try author.literal(bool, false);
+    try std.testing.expectError(error.TypeMismatch, body.performLocal(local, try body.parameter("local"), wrong));
+    try std.testing.expectEqual(a.Category.schema_mismatch, author.diagnostic.?.category);
+    try std.testing.expectEqualStrings("local operation payload", author.diagnostic.?.entity);
+    try std.testing.expectError(error.TypeMismatch, body.performScoped(scoped, try body.parameter("scoped"), wrong, &.{}, &.{}));
+    try std.testing.expectEqual(a.Category.schema_mismatch, author.diagnostic.?.category);
+    try std.testing.expectEqualStrings("scoped operation payload", author.diagnostic.?.entity);
 }
 
 test "handler name collision rejects before declaring either function" {
