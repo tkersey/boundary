@@ -8,7 +8,7 @@ assert.ok(runtime&&native&&emitter,'usage: node test/run_authoring_cases.mjs RUN
 const directory=await mkdtemp(join(tmpdir(),'boundary-authoring-cases-'));
 try {
   for(const kind of ['deep','shallow','transform_deep','transform_shallow','bypass','twice',
-      'cleanup','lazy','demanded','failure_before','failure_after','match','configuration']) {
+      'cleanup','lazy','demanded','failure_before','failure_after','match','configuration','region','arithmetic','arithmetic_fail','dispose','reusable_body']) {
     const image=join(directory,kind+'.bpi3');
     await writeFile(image,execFileSync(resolve(emitter),[kind,'bpi3']));
     await writeFile(join(directory,kind+'.json'),execFileSync(resolve(emitter),[kind,'json']));

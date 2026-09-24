@@ -31,8 +31,10 @@ async function execute(image, initialArgs, replies) {
     const guest = wasmtime ? (await wasmtime.call('invoke',{bytes:input})).bytes : node;
     assert.deepEqual(guest,node);
     const outcome=decodeOutcome(round%3 === 0 ? guest : round%3 === 1 ? new Uint8Array(peer.stdout) : node);
-    if(['completed','failed'].includes(outcome.kind))
+    if(['completed','failed'].includes(outcome.kind)) {
+      if(outcome.kind==='failed') assert.deepEqual(outcome.cleanupFailures,[]);
       return {kind:outcome.kind,value:Buffer.from(outcome.value).toString('hex'),requests,transfers};
+    }
     assert.ok(outcome.state?.length,'real portable State required');
     state=outcome.state;transfers++;
     if(outcome.kind==='requested') {
@@ -54,6 +56,11 @@ async function execute(image, initialArgs, replies) {
 }
 const empty=new Uint8Array();
 const fixtureCases = {
+  reusable_body:[{args:empty,replies:[],value:u64(200)}],
+  arithmetic:[{args:empty,replies:[],value:Uint8Array.of(...u64(7),...u64(3),...u64(10),...u64(2),...u64(1))}],
+  arithmetic_fail:[{args:empty,replies:[],failure:true}],
+  dispose:[{args:empty,replies:[],value:u64(18)}],
+  region:[{args:empty,replies:[],value:u64(42)}],
   configuration:[{args:empty,replies:[],value:Uint8Array.of(...u64(7),...u64(11))}],
   deep:[{args:empty,replies:[],value:u64(100)}],
   shallow:[{args:empty,replies:[],value:u64(43)}],
@@ -107,6 +114,8 @@ for(const path of images){
       const reference=oracle(source,Array.from(test.args),test.replies.map(x=>Array.from(x)));
       assert.equal(reference.kind.toLowerCase(),result.kind);
       assert.equal(Buffer.from(reference.value).toString('hex'),result.value);
+      assert.deepEqual(reference.trace.filter(x=>x.kind==='Requested').map(x=>({
+        identity:x.identity,payload:Buffer.from(x.payload).toString('hex')})),result.requests);
     }
     observations.push({kind:result.kind,value:result.value,requests:result.requests});
     console.log(JSON.stringify({path,imageBytes:image.length,...result}));

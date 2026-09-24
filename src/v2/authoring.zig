@@ -19,6 +19,9 @@ pub const Schema = opaque {
     pub fn fields(self: *const Schema) []const Field {
         return data(SchemaData, self).fields;
     }
+    pub fn resultSchema(self: *const Schema) ?*const Schema {
+        return data(SchemaData, self).result;
+    }
     pub fn describe(self: *const Schema, writer: *std.Io.Writer) !void {
         const item = data(SchemaData, self);
         const shape = item.owner.raw.schemas.items[@intCast(item.id)];
@@ -30,7 +33,13 @@ pub const Schema = opaque {
                 item.owner.raw.effects.items[@intCast(instance)].identity, instance,
             });
         }
-        try writer.writeAll(@tagName(shape));
+        if (shape == .internal) {
+            try writer.writeAll(@tagName(shape.internal));
+            if (shape.internal == .computation)
+                try writer.print("[{s}]", .{@tagName(shape.internal.computation.use)});
+            if (shape.internal == .resumption)
+                try writer.print("[{s}, {s}]", .{ @tagName(shape.internal.resumption.mode), @tagName(shape.internal.resumption.use) });
+        } else try writer.writeAll(@tagName(shape));
         if (item.fields.len != 0) {
             try writer.writeByte('(');
             for (item.fields, 0..) |named, i| {
@@ -38,6 +47,12 @@ pub const Schema = opaque {
                 try writer.writeAll(named.name);
             }
             try writer.writeByte(')');
+        }
+        if (item.result) |returned| {
+            const result_info = data(SchemaData, returned);
+            try writer.print(" -> {s}", .{
+                @tagName(result_info.owner.raw.schemas.items[@intCast(result_info.id)]),
+            });
         }
     }
 };
@@ -72,6 +87,7 @@ pub const HandlerOptions = struct {
     residual: []const *const Operation,
     escaping: []const *const Operation = &.{},
     captures: []const *const Schema,
+    body_use: p.Use = .linear,
     body_captures: []const *const Schema = &.{},
     owned_regions: []const *const Region = &.{},
     borrowed_regions: []const *const Region = &.{},
@@ -79,6 +95,11 @@ pub const HandlerOptions = struct {
 };
 pub const Field = struct { name: []const u8, schema: *const Schema };
 pub const Argument = struct { name: []const u8, value: *const Value };
+pub const Arithmetic = enum { add, subtract, multiply, divide, remainder };
+pub const ArithmeticFailures = struct {
+    overflow: *const Value,
+    division_by_zero: ?*const Value = null,
+};
 pub const Diagnostic = struct {
     code: ?anyerror = null,
     entity: []const u8 = "",
@@ -424,6 +445,31 @@ pub const Context = struct {
         try self.ready();
         return handle(Region, try self.save(RegionData, .{ .owner = self, .id = self.raw.region() }));
     }
+    /// The first parameter is supplied by withRegion, not by the caller's arguments.
+    pub fn regionBodySchema(
+        self: *Context,
+        region_handle: *const Region,
+        parameters: []const Field,
+        result: *const Schema,
+        allowed: []const *const Operation,
+        options: CallableOptions,
+    ) Error!*const Schema {
+        const r = data(RegionData, region_handle);
+        try self.origin(r.owner);
+        errdefer self.poisoned = true;
+        const token = try self.intern(try self.raw.schema(.{ .internal = .{ .region = r.id } }), &.{});
+        const names = try self.raw.allocator().alloc(Field, parameters.len + 1);
+        names[0] = .{ .name = "region", .schema = token };
+        @memcpy(names[1..], parameters);
+        const regions = try self.raw.allocator().alloc(*const Region, options.regions.len + 1);
+        regions[0] = region_handle;
+        @memcpy(regions[1..], options.regions);
+        return self.callable(names, result, allowed, .{
+            .use = options.use,
+            .captures = options.captures,
+            .regions = regions,
+        });
+    }
     pub fn borrowed(
         self: *Context,
         schema: *const Schema,
@@ -573,7 +619,7 @@ pub const Context = struct {
                 .schema = try self.capability(operation_handle),
             },
         }, input, body_effects, .{
-            .use = .linear,
+            .use = options.body_use,
             .captures = options.body_captures,
             .regions = options.borrowed_regions,
         });
@@ -644,7 +690,8 @@ pub const Context = struct {
         const f = data(FunctionData, responder_function);
         try self.origin(op.owner);
         try self.origin(f.owner);
-        if (f.parameters.len != 1 or options.state.len != 0) return error.SchemaMismatch;
+        if (f.parameters.len != 1 or options.state.len != 0)
+            return self.reject(error.SchemaMismatch, f.name, "responder requires one payload parameter and no handler state");
         try self.same(op.payload, f.parameters[0].schema);
         try self.same(op.result, f.result);
         const h = try self.handler(operation_handle, answer, answer, options);
@@ -764,6 +811,7 @@ pub const Body = struct {
     scope: *Scope,
     function_handle: ?*const Function = null,
     bindings: std.ArrayList(Binding) = .empty,
+    parameter_values: ?[]?*const Value = null,
 
     fn ready(self: *Body) Error!void {
         try self.context.ready();
@@ -807,7 +855,15 @@ pub const Body = struct {
             return self.context.reject(error.UnknownName, "branch", "branch has no parameters"));
         for (f.parameters, 0..) |named, i| if (std.mem.eql(u8, name, named.name)) {
             errdefer self.context.poisoned = true;
-            return self.makeValue(try self.context.raw.reference(self.context.raw.parameter(f.id, i)), named.schema);
+            if (self.parameter_values == null) {
+                const values = try self.context.raw.allocator().alloc(?*const Value, f.parameters.len);
+                @memset(values, null);
+                self.parameter_values = values;
+            }
+            if (self.parameter_values.?[i]) |present| return present;
+            const result = try self.makeValue(try self.context.raw.reference(self.context.raw.parameter(f.id, i)), named.schema);
+            self.parameter_values.?[i] = result;
+            return result;
         };
         return self.context.reject(error.UnknownName, f.name, "unknown named parameter");
     }
@@ -885,6 +941,8 @@ pub const Body = struct {
         const c = self.context;
         const v = try self.useValue(product_value);
         const s = data(SchemaData, v.schema);
+        if (c.raw.schemas.items[@intCast(s.id)] != .product)
+            return c.reject(error.InvalidCategory, "field", "requires a named record value");
         for (s.fields, 0..) |item, index| if (std.mem.eql(u8, item.name, name)) {
             errdefer c.poisoned = true;
             return self.bind(try c.raw.pure(try c.raw.primitive(try c.schemaId(item.schema), .field, &.{v.id}, index)), item.schema);
@@ -919,9 +977,11 @@ pub const Body = struct {
             return c.reject(error.InvalidCategory, f.name, "lambda requires callable schema");
         const info = data(SchemaData, schema);
         try c.same(f.result, info.result orelse return error.InvalidSchema);
-        if (f.parameters.len != info.fields.len) return error.SchemaMismatch;
+        if (f.parameters.len != info.fields.len)
+            return c.reject(error.SchemaMismatch, f.name, "callable parameter count differs from declaration");
         for (f.parameters, info.fields) |actual, expected| {
-            if (!std.mem.eql(u8, actual.name, expected.name)) return error.SchemaMismatch;
+            if (!std.mem.eql(u8, actual.name, expected.name))
+                return c.reject(error.SchemaMismatch, f.name, "callable parameter names differ from declaration");
             try c.same(expected.schema, actual.schema);
         }
         errdefer c.poisoned = true;
@@ -1020,33 +1080,47 @@ pub const Body = struct {
             },
         }), h.answer);
     }
-    pub fn checkedAdd(
+    pub fn checkedAdd(self: *Body, left: *const Value, right: *const Value, failure: *const Value) Error!*const Value {
+        return self.checked(.add, left, right, .{ .overflow = failure });
+    }
+    pub fn checked(
         self: *Body,
+        operation: Arithmetic,
         left: *const Value,
         right: *const Value,
-        failure: *const Value,
+        failures: ArithmeticFailures,
     ) Error!*const Value {
         const c = self.context;
         const a = try self.useValue(left);
         const b = try self.useValue(right);
-        const f = try self.useValue(failure);
         try c.same(a.schema, b.schema);
+        const schema = try c.schemaId(a.schema);
+        switch (c.raw.schemas.items[@intCast(schema)]) {
+            .i8, .i16, .i32, .i64, .u8, .u16, .u32, .u64 => {},
+            else => return c.reject(error.InvalidCategory, "arithmetic", "requires scalar integer operands"),
+        }
+        const opcode: p.Opcode = switch (operation) {
+            .add => .integer_add,
+            .subtract => .integer_sub,
+            .multiply => .integer_mul,
+            .divide => .integer_div,
+            .remainder => .integer_rem,
+        };
+        const overflow = try self.useValue(failures.overflow);
+        var faults: [2]p.InstructionFailure = undefined;
+        faults[0] = .{ .kind = .arithmetic_overflow, .value = try c.raw.failureLiteral(overflow.id) };
+        const division = operation == .divide or operation == .remainder;
+        if (division) {
+            const zero = try self.useValue(failures.division_by_zero orelse
+                return c.reject(error.InvalidCategory, "division", "requires an authored zero-divisor failure"));
+            faults[1] = .{ .kind = .division_by_zero, .value = try c.raw.failureLiteral(zero.id) };
+        } else if (failures.division_by_zero != null) return error.InvalidCategory;
         errdefer c.poisoned = true;
-        const value_id = try c.raw.value(.{
-            .schema = try c.schemaId(a.schema),
-            .expression = .{
-                .primitive = .{
-                    .opcode = .integer_add,
-                    .operands = &.{ a.id, b.id },
-                    .failures = &.{
-                        .{
-                            .kind = .arithmetic_overflow,
-                            .value = try c.raw.failureLiteral(f.id),
-                        },
-                    },
-                },
-            },
-        });
+        const value_id = try c.raw.value(.{ .schema = schema, .expression = .{ .primitive = .{
+            .opcode = opcode,
+            .operands = &.{ a.id, b.id },
+            .failures = faults[0..@as(usize, if (division) 2 else 1)],
+        } } });
         return self.bind(try c.raw.pure(value_id), a.schema);
     }
     pub fn sequenceValue(
@@ -1195,12 +1269,17 @@ pub const Body = struct {
         const info = data(SchemaData, v.schema);
         const shape = c.raw.schemas.items[@intCast(info.id)];
         if (shape != .internal or shape.internal != .computation) return error.InvalidCategory;
+        if (info.fields.len == 0) return error.SchemaMismatch;
+        const token_id = try c.schemaId(info.fields[0].schema);
+        const token = c.raw.schemas.items[@intCast(token_id)];
+        if (token != .internal or token.internal != .region or token.internal.region != r.id)
+            return c.reject(error.SchemaMismatch, "region", "body belongs to another region");
         errdefer c.poisoned = true;
         return self.bind(try c.raw.term(.{
             .with_region = .{
                 .region = r.id,
                 .body = v.id,
-                .arguments = try self.arguments(info.fields, args),
+                .arguments = try self.arguments(info.fields[1..], args),
             },
         }), info.result orelse return error.InvalidSchema);
     }

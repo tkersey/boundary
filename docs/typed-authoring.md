@@ -82,6 +82,11 @@ escape. In particular, one-shot use in mutually exclusive arms is allowed; two
 sequential uses are rejected. Lambda and aggregate construction bind once rather than silently
 creating a fresh one-shot value at each use.
 
+`checked` supports add, subtract, multiply, divide and remainder with literal
+failure values. Overflow is explicit; division and remainder additionally require
+an explicit zero-divisor failure. `checkedAdd` is the short addition spelling.
+The operand schemas determine the result; no expression is evaluated in the host.
+
 `scalar(T)` supports the existing portable scalar subset (void, bool and supported
 fixed-width integers). `record` and `alternatives` accept dynamically selected
 named fields. `sequence` describes homogeneous sequences. `product`, `field`,
@@ -105,7 +110,7 @@ body. Staging configurations are values, not a cache keyed only by Zig type.
 
 `handler` derives the operation payload, capability, clause signature and
 resumption input. Intentional choices remain explicit: deep/shallow mode, body
-input and interpretation answer, resumption use, residual effects, continuation
+input and interpretation answer, resumption use, body use (`body_use`), residual effects, continuation
 captures, body captures, handler state and owned/borrowed regions.
 
 Use `returnFunction`, `clauseFunction` and `handledSchema` to author its pieces.
@@ -125,8 +130,9 @@ allowance to make admission pass.
 
 `protect` keeps local cleanup inside the Program across suspension. `dispose`
 expresses local owned-resumption disposal; it does not cancel the enclosing
-session. `region`, callable region contracts and `withRegion` retain nominal region
-boundaries. Existing low-level resource/loan constructions remain supported.
+session. `regionBodySchema` derives the implicit region-token parameter and
+contract; `withRegion` supplies that token and takes only the remaining named
+arguments. `region` and these contracts retain nominal region boundaries. Existing low-level resource/loan constructions remain supported.
 
 `Context.diagnostic` contains a stable error category, entity, failed relationship,
 and expected/actual schema handles when available. `render` and `renderAlloc`
@@ -140,7 +146,10 @@ libraries. Its caller promises that raw IDs come from the supplied source builde
 it checks available bounds, categories and schema relationships. Erased numeric
 provenance cannot be reconstructed. Imported positional schemas use positional
 names unless the adapter supplies checked names. Ordinary covered clients need
-neither these adapters nor mutable source catalogs.
+neither these adapters nor mutable source catalogs. Finish low-level recursive
+schema definitions before adoption, and keep adopted declarations stable afterward;
+appending independent declarations is supported. Raw catalog mutation is outside
+the checked handle contract.
 
 ## Migrated constructions
 

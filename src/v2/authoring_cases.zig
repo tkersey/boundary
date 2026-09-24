@@ -18,17 +18,24 @@ pub const Kind = enum {
     failure_after,
     match,
     configuration,
+    arithmetic,
+    arithmetic_fail,
+    dispose,
+    region,
+    reusable_body,
 };
 
 pub fn build(raw: *source.Builder, kind: Kind) !source.Module {
     return switch (kind) {
-        .deep, .shallow, .transform_deep, .transform_shallow, .bypass => handlerCase(raw, kind),
+        .deep, .shallow, .transform_deep, .transform_shallow, .bypass, .dispose, .reusable_body => handlerCase(raw, kind),
         .twice => twiceCase(raw),
         .cleanup => cleanupCase(raw),
         .lazy, .demanded => delayedCase(raw, kind == .demanded),
         .failure_before, .failure_after => failureCase(raw, kind == .failure_after),
         .match => matchCase(raw),
         .configuration => configurationCase(raw),
+        .region => regionCase(raw),
+        .arithmetic, .arithmetic_fail => arithmeticCase(raw, kind == .arithmetic_fail),
     };
 }
 fn handlerCase(raw: *source.Builder, kind: Kind) !source.Module {
@@ -46,6 +53,7 @@ fn handlerCase(raw: *source.Builder, kind: Kind) !source.Module {
         .use = use,
         .residual = if (mode == .shallow) &.{question} else &.{},
         .captures = &.{ integer, cap, unit },
+        .body_use = if (kind == .reusable_body) .reusable else .linear,
     });
     const returns_fn = try c.returnFunction(h);
     const returns = try c.body(returns_fn);
@@ -56,7 +64,8 @@ fn handlerCase(raw: *source.Builder, kind: Kind) !source.Module {
         returned));
     const clause_fn = try c.clauseFunction(h);
     const clause = try c.body(clause_fn);
-    const resumed = if (kind == .bypass) try clause.constant(u64, 17) else try clause.resumeValue(try clause.parameter("resumption"), try clause.constant(void, {}));
+    if (kind == .dispose) _ = try clause.dispose(try clause.parameter("resumption"));
+    const resumed = if (kind == .bypass or kind == .dispose) try clause.constant(u64, 17) else try clause.resumeValue(try clause.parameter("resumption"), try clause.constant(void, {}));
     const scalar = if (transformed and mode == .deep) try clause.field(resumed, "answer") else resumed;
     const plus = try clause.checkedAdd(scalar, try clause.constant(u64, 1), try clause.constant(void, {}));
     try c.define(clause_fn, try clause.ret(if (transformed)
@@ -70,7 +79,10 @@ fn handlerCase(raw: *source.Builder, kind: Kind) !source.Module {
     try c.define(work, try body.ret(try body.constant(u64, 42)));
     const entry = try c.function("entry", &.{}, answer, if (mode == .shallow) &.{question} else &.{});
     const entry_body = try c.body(entry);
-    try c.define(entry, try entry_body.ret(try entry_body.handleWith(h, try entry_body.lambda(work, body_schema), &.{})));
+    const callable_value = try entry_body.lambda(work, body_schema);
+    const first = try entry_body.handleWith(h, callable_value, &.{});
+    const result = if (kind == .reusable_body) try entry_body.checkedAdd(first, try entry_body.handleWith(h, callable_value, &.{}), try entry_body.constant(void, {})) else first;
+    try c.define(entry, try entry_body.ret(result));
     return c.module(entry, unit);
 }
 fn twiceCase(raw: *source.Builder) !source.Module {
@@ -156,11 +168,52 @@ fn matchCase(raw: *source.Builder) !source.Module {
     const entry = try c.function("entry", &.{.{ .name = "choice", .schema = sum }}, integer, &.{});
     const body = try c.body(entry);
     const choice = try body.parameter("choice");
-    const left = try body.caseOf(choice, "left");
-    const right = try body.caseOf(choice, "right");
+    const left = try body.caseOf(try body.parameter("choice"), "left");
+    const right = try body.caseOf(try body.parameter("choice"), "right");
     const plus = try right.body().checkedAdd(right.payload(), try right.body().constant(u64, 1), try right.body().constant(void, {}));
     const result = try body.match(choice, &.{ try right.ret(plus), try left.ret(left.payload()) });
     try c.define(entry, try body.ret(result));
+    return c.module(entry, try c.scalar(void));
+}
+fn regionCase(raw: *source.Builder) !source.Module {
+    const c = try a.Context.init(raw);
+    const integer = try c.scalar(u64);
+    const region = try c.region();
+    const schema = try c.regionBodySchema(region, &.{.{ .name = "value", .schema = integer }}, integer, &.{}, .{ .use = .linear, .captures = &.{} });
+    const work = try c.functionFor("scoped region", schema);
+    const inner = try c.body(work);
+    try c.define(work, try inner.ret(try inner.parameter("value")));
+    const entry = try c.function("entry", &.{}, integer, &.{});
+    const body = try c.body(entry);
+    const value = try body.withRegion(region, try body.lambda(work, schema), &.{.{ .name = "value", .value = try body.constant(u64, 42) }});
+    try c.define(entry, try body.ret(value));
+    return c.module(entry, try c.scalar(void));
+}
+fn arithmeticCase(raw: *source.Builder, fail: bool) !source.Module {
+    const c = try a.Context.init(raw);
+    const integer = try c.scalar(u64);
+    const fields = [_]a.Field{
+        .{ .name = "add", .schema = integer },       .{ .name = "subtract", .schema = integer },
+        .{ .name = "multiply", .schema = integer },  .{ .name = "divide", .schema = integer },
+        .{ .name = "remainder", .schema = integer },
+    };
+    const result_schema = if (fail) integer else try c.record(&fields);
+    const entry = try c.function("entry", &.{}, result_schema, &.{});
+    const body = try c.body(entry);
+    const left = try body.constant(u64, 5);
+    const right = try body.constant(u64, if (fail) 0 else 2);
+    const failure = try body.constant(void, {});
+    if (fail) {
+        const result = try body.checked(.divide, left, right, .{ .overflow = failure, .division_by_zero = failure });
+        try c.define(entry, try body.ret(result));
+    } else {
+        var values: [fields.len]a.Argument = undefined;
+        for (std.enums.values(a.Arithmetic), fields, &values) |op, named, *value| value.* = .{
+            .name = named.name,
+            .value = try body.checked(op, left, right, .{ .overflow = failure, .division_by_zero = if (op == .divide or op == .remainder) failure else null }),
+        };
+        try c.define(entry, try body.ret(try body.product(result_schema, &values)));
+    }
     return c.module(entry, try c.scalar(void));
 }
 const Configured = struct {
