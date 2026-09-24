@@ -183,6 +183,10 @@ value or finished branch block into its parent.
 An unrelated raw ID has no recoverable named-layout provenance and cannot be
 adopted as a named handle; advanced callers keep using the low-level source API
 for that path.
+Metadata-free adopted callables and resumptions can satisfy unnamed schemas,
+but a matching numeric ID alone cannot satisfy an authored named argument or
+result. `Interop.lambdaAs` retains the authored function signature when a raw
+lambda must enter the typed API.
 
 ## What the migrations remove
 

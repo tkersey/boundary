@@ -658,6 +658,68 @@ test "raw interop cannot relabel an exported named value or term" {
     try std.testing.expectError(error.OutOfScope, a.Interop.term(&body, term, left.schema));
 }
 
+test "metadata-free raw callable cannot satisfy a named handler result" {
+    var raw = source.Builder.init(std.testing.allocator);
+    defer raw.deinit();
+    var author = a.Builder.init(&raw);
+    const integer = try author.scalar(u64);
+    const first = try author.record(&.{
+        .{ .name = "a", .schema = integer },
+        .{ .name = "b", .schema = integer },
+    });
+    const renamed = try author.record(&.{
+        .{ .name = "b", .schema = integer },
+        .{ .name = "a", .schema = integer },
+    });
+    const operation = try author.local("raw/handler", integer, integer, .linear);
+    const interpretation = try author.interpret(.{ .operation = operation, .input = first.schema, .answer = first.schema, .mode = .deep, .use = .linear });
+    const capability = try author.capability(operation);
+    const work = try author.declare("raw handled work", &.{.{ .name = "capability", .schema = capability }}, renamed.schema, &.{operation});
+    const raw_callable_id = try raw.schema(.{ .internal = .{ .computation = .{
+        .parameters = &.{capability.id},
+        .result = renamed.schema.id,
+        .effects = &.{operation.id},
+        .use = .reusable,
+    } } });
+    var body = try author.ambient("raw handler caller");
+    const raw_value = try a.Interop.adoptValue(&body, try raw.lambda(work.id, raw_callable_id), try author.adoptSchema(raw_callable_id));
+    try std.testing.expectError(error.TypeMismatch, body.handle(interpretation, try body.asCallable(raw_value), &.{}, &.{}));
+    try std.testing.expectEqualStrings("handled body result", author.diagnostic.?.entity);
+}
+
+test "metadata-free raw resumption cannot accept a named reply alias" {
+    var raw = source.Builder.init(std.testing.allocator);
+    defer raw.deinit();
+    var author = a.Builder.init(&raw);
+    const integer = try author.scalar(u64);
+    const first = try author.record(&.{
+        .{ .name = "a", .schema = integer },
+        .{ .name = "b", .schema = integer },
+    });
+    const renamed = try author.record(&.{
+        .{ .name = "b", .schema = integer },
+        .{ .name = "a", .schema = integer },
+    });
+    const operation = try author.local("raw/resumption", integer, first.schema, .linear);
+    const interpretation = try author.interpret(.{ .operation = operation, .input = first.schema, .answer = first.schema, .mode = .deep, .use = .linear });
+    var clause = try author.body(interpretation.clause);
+    const variable = raw.parameter(interpretation.clause.id, interpretation.clause.parameters.len - 1);
+    const raw_schema = try author.adoptSchema(interpretation.resumption.id);
+    const raw_token = try a.Interop.adoptValue(&clause, try raw.reference(variable), raw_schema);
+    const renamed_value = try clause.product(renamed, &.{
+        .{ .name = "b", .value = try author.literal(u64, 1) },
+        .{ .name = "a", .value = try author.literal(u64, 2) },
+    });
+    try std.testing.expectError(error.TypeMismatch, clause.resumeValue(raw_token, renamed_value));
+    try std.testing.expectEqualStrings("resumption input", author.diagnostic.?.entity);
+    const valid = try clause.product(first, &.{
+        .{ .name = "a", .value = try author.literal(u64, 3) },
+        .{ .name = "b", .value = try author.literal(u64, 4) },
+    });
+    try std.testing.expectError(error.TypeMismatch, clause.resumeValue(raw_token, valid));
+    _ = try clause.resumeValue(try clause.parameter("resume"), valid);
+}
+
 test "raw interop rejects malformed nested schema references before indexing" {
     var raw = source.Builder.init(std.testing.allocator);
     defer raw.deinit();

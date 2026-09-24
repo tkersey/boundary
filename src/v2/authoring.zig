@@ -551,9 +551,16 @@ pub const Builder = struct {
         }
     }
 
-    fn checkCleanupFailure(self: *Builder, cleanup_id: p.Id, failure: Schema) Error!void {
+    fn checkCleanupFailure(self: *Builder, cleanup_id: p.Id, failure: Schema, allocator: std.mem.Allocator) Error!void {
         const value = self.value_origins.get(cleanup_id) orelse return;
-        const callable = value.schema.callable orelse return;
+        const callable = value.schema.callable orelse {
+            if (try hasNamedMetadata(failure, allocator)) {
+                self.report(.schema_mismatch, "cleanup exit failure", failure.id, null, null, null);
+                self.diagnostic.?.relationship = "missing named cleanup provenance";
+                return error.TypeMismatch;
+            }
+            return;
+        };
         if (callable.parameters.len == 0) return;
         const exit_info = callable.parameters[0].structure orelse return;
         if (exit_info.kind != .exit_info or exit_info.children.len != 1) return;
@@ -585,7 +592,7 @@ pub const Builder = struct {
                         return error.TypeMismatch;
                     }
                 },
-                .protect => |term| try self.checkCleanupFailure(term.cleanup, failure),
+                .protect => |term| try self.checkCleanupFailure(term.cleanup, failure, allocator),
                 .bind => |term| {
                     try pending.append(allocator, term.value);
                     try pending.append(allocator, term.next);
@@ -1488,7 +1495,7 @@ pub const Body = struct {
         const input_matches = if (info) |known|
             try sameSchema(argument.schema, known.input)
         else
-            argument.schema.id == signature.input;
+            try sameSchema(argument.schema, .{ .owner = self.author, .id = signature.input });
         if (!input_matches) {
             self.author.report(.schema_mismatch, "resumption input", signature.input, argument.schema.id, null, self.scope.name);
             return error.TypeMismatch;
@@ -1511,11 +1518,11 @@ pub const Body = struct {
         const input_matches = if (info) |known|
             try sameSchema(argument.schema, known.input)
         else
-            signature.input == argument.schema.id;
+            try sameSchema(argument.schema, .{ .owner = self.author, .id = signature.input });
         const successor_matches = if (info) |known|
             try sameSchema(successor.input, known.answer)
         else
-            signature.answer == successor.input.id;
+            try sameSchema(successor.input, .{ .owner = self.author, .id = signature.answer });
         if (signature.mode != .shallow or signature.effect != successor.operation.id or
             !input_matches or !successor_matches)
         {
@@ -1548,8 +1555,16 @@ pub const Body = struct {
         if (work != .internal or work.internal != .computation) return error.TypeMismatch;
         const thunk = work.internal.computation;
         const effect = try self.author.sourceEffect(signature.effect, "resumption effect");
-        if (thunk.result != signature.input or
-            thunk.parameters.len != effect.use_site_effects.len) return error.TypeMismatch;
+        if (thunk.parameters.len != effect.use_site_effects.len) return error.TypeMismatch;
+        const computation_result = if (computation.value.schema.callable) |known|
+            known.result
+        else
+            Schema{ .owner = self.author, .id = thunk.result };
+        const expected_input = if (resumption.schema.resumption) |known|
+            known.input
+        else
+            Schema{ .owner = self.author, .id = signature.input };
+        if (!try sameSchema(computation_result, expected_input)) return error.TypeMismatch;
         for (thunk.parameters, effect.use_site_effects) |schema_id, effect_id| {
             const parameter_schema = try self.author.sourceSchema(schema_id, "resumption computation parameter");
             if (parameter_schema != .internal or parameter_schema.internal != .capability or
@@ -1559,9 +1574,6 @@ pub const Body = struct {
             if (std.mem.indexOfScalar(p.Id, effect.use_site_effects, effect_id) == null)
                 return error.InvalidCapability;
         }
-        if (resumption.schema.resumption) |known| if (computation.value.schema.callable) |callable_info| {
-            if (!try sameSchema(callable_info.result, known.input)) return error.TypeMismatch;
-        };
         return self.append(try self.author.raw.term(.{ .resume_computation = .{
             .resumption = resumption.id,
             .computation = computation.value.id,
@@ -1582,10 +1594,15 @@ pub const Body = struct {
         const argument_ids = try self.author.raw.allocator().alloc(p.Id, arguments.len);
         const shape = self.author.raw.schemas.items[@intCast(callable.value.schema.id)];
         if (shape != .internal or shape.internal != .computation) return error.TypeMismatch;
-        if (callable.value.schema.callable) |known| {
-            if (!try sameSchema(known.result, interpretation.input)) return error.TypeMismatch;
-        } else if (shape.internal.computation.result != interpretation.input.id)
+        const body_result = if (callable.value.schema.callable) |known|
+            known.result
+        else
+            Schema{ .owner = self.author, .id = shape.internal.computation.result };
+        if (!try sameSchema(body_result, interpretation.input)) {
+            self.author.report(.argument_mismatch, "handled body result", interpretation.input.id, body_result.id, null, self.scope.name);
+            self.author.diagnostic.?.relationship = "named callable result provenance";
             return error.TypeMismatch;
+        }
         const parameters = shape.internal.computation.parameters;
         if (parameters.len != arguments.len + 1) {
             self.author.report(.argument_mismatch, "handled body capability", interpretation.operation.id, null, null, self.scope.name);
@@ -1623,12 +1640,20 @@ pub const Body = struct {
         try self.check(cleanup.value);
         const shape = self.author.raw.schemas.items[@intCast(work.value.schema.id)];
         if (shape != .internal or shape.internal != .computation) return error.TypeMismatch;
+        const signature = shape.internal.computation;
         const loaned: usize = @intFromBool(resource != null);
         if (work.value.schema.callable) |known| {
             if (known.parameters.len != arguments.len + loaned) return try self.author.arity("protected work arguments", known.parameters.len, arguments.len + loaned, self.scope.name);
             if (resource) |owned| {
                 const borrowed = known.parameters[0].borrowed orelse return error.TypeMismatch;
                 if (!try sameSchema(owned.schema, borrowed.*)) return error.TypeMismatch;
+            }
+        } else {
+            if (signature.parameters.len != arguments.len + loaned) return try self.author.arity("protected work arguments", signature.parameters.len, arguments.len + loaned, self.scope.name);
+            if (resource) |owned| {
+                const borrowed_shape = try self.author.sourceSchema(signature.parameters[0], "protected borrowed resource");
+                if (borrowed_shape != .internal or borrowed_shape.internal != .borrowed) return error.TypeMismatch;
+                if (!try sameSchema(owned.schema, .{ .owner = self.author, .id = borrowed_shape.internal.borrowed.value })) return error.TypeMismatch;
             }
         }
         if (cleanup.value.schema.callable) |known| {
@@ -1639,7 +1664,11 @@ pub const Body = struct {
         const ids = try self.author.raw.allocator().alloc(p.Id, arguments.len);
         for (arguments, ids, 0..) |value, *id, index| {
             try self.check(value);
-            if (work.value.schema.callable) |known| if (!try sameSchema(value.schema, known.parameters[index + loaned])) return error.TypeMismatch;
+            const expected = if (work.value.schema.callable) |known|
+                known.parameters[index + loaned]
+            else
+                Schema{ .owner = self.author, .id = signature.parameters[index + loaned] };
+            if (!try sameSchema(value.schema, expected)) return error.TypeMismatch;
             id.* = value.id;
         }
         if (resource) |value| try self.check(value);
@@ -1663,16 +1692,26 @@ pub const Body = struct {
         if (region_handle.id >= self.author.raw.region_count) return error.InvalidReference;
         const shape = self.author.raw.schemas.items[@intCast(work.value.schema.id)];
         if (shape != .internal or shape.internal != .computation) return error.TypeMismatch;
+        const signature = shape.internal.computation;
         if (work.value.schema.callable) |known| {
             if (known.parameters.len != arguments.len + 1) return try self.author.arity("region body arguments", known.parameters.len, arguments.len + 1, self.scope.name);
             const first = try self.author.sourceSchema(known.parameters[0].id, "region body parameter");
+            if (first != .internal or first.internal != .region or
+                first.internal.region != region_handle.id) return error.TypeMismatch;
+        } else {
+            if (signature.parameters.len != arguments.len + 1) return try self.author.arity("region body arguments", signature.parameters.len, arguments.len + 1, self.scope.name);
+            const first = try self.author.sourceSchema(signature.parameters[0], "region body parameter");
             if (first != .internal or first.internal != .region or
                 first.internal.region != region_handle.id) return error.TypeMismatch;
         }
         const ids = try self.author.raw.allocator().alloc(p.Id, arguments.len);
         for (arguments, ids, 0..) |value, *id, index| {
             try self.check(value);
-            if (work.value.schema.callable) |known| if (!try sameSchema(value.schema, known.parameters[index + 1])) return error.TypeMismatch;
+            const expected = if (work.value.schema.callable) |known|
+                known.parameters[index + 1]
+            else
+                Schema{ .owner = self.author, .id = signature.parameters[index + 1] };
+            if (!try sameSchema(value.schema, expected)) return error.TypeMismatch;
             id.* = value.id;
         }
         return self.append(try self.author.raw.term(.{ .with_region = .{
