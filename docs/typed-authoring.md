@@ -382,3 +382,49 @@ adapters, it cannot recover erased numeric provenance. `interop.builder` exposes
 the retained low-level builder without exposing authoring lifecycle records.
 Diagnostics returned by `lastDiagnostic()` are read-only snapshots of the record;
 the schema handles and labels still borrow the builder arena.
+
+## September 25 consolidation regression exchange
+
+Foundation: #157 at `72488ff0ff91c1a0f3d97b07d75ffcc227bbabb7`.
+Donor: #156 at `b908f2fc4dab40c488be08a658441121ff12c1f1`.
+The donor's representation is not imported. The following dispositions refer to
+semantic obligations, including regressions already present in the foundation.
+All named unit tests below live in `src/v2/authoring_tests.zig` unless stated.
+
+| Obligation from either campaign | Disposition | Consolidated witness |
+| --- | --- | --- |
+| Foreign schema, effect, value and nominal capability | ported | A01, A02, A09; external package rejection tests |
+| Issued function/effect/block/handler metadata cannot be retargeted | type-ablated | Opaque semantic categories; package category negative |
+| Closed or abandoned staging cannot be reopened or forked by field mutation | type-ablated | Opaque Context/Body; package lifecycle negative; A02 descendant closure |
+| Case origin and branch parentage | ported | A02 and A14 tests; checked match case ownership in structured acceptance cases |
+| Named record/variant and nested layout incompatibility | ported | A14; equal raw schemas with different nested names |
+| Named arithmetic failure and late helper publication | ported | named faults including later helpers; typed raw literal adapter |
+| Cleanup exit and failure metadata | ported | named cleanup descriptors and cleanup failure interpretation |
+| Imported scoped body operands | ported | imported scoped operation test and `imported_scoped` runtime case |
+| Forward calls/lambdas acquire their eventual lexical scope | ported | late function scope; same/global/sibling/abandoned controls |
+| Abandoned work contributes no publication obligation | ported | named faults and abandoned lambda tests |
+| Callable full interface and capture bounds | ported | functionFor full interface; callable/resumption compatibility tests |
+| Actual continuation captures follow authoritative liveness | ported | continuation names test, including dead-before-suspension control |
+| Reuse does not duplicate callable bodies or values | ported | A11 and symbolic one-shot aggregate tests |
+| Shallow result/input and successor handler compatibility | ported | A06/A07/A10/A12; shallow and transform_shallow runtime cases |
+| Responder residual effects, scoped capabilities and regions | ported | derived responder, scoped state clauses and region runtime cases |
+| Ordinary Value used as an arithmetic literal | type-ablated | external `failure_literal_category.zig` |
+| Foreign literal and inapplicable/missing divisor fault | ported | foreign failure literals; exactly applicable literal faults |
+| Non-Boolean condition, result mismatch, missing/duplicate fields, variant mismatch | ported | A14 plus malformed named aggregate regression |
+| Aggregate equality through donor convenience API | not-contract | #157 has no equality convenience API; raw primitive admission remains authoritative |
+| Shared/recursive schema comparison | ported | shared graph and borrowed/recursive callable import tests |
+| Undefined declaration diagnostic | ported | publication identifies undefined declaration test |
+| Backing-array relocation and independent publications | ported | 128 later declarations, encoded-byte equality and two independent snapshots |
+| Constructor, handler, snapshot and diagnostic OOM | ported | A15 sweeps, named publication/capture sweeps, growing snapshot sweep |
+| Malformed raw callable/resumption child IDs | ported | raw schemas reject missing children |
+| Borrow/resource adoption | ported | borrowed/recursive callable metadata; low-level borrow source fixtures |
+| Certifying erased raw provenance or names | not-contract | Explicit interop caller obligation; independent source admission is retained |
+| Builder-bound module silently includes later declarations | not-contract | Publication is a snapshot; later declarations require another publication |
+| Arbitrary mutable Body value-copy semantics | not-contract | Opaque pointer aliases share one staging session; copying storage is unavailable |
+| Diagnostic handles surviving builder teardown | not-contract | Diagnostic labels/schema handles borrow the documented builder arena |
+
+The previous symbolic-failure runtime diagnostic test is replaced by the external
+compile-failure fixture because that call no longer type-checks. No source checker,
+ownership, capture, borrow, liveness, target admission or data-codec check is removed.
+The path flatten and World/Agent pin migrations remain separate subsequent PRs;
+`test/v2`, World interpreter semantics and Agent domain admission remain intact.

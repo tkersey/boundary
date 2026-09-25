@@ -959,3 +959,24 @@ test "consolidation non-Boolean branches and malformed named aggregates reject" 
         }
     }
 }
+
+test "consolidation raw callable and resumption schemas reject missing children" {
+    for ([_]bool{ false, true }) |resumption| {
+        var raw = source.Builder.init(testing.allocator);
+        defer raw.deinit();
+        const c = try a.Context.init(&raw);
+        const unit = try raw.schema(.unit);
+        const bad = if (resumption) try raw.schema(.{ .internal = .{ .resumption = .{
+            .effect = 999,
+            .input = 999,
+            .answer = unit,
+            .handled = &.{},
+            .mode = .deep,
+            .use = .linear,
+        } } }) else try raw.schema(.{ .internal = .{ .computation = .{
+            .parameters = &.{999},
+            .result = unit,
+        } } });
+        try testing.expectError(error.InvalidSchema, a.interop.schema(c, bad));
+    }
+}
