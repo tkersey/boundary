@@ -389,7 +389,7 @@ Foundation: #157 at `72488ff0ff91c1a0f3d97b07d75ffcc227bbabb7`.
 Donor: #156 at `b908f2fc4dab40c488be08a658441121ff12c1f1`.
 The donor's representation is not imported. The following dispositions refer to
 semantic obligations, including regressions already present in the foundation.
-All named unit tests below live in `src/v2/authoring_tests.zig` unless stated.
+All named unit tests below live in `src/authoring_tests.zig` unless stated.
 
 | Obligation from either campaign | Disposition | Consolidated witness |
 | --- | --- | --- |

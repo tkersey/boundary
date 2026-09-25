@@ -12,7 +12,7 @@
     "diagnostic": "panic: integer overflow",
     "allocation": "ArenaAllocator allocation of a region_count-sized dependency table"
   },
-  "regression": "src/v2/data/adversarial_tests.zig",
-  "validCounterpart": "src/v2/source/tests.zig: large sparse region names preserve alpha-equivalent canonical images",
+  "regression": "src/data/adversarial_tests.zig",
+  "validCounterpart": "src/source/tests.zig: large sparse region names preserve alpha-equivalent canonical images",
   "correction": "Dependency columns and canonical region maps are indexed by referenced nominal IDs. The numeric upper bound no longer sizes allocations."
 }

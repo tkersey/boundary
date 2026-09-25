@@ -2,12 +2,12 @@ const std = @import("std");
 pub fn build(b: *std.Build) void {
     const root = b.option([]const u8, "source", "Exact Boundary source root") orelse @panic("source");
     const data = b.createModule(.{
-        .root_source_file = .{ .cwd_relative = b.pathJoin(&.{ root, "src/v2/data/root.zig" }) },
+        .root_source_file = .{ .cwd_relative = b.pathJoin(&.{ root, "src/data/root.zig" }) },
         .target = b.graph.host,
         .optimize = .ReleaseSafe,
     });
     const boundary = b.createModule(.{
-        .root_source_file = .{ .cwd_relative = b.pathJoin(&.{ root, "src/v2/root.zig" }) },
+        .root_source_file = .{ .cwd_relative = b.pathJoin(&.{ root, "src/root.zig" }) },
         .target = b.graph.host,
         .optimize = .ReleaseSafe,
         .imports = &.{.{ .name = "boundary_data", .module = data }},
