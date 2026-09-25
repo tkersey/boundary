@@ -141,7 +141,11 @@ external lookups). The authoritative checker validates this allowance.
 residual effects remain explicit. Body capture and continuation capture bounds are
 separate: allowing a capability in a continuation does not silently grant a body
 permission to capture an outside instance. Nothing widens an effect/capture/use
-allowance to make admission pass.
+allowance to make admission pass. Capture applicability follows the existing
+admission rule: every declared handler sharing an effect instance contributes its
+continuation capture bound, including unused handler declarations. A successful
+raw check after names have been erased does not make incompatible named bounds
+interchangeable.
 
 `protect` keeps local cleanup inside the Program across suspension. `dispose`
 expresses local owned-resumption disposal; it does not cancel the enclosing

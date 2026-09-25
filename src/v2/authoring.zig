@@ -863,15 +863,10 @@ pub const Context = struct {
             .captures = if (self.lambda_schemas.count() != 0 or self.handlers.items.len != 0) .{ .context = self, .capture = observeCapture, .closure = observeClosure } else null,
         }) catch |err| {
             if (self.capture_failure) |failure| return failure;
-            var name: []const u8 = "compiled source";
-            const function_id = diagnostic.function;
-            if (function_id) |id| for (self.functions.items) |f| {
-                const item = data(FunctionData, f);
-                if (item.id == id) {
-                    name = item.name;
-                    break;
-                }
-            };
+            const name = if (diagnostic.function) |id|
+                self.functionName(id) orelse "compiled source"
+            else
+                "compiled source";
             self.diagnostic = .{ .code = err, .entity = name, .source = diagnostic, .relationship = switch (err) {
                 error.InvalidOwnership, error.OverwrittenOwner, error.UnavailableSlot => "capture, borrow or use obligation failed authoritative admission",
                 error.InvalidEffect => "effect exceeds declared residual allowance",
@@ -886,6 +881,17 @@ pub const Context = struct {
             return err;
         }
         return result;
+    }
+    fn functionName(self: *const Context, id: p.Id) ?[]const u8 {
+        for (self.functions.items) |function_handle| {
+            const item = data(FunctionData, function_handle);
+            if (item.id == id) return item.name;
+        }
+        return null;
+    }
+    fn failureLiteral(self: *Context, value: *const ValueData, entity: []const u8) Error!p.Id {
+        return self.raw.failureLiteral(value.id) catch |err|
+            self.reject(err, entity, "requires an authored literal failure value");
     }
     fn notePublication(self: *Context, use: PublicationUse) Error!void {
         errdefer self.poisoned = true;
@@ -998,8 +1004,8 @@ pub const Context = struct {
         const f = data(FunctionData, entry);
         try self.origin(f.owner);
         const failure_id = try self.schemaId(failure);
-        for (self.raw.functions.items) |function_item| if (function_item.body == null)
-            return self.reject(error.UndefinedBody, f.name, "all declarations must be defined");
+        for (self.raw.functions.items, 0..) |function_item, id| if (function_item.body == null)
+            return self.reject(error.UndefinedBody, self.functionName(id) orelse "unnamed source function", "declaration has no body");
         errdefer self.poisoned = true;
         try self.publication(failure);
         const result = self.raw.module(f.id, failure_id);
@@ -1325,12 +1331,12 @@ pub const Body = struct {
         };
         const overflow = try self.useValue(failures.overflow);
         var faults: [2]p.InstructionFailure = undefined;
-        faults[0] = .{ .kind = .arithmetic_overflow, .value = try c.raw.failureLiteral(overflow.id) };
+        faults[0] = .{ .kind = .arithmetic_overflow, .value = try c.failureLiteral(overflow, "arithmetic overflow") };
         const division = operation == .divide or operation == .remainder;
         if (division) {
             const zero = try self.useValue(failures.division_by_zero orelse
                 return c.reject(error.InvalidCategory, "division", "requires an authored zero-divisor failure"));
-            faults[1] = .{ .kind = .division_by_zero, .value = try c.raw.failureLiteral(zero.id) };
+            faults[1] = .{ .kind = .division_by_zero, .value = try c.failureLiteral(zero, "division by zero") };
         } else if (failures.division_by_zero != null)
             return c.reject(error.InvalidCategory, "arithmetic", "zero-divisor failure only applies to division or remainder");
         errdefer c.poisoned = true;

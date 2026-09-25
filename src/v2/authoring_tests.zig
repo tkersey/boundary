@@ -802,3 +802,50 @@ test "review late function scope rejects prior sibling calls and lambdas" {
 test "review pending forward scope checks tolerate allocation failure" {
     try testing.checkAllAllocationFailures(testing.allocator, forwardScope, .{ .same, true });
 }
+
+test "review symbolic arithmetic fault values report the failed literal relationship" {
+    for ([_]bool{ false, true }) |division| {
+        var raw = source.Builder.init(testing.allocator);
+        defer raw.deinit();
+        const c = try a.Context.init(&raw);
+        const unit = try c.scalar(void);
+        const integer = try c.scalar(u64);
+        const failure_fn = try c.function("failure", &.{}, unit, &.{});
+        const failure_body = try c.body(failure_fn);
+        try c.define(failure_fn, try failure_body.ret(try failure_body.constant(void, {})));
+        const entry = try c.function("entry", &.{}, integer, &.{});
+        const body = try c.body(entry);
+        const symbolic = try body.call(failure_fn, &.{});
+        const left = try body.constant(u64, 7);
+        const right = try body.constant(u64, 2);
+        if (division) {
+            try testing.expectError(error.InvalidSource, body.checked(.divide, left, right, .{
+                .overflow = try body.constant(void, {}),
+                .division_by_zero = symbolic,
+            }));
+        } else try testing.expectError(error.InvalidSource, body.checkedAdd(left, right, symbolic));
+        try testing.expectEqual(error.InvalidSource, c.diagnostic.code.?);
+        try testing.expectEqualStrings(if (division) "division by zero" else "arithmetic overflow", c.diagnostic.entity);
+        const rendered = try c.diagnostic.renderAlloc(testing.allocator);
+        defer testing.allocator.free(rendered);
+        try testing.expect(std.mem.indexOf(u8, rendered, "literal") != null);
+    }
+}
+
+test "review publication identifies the undefined declaration instead of its entry" {
+    for ([_]bool{ false, true }) |unnamed| {
+        var raw = source.Builder.init(testing.allocator);
+        defer raw.deinit();
+        const c = try a.Context.init(&raw);
+        const unit = try c.scalar(void);
+        const entry = try c.function("valid entry", &.{}, unit, &.{});
+        const body = try c.body(entry);
+        try c.define(entry, try body.ret(try body.constant(void, {})));
+        if (unnamed) {
+            _ = try raw.declare(&.{}, try a.interop.schemaId(c, unit), &.{}, &.{});
+        } else _ = try c.function("missing helper", &.{}, unit, &.{});
+        try testing.expectError(error.UndefinedBody, c.module(entry, unit));
+        try testing.expectEqual(error.UndefinedBody, c.diagnostic.code.?);
+        try testing.expectEqualStrings(if (unnamed) "unnamed source function" else "missing helper", c.diagnostic.entity);
+    }
+}
