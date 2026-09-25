@@ -227,6 +227,36 @@ node test/coalescing_execution.mjs zig-out/bin/coalescing-fixture \
 
 ## Outstanding delivery work
 
+The dedicated [cross-object witness](coalescing-component-evidence.json) now
+passes object-only linking and native/WASM execution. Two independent processes
+emit library objects with private captured helpers; a third emits the importing
+client. No application source or emitter is present in the linking directory.
+The closed image shrinks from 253 to 177 bytes, functions from five to three,
+constructors from two to one, and capture descriptions from two to one. Both
+images return 13 and 17 with the same quantum-one progression and fresh-host
+restore trace. Object bytes are identical under off/safe component emission.
+The fixture explicitly binds its closure before application: the existing local
+direct-application optimization otherwise eliminates its constructor before
+global coalescing, which would not exercise the required constructor witness.
+
+`check-components` runs this structural witness automatically. Runtime checking
+uses the same arguments as the closure harness:
+
+```sh
+node test/coalescing_components.mjs zig-out/bin/coalescing-fixture \\
+  zig-out/bin/boundary-link zig-out/bin/coalescing-inspect \\
+  "$WORLD_RUNTIME" \\
+  7d31effb1d4e32523d0fcbd5b4d5f5a8a2289fbd4c731173a33b1c174524282f \\
+  "$WORLD_NATIVE"
+```
+
+The actual candidate pipeline now also checks role-preserving merging of two
+mutually recursive groups and propagation of a changed constant around the
+recursive relation. That is structural/admission evidence, not yet a runtime
+divergence-prefix qualification. Existing same-named private-effect separation,
+false imported borrow promises, and constructor/handler borrow-substitution
+tests run unchanged assertions under both off and safe.
+
 At this implementation step, the ReleaseSafe data, authoring and component
 aggregates pass, as does the maintained native/WASM closure command above.
 The complete ReleaseSafe `check` aggregate passed before the final added
@@ -235,8 +265,8 @@ afterward. Data tests additionally passed in Debug and ReleaseFast before final
 formatting. The added tests preserve all predecessor cases and assertions.
 The source-free component harness now exercises `safe` with only transported
 objects and the linker: its first linked image is 804 bytes versus 811 bytes off.
-This small change is not yet a substitute for the required explicit cross-object
-code/constructor-count witness.
+The dedicated witness above attributes its reductions to actual code and
+constructor coalescing.
 
 The goal remains active. In particular:
 
@@ -247,8 +277,8 @@ The goal remains active. In particular:
   nominal identities, resource authority, handler modes and borrow provenance.
 - Complete corruption/generative/allocation/concurrency tests and the full T01–T42
   matrix; existing green aggregates are not a replacement for these cases.
-- Add the explicit source-free cross-object code/constructor-sharing witness and
-  runtime evidence; retain distinct nominal anchors and original false contracts.
+- Extend source-free cross-object coverage to the required nominal region/resource,
+  explicit-effect-binding and recursive constructor/handler cases.
 - Propagate options through Agent's final compiled-tool link and update/authenticate
   the candidate dependency selection without changing the locked World evaluator.
 - Run the unchanged real consumer opportunity census and B0/B1/B2 qualification,

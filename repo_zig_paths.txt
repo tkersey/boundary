@@ -16,6 +16,7 @@ examples/structured_branch.zig
 src/authoring.zig
 src/authoring_cases.zig
 src/authoring_tests.zig
+src/coalescing_component_cases.zig
 src/coalescing_emit.zig
 src/coalescing_tests.zig
 src/data/activation.zig
@@ -41,6 +42,7 @@ src/data/coalescing_discovery.zig
 src/data/coalescing_graph.zig
 src/data/coalescing_graph_tests.zig
 src/data/coalescing_locals.zig
+src/data/coalescing_recursive_tests.zig
 src/data/coalescing_tests.zig
 src/data/coalescing_validation.zig
 src/data/coalescing_view.zig

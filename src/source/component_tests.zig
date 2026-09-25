@@ -163,21 +163,23 @@ test "public linker rejects missing duplicate wrong-kind and incompatible effect
 }
 
 test "same-named private declarations remain distinct across explicit component instances" {
-    const bytes = try object(true, false);
-    defer testing.allocator.free(bytes);
-    const client = try dualClient(true);
-    defer testing.allocator.free(client);
-    var linked = try data.linker.link(testing.allocator, &.{ .{ .key = "one", .object = bytes }, .{ .key = "two", .object = bytes }, .{ .key = "client", .object = client } }, &.{
-        .{ .required = .{ .instance = "client", .symbol = "a" }, .supplied = .{ .instance = "one", .symbol = "value" } },
-        .{ .required = .{ .instance = "client", .symbol = "b" }, .supplied = .{ .instance = "two", .symbol = "value" } },
-        .{ .required = .{ .instance = "client", .symbol = "read-a" }, .supplied = .{ .instance = "one", .symbol = "read" } },
-        .{ .required = .{ .instance = "client", .symbol = "read-b" }, .supplied = .{ .instance = "two", .symbol = "read" } },
-    }, .{ .instance = "client", .symbol = "main" });
-    defer linked.deinit();
-    try testing.expectEqual(2, linked.program.effects.len);
-    try testing.expectEqualStrings(linked.program.effects[0].identity, linked.program.effects[1].identity);
-    try testing.expectEqual(3, linked.program.schemas.len);
-    try testing.expectEqual(3, linked.program.functions.len);
+    inline for (.{ data.coalescing.Mode.off, data.coalescing.Mode.safe }) |mode| {
+        const bytes = try object(true, false);
+        defer testing.allocator.free(bytes);
+        const client = try dualClient(true);
+        defer testing.allocator.free(client);
+        var linked = try data.linker.linkWithOptions(testing.allocator, &.{ .{ .key = "one", .object = bytes }, .{ .key = "two", .object = bytes }, .{ .key = "client", .object = client } }, &.{
+            .{ .required = .{ .instance = "client", .symbol = "a" }, .supplied = .{ .instance = "one", .symbol = "value" } },
+            .{ .required = .{ .instance = "client", .symbol = "b" }, .supplied = .{ .instance = "two", .symbol = "value" } },
+            .{ .required = .{ .instance = "client", .symbol = "read-a" }, .supplied = .{ .instance = "one", .symbol = "read" } },
+            .{ .required = .{ .instance = "client", .symbol = "read-b" }, .supplied = .{ .instance = "two", .symbol = "read" } },
+        }, .{ .instance = "client", .symbol = "main" }, .{ .mode = mode });
+        defer linked.deinit();
+        try testing.expectEqual(2, linked.program.effects.len);
+        try testing.expectEqualStrings(linked.program.effects[0].identity, linked.program.effects[1].identity);
+        try testing.expectEqual(3, linked.program.schemas.len);
+        try testing.expectEqual(3, linked.program.functions.len);
+    }
 }
 
 test "three effectful components link without retaining source and also serve a second wrapper" {

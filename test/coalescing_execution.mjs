@@ -5,7 +5,7 @@ import {readFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 
-const [emitter, runtime, expectedSha256, native] = process.argv.slice(2);
+const [emitter, runtime, expectedSha256, native, ...componentImages] = process.argv.slice(2);
 assert.ok(emitter && runtime && /^[a-f0-9]{64}$/.test(expectedSha256 ?? '') && native,
   'usage: node test/coalescing_execution.mjs EMITTER RUNTIME SHA256 NATIVE');
 const {Kernel, encodeInput, decodeOutcome} =
@@ -50,7 +50,7 @@ async function execute(image, initialArgs, quantum = null) {
 }
 
 const measurements = [];
-for (const count of [1, 2, 16, 64, 256]) {
+for (const count of componentImages.length ? [] : [1, 2, 16, 64, 256]) {
   const off = emit('off', count), safe = emit('safe', count);
   assert.equal(safe.statistics.functions, 2);
   assert.equal(safe.statistics.constructors, 1);
@@ -75,9 +75,22 @@ for (const count of [1, 2, 16, 64, 256]) {
     const suspended = decodeOutcome(original.invoke(encodeInput({image: off.image, initialArgs: input, quantum: 1})));
     assert.ok(suspended.state?.length);
     const foreign = await fresh();
-    assert.throws(() => foreign.invoke(encodeInput({image: safe.image, state: suspended.state, quantum: 1})));
+    assert.throws(() => foreign.invoke(encodeInput({image: safe.image, state: suspended.state, quantum: 1})),
+      error => error.code === 'WORLD_KERNEL_REJECTED' && error.details?.diagnostic === 'InvalidState');
   }
   measurements.push({count, off: off.statistics, safe: safe.statistics});
 }
-console.log(JSON.stringify({check: 'coalescing captured closures native/WASM and fresh-host resume',
+if (componentImages.length) {
+  assert.equal(componentImages.length, 2);
+  const images = await Promise.all(componentImages.map(async path => new Uint8Array(await readFile(path))));
+  const off = await execute(images[0], new Uint8Array(), 1);
+  const safe = await execute(images[1], new Uint8Array(), 1);
+  assert.deepEqual(safe, off);
+  assert.equal(safe.kind, 'completed');
+  assert.equal(safe.value, Buffer.from(words([13, 17])).toString('hex'));
+  measurements.push({case: 'source-free components', observation: safe});
+}
+console.log(JSON.stringify({check: componentImages.length
+  ? 'coalescing source-free components native/WASM and fresh-host resume'
+  : 'coalescing captured closures native/WASM and fresh-host resume',
   runtimeSha256: expectedSha256, measurements}));

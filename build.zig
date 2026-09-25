@@ -34,8 +34,18 @@ pub fn build(b: *std.Build) void {
             .imports = &.{.{ .name = "boundary_data", .module = data }},
         }),
     });
-    b.step("build-coalescing-fixtures", "Build independently authored coalescing witnesses")
-        .dependOn(&b.addInstallArtifact(coalescing_emit, .{}).step);
+    const coalescing_fixtures = b.step("build-coalescing-fixtures", "Build independently authored coalescing witnesses");
+    coalescing_fixtures.dependOn(&b.addInstallArtifact(coalescing_emit, .{}).step);
+    const coalescing_inspect = b.addExecutable(.{
+        .name = "coalescing-inspect",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/authoring_stats.zig"),
+            .target = b.graph.host,
+            .optimize = optimize,
+            .imports = &.{.{ .name = "boundary_data", .module = data }},
+        }),
+    });
+    coalescing_fixtures.dependOn(&b.addInstallArtifact(coalescing_inspect, .{}).step);
     const linker = b.addExecutable(.{ .name = "boundary-link", .root_module = b.createModule(.{
         .root_source_file = b.path("tools/component_link.zig"),
         .target = target,
@@ -43,6 +53,7 @@ pub fn build(b: *std.Build) void {
         .imports = &.{.{ .name = "boundary_data", .module = data }},
     }) });
     const installed_linker = b.addInstallArtifact(linker, .{});
+    coalescing_fixtures.dependOn(&installed_linker.step);
     b.step("build-compiler", "Build the source-independent BMO1 linker")
         .dependOn(&installed_linker.step);
     const component_example = b.addExecutable(.{ .name = "component-example", .root_module = b.createModule(.{
@@ -58,6 +69,12 @@ pub fn build(b: *std.Build) void {
     component_checks.has_side_effects = true;
     const component_step = b.step("check-components", "Check object admission and source-independent composition");
     component_step.dependOn(&component_checks.step);
+    const coalescing_components = b.addSystemCommand(&.{ "node", "test/coalescing_components.mjs" });
+    coalescing_components.addArtifactArg(coalescing_emit);
+    coalescing_components.addArtifactArg(linker);
+    coalescing_components.addArtifactArg(coalescing_inspect);
+    coalescing_components.has_side_effects = true;
+    component_step.dependOn(&coalescing_components.step);
     const component_data_tests = b.addTest(.{ .root_module = b.createModule(.{
         .root_source_file = b.path("src/data/component_tests.zig"),
         .target = b.graph.host,

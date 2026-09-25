@@ -2,6 +2,16 @@
 //! Synthetic qualification emitter; each process independently authors its image.
 const std = @import("std");
 const data = @import("boundary_data");
+const components = @import("coalescing_component_cases.zig");
+
+fn emitComponent(init: std.process.Init, kind: components.Kind, mode: data.coalescing.Mode) !void {
+    const object = try components.emit(init.gpa, kind, mode);
+    defer init.gpa.free(object);
+    var buffer: [4096]u8 = undefined;
+    var output = std.Io.File.stdout().writer(init.io, &buffer);
+    try output.interface.writeAll(object);
+    try output.interface.flush();
+}
 
 pub fn main(init: std.process.Init) !void {
     var args = init.minimal.args.iterate();
@@ -9,7 +19,12 @@ pub fn main(init: std.process.Init) !void {
     const mode_name = args.next() orelse return error.MissingMode;
     const mode = std.meta.stringToEnum(data.coalescing.Mode, mode_name) orelse
         return error.InvalidMode;
-    const count = try std.fmt.parseInt(usize, args.next() orelse return error.MissingCount, 10);
+    const selection = args.next() orelse return error.MissingCount;
+    if (std.meta.stringToEnum(components.Kind, selection)) |kind| {
+        if (args.next() != null) return error.UnexpectedArgument;
+        return emitComponent(init, kind, mode);
+    }
+    const count = try std.fmt.parseInt(usize, selection, 10);
     if (args.next() != null or count == 0 or count > 256) return error.InvalidCount;
     var rounds: [16]data.coalescing.Round = undefined;
     var statistics: data.coalescing.Statistics = .{ .rounds = &rounds };
