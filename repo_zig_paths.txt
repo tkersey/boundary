@@ -142,6 +142,8 @@ test/hyper_compile_bench.zig
 test/package_authoring/build.zig
 test/package_authoring/category.zig
 test/package_authoring/data.zig
+test/package_authoring/failure_literal_category.zig
+test/package_authoring/lifecycle.zig
 test/package_authoring/rejection.zig
 test/v2/borrow_returns.zig
 test/v2/compact_fixtures.zig

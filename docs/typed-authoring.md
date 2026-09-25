@@ -62,8 +62,8 @@ definitions. Abandoned staging branches do not contribute executable uses.
 The recursive adapter retains the existing finite `hyper.ana` construction.
 
 Keep the source builder at a stable address. Contexts, handles, copied names and
-source snapshots borrow its arena until `Builder.deinit`. Do not copy or mutate
-Context/Body implementation storage. `Compiled` owns its output independently.
+source snapshots borrow its arena until `Builder.deinit`. `Context` and `Body` are opaque arena-owned handles; pointer aliases share lifecycle
+state. Clients cannot copy, reopen, or retarget staging storage. `Compiled` owns its output independently.
 `module` copies the source arrays, so later builder growth cannot stale its slices.
 
 `ret` and `abandon` close a body and its descendants to further authoring. Abandoning
@@ -81,7 +81,7 @@ that builder is destroyed; `renderAlloc` returns caller-owned text.
 
 ## Declarations and guarantees
 
-`Schema`, `Operation`, `Function`, `Value`, `Computation`, `Handler` and `Region`
+`Schema`, `Operation`, `Function`, `Value`, `FailureLiteral`, `Computation`, `Handler` and `Region`
 are distinct opaque handle categories. Zig rejects category substitution. Runtime
 checks reject foreign contexts, out-of-scope values, incompatible named layouts,
 arguments, branch results and capability instances. Final source/target admission
@@ -90,8 +90,10 @@ escape. In particular, one-shot use in mutually exclusive arms is allowed; two
 sequential uses are rejected. Lambda and aggregate construction bind once rather than silently
 creating a fresh one-shot value at each use.
 
-`checked` supports add, subtract, multiply, divide and remainder with literal
-failure values. Overflow is explicit; division and remainder additionally require
+`checked` supports add, subtract, multiply, divide and remainder with opaque
+`FailureLiteral` handles constructed once with `c.literalFailure(T, item)`. Ordinary
+`Value` handles cannot substitute for this category. The constructor establishes
+literal status; arithmetic checks origin and publication checks the failure schema. Overflow is explicit; division and remainder additionally require
 an explicit zero-divisor failure. `checkedAdd` is the short addition spelling.
 The operand schemas determine the result; no expression is evaluated in the host.
 
@@ -153,7 +155,7 @@ session. `regionBodySchema` derives the implicit region-token parameter and
 contract; `withRegion` supplies that token and takes only the remaining named
 arguments. `region` and these contracts retain nominal region boundaries. Existing low-level resource/loan constructions remain supported.
 
-`Context.diagnostic` contains a stable error category, entity, failed relationship,
+`Context.lastDiagnostic()` contains a stable error category, entity, failed relationship,
 and expected/actual schema handles when available. `render` and `renderAlloc`
 render that same information. `Context.compile` also retains the authoritative
 source/target diagnostic for failed effects, captures, borrows, uses and answers.
@@ -363,3 +365,20 @@ lexical captures of generic declarations, live continuation records, values used
 only before suspension, abandoned lambda construction, both publication entry
 points, and allocation failure. Named observations consume existing admission
 facts; they do not introduce a second ownership analysis or alter capture bounds.
+
+## Consolidated public consumer
+
+`examples/authoring_client.zig` accepts `use_effect` and a `numbers` record with
+`input` and `offset`. It constructs one void failure literal and one reusable
+local question callable. The pure branch returns checked `input + offset`.
+The effectful branch asks once, checks `first + offset`, asks again, then checks
+`partial + second`. An overflow after the first reply therefore prevents the
+second request. `test/authoring_execution.mjs` checks all six specification vectors
+against actual requests, transferring portable State between fresh runtime peers.
+
+`interop.literalFailure` admits an existing raw literal with an explicit named
+schema, preserving the advanced named-layout regression surface. Like other raw
+adapters, it cannot recover erased numeric provenance. `interop.builder` exposes
+the retained low-level builder without exposing authoring lifecycle records.
+Diagnostics returned by `lastDiagnostic()` are read-only snapshots of the record;
+the schema handles and labels still borrow the builder arena.

@@ -73,7 +73,7 @@ fn handlerCase(raw: *source.Builder, kind: Kind) !source.Module {
     if (kind == .dispose) _ = try clause.dispose(try clause.parameter("resumption"));
     const resumed = if (kind == .bypass or kind == .dispose) try clause.constant(u64, 17) else try clause.resumeValue(try clause.parameter("resumption"), try clause.constant(void, {}));
     const scalar = if (transformed and mode == .deep) try clause.field(resumed, "answer") else resumed;
-    const plus = try clause.checkedAdd(scalar, try clause.constant(u64, 1), try clause.constant(void, {}));
+    const plus = try clause.checkedAdd(scalar, try clause.constant(u64, 1), try c.literalFailure(void, {}));
     try c.define(clause_fn, try clause.ret(if (transformed)
         try clause.product(answer, &.{.{ .name = "answer", .value = plus }})
     else
@@ -87,7 +87,7 @@ fn handlerCase(raw: *source.Builder, kind: Kind) !source.Module {
     const entry_body = try c.body(entry);
     const callable_value = try entry_body.lambda(work, body_schema);
     const first = try entry_body.handleWith(h, callable_value, &.{});
-    const result = if (kind == .reusable_body) try entry_body.checkedAdd(first, try entry_body.handleWith(h, callable_value, &.{}), try entry_body.constant(void, {})) else first;
+    const result = if (kind == .reusable_body) try entry_body.checkedAdd(first, try entry_body.handleWith(h, callable_value, &.{}), try c.literalFailure(void, {})) else first;
     try c.define(entry, try entry_body.ret(result));
     return c.module(entry, unit);
 }
@@ -132,7 +132,7 @@ fn cleanupCase(raw: *source.Builder) !source.Module {
     const entry = try c.function("entry", &.{}, integer, &.{ lookup, release });
     const entry_body = try c.body(entry);
     const result = try entry_body.protect(try entry_body.lambda(work, work_schema), try entry_body.lambda(cleanup, cleanup_schema), &.{});
-    const after = try entry_body.checkedAdd(result, try entry_body.constant(u64, 1), try entry_body.constant(void, {}));
+    const after = try entry_body.checkedAdd(result, try entry_body.constant(u64, 1), try c.literalFailure(void, {}));
     try c.define(entry, try entry_body.ret(after));
     return c.module(entry, unit);
 }
@@ -143,7 +143,7 @@ fn delayedCase(raw: *source.Builder, demanded: bool) !source.Module {
     const delay = try c.callable(&.{}, integer, &.{}, .{ .use = .reusable, .captures = &.{} });
     const failure = try c.functionFor("delayed overflow", delay);
     const delayed = try c.body(failure);
-    const result = try delayed.checkedAdd(try delayed.constant(u64, std.math.maxInt(u64)), try delayed.constant(u64, 1), try delayed.constant(void, {}));
+    const result = try delayed.checkedAdd(try delayed.constant(u64, std.math.maxInt(u64)), try delayed.constant(u64, 1), try c.literalFailure(void, {}));
     try c.define(failure, try delayed.ret(result));
     const entry = try c.function("entry", &.{}, integer, &.{});
     const body = try c.body(entry);
@@ -159,7 +159,7 @@ fn failureCase(raw: *source.Builder, after: bool) !source.Module {
     const entry = try c.function("entry", &.{}, integer, &.{lookup});
     const body = try c.body(entry);
     if (after) _ = try body.perform(lookup, try body.constant(u64, 19));
-    const failed = try body.checkedAdd(try body.constant(u64, std.math.maxInt(u64)), try body.constant(u64, 1), try body.constant(void, {}));
+    const failed = try body.checkedAdd(try body.constant(u64, std.math.maxInt(u64)), try body.constant(u64, 1), try c.literalFailure(void, {}));
     if (!after) _ = try body.perform(lookup, try body.constant(u64, 19));
     try c.define(entry, try body.ret(failed));
     return c.module(entry, unit);
@@ -176,7 +176,7 @@ fn matchCase(raw: *source.Builder) !source.Module {
     const choice = try body.parameter("choice");
     const left = try body.caseOf(try body.parameter("choice"), "left");
     const right = try body.caseOf(try body.parameter("choice"), "right");
-    const plus = try right.body().checkedAdd(right.payload(), try right.body().constant(u64, 1), try right.body().constant(void, {}));
+    const plus = try right.body().checkedAdd(right.payload(), try right.body().constant(u64, 1), try c.literalFailure(void, {}));
     const result = try body.match(choice, &.{ try right.ret(plus), try left.ret(left.payload()) });
     try c.define(entry, try body.ret(result));
     return c.module(entry, try c.scalar(void));
@@ -208,7 +208,7 @@ fn arithmeticCase(raw: *source.Builder, fail: bool) !source.Module {
     const body = try c.body(entry);
     const left = try body.constant(u64, 5);
     const right = try body.constant(u64, if (fail) 0 else 2);
-    const failure = try body.constant(void, {});
+    const failure = try c.literalFailure(void, {});
     if (fail) {
         const result = try body.checked(.divide, left, right, .{ .overflow = failure, .division_by_zero = failure });
         try c.define(entry, try body.ret(result));

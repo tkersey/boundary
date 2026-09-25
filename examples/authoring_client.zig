@@ -14,7 +14,7 @@ pub const Application = struct {
         const question = try c.local("client/question", integer, integer, .linear);
         const capability = try c.capability(question);
         const callable = try c.callable(&.{}, integer, &.{question}, .{ .use = .reusable, .captures = &.{ integer, capability } });
-        const twice = try c.twice(callable);
+        const failure = try c.literalFailure(void, {});
         const responder = try c.function("lookup responder", &.{.{ .name = "key", .schema = integer }}, integer, &.{lookup});
         const response = try c.body(responder);
         try c.define(responder, try response.ret(try response.perform(lookup, try response.parameter("key"))));
@@ -25,7 +25,7 @@ pub const Application = struct {
             .captures = &.{ integer, input, capability, callable },
             .body_captures = &.{integer},
         });
-        const entry = try c.function("entry", &.{ .{ .name = "choose", .schema = boolean }, .{ .name = "numbers", .schema = input } }, integer, &.{lookup});
+        const entry = try c.function("entry", &.{ .{ .name = "use_effect", .schema = boolean }, .{ .name = "numbers", .schema = input } }, integer, &.{lookup});
         const body = try c.body(entry);
         const numbers = try body.parameter("numbers");
         const x = try body.field(numbers, "input");
@@ -39,13 +39,15 @@ pub const Application = struct {
         const query = try c.functionFor("reusable question", callable);
         const query_body = try interpreted.closureBody(query);
         try c.define(query, try query_body.ret(try query_body.performLocal(question, cap, x)));
-        const replies = try interpreted.call(twice, &.{.{ .name = "callable", .value = try interpreted.lambda(query, callable) }});
-        const first_plus_offset = try interpreted.checkedAdd(try interpreted.field(replies, "first"), offset, try interpreted.constant(void, {}));
-        const result = try interpreted.checkedAdd(first_plus_offset, try interpreted.field(replies, "second"), try interpreted.constant(void, {}));
+        const ask = try interpreted.lambda(query, callable);
+        const first = try interpreted.apply(ask, &.{});
+        const partial = try interpreted.checkedAdd(first, offset, failure);
+        const second = try interpreted.apply(ask, &.{});
+        const result = try interpreted.checkedAdd(partial, second, failure);
         try c.define(work, try interpreted.ret(result));
         const true_result = try yes.handleWith(h, try yes.lambda(work, handled), &.{});
-        const false_result = try no.checkedAdd(x, offset, try no.constant(void, {}));
-        const joined = try body.conditional(try body.parameter("choose"), try yes.ret(true_result), try no.ret(false_result));
+        const false_result = try no.checkedAdd(x, offset, failure);
+        const joined = try body.conditional(try body.parameter("use_effect"), try yes.ret(true_result), try no.ret(false_result));
         try c.define(entry, try body.ret(joined));
         return c.module(entry, unit);
     }

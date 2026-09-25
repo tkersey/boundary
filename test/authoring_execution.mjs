@@ -93,11 +93,12 @@ const cases = kind==='hyper' ? [
   {args:u32(7),replies:[u32(31)],value:u32(31),payload:u32(7),identity:'example.lookup.v2'},
   {args:u32(19),replies:[u32(5)],value:u32(5),payload:u32(19),identity:'example.lookup.v2'},
 ] : kind==='client' ? [
-  {args:Uint8Array.of(0,...u64(19),...u64(3)),replies:[],value:u64(22)},
-  {args:Uint8Array.of(1,...u64(19),...u64(3)),replies:[u64(7),u64(11)],value:u64(21),payload:u64(19),identity:'client/lookup'},
-  {args:Uint8Array.of(1,...u64(19),...u64(3)),replies:[u64(23),u64(5)],value:u64(31),payload:u64(19),identity:'client/lookup'},
+  {args:Uint8Array.of(0,...u64(7),...u64(5)),replies:[],value:u64(12)},
+  {args:Uint8Array.of(1,...u64(7),...u64(5)),replies:[u64(19),u64(23)],value:u64(47),payload:u64(7),identity:'client/lookup'},
   {args:Uint8Array.of(0,...u64(max),...u64(1)),replies:[],failure:true},
-  {args:Uint8Array.of(1,...u64(19),...u64(1)),replies:[u64(max),u64(2)],failure:true,payload:u64(19),identity:'client/lookup'},
+  {args:Uint8Array.of(1,...u64(7),...u64(1)),replies:[u64(max)],failure:true,payload:u64(7),identity:'client/lookup'},
+  {args:Uint8Array.of(1,...u64(7),...u64(0)),replies:[u64(max),u64(1)],failure:true,payload:u64(7),identity:'client/lookup'},
+  {args:Uint8Array.of(1,...u64(7),...u64(5)),replies:[u64(23),u64(19)],value:u64(47),payload:u64(7),identity:'client/lookup'},
 ] : fixtureCases[kind] ?? (()=>{throw Error('unknown case');})();
 let baseline;
 try {

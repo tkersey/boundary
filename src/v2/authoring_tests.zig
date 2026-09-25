@@ -36,7 +36,7 @@ test "A01 authoring rejects colliding live builder handles" {
     const s1 = try a1.scalar(u64);
     _ = try a2.scalar(u64);
     try testing.expectError(error.ForeignHandle, a2.function("bad", &.{}, s1, &.{}));
-    try testing.expectEqual(error.ForeignHandle, a2.diagnostic.code.?);
+    try testing.expectEqual(error.ForeignHandle, a2.lastDiagnostic().code.?);
 }
 
 test "A02 authoring rejects sibling and escaped branch locals but joins succeed" {
@@ -181,7 +181,7 @@ test "A09 nominal same-name operation rejects foreign capability" {
     const cap = try body.parameter("cap");
     const payload = try body.constant(void, {});
     try testing.expectError(error.SchemaMismatch, body.performLocal(right, cap, payload));
-    try testing.expectEqual(error.SchemaMismatch, c.diagnostic.code.?);
+    try testing.expectEqual(error.SchemaMismatch, c.lastDiagnostic().code.?);
     _ = try body.performLocal(left, cap, payload);
 }
 
@@ -195,9 +195,9 @@ test "A09 A17 missing residual effect has an inspectable source relationship" {
     const body = try c.body(entry);
     try c.define(entry, try body.ret(try body.perform(op, try body.constant(void, {}))));
     try testing.expectError(error.InvalidEffect, c.compile(testing.allocator, entry, unit));
-    try testing.expectEqual(error.InvalidEffect, c.diagnostic.code.?);
-    try testing.expect(c.diagnostic.source != null);
-    try testing.expect(std.mem.indexOf(u8, c.diagnostic.relationship, "residual") != null);
+    try testing.expectEqual(error.InvalidEffect, c.lastDiagnostic().code.?);
+    try testing.expect(c.lastDiagnostic().source != null);
+    try testing.expect(std.mem.indexOf(u8, c.lastDiagnostic().relationship, "residual") != null);
 }
 
 test "A08 A17 exclusive capture does not become reusable by declaring its bound" {
@@ -218,7 +218,7 @@ test "A08 A17 exclusive capture does not become reusable by declaring its bound"
     try c.define(closure, try nested.ret(try nested.apply(owned, &.{})));
     try c.define(entry, try body.ret(try body.apply(try body.lambda(closure, reusable), &.{})));
     try testing.expectError(error.InvalidOwnership, c.compile(testing.allocator, entry, unit));
-    try testing.expectEqual(error.InvalidOwnership, c.diagnostic.code.?);
+    try testing.expectEqual(error.InvalidOwnership, c.lastDiagnostic().code.?);
 }
 
 test "A11 explicit reuse adds calls without duplicating definitions" {
@@ -284,7 +284,7 @@ fn diagnosticAllocation(allocator: std.mem.Allocator) !void {
     _ = boolean;
     _ = body.call(entry, &.{.{ .name = "input", .value = wrong }}) catch |err| {
         if (err != error.SchemaMismatch) return err;
-        const rendered = try c.diagnostic.renderAlloc(allocator);
+        const rendered = try c.lastDiagnostic().renderAlloc(allocator);
         defer allocator.free(rendered);
         try testing.expect(std.mem.indexOf(u8, rendered, "expected u64") != null);
         return;
@@ -316,7 +316,7 @@ test "structured scoped operations expose named body and state clauses" {
     const clause_fn = try c.clauseFunction(h);
     const clause = try c.body(clause_fn);
     const answer = try clause.apply(try clause.parameter("work"), &.{});
-    const plus = try clause.checkedAdd(answer, try clause.parameter("offset"), try clause.constant(void, {}));
+    const plus = try clause.checkedAdd(answer, try clause.parameter("offset"), try c.literalFailure(void, {}));
     try c.define(clause_fn, try clause.ret(try clause.resumeValue(try clause.parameter("resumption"), plus)));
     const nested_fn = try c.functionFor("scoped work", thunk);
     const nested = try c.body(nested_fn);
@@ -366,8 +366,8 @@ test "A14 named-layout and branch result mismatches reject before source admissi
     const lv = try left.product(first, &.{.{ .name = "first", .value = try left.constant(u64, 1) }});
     const rv = try right.product(second, &.{.{ .name = "second", .value = try right.constant(u64, 1) }});
     try testing.expectError(error.SchemaMismatch, body.conditional(try body.constant(bool, true), try left.ret(lv), try right.ret(rv)));
-    try testing.expect(c.diagnostic.expected == first);
-    try testing.expect(c.diagnostic.actual == second);
+    try testing.expect(c.lastDiagnostic().expected == first);
+    try testing.expect(c.lastDiagnostic().actual == second);
 }
 
 fn shallowResidual(allocator: std.mem.Allocator, allow_escape: bool) !void {
@@ -552,7 +552,7 @@ fn namedFaultPublication(allocator: std.mem.Allocator, mismatch: bool, late: boo
     const target = if (late) try c.function("late helper", &.{}, integer, &.{}) else entry;
     const work = if (late) try c.body(target) else if (abandoned) try body.branch() else body;
     const literal = try raw.literal(.{ .schema = try a.interop.schemaId(c, actual), .bytes = &.{ 9, 0, 0, 0, 0, 0, 0, 0 } });
-    const failure = try a.interop.adoptValue(work, literal, actual);
+    const failure = try a.interop.literalFailure(c, literal, actual);
     const result = try work.checkedAdd(try work.constant(u64, 1), try work.constant(u64, 2), failure);
     if (abandoned) {
         work.abandon();
@@ -619,11 +619,13 @@ test "review twice rejection replaces stale diagnostics with its own relationshi
     const c = try a.Context.init(&raw);
     const unit = try c.scalar(void);
     const linear = try c.callable(&.{}, unit, &.{}, .{ .use = .linear, .captures = &.{} });
-    c.diagnostic = .{ .code = error.UnknownName, .entity = "earlier", .relationship = "stale" };
+    const probe = try c.function("earlier", &.{}, unit, &.{});
+    const probe_body = try c.body(probe);
+    try testing.expectError(error.UnknownName, probe_body.parameter("missing"));
     try testing.expectError(error.InvalidOwnership, c.twice(linear));
-    try testing.expectEqual(error.InvalidOwnership, c.diagnostic.code.?);
-    try testing.expectEqualStrings("twice", c.diagnostic.entity);
-    const rendered = try c.diagnostic.renderAlloc(testing.allocator);
+    try testing.expectEqual(error.InvalidOwnership, c.lastDiagnostic().code.?);
+    try testing.expectEqualStrings("twice", c.lastDiagnostic().entity);
+    const rendered = try c.lastDiagnostic().renderAlloc(testing.allocator);
     defer testing.allocator.free(rendered);
     try testing.expect(std.mem.indexOf(u8, rendered, "reusable zero-argument") != null);
 }
@@ -803,32 +805,26 @@ test "review pending forward scope checks tolerate allocation failure" {
     try testing.checkAllAllocationFailures(testing.allocator, forwardScope, .{ .same, true });
 }
 
-test "review symbolic arithmetic fault values report the failed literal relationship" {
+test "failure literals reject foreign contexts for both arithmetic faults" {
     for ([_]bool{ false, true }) |division| {
         var raw = source.Builder.init(testing.allocator);
         defer raw.deinit();
+        var other = source.Builder.init(testing.allocator);
+        defer other.deinit();
         const c = try a.Context.init(&raw);
-        const unit = try c.scalar(void);
+        const foreign = try a.Context.init(&other);
         const integer = try c.scalar(u64);
-        const failure_fn = try c.function("failure", &.{}, unit, &.{});
-        const failure_body = try c.body(failure_fn);
-        try c.define(failure_fn, try failure_body.ret(try failure_body.constant(void, {})));
         const entry = try c.function("entry", &.{}, integer, &.{});
         const body = try c.body(entry);
-        const symbolic = try body.call(failure_fn, &.{});
         const left = try body.constant(u64, 7);
         const right = try body.constant(u64, 2);
+        const failure = try foreign.literalFailure(void, {});
         if (division) {
-            try testing.expectError(error.InvalidSource, body.checked(.divide, left, right, .{
-                .overflow = try body.constant(void, {}),
-                .division_by_zero = symbolic,
+            try testing.expectError(error.ForeignHandle, body.checked(.divide, left, right, .{
+                .overflow = try c.literalFailure(void, {}),
+                .division_by_zero = failure,
             }));
-        } else try testing.expectError(error.InvalidSource, body.checkedAdd(left, right, symbolic));
-        try testing.expectEqual(error.InvalidSource, c.diagnostic.code.?);
-        try testing.expectEqualStrings(if (division) "division by zero" else "arithmetic overflow", c.diagnostic.entity);
-        const rendered = try c.diagnostic.renderAlloc(testing.allocator);
-        defer testing.allocator.free(rendered);
-        try testing.expect(std.mem.indexOf(u8, rendered, "literal") != null);
+        } else try testing.expectError(error.ForeignHandle, body.checkedAdd(left, right, failure));
     }
 }
 
@@ -845,7 +841,58 @@ test "review publication identifies the undefined declaration instead of its ent
             _ = try raw.declare(&.{}, try a.interop.schemaId(c, unit), &.{}, &.{});
         } else _ = try c.function("missing helper", &.{}, unit, &.{});
         try testing.expectError(error.UndefinedBody, c.module(entry, unit));
-        try testing.expectEqual(error.UndefinedBody, c.diagnostic.code.?);
-        try testing.expectEqualStrings(if (unnamed) "unnamed source function" else "missing helper", c.diagnostic.entity);
+        try testing.expectEqual(error.UndefinedBody, c.lastDiagnostic().code.?);
+        try testing.expectEqualStrings(if (unnamed) "unnamed source function" else "missing helper", c.lastDiagnostic().entity);
     }
+}
+
+fn snapshotGrowth(allocator: std.mem.Allocator) !void {
+    var raw = source.Builder.init(allocator);
+    defer raw.deinit();
+    const c = try a.Context.init(&raw);
+    const integer = try c.scalar(u64);
+    const unit = try c.scalar(void);
+    const failure = try c.literalFailure(void, {});
+    const entry = try c.function("snapshot entry", &.{}, integer, &.{});
+    const body = try c.body(entry);
+    const result = try body.checkedAdd(
+        try body.constant(u64, 7),
+        try body.constant(u64, 5),
+        failure,
+    );
+    try c.define(entry, try body.ret(result));
+    const first = try c.module(entry, unit);
+    const count = first.functions.len;
+    var before = try source.lower(allocator, first);
+    defer before.deinit();
+    const length = try @import("boundary_data").program_image.encodedLength(before.program);
+    const expected = try allocator.alloc(u8, length);
+    defer allocator.free(expected);
+    _ = try before.encode(allocator, expected);
+    for (0..128) |_| {
+        const helper = try c.function("later helper", &.{}, integer, &.{});
+        const helper_body = try c.body(helper);
+        try c.define(helper, try helper_body.ret(try helper_body.constant(u64, 99)));
+    }
+    const second = try c.module(entry, unit);
+    try testing.expectEqual(count, first.functions.len);
+    try testing.expectEqual(count + 128, second.functions.len);
+    try testing.expectEqual(first.entry, second.entry);
+    try testing.expectEqual(first.failure, second.failure);
+    var after = try source.lower(allocator, first);
+    defer after.deinit();
+    const actual = try allocator.alloc(u8, length);
+    defer allocator.free(actual);
+    _ = try after.encode(allocator, actual);
+    try testing.expectEqualSlices(u8, expected, actual);
+    var later = try source.lower(allocator, second);
+    defer later.deinit();
+}
+
+test "published snapshots survive 128 later declarations independently" {
+    try snapshotGrowth(testing.allocator);
+}
+
+test "failure literal and independent growing snapshots tolerate allocation failure" {
+    try testing.checkAllAllocationFailures(testing.allocator, snapshotGrowth, .{});
 }

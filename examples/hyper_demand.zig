@@ -16,7 +16,7 @@ fn step(b: *source.Builder, q: hyper.Query, consumer: bool) !source.Id {
     const body = try scope.closureBody(work);
     const nested = try body.branch();
     const contribution = try nested.performLocal(try t.need(consumer), try body.parameter("capability"), try nested.constant(bool, true));
-    const plus = try nested.checkedAdd(contribution, try nested.constant(u64, if (consumer) 13 else 10), try nested.constant(void, {}));
+    const plus = try nested.checkedAdd(contribution, try nested.constant(u64, if (consumer) 13 else 10), try c.literalFailure(void, {}));
     const result = if (consumer) blk: {
         const external_branch = try body.branch();
         const external_result = try external_branch.perform(t.read, try external_branch.constant(u64, 19));

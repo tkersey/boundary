@@ -83,7 +83,7 @@ pub const Environment = struct {
         consumer: bool,
     ) a.Error!hyper.demand.Interpretation {
         const t = self.raw_types;
-        return hyper.demand.interpret(self.context.raw, q, if (consumer) t.consumer else t.producer, t.integer, .{
+        return hyper.demand.interpret(a.interop.builder(self.context), q, if (consumer) t.consumer else t.producer, t.integer, .{
             .captures = &.{
                 t.boolean,
                 t.integer,
@@ -112,7 +112,7 @@ pub const Environment = struct {
         q: hyper.Query,
         work: *const a.Value,
     ) a.Error!*const a.Value {
-        const term = try hyper.demand.handle(self.context.raw, interpretation_value, q.peer, try a.interop.valueId(body, work));
+        const term = try hyper.demand.handle(a.interop.builder(self.context), interpretation_value, q.peer, try a.interop.valueId(body, work));
         return a.interop.term(body, term, self.integer);
     }
     pub fn answerSchema(self: Environment, q: hyper.Query) a.Error!*const a.Schema {
@@ -123,7 +123,7 @@ pub const Environment = struct {
     }
     pub fn definition(self: Environment, consumer: bool, comptime Step: type) a.Error!hyper.Ana {
         const pair = if (consumer) hyper.swap(self.raw_types.pair) else self.raw_types.pair;
-        return hyper.ana(self.context.raw, pair, self.raw_types.boolean, struct {
+        return hyper.ana(a.interop.builder(self.context), pair, self.raw_types.boolean, struct {
             pub fn emit(b: *source.Builder, q: hyper.Query) source.Error!Id {
                 return Step.emit(b, q) catch |err| return a.sourceError(err);
             }
@@ -135,7 +135,7 @@ pub const Environment = struct {
         definition_value: hyper.Ana,
         state_value: *const a.Value,
     ) a.Error!*const a.Value {
-        const term = try hyper.start(self.context.raw, definition_value, try a.interop.valueId(body, state_value));
+        const term = try hyper.start(a.interop.builder(self.context), definition_value, try a.interop.valueId(body, state_value));
         return a.interop.term(body, term, try a.interop.schema(self.context, definition_value.interface));
     }
     pub fn peerSchema(self: Environment) a.Error!*const a.Schema {

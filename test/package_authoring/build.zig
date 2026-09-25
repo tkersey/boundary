@@ -22,12 +22,14 @@ pub fn build(b: *std.Build) void {
         .imports = &.{.{ .name = "boundary", .module = boundary }},
     }) });
     b.step("reject", "Check rejected public-package neighbor").dependOn(&b.addRunArtifact(rejection).step);
-    if (b.option(bool, "category", "Build the deliberate category error") orelse false) {
-        const wrong = b.addExecutable(.{ .name = "category", .root_module = b.createModule(.{
-            .root_source_file = b.path("category.zig"),
-            .target = b.graph.host,
-            .imports = &.{.{ .name = "boundary", .module = boundary }},
-        }) });
-        b.getInstallStep().dependOn(&b.addInstallArtifact(wrong, .{}).step);
+    inline for (.{ "category", "failure_literal_category", "lifecycle" }) |mode| {
+        if (b.option(bool, mode, "Build a deliberate public API error") orelse false) {
+            const wrong = b.addExecutable(.{ .name = mode, .root_module = b.createModule(.{
+                .root_source_file = b.path(mode ++ ".zig"),
+                .target = b.graph.host,
+                .imports = &.{.{ .name = "boundary", .module = boundary }},
+            }) });
+            b.getInstallStep().dependOn(&b.addInstallArtifact(wrong, .{}).step);
+        }
     }
 }
