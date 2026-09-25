@@ -4,7 +4,7 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
     const data = b.addModule("boundary_data", .{
-        .root_source_file = b.path("src/v2/data/root.zig"),
+        .root_source_file = b.path("src/data/root.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -12,7 +12,7 @@ pub fn build(b: *std.Build) void {
     if (b.option(bool, "data-only", "Construct only boundary_data") orelse false) return;
     const tests = b.addTest(.{
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/v2/data/test_root.zig"),
+            .root_source_file = b.path("src/data/test_root.zig"),
             .target = b.graph.host,
             .optimize = optimize,
         }),
@@ -20,7 +20,7 @@ pub fn build(b: *std.Build) void {
     const data_step = b.step("check-data", "Check canonical records and pure admission");
     data_step.dependOn(&b.addRunArtifact(tests).step);
     const boundary = b.addModule("boundary", .{
-        .root_source_file = b.path("src/v2/root.zig"),
+        .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
         .imports = &.{.{ .name = "boundary_data", .module = data }},
@@ -48,26 +48,26 @@ pub fn build(b: *std.Build) void {
     const component_step = b.step("check-components", "Check object admission and source-independent composition");
     component_step.dependOn(&component_checks.step);
     const component_data_tests = b.addTest(.{ .root_module = b.createModule(.{
-        .root_source_file = b.path("src/v2/data/component_tests.zig"),
+        .root_source_file = b.path("src/data/component_tests.zig"),
         .target = b.graph.host,
         .optimize = optimize,
     }) });
     component_step.dependOn(&b.addRunArtifact(component_data_tests).step);
     const component_source_tests = b.addTest(.{ .root_module = b.createModule(.{
-        .root_source_file = b.path("src/v2/test_root.zig"),
+        .root_source_file = b.path("src/test_root.zig"),
         .target = b.graph.host,
         .optimize = optimize,
         .imports = &.{.{ .name = "boundary_data", .module = data }},
     }), .filters = &.{ "component", "public linker", "combinator" } });
     component_step.dependOn(&b.addRunArtifact(component_source_tests).step);
     const authoring = b.addTest(.{ .root_module = b.createModule(.{
-        .root_source_file = b.path("src/v2/test_root.zig"),
+        .root_source_file = b.path("src/test_root.zig"),
         .target = b.graph.host,
         .optimize = optimize,
         .imports = &.{.{ .name = "boundary_data", .module = data }},
     }) });
     const stable_lowering = b.addTest(.{ .root_module = b.createModule(.{
-        .root_source_file = b.path("src/v2/test_root.zig"),
+        .root_source_file = b.path("src/test_root.zig"),
         .target = b.graph.host,
         .optimize = optimize,
         .imports = &.{.{ .name = "boundary_data", .module = data }},
@@ -79,7 +79,7 @@ pub fn build(b: *std.Build) void {
     b.step("check-stable-lowering", "Check direct stable-slot construction")
         .dependOn(&b.addRunArtifact(stable_lowering).step);
     const facts_profile = b.addExecutable(.{ .name = "source-facts-profile", .root_module = b.createModule(.{
-        .root_source_file = b.path("src/v2/facts_profile.zig"),
+        .root_source_file = b.path("src/facts_profile.zig"),
         .target = b.graph.host,
         .optimize = .ReleaseSafe,
         .imports = &.{.{ .name = "boundary_data", .module = data }},
@@ -96,7 +96,7 @@ pub fn build(b: *std.Build) void {
     compact_fixtures.dependOn(&b.addInstallArtifact(compact_emit, .{}).step);
     const compact_target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding });
     const compact_wasm_data = b.createModule(.{
-        .root_source_file = b.path("src/v2/data/root.zig"),
+        .root_source_file = b.path("src/data/root.zig"),
         .target = compact_target,
         .optimize = .ReleaseSmall,
     });
@@ -134,7 +134,7 @@ pub fn build(b: *std.Build) void {
         }
     }
     const authoring_cases = b.addExecutable(.{ .name = "authoring-cases", .root_module = b.createModule(.{
-        .root_source_file = b.path("src/v2/authoring_cases.zig"),
+        .root_source_file = b.path("src/authoring_cases.zig"),
         .target = b.graph.host,
         .optimize = optimize,
         .imports = &.{.{ .name = "boundary_data", .module = data }},

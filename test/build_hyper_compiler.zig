@@ -1,8 +1,8 @@
 const std = @import("std");
 pub fn build(b: *std.Build) void {
     const root = b.option([]const u8, "source", "Exact Boundary source root") orelse @panic("source");
-    const data = b.createModule(.{ .root_source_file = .{ .cwd_relative = b.pathJoin(&.{ root, "src/v2/data/root.zig" }) }, .target = b.graph.host, .optimize = .ReleaseSafe });
-    const boundary = b.createModule(.{ .root_source_file = .{ .cwd_relative = b.pathJoin(&.{ root, "src/v2/root.zig" }) }, .target = b.graph.host, .optimize = .ReleaseSafe, .imports = &.{.{ .name = "boundary_data", .module = data }} });
+    const data = b.createModule(.{ .root_source_file = .{ .cwd_relative = b.pathJoin(&.{ root, "src/data/root.zig" }) }, .target = b.graph.host, .optimize = .ReleaseSafe });
+    const boundary = b.createModule(.{ .root_source_file = .{ .cwd_relative = b.pathJoin(&.{ root, "src/root.zig" }) }, .target = b.graph.host, .optimize = .ReleaseSafe, .imports = &.{.{ .name = "boundary_data", .module = data }} });
     const work = b.createModule(.{ .root_source_file = .{ .cwd_relative = b.pathJoin(&.{ root, "examples/hyper_fold.zig" }) }, .target = b.graph.host, .optimize = .ReleaseSafe, .imports = &.{.{ .name = "boundary", .module = boundary }} });
     const allocation = b.addTest(.{ .root_module = b.createModule(.{ .root_source_file = b.path("hyper_allocation.zig"), .target = b.graph.host, .optimize = .ReleaseSafe, .imports = &.{ .{ .name = "boundary", .module = boundary }, .{ .name = "workload", .module = work } } }) });
     b.step("allocation", "Sweep actual hyperfunction construction allocations").dependOn(&b.addRunArtifact(allocation).step);
