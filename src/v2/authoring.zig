@@ -155,6 +155,7 @@ const FunctionData = struct {
     parameters: []const Field,
     result: *const Schema,
     scope: ?*Scope = null,
+    callable_schema: ?*const Schema = null,
 };
 const ValueData = struct {
     owner: *Context,
@@ -212,6 +213,10 @@ pub const Context = struct {
     imported: std.AutoHashMapUnmanaged(p.Id, *const Schema) = .empty,
     functions: std.ArrayList(*const Function) = .empty,
     publication_uses: std.ArrayList(PublicationUse) = .empty,
+    variable_schemas: std.AutoHashMapUnmanaged(p.Id, *const Schema) = .empty,
+    lambda_schemas: std.AutoHashMapUnmanaged(p.Id, *const Schema) = .empty,
+    handlers: std.ArrayList(*const Handler) = .empty,
+    capture_failure: ?Error = null,
 
     pub fn init(raw: *source.Builder) Error!*Context {
         const self = try raw.allocator().create(Context);
@@ -267,7 +272,7 @@ pub const Context = struct {
     fn compatible(self: *Context, expected: *const Schema, actual: *const Schema) Error!bool {
         if (expected == actual) return true;
         const Pair = struct { expected: *const Schema, actual: *const Schema };
-        const allocator = self.raw.allocator();
+        const allocator = self.raw.arena.child_allocator;
         var pending: std.ArrayList(Pair) = .empty;
         defer pending.deinit(allocator);
         var seen: std.AutoHashMapUnmanaged(Pair, void) = .empty;
@@ -624,6 +629,7 @@ pub const Context = struct {
             .name = try self.label(name),
             .parameters = info.fields,
             .result = result,
+            .callable_schema = schema,
         });
     }
     pub fn twice(self: *Context, schema: *const Schema) Error!*const Function {
@@ -734,7 +740,7 @@ pub const Context = struct {
         const state_ids = try self.raw.allocator().alloc(p.Id, options.state.len);
         for (options.state, state_ids) |item, *id| id.* = try self.schemaId(item.schema);
         const body_schema = try self.handlerBodySchema(operation_handle, input, options);
-        return handle(Handler, try self.save(HandlerData, .{
+        const result = handle(Handler, try self.save(HandlerData, .{
             .owner = self,
             .id = try self.raw.handler(.{
                 .mode = options.mode,
@@ -754,6 +760,8 @@ pub const Context = struct {
             .clause = functions.clause,
             .state = try self.fields(options.state),
         }));
+        try self.handlers.append(self.raw.allocator(), result);
+        return result;
     }
     /// Derive the resumption clause from a responder with an explicit residual contract.
     pub fn responder(
@@ -843,9 +851,15 @@ pub const Context = struct {
         entry: *const Function,
         failure: *const Schema,
     ) Error!source.Compiled {
-        const module_value = try self.module(entry, failure);
+        return self.lowerNamed(allocator, try self.publish(entry, failure, false));
+    }
+    fn lowerNamed(self: *Context, allocator: std.mem.Allocator, module_value: source.Module) Error!source.Compiled {
         var diagnostic: source.Diagnostic = .{};
-        return source.lowerObserved(allocator, module_value, .{ .diagnostic = &diagnostic }) catch |err| {
+        var result = source.lowerObserved(allocator, module_value, .{
+            .diagnostic = &diagnostic,
+            .captures = if (self.lambda_schemas.count() != 0 or self.handlers.items.len != 0) .{ .context = self, .capture = observeCapture, .closure = observeClosure } else null,
+        }) catch |err| {
+            if (self.capture_failure) |failure| return failure;
             var name: []const u8 = "compiled source";
             const function_id = diagnostic.function;
             if (function_id) |id| for (self.functions.items) |f| {
@@ -864,6 +878,11 @@ pub const Context = struct {
             } };
             return err;
         };
+        if (self.capture_failure) |err| {
+            result.deinit();
+            return err;
+        }
+        return result;
     }
     fn notePublication(self: *Context, use: PublicationUse) Error!void {
         errdefer self.poisoned = true;
@@ -871,7 +890,7 @@ pub const Context = struct {
     }
     fn publication(self: *Context, failure: *const Schema) Error!void {
         if (self.publication_uses.items.len == 0) return;
-        var scratch = std.heap.ArenaAllocator.init(self.raw.allocator());
+        var scratch = std.heap.ArenaAllocator.init(self.raw.arena.child_allocator);
         defer scratch.deinit();
         const allocator = scratch.allocator();
         const terms = try allocator.alloc(bool, self.raw.terms.items.len);
@@ -917,6 +936,38 @@ pub const Context = struct {
             };
         }
     }
+    fn checkCapture(self: *Context, bound: []const *const Schema, variable: p.Id) Error!void {
+        // Raw interoperation has no recoverable field names. Known authored
+        // metadata is never replaced by raw structural equality.
+        const actual = self.variable_schemas.get(variable) orelse return;
+        for (bound) |allowed| if (try self.compatible(allowed, actual)) return;
+        return self.reject(error.SchemaMismatch, "capture", "retained named value is outside its declared capture allowance");
+    }
+    fn observeCapture(pointer: *anyopaque, effect: p.Id, variable: p.Id) void {
+        const self: *Context = @ptrCast(@alignCast(pointer));
+        if (self.capture_failure != null) return;
+        for (self.handlers.items) |handler_handle| {
+            const h = data(HandlerData, handler_handle);
+            if (data(OperationData, h.operation).id != effect) continue;
+            self.checkCapture(data(SchemaData, h.resumption).captures, variable) catch |err| {
+                self.capture_failure = err;
+                return;
+            };
+        }
+    }
+    fn observeClosure(pointer: *anyopaque, value_id: p.Id, variable: p.Id) void {
+        const self: *Context = @ptrCast(@alignCast(pointer));
+        if (self.capture_failure != null) return;
+        const schema = self.lambda_schemas.get(value_id) orelse return;
+        self.checkCapture(data(SchemaData, schema).captures, variable) catch |err| {
+            self.capture_failure = err;
+        };
+    }
+    fn capturePublication(self: *Context, module_value: source.Module) Error!void {
+        if (self.lambda_schemas.count() == 0 and self.handlers.items.len == 0) return;
+        var checked = try self.lowerNamed(self.raw.arena.child_allocator, module_value);
+        checked.deinit();
+    }
     /// Copies all source arrays: later low-level builder growth cannot invalidate this snapshot.
     /// Compilation still performs the authoritative source and target admission.
     pub fn module(
@@ -924,6 +975,9 @@ pub const Context = struct {
         entry: *const Function,
         failure: *const Schema,
     ) Error!source.Module {
+        return self.publish(entry, failure, true);
+    }
+    fn publish(self: *Context, entry: *const Function, failure: *const Schema, check_captures: bool) Error!source.Module {
         const f = data(FunctionData, entry);
         try self.origin(f.owner);
         const failure_id = try self.schemaId(failure);
@@ -931,7 +985,9 @@ pub const Context = struct {
             return self.reject(error.UndefinedBody, f.name, "all declarations must be defined");
         errdefer self.poisoned = true;
         try self.publication(failure);
-        return source.own(source.Module, self.raw.allocator(), self.raw.module(f.id, failure_id));
+        const result = self.raw.module(f.id, failure_id);
+        if (check_captures) try self.capturePublication(result);
+        return source.own(source.Module, self.raw.allocator(), result);
     }
 };
 
@@ -963,6 +1019,11 @@ pub const Body = struct {
         return v;
     }
     fn makeValue(self: *Body, id: p.Id, schema: *const Schema) Error!*const Value {
+        const expression = self.context.raw.values.items[@intCast(id)].expression;
+        if (expression == .variable) {
+            if (self.context.variable_schemas.get(expression.variable)) |prior| try self.context.same(prior, schema);
+            try self.context.variable_schemas.put(self.context.raw.allocator(), expression.variable, schema);
+        }
         return handle(Value, try self.context.save(ValueData, .{
             .owner = self.context,
             .id = id,
@@ -1106,6 +1167,7 @@ pub const Body = struct {
         if (shape != .internal or shape.internal != .computation)
             return c.reject(error.InvalidCategory, f.name, "lambda requires callable schema");
         const info = data(SchemaData, schema);
+        if (f.callable_schema) |declared| try c.same(declared, schema);
         try c.same(f.result, info.result orelse return error.InvalidSchema);
         if (f.parameters.len != info.fields.len)
             return c.reject(error.SchemaMismatch, f.name, "callable parameter count differs from declaration");
@@ -1115,7 +1177,9 @@ pub const Body = struct {
             try c.same(expected.schema, actual.schema);
         }
         errdefer c.poisoned = true;
-        return self.bind(try c.raw.pure(try c.raw.lambda(f.id, id)), schema);
+        const value_id = try c.raw.lambda(f.id, id);
+        try c.lambda_schemas.put(c.raw.allocator(), value_id, schema);
+        return self.bind(try c.raw.pure(value_id), schema);
     }
     pub fn apply(
         self: *Body,

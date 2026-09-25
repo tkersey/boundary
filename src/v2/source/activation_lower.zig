@@ -83,6 +83,8 @@ fn lowerInternal(
         .allocator = a,
         .source = owned,
         .facts = facts,
+        .capture_observer = options.captures,
+        .slot_variables = if (options.captures != null) try a.alloc([]const ?p.Id, owned.functions.len) else &.{},
         .cacheable = try @import("value_cache.zig").derive(a, owned, traits),
         .uses = traits,
     };
@@ -148,7 +150,7 @@ fn checkTarget(allocator: std.mem.Allocator, compiler: *Compiler, program: ir.Pr
         diagnostic.function = null;
         diagnostic.variable = null;
     }
-    return data.activation_ownership.analyzeDiagnosed(allocator, program, if (options.diagnostic) |diagnostic| &diagnostic.target else null) catch |err|
+    return data.activation_ownership.analyzeObserved(allocator, program, if (options.diagnostic) |diagnostic| &diagnostic.target else null, if (origins == null and compiler.capture_observer != null) .{ .context = compiler, .capture = Compiler.observeCapture } else null) catch |err|
         {
             if (options.diagnostic) |diagnostic| {
                 diagnostic.function = if (diagnostic.target.function) |id| (if (origins) |map| map[@intCast(id)] else id) else null;
@@ -173,6 +175,9 @@ const Compiler = struct {
     allocator: std.mem.Allocator,
     source: ast.Module,
     facts: check.Facts,
+    capture_observer: ?@import("diagnostic.zig").CaptureObserver,
+    slot_variables: [][]const ?p.Id,
+
     cacheable: []const bool,
     uses: data.traits.Facts,
     constants: std.ArrayList(p.Literal) = .empty,
@@ -181,7 +186,15 @@ const Compiler = struct {
     constructors: std.ArrayList(p.Constructor) = .empty,
     constructor_ids: std.AutoHashMapUnmanaged(ConstructorKey, p.Id) = .empty,
 
-    fn constructor(self: *Compiler, function: p.Id, schema: p.Id) Error!p.Id {
+    fn observeCapture(pointer: *anyopaque, function: p.Id, effect: p.Id, slot: p.Id) void {
+        const self: *Compiler = @ptrCast(@alignCast(pointer));
+        if (self.slot_variables[@intCast(function)][@intCast(slot)]) |variable|
+            self.capture_observer.?.capture(self.capture_observer.?.context, effect, variable);
+    }
+
+    fn constructor(self: *Compiler, function: p.Id, schema: p.Id, value_id: p.Id) Error!p.Id {
+        if (self.capture_observer) |observer| for (self.facts.functions[@intCast(function)].items) |variable|
+            observer.closure(observer.context, value_id, variable);
         const key: ConstructorKey = .{ .function = function, .schema = schema };
         if (self.constructor_ids.get(key)) |id| return id;
         const shape = self.source.schemas[@intCast(schema)];
@@ -238,6 +251,7 @@ const Function = struct {
     compiler: *Compiler,
     id: p.Id,
     slots: std.ArrayList(p.Id) = .empty,
+    slot_variables: std.ArrayList(?p.Id) = .empty,
     custody: std.ArrayList(ir.CustodyScope) = .empty,
     bindings: scope.Scopes,
     tasks: std.ArrayList(Task) = .empty,
@@ -261,6 +275,7 @@ const Function = struct {
         }
         const entry = if (definition.body) |body| try self.schedule(body, environment, null, 0) else data.relocation.missing;
         while (self.tasks.pop()) |task| try self.emit(task);
+        if (compiler.capture_observer != null) compiler.slot_variables[@intCast(self.id)] = self.slot_variables.items;
         return .{
             .entry = entry,
             .inputs = inputs,
@@ -275,11 +290,13 @@ const Function = struct {
     fn slot(self: *Function, schema: p.Id) Error!p.Id {
         const id = self.slots.items.len;
         try self.slots.append(self.compiler.allocator, schema);
+        if (self.compiler.capture_observer != null) try self.slot_variables.append(self.compiler.allocator, null);
         return id;
     }
 
     fn bind(self: *Function, parent: p.Id, name: p.Id) Error!p.Id {
         const destination = try self.slot(self.compiler.source.variables[@intCast(name)]);
+        if (self.compiler.capture_observer != null) self.slot_variables.items[@intCast(destination)] = name;
         return self.bindings.bind(parent, name, destination);
     }
 
@@ -642,7 +659,7 @@ const Block = struct {
             .lambda => |function| .{
                 .opcode = .computation,
                 .operands = try self.captures(function),
-                .immediate = try compiler.constructor(function, definition.schema),
+                .immediate = try compiler.constructor(function, definition.schema, id),
             },
         };
         return self.instruction(definition.schema, operation);
@@ -677,7 +694,7 @@ const Block = struct {
             }
             // Keep the source callable's signature/capture contract in target
             // admission even though execution needs no closure object.
-            _ = try compiler.constructor(function, value_definition.schema);
+            _ = try compiler.constructor(function, value_definition.schema, apply.computation);
             return .{ .call = .{
                 .function = function,
                 .arguments = try self.callArguments(function, apply.arguments),

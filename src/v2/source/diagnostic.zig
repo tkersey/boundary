@@ -15,9 +15,16 @@ pub const Observer = struct {
     context: *anyopaque,
     enter: *const fn (*anyopaque, Stage) void,
 };
+/// A source variable retained at an effect boundary, derived by target liveness.
+pub const CaptureObserver = struct {
+    context: *anyopaque,
+    capture: *const fn (*anyopaque, p.Id, p.Id) void,
+    closure: *const fn (*anyopaque, p.Id, p.Id) void,
+};
 pub const Options = struct {
     diagnostic: ?*Diagnostic = null,
     observer: ?Observer = null,
+    captures: ?CaptureObserver = null,
 
     pub fn stage(self: Options, next: Stage) void {
         if (self.diagnostic) |d| d.phase = next;

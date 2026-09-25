@@ -654,3 +654,110 @@ test "review resumption capture contracts preserve nested names" {
     const body = try c.body(caller);
     try testing.expectError(error.SchemaMismatch, body.call(use, &.{.{ .name = "token", .value = try body.parameter("token") }}));
 }
+
+test "review functionFor retains its full declared callable interface" {
+    var raw = source.Builder.init(testing.allocator);
+    defer raw.deinit();
+    const c = try a.Context.init(&raw);
+    const unit = try c.scalar(void);
+    const integer = try c.scalar(u64);
+    const left = try c.record(&.{.{ .name = "left", .schema = integer }});
+    const right = try c.record(&.{.{ .name = "right", .schema = integer }});
+    const first = try c.callable(&.{}, unit, &.{}, .{ .use = .reusable, .captures = &.{left} });
+    const second = try c.callable(&.{}, unit, &.{}, .{ .use = .reusable, .captures = &.{right} });
+    const helper = try c.functionFor("declared", first);
+    const entry = try c.function("entry", &.{}, unit, &.{});
+    const body = try c.body(entry);
+    try testing.expectError(error.SchemaMismatch, body.lambda(helper, second));
+}
+
+fn namedContinuation(allocator: std.mem.Allocator, matching: bool, retained: bool, snapshot: bool) !void {
+    var raw = source.Builder.init(allocator);
+    defer raw.deinit();
+    const c = try a.Context.init(&raw);
+    const unit = try c.scalar(void);
+    const integer = try c.scalar(u64);
+    const left = try c.record(&.{.{ .name = "left", .schema = integer }});
+    const right = try c.record(&.{.{ .name = "right", .schema = integer }});
+    const op = try c.local("suspend", unit, integer, .linear);
+    const h = try c.handler(op, integer, integer, .{
+        .mode = .deep,
+        .use = .linear,
+        .residual = &.{},
+        .captures = &.{ if (matching) left else right, integer },
+        .body_captures = &.{left},
+    });
+    const rf = try c.returnFunction(h);
+    const returns = try c.body(rf);
+    try c.define(rf, try returns.ret(try returns.parameter("result")));
+    const cf = try c.clauseFunction(h);
+    const clause = try c.body(cf);
+    try c.define(cf, try clause.ret(try clause.resumeValue(try clause.parameter("resumption"), try clause.constant(u64, 42))));
+    const entry = try c.function("entry", &.{.{ .name = "record", .schema = left }}, integer, &.{});
+    const body = try c.body(entry);
+    const record = try body.parameter("record");
+    const shape = try c.handledSchema(h);
+    const work_fn = try c.functionFor("work", shape);
+    const work = try body.closureBody(work_fn);
+    const before = if (retained) null else try work.field(record, "left");
+    _ = try work.performLocal(op, try work.parameter("capability"), try work.constant(void, {}));
+    const result = before orelse try work.field(record, "left");
+    try c.define(work_fn, try work.ret(result));
+    try c.define(entry, try body.ret(try body.handleWith(h, try body.lambda(work_fn, shape), &.{})));
+    var compiled = if (snapshot) try source.lower(allocator, try c.module(entry, unit)) else try c.compile(allocator, entry, unit);
+    compiled.deinit();
+}
+
+test "review continuation names use authoritative liveness, not all lexical captures" {
+    for ([_]bool{ false, true }) |snapshot| {
+        try testing.expectError(error.SchemaMismatch, namedContinuation(testing.allocator, false, true, snapshot));
+        try namedContinuation(testing.allocator, true, true, snapshot);
+        try namedContinuation(testing.allocator, false, false, snapshot);
+    }
+}
+
+test "review named capture observation reclaims scratch and tolerates allocation failure" {
+    try testing.checkAllAllocationFailures(testing.allocator, namedContinuation, .{ true, true, true });
+}
+
+test "review actual generic closure captures must satisfy named callable allowance" {
+    var raw = source.Builder.init(testing.allocator);
+    defer raw.deinit();
+    const c = try a.Context.init(&raw);
+    const unit = try c.scalar(void);
+    const integer = try c.scalar(u64);
+    const left = try c.record(&.{.{ .name = "left", .schema = integer }});
+    const right = try c.record(&.{.{ .name = "right", .schema = integer }});
+    const shape = try c.callable(&.{}, integer, &.{}, .{ .use = .reusable, .captures = &.{right} });
+    const entry = try c.function("entry", &.{.{ .name = "record", .schema = left }}, integer, &.{});
+    const body = try c.body(entry);
+    const record = try body.parameter("record");
+    const helper = try c.function("generic", &.{}, integer, &.{});
+    const nested = try body.closureBody(helper);
+    try c.define(helper, try nested.ret(try nested.field(record, "left")));
+    try c.define(entry, try body.ret(try body.apply(try body.lambda(helper, shape), &.{})));
+    try testing.expectError(error.SchemaMismatch, c.compile(testing.allocator, entry, unit));
+}
+
+test "review abandoned lambda metadata does not constrain a live equivalent raw constructor" {
+    var raw = source.Builder.init(testing.allocator);
+    defer raw.deinit();
+    const c = try a.Context.init(&raw);
+    const integer = try c.scalar(u64);
+    const left = try c.record(&.{.{ .name = "left", .schema = integer }});
+    const right = try c.record(&.{.{ .name = "right", .schema = integer }});
+    const good = try c.callable(&.{}, integer, &.{}, .{ .use = .reusable, .captures = &.{left} });
+    const bad = try c.callable(&.{}, integer, &.{}, .{ .use = .reusable, .captures = &.{right} });
+    const entry = try c.function("entry", &.{.{ .name = "record", .schema = left }}, integer, &.{});
+    const body = try c.body(entry);
+    const record = try body.parameter("record");
+    const helper = try c.function("helper", &.{}, integer, &.{});
+    const nested = try body.closureBody(helper);
+    try c.define(helper, try nested.ret(try nested.field(record, "left")));
+    const abandoned = try body.branch();
+    _ = try abandoned.lambda(helper, bad);
+    abandoned.abandon();
+    try c.define(entry, try body.ret(try body.apply(try body.lambda(helper, good), &.{})));
+    var compiled = try c.compile(testing.allocator, entry, try c.scalar(void));
+    compiled.deinit();
+}

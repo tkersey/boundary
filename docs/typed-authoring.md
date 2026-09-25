@@ -110,8 +110,11 @@ matching capability. `scoped` additionally declares named authored body operands
 
 `callable` fixes named parameters, result, allowed effects, use, capture allowance
 and regions. `functionFor` derives a declaration from that interface. `lambda`
-checks the function's named interface; final admission checks its actual captures
-and permissions. Reusing a returned function emits calls without rebuilding its
+checks the function's complete declared interface. Actual lexical captures and
+values retained across effects are compared with named capture bounds using the
+existing compiler's capture and liveness observations. Ownership, borrowing and
+multiplicity remain checked by the unchanged admission rules. A value used only
+before suspension does not become a continuation capture. Reusing a returned function emits calls without rebuilding its
 body. Staging configurations are values, not a cache keyed only by Zig type.
 
 ## Interpretation, ownership and diagnostics
@@ -294,19 +297,33 @@ with 20 warmed in-process emission observations per pair. Median microseconds:
 
 | Stage | Baseline | Candidate |
 |---|---:|---:|
-| Native authoring | 0.250 | 0.708 |
-| Lower/check | 4.750 | 5.500 |
-| Encode | 2.000 | 2.000 |
-| Existing World replay, 20 paired observations | 135.125 | 115.500 |
+| Native authoring | 0.250 | 0.834 |
+| Lower/check | 4.834 | 5.792 |
+| Encode | 2.042 | 2.125 |
+| Existing World replay, 20 paired observations | 126.875 | 123.834 |
 
-Warmed incremental native-emitter build medians were 164.2 and 165.4 ms. These are
+Warmed incremental native-emitter build medians were 176.0 and 173.3 ms. These are
 local bounded measurements, not cold-build or speedup claims. The added native
 cost comes from owned labels/handles, explicit bindings and the source snapshot;
-it adds about 1.2 microseconds to this small emission. Replay variation does not
+it adds about 1.6 microseconds to this small emission. Replay variation does not
 establish a speedup. Reproduce author/lower/encode with
 `test/build_authoring_economy.zig` and `test/authoring_economy.zig` against the exact
 baseline and candidate source roots; `tools/authoring_stats.zig` reads image counts.
 The test-only low-level twice reference preserves the baseline construction.
+
+For capture-bearing programs, `module()` performs a publication-time admission
+pass before returning its independently owned snapshot. `compile()` combines this
+named validation with its normal lowering and avoids a duplicate pass. Observation
+scratch uses the parent allocator and is reclaimed; ordinary low-level compilation
+does not allocate the optional source-variable map. Twenty alternating warmed
+whole-process reciprocal-demand emissions measured medians of 4.342 ms baseline
+and 4.929 ms candidate, including process startup, authoring, admission and encoding.
+The roughly 0.59 ms increase includes the extra snapshot admission and named
+metadata work; this measurement does not isolate their individual costs. Retaining
+that bounded cost is recommended to check named captures before raw-source
+publication. Reproduce with `-Dworkload=examples/hyper_demand.zig` and the economy
+build's `emitter` step, timing the executable; the baseline's private `Application`
+prevents using the in-process `measure` step for that workload.
 
 
 Local validation for this draft uses the private sibling `../boundary-runtime-61b776`:
@@ -331,3 +348,10 @@ cleanup consumers, late definitions, abandoned branches, callable/resumption bou
 stale diagnostic replacement and allocation failure. Allocation injection additionally
 exposed a pre-existing stale target-diagnostic location after projection; target
 admission now clears prior-pass locations before reporting a new failure.
+
+
+Capture regressions additionally cover declaration-to-lambda retyping, actual
+lexical captures of generic declarations, live continuation records, values used
+only before suspension, abandoned lambda construction, both publication entry
+points, and allocation failure. Named observations consume existing admission
+facts; they do not introduce a second ownership analysis or alter capture bounds.

@@ -21,7 +21,7 @@ pub fn build(b: *std.Build) void {
     b.step("reference", "Build the independent frozen twice source")
         .dependOn(&b.addInstallArtifact(reference, .{}).step);
     const workload = b.createModule(.{
-        .root_source_file = .{ .cwd_relative = b.pathJoin(&.{ root, "examples/one_effect.zig" }) },
+        .root_source_file = .{ .cwd_relative = b.pathJoin(&.{ root, b.option([]const u8, "workload", "Application source relative to source root") orelse "examples/one_effect.zig" }) },
         .target = b.graph.host,
         .optimize = .ReleaseSafe,
         .imports = &.{.{ .name = "boundary", .module = boundary }},
