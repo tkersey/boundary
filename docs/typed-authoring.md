@@ -129,6 +129,10 @@ body. Staging configurations are values, not a cache keyed only by Zig type.
 resumption input. Intentional choices remain explicit: deep/shallow mode, body
 input and interpretation answer, resumption use, body use (`body_use`), residual effects, continuation
 captures, body captures, handler state and owned/borrowed regions.
+`obligations` defaults to `false`; set it to `true` when a local resumption may
+capture a pending protected cleanup. This carries the existing source/data bound,
+including through `responder`; it does not change effects, regions or resumption
+use. Independent admission still rejects invalid combinations and captures.
 
 Use `returnFunction`, `clauseFunction` and `handledSchema` to author its pieces.
 Return functions expose `result`; clauses expose `payload`, named state and scoped

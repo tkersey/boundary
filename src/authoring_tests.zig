@@ -1035,3 +1035,22 @@ test "OOM replaces an earlier diagnostic across authoring allocation paths" {
         try testing.expect(failed);
     }
 }
+
+fn obligationAllocation(allocator: std.mem.Allocator) !void {
+    var raw = source.Builder.init(allocator);
+    defer raw.deinit();
+    const module = try @import("authoring_cases.zig").obligationsCase(&raw, true);
+    var compiled = try source.lower(allocator, module);
+    defer compiled.deinit();
+}
+
+test "handler cleanup obligations require explicit opt-in" {
+    var raw = source.Builder.init(testing.allocator);
+    defer raw.deinit();
+    try testing.expectError(error.InvalidOwnership, @import("authoring_cases.zig").obligationsCase(&raw, false));
+    try obligationAllocation(testing.allocator);
+}
+
+test "obligation-bearing handler publication tolerates allocation failures" {
+    try testing.checkAllAllocationFailures(testing.allocator, obligationAllocation, .{});
+}

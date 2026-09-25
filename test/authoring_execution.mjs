@@ -56,6 +56,7 @@ async function execute(image, initialArgs, replies) {
 }
 const empty=new Uint8Array();
 const fixtureCases = {
+  obligations:[{args:empty,replies:[empty],value:u64(42),payload:empty,identity:'case/release'}],
   imported_scoped:[{args:empty,replies:[],value:u64(42)}],
   cleanup_named:[{args:Uint8Array.of(1,...u64(17),0,0),replies:[],value:u64(17)},
     {args:Uint8Array.of(0,0,0),replies:[],value:u64(0)}],

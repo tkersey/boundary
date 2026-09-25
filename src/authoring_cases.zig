@@ -26,6 +26,7 @@ pub const Kind = enum {
     imported_scoped,
     cleanup_named,
     imported_sequence,
+    obligations,
 };
 
 pub fn build(raw: *source.Builder, kind: Kind) !source.Module {
@@ -33,6 +34,7 @@ pub fn build(raw: *source.Builder, kind: Kind) !source.Module {
         .deep, .shallow, .transform_deep, .transform_shallow, .bypass, .dispose, .reusable_body => handlerCase(raw, kind),
         .twice => twiceCase(raw),
         .cleanup => cleanupCase(raw),
+        .obligations => obligationsCase(raw, true),
         .lazy, .demanded => delayedCase(raw, kind == .demanded),
         .failure_before, .failure_after => failureCase(raw, kind == .failure_after),
         .match => matchCase(raw),
@@ -113,6 +115,56 @@ fn twiceCase(raw: *source.Builder) !source.Module {
             .value = try entry_body.lambda(work, schema),
         },
     })));
+    return c.module(entry, unit);
+}
+/// A local resumption must be allowed to retain its pending protected cleanup.
+pub fn obligationsCase(raw: *source.Builder, allowed: bool) !source.Module {
+    const c = try a.Context.init(raw);
+    const unit = try c.scalar(void);
+    const integer = try c.scalar(u64);
+    const question = try c.local("case/question", unit, unit, .linear);
+    const cap = try c.capability(question);
+    const release = try c.external("case/release", unit, unit);
+    const responder = try c.function("reply", &.{.{ .name = "payload", .schema = unit }}, unit, &.{});
+    const response = try c.body(responder);
+    try c.define(responder, try response.ret(try response.parameter("payload")));
+    const h = try c.responder(question, integer, responder, .{
+        .mode = .deep,
+        .use = .linear,
+        .residual = &.{release},
+        .captures = &.{ integer, unit, cap },
+        .obligations = allowed,
+    });
+    const handled = try c.handledSchema(h);
+    const work = try c.functionFor("handled work", handled);
+    const body = try c.body(work);
+    const capability = try body.parameter("capability");
+    const inside = try c.callable(&.{}, integer, &.{question}, .{
+        .use = .linear,
+        .captures = &.{cap},
+    });
+    const inner = try c.functionFor("protected question", inside);
+    const inner_body = try body.closureBody(inner);
+    _ = try inner_body.performLocal(question, capability, try inner_body.constant(void, {}));
+    try c.define(inner, try inner_body.ret(try inner_body.constant(u64, 42)));
+    const cleanup_schema = try c.callable(&.{.{
+        .name = "exit",
+        .schema = try c.cleanupInfo(unit),
+    }}, unit, &.{release}, .{ .use = .linear, .captures = &.{} });
+    const cleanup = try c.functionFor("release", cleanup_schema);
+    const finalizer = try c.body(cleanup);
+    const released = try finalizer.perform(release, try finalizer.constant(void, {}));
+    try c.define(cleanup, try finalizer.ret(released));
+    const protected = try body.protect(
+        try body.lambda(inner, inside),
+        try body.lambda(cleanup, cleanup_schema),
+        &.{},
+    );
+    try c.define(work, try body.ret(protected));
+    const entry = try c.function("entry", &.{}, integer, &.{release});
+    const entry_body = try c.body(entry);
+    const result = try entry_body.handleWith(h, try entry_body.lambda(work, handled), &.{});
+    try c.define(entry, try entry_body.ret(result));
     return c.module(entry, unit);
 }
 fn cleanupCase(raw: *source.Builder) !source.Module {
