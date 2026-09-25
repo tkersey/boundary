@@ -761,3 +761,44 @@ test "review abandoned lambda metadata does not constrain a live equivalent raw 
     var compiled = try c.compile(testing.allocator, entry, try c.scalar(void));
     compiled.deinit();
 }
+
+const ForwardScope = enum { sibling, same, global, abandoned };
+fn forwardScope(allocator: std.mem.Allocator, scenario: ForwardScope, lambda: bool) !void {
+    var raw = source.Builder.init(allocator);
+    defer raw.deinit();
+    const c = try a.Context.init(&raw);
+    const integer = try c.scalar(u64);
+    const shape = try c.callable(&.{}, integer, &.{}, .{ .use = .reusable, .captures = &.{} });
+    const helper = try c.functionFor("forward helper", shape);
+    const entry = try c.function("entry", &.{.{ .name = "choose", .schema = try c.scalar(bool) }}, integer, &.{});
+    const body = try c.body(entry);
+    const left = try body.branch();
+    const right = try body.branch();
+    const use = if (scenario == .same) left else right;
+    const pending = if (lambda) try use.apply(try use.lambda(helper, shape), &.{}) else try use.call(helper, &.{});
+    const definition = if (scenario == .global) try c.body(helper) else try left.closureBody(helper);
+    try c.define(helper, try definition.ret(try definition.constant(u64, 7)));
+    const left_result = try left.ret(if (scenario == .same) pending else try left.constant(u64, 11));
+    const result = if (scenario == .abandoned) blk: {
+        right.abandon();
+        break :blk try body.block(left_result);
+    } else try body.conditional(try body.parameter("choose"), left_result, try right.ret(if (scenario == .same) try right.constant(u64, 13) else pending));
+    try c.define(entry, try body.ret(result));
+    // Exercise raw-source publication too: callers cannot evade the obligation
+    // by choosing module() instead of Context.compile().
+    var compiled = try source.lower(allocator, try c.module(entry, try c.scalar(void)));
+    compiled.deinit();
+}
+
+test "review late function scope rejects prior sibling calls and lambdas" {
+    for ([_]bool{ false, true }) |lambda| {
+        try testing.expectError(error.OutOfScope, forwardScope(testing.allocator, .sibling, lambda));
+        try forwardScope(testing.allocator, .same, lambda);
+        try forwardScope(testing.allocator, .global, lambda);
+        try forwardScope(testing.allocator, .abandoned, lambda);
+    }
+}
+
+test "review pending forward scope checks tolerate allocation failure" {
+    try testing.checkAllAllocationFailures(testing.allocator, forwardScope, .{ .same, true });
+}

@@ -52,6 +52,10 @@ request, including after restoration.
 No native callback enters the Program. Inspecting schemas or diagnostics does not
 force delayed work. Recursive function declarations can be used before definition;
 all declarations must be defined before `module` or `compile` publishes a snapshot.
+Calls and lambda constructions made before a body is opened are rechecked against
+that function's eventual lexical parent at publication. Valid uses in that parent
+and forward uses of global functions remain supported; discarded branches do not
+contribute pending scope obligations.
 Publication also compares the declared named failure layout with executable
 arithmetic faults and protected cleanup contracts, including late helper
 definitions. Abandoned staging branches do not contribute executable uses.

@@ -193,8 +193,11 @@ const RegionData = struct { owner: *Context, id: p.Id };
 const Scope = struct { parent: ?*Scope, active: bool = true };
 const PublicationUse = struct {
     anchor: union(enum) { value: p.Id, term: p.Id },
-    schema: *const Schema,
-    cleanup: bool = false,
+    contract: union(enum) {
+        failure: *const Schema,
+        cleanup: *const Schema,
+        function_scope: struct { declaration: *const Function, scope: *Scope },
+    },
 };
 const Binding = struct { variable: p.Id, term: p.Id };
 fn data(comptime T: type, pointer: anytype) *const T {
@@ -928,13 +931,27 @@ pub const Context = struct {
                 .term => |id| id < terms.len and terms[@intCast(id)],
             };
             if (!included) continue;
-            if (use.cleanup and cleanup == null) cleanup = try self.cleanupInfo(failure);
-            self.same(if (use.cleanup) cleanup.? else failure, use.schema) catch |err| {
-                self.diagnostic.entity = if (use.cleanup) "cleanup" else "authored failure";
-                self.diagnostic.relationship = "named failure layout differs from module failure contract";
-                return err;
-            };
+            switch (use.contract) {
+                .function_scope => |pending| try self.functionVisible(data(FunctionData, pending.declaration), pending.scope),
+                .failure, .cleanup => |schema| {
+                    const is_cleanup = use.contract == .cleanup;
+                    if (is_cleanup and cleanup == null) cleanup = try self.cleanupInfo(failure);
+                    self.same(if (is_cleanup) cleanup.? else failure, schema) catch |err| {
+                        self.diagnostic.entity = if (is_cleanup) "cleanup" else "authored failure";
+                        self.diagnostic.relationship = "named failure layout differs from module failure contract";
+                        return err;
+                    };
+                },
+            }
         }
+    }
+    fn functionVisible(self: *Context, f: *const FunctionData, at: *Scope) Error!void {
+        try self.origin(f.owner);
+        if (f.scope) |scope| if (scope.parent) |parent| {
+            var cursor: ?*Scope = at;
+            while (cursor) |current| : (cursor = current.parent) if (current == parent) return;
+            return self.reject(error.OutOfScope, f.name, "closure belongs to another lexical scope");
+        };
     }
     fn checkCapture(self: *Context, bound: []const *const Schema, variable: p.Id) Error!void {
         // Raw interoperation has no recoverable field names. Known authored
@@ -1094,12 +1111,14 @@ pub const Body = struct {
         try self.ready();
         const f = try self.visibleFunction(function_handle);
         errdefer self.context.poisoned = true;
-        return self.bind(try self.context.raw.term(.{
+        const term = try self.context.raw.term(.{
             .call = .{
                 .function = f.id,
                 .arguments = try self.arguments(f.parameters, args),
             },
-        }), f.result);
+        });
+        try self.noteForwardUse(function_handle, .{ .term = term });
+        return self.bind(term, f.result);
     }
     pub fn perform(
         self: *Body,
@@ -1147,13 +1166,16 @@ pub const Body = struct {
     fn visibleFunction(self: *Body, function_handle: *const Function) Error!*const FunctionData {
         try self.ready();
         const f = data(FunctionData, function_handle);
-        try self.context.origin(f.owner);
-        if (f.scope) |scope| if (scope.parent) |parent| {
-            var cursor: ?*Scope = self.scope;
-            while (cursor) |current| : (cursor = current.parent) if (current == parent) return f;
-            return self.context.reject(error.OutOfScope, f.name, "closure belongs to another lexical scope");
-        };
+        try self.context.functionVisible(f, self.scope);
         return f;
+    }
+    fn noteForwardUse(self: *Body, declaration: *const Function, anchor: @FieldType(PublicationUse, "anchor")) Error!void {
+        // A declaration may acquire its lexical parent after this use. Only
+        // published uses constrain that eventual parent; abandoned AST does not.
+        if (data(FunctionData, declaration).scope == null)
+            try self.context.notePublication(.{ .anchor = anchor, .contract = .{
+                .function_scope = .{ .declaration = declaration, .scope = self.scope },
+            } });
     }
     pub fn lambda(
         self: *Body,
@@ -1178,6 +1200,7 @@ pub const Body = struct {
         }
         errdefer c.poisoned = true;
         const value_id = try c.raw.lambda(f.id, id);
+        try self.noteForwardUse(function_handle, .{ .value = value_id });
         try c.lambda_schemas.put(c.raw.allocator(), value_id, schema);
         return self.bind(try c.raw.pure(value_id), schema);
     }
@@ -1316,8 +1339,8 @@ pub const Body = struct {
             .operands = &.{ a.id, b.id },
             .failures = faults[0..@as(usize, if (division) 2 else 1)],
         } } });
-        try c.notePublication(.{ .anchor = .{ .value = value_id }, .schema = overflow.schema });
-        if (division) try c.notePublication(.{ .anchor = .{ .value = value_id }, .schema = (try self.useValue(failures.division_by_zero.?)).schema });
+        try c.notePublication(.{ .anchor = .{ .value = value_id }, .contract = .{ .failure = overflow.schema } });
+        if (division) try c.notePublication(.{ .anchor = .{ .value = value_id }, .contract = .{ .failure = (try self.useValue(failures.division_by_zero.?)).schema } });
         return self.bind(try c.raw.pure(value_id), a.schema);
     }
     pub fn sequenceValue(
@@ -1506,7 +1529,7 @@ pub const Body = struct {
                 .arguments = try self.arguments(info.fields, args),
             },
         });
-        try c.notePublication(.{ .anchor = .{ .term = term }, .schema = cleanup_info.fields[0].schema, .cleanup = true });
+        try c.notePublication(.{ .anchor = .{ .term = term }, .contract = .{ .cleanup = cleanup_info.fields[0].schema } });
         return self.bind(term, info.result orelse return c.reject(error.InvalidSchema, "protection", "requires callable body and cleanup contracts"));
     }
     pub fn branch(self: *Body) Error!*Body {
