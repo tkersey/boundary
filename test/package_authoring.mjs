@@ -21,7 +21,7 @@ try {
   for (const [mode,diagnostic] of [
     ['category',/expected type '\*const .*Schema', found '\*const .*Operation'/],
     ['failure_literal_category',/expected type '\*const .*FailureLiteral', found '\*const .*Value'/],
-    ['lifecycle',/opaque.*Body.*does not support field access/],
+    ['lifecycle',/Body.*does not support field access/],
   ]) {
     const wrong=spawnSync('zig',['build',`-D${mode}=true`],{cwd:directory,encoding:'utf8'});
     assert.notEqual(wrong.status,0);

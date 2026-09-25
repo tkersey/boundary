@@ -896,3 +896,66 @@ test "published snapshots survive 128 later declarations independently" {
 test "failure literal and independent growing snapshots tolerate allocation failure" {
     try testing.checkAllAllocationFailures(testing.allocator, snapshotGrowth, .{});
 }
+
+test "consolidation arithmetic requires exactly the applicable literal faults" {
+    for ([_]bool{ false, true }) |division| {
+        var raw = source.Builder.init(testing.allocator);
+        defer raw.deinit();
+        const c = try a.Context.init(&raw);
+        const integer = try c.scalar(u64);
+        const entry = try c.function("entry", &.{}, integer, &.{});
+        const body = try c.body(entry);
+        const value = try body.constant(u64, 1);
+        const failure = try c.literalFailure(void, {});
+        try testing.expectError(error.InvalidCategory, body.checked(
+            if (division) .divide else .add,
+            value,
+            value,
+            .{ .overflow = failure, .division_by_zero = if (division) null else failure },
+        ));
+    }
+}
+
+test "consolidation non-Boolean branches and malformed named aggregates reject" {
+    for (0..4) |kind| {
+        var raw = source.Builder.init(testing.allocator);
+        defer raw.deinit();
+        const c = try a.Context.init(&raw);
+        const integer = try c.scalar(u64);
+        const entry = try c.function("entry", &.{}, integer, &.{});
+        const body = try c.body(entry);
+        const value = try body.constant(u64, 1);
+        switch (kind) {
+            0 => {
+                const left = try body.branch();
+                const right = try body.branch();
+                try testing.expectError(error.SchemaMismatch, body.conditional(
+                    value,
+                    try left.ret(value),
+                    try right.ret(value),
+                ));
+            },
+            1 => {
+                const record = try c.record(&.{.{ .name = "x", .schema = integer }});
+                try testing.expectError(error.SchemaMismatch, body.product(record, &.{}));
+            },
+            2 => {
+                const record = try c.record(&.{
+                    .{ .name = "x", .schema = integer }, .{ .name = "y", .schema = integer },
+                });
+                try testing.expectError(error.DuplicateName, body.product(record, &.{
+                    .{ .name = "x", .value = value }, .{ .name = "x", .value = value },
+                }));
+            },
+            3 => {
+                const variant = try c.alternatives(&.{.{ .name = "x", .schema = integer }});
+                try testing.expectError(error.SchemaMismatch, body.variant(
+                    variant,
+                    "x",
+                    try body.constant(bool, true),
+                ));
+            },
+            else => unreachable,
+        }
+    }
+}
