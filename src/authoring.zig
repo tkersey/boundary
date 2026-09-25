@@ -83,6 +83,8 @@ pub const CallableOptions = struct {
     regions: []const *const Region = &.{},
 };
 pub const HandlerOptions = struct {
+    /// Permit protected cleanup obligations in captured resumptions.
+    obligations: bool = false,
     mode: p.Mode,
     use: p.Use,
     residual: []const *const Operation,
@@ -758,6 +760,7 @@ pub const Context = opaque {
             .mode = options.mode,
             .use = options.use,
             .owned_regions = try self.regionIds(options.owned_regions),
+            .obligations = options.obligations,
         } } });
         const resumption = try self.internComplete(resume_id, &.{.{ .name = "reply", .schema = op.result }}, resume_answer, options.captures);
         const functions = try self.handlerFunctions(op, input, answer, resumption, options);
