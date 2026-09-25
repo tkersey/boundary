@@ -32,6 +32,11 @@ src/data/blob_admission.zig
 src/data/borrow_contract.zig
 src/data/borrow_flow.zig
 src/data/cleanup_contract.zig
+src/data/coalescing_graph.zig
+src/data/coalescing_graph_tests.zig
+src/data/coalescing_validation.zig
+src/data/coalescing_witness.zig
+src/data/coalescing_witness_tests.zig
 src/data/compact_sequence.zig
 src/data/compact_sequence_tests.zig
 src/data/component.zig
@@ -59,6 +64,7 @@ src/data/resource_admission.zig
 src/data/root.zig
 src/data/scalar.zig
 src/data/schema.zig
+src/data/schema_partition.zig
 src/data/state_admission.zig
 src/data/state_effects.zig
 src/data/state_image.zig

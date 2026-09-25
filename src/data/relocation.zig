@@ -10,6 +10,20 @@ pub const missing = std.math.maxInt(p.Id);
 pub const Error = @import("admission.zig").Error;
 pub const Maps = [kind_count][]const p.Id;
 
+/// Caller owns each returned slice. No partial allocation escapes on failure.
+pub fn identityMaps(a: std.mem.Allocator, counts: [kind_count]usize) Error!Maps {
+    var result: Maps = undefined;
+    var initialized: usize = 0;
+    errdefer for (result[0..initialized]) |map| a.free(map);
+    for (&result, counts) |*map, count| {
+        const values = try a.alloc(p.Id, count);
+        for (values, 0..) |*value, index| value.* = index;
+        map.* = values;
+        initialized += 1;
+    }
+    return result;
+}
+
 const RegionNames = struct {
     allocator: std.mem.Allocator,
     declared: p.Id,
