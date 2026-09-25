@@ -25,6 +25,17 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .imports = &.{.{ .name = "boundary_data", .module = data }},
     });
+    const coalescing_emit = b.addExecutable(.{
+        .name = "coalescing-fixture",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/coalescing_emit.zig"),
+            .target = b.graph.host,
+            .optimize = optimize,
+            .imports = &.{.{ .name = "boundary_data", .module = data }},
+        }),
+    });
+    b.step("build-coalescing-fixtures", "Build independently authored coalescing witnesses")
+        .dependOn(&b.addInstallArtifact(coalescing_emit, .{}).step);
     const linker = b.addExecutable(.{ .name = "boundary-link", .root_module = b.createModule(.{
         .root_source_file = b.path("tools/component_link.zig"),
         .target = target,

@@ -41,9 +41,15 @@ try {
     entry: { instance: "double", symbol: "main" },
   });
   assert.notDeepEqual(first, second);
+  const safe = await link({...manifest, coalescing: "safe"});
+  assert.equal(safe.subarray(0, 8).toString(), "ABL_BPI3");
+  assert.ok(safe.length <= first.length);
+  assert.deepEqual(await link({...manifest, coalescing: "safe",
+    instances: [...manifest.instances].reverse(), bindings: [...bindings].reverse()}), safe);
   assert.deepEqual(emitterCalls, { call: 1, state: 1, suspend: 1, double: 1 });
-  assert.equal(linkerCalls, 3);
-  console.log(JSON.stringify({ check: "source-independent BMO1 composition", emitterCalls, linkerCalls, objectBytes: sizes, linkedBytes: [first.length, second.length] }));
+  assert.equal(linkerCalls, 5);
+  console.log(JSON.stringify({ check: "source-independent BMO1 composition", emitterCalls,
+    linkerCalls, objectBytes: sizes, linkedBytes: [first.length, second.length], safeBytes: safe.length }));
 } finally {
   await rm(directory, { recursive: true, force: true });
 }

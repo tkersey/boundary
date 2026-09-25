@@ -1,7 +1,16 @@
 //! Caller-owned diagnostics and optional compilation phase observations.
 const data = @import("boundary_data");
 const p = data.program;
-pub const Stage = enum { source_copy, source_check, lowering, target_check, direct_optimization, canonicalization, complete };
+pub const Stage = enum {
+    source_copy,
+    source_check,
+    lowering,
+    target_check,
+    direct_optimization,
+    canonicalization,
+    coalescing,
+    complete,
+};
 pub const Diagnostic = struct {
     phase: Stage = .source_copy,
     code: ?anyerror = null,
@@ -25,6 +34,7 @@ pub const Options = struct {
     diagnostic: ?*Diagnostic = null,
     observer: ?Observer = null,
     captures: ?CaptureObserver = null,
+    coalescing: data.coalescing.Options = .{},
 
     pub fn stage(self: Options, next: Stage) void {
         if (self.diagnostic) |d| d.phase = next;

@@ -17,7 +17,7 @@ pub const lowerObserved = @import("source/activation_lower.zig").lowerObserved;
 pub const Diagnostic = @import("source/diagnostic.zig").Diagnostic;
 pub const CompileOptions = @import("source/diagnostic.zig").Options;
 pub const CompileStage = @import("source/diagnostic.zig").Stage;
-pub const Error = data.admission.Error || data.activation_flow.Error ||
+pub const Error = data.coalescing.Error || data.admission.Error || data.activation_flow.Error ||
     error{ UndefinedFunction, InvalidSource, UnboundVariable };
 
 /// Application.emit constructs a checked source Module. Its Zig body runs only

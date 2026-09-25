@@ -7,7 +7,7 @@ const r = @import("relocation.zig");
 const w = @import("coalescing_witness.zig");
 const validation = @import("coalescing_validation.zig");
 
-const original: ir.Program = .{
+pub const original: ir.Program = .{
     .roots = .{ .entry = 2, .result = 0, .failure = 1 },
     .schemas = &.{ .u64, .unit },
     .constants = &.{},

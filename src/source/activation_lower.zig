@@ -126,6 +126,22 @@ fn lowerInternal(
     const threaded = try @import("thread_jumps.zig").optimize(a, program);
     const selected = try @import("tail_clauses.zig").optimize(a, threaded, traits);
     const ordered = try @import("slot_order.zig").optimize(a, selected);
+    if (!component and options.coalescing.mode == .safe) {
+        options.stage(.coalescing);
+        if (options.diagnostic) |diagnostic| {
+            diagnostic.target = .{};
+            diagnostic.function = null;
+            diagnostic.variable = null;
+        }
+        const optimized = try data.coalescing.run(allocator, ordered, options.coalescing);
+        options.stage(.complete);
+        if (options.diagnostic) |diagnostic| diagnostic.* = .{ .phase = .complete };
+        return .{ .arena = optimized.arena, .program = optimized.program, .flow = optimized.flow };
+    }
+    if (options.coalescing.statistics) |stats| stats.* = .{
+        .rounds = stats.rounds,
+        .outcome = if (component) .deferred_open_component else .disabled,
+    };
     var output = std.heap.ArenaAllocator.init(allocator);
     errdefer output.deinit();
     options.stage(if (component) .source_copy else .canonicalization);
@@ -135,7 +151,12 @@ fn lowerInternal(
         try data.relocation.ownReachable(output.allocator(), a, ordered);
     const result = projected.program;
     options.stage(.target_check);
-    const flow = try checkTarget(allocator, &compiler, result, imports, component, borrows, if (component) null else projected.function_origins, options);
+    var flow = try checkTarget(allocator, &compiler, result, imports, component, borrows, if (component) null else projected.function_origins, options);
+    errdefer flow.deinit();
+    if (!component) if (options.coalescing.statistics) |stats| {
+        stats.baseline = try data.coalescing.Counts.of(result);
+        stats.selected = stats.baseline;
+    };
     options.stage(.complete);
     if (options.diagnostic) |diagnostic| diagnostic.* = .{ .phase = .complete };
     return .{ .arena = output, .program = result, .flow = flow };

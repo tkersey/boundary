@@ -3,6 +3,18 @@ const source = @import("../source.zig");
 const data = @import("boundary_data");
 const testing = std.testing;
 
+test "component coalescing mode defers without changing independent object bytes" {
+    for (std.enums.values(source.component_examples.Kind)) |kind| {
+        const off = try source.component_examples.emit(testing.allocator, kind);
+        defer testing.allocator.free(off);
+        var stats: data.coalescing.Statistics = .{};
+        const safe = try source.component_examples.emitWithOptions(testing.allocator, kind, .{ .coalescing = .{ .mode = .safe, .statistics = &stats } });
+        defer testing.allocator.free(safe);
+        try testing.expectEqualSlices(u8, off, safe);
+        try testing.expectEqual(data.coalescing.Outcome.deferred_open_component, stats.outcome);
+    }
+}
+
 fn dualClient(external: bool) ![]u8 {
     var b = source.Builder.init(testing.allocator);
     defer b.deinit();

@@ -29,6 +29,10 @@ phase observer. Diagnostics identify source variables or target calls and scopes
 where applicable. Observation does not change emitted bytes. The compiler checks
 the original target before specialization and the final target after normalization.
 
+Experimental opt-in [whole-program coalescing](docs/coalescing.md) shares checked
+code and immutable descriptions during compilation or final linking. Its default
+remains `off` while consumer and performance qualification is in progress.
+
 The [public example](examples/one_effect.zig) compiles without a runtime:
 
 ```sh

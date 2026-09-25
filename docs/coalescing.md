@@ -1,7 +1,8 @@
 # Whole-program coalescing — implementation evidence
 
-Status: in progress; no compiler or linker behavior has changed. The shipping
-path still performs no global code coalescing. This is not a qualification report.
+Status: in progress. An opt-in `safe` path now performs checked coalescing in
+direct compilation and final linking. The default remains `off` pending the full
+acceptance and promotion gates. This is not a completed qualification report.
 
 The accepted source is the September 25, 2026 version 2.0 specification supplied
 with this task (attachment `76f1c36f-9372-40cc-9466-f61061359f29/pasted-text-1.txt`).
@@ -62,8 +63,8 @@ the existing reachable projection; that ordering must remain intact.
 
 The audit is not yet exhaustive. No new identity exclusions or equivalence claims
 are authorized merely by the table. Remaining work includes the complete opcode
-argument, full checker mutation matrix, discovery views, live-image opportunity census,
-selection, integration, all execution witnesses, and the measurement protocol.
+argument, full checker mutation matrix, live-image opportunity census,
+Agent integration, the remaining execution witnesses, and the measurement protocol.
 
 ## Discovery foundation
 
@@ -109,10 +110,11 @@ The initial negative test independently admits both a return-41 program and its
 return-42 mutant, then requires correspondence rejection. Further tests cover
 forged maps, changed continuation edges, authority merges, profile restrictions,
 and allocation failures. No claim of complete T35/T36 coverage is made yet.
-The checker is not yet called by production compilation/linking.
+Every candidate built by opt-in compilation/linking now passes this checker both
+before and after typed reachable projection, followed by fresh closed admission.
 
 The existing linker's schema partition was moved unchanged into
-`schema_partition.zig`; both paths will reuse this implementation. The linker
+`schema_partition.zig`; both paths reuse this implementation. The linker
 still performs its original interface/borrow checks and closed projection.
 
 ## Foundation verification
@@ -131,9 +133,127 @@ object lengths 160/375/612/195 bytes and linked lengths 811/842 bytes. The path
 registry contains every new Zig file, and both test files are in the data aggregate.
 No existing tests or assertions were removed or weakened.
 
-These results establish only this foundation. Outstanding implementation includes
-canonical function comparison views (including unused local layouts), the real
-workload census, quotient construction through typed relocation, exact BPI3 cost
-selection to a fixed point, original-to-final diagnostics, production invocation
-of the validator, source/link/typed-authoring options, Agent propagation, and the
-full acceptance and measurement matrices. Neither promotion nor delivery is complete.
+These original results establish the foundation. The following progress adds an
+opt-in implementation; outstanding work remains listed explicitly below.
+
+## Opt-in compilation and selection
+
+Select the same options through these paths:
+
+```zig
+// Existing calls remain off by default.
+const options: boundary.data.coalescing.Options = .{ .mode = .safe };
+// Typed authoring retains its own mandatory capture observer/publication check.
+var compiled = try context.compileWithOptions(allocator, entry, failure, options);
+// Raw staged source:
+var lowered = try boundary.source.lowerObserved(allocator, module,
+    .{ .coalescing = options });
+// Source-free linking:
+var linked = try boundary.data.linker.linkWithOptions(allocator, instances,
+    bindings, entry_point, options);
+```
+
+The standalone linker manifest accepts `"coalescing": "safe"` or `"off"`.
+Open component emission defers the pass. Existing `link` and typed `compile`
+remain source-compatible wrappers. No codec implicitly optimizes its input.
+
+Comparison-only views number input slots in interface order, visit the CFG in
+ordered breadth-first traversal, and number other slots at their first occurrence.
+They complete unused slots by schema class and multiplicity. Custody ancestors
+are named before children; unused subtrees are ordered by exact bottom-up tree
+shape ranks. No program-depth host recursion is used. The original representative
+layout is retained and separately checked by the raw-record validator.
+
+One graph contains functions, constructors and handlers. Fixed schema/literal/
+capture classes feed labels; ordered typed outgoing references feed refinement.
+The two profiles use the same implementation, with singleton function seeds for
+`descriptions`. Materialization uses the existing typed relocation methods.
+Every actual rewrite is checked, projected, checked again, freshly admitted, and
+sized with `program_image.encodedLength` before selection.
+
+Selection uses exact BPI3 bytes, then total live catalogue count, then `full` on
+an exact tie. A selected round must shrink the catalogue count and cannot grow
+bytes. Rounds continue to a fixed point. Allocation failures and invalid witnesses
+propagate as errors. A deterministic work-limit failure releases intermediate
+selections and returns the original ordinarily validated live baseline.
+Caller-owned optional round storage reports both candidates and the selected
+profile; `round_count` versus `rounds_recorded` makes truncation explicit.
+
+## Captured-closure evidence
+
+The maintained public typed-authoring fixture independently emits N helper
+functions, constructors and capture sites. Its entry parameters supply captures
+`3, 7, ...`; each helper applies checked u64 addition to its own capture and `10`.
+Typed literal expressions are instead embedded in helper bodies by existing
+lowering. The literal-based variant is retained as a negative fixture and does
+not incorrectly merge those different constant-using bodies.
+
+| N | Off BPI3 bytes | Safe BPI3 bytes | Safe helper bodies / constructors / captures |
+| --- | --- | --- | --- |
+| 1 | 143 | 143 | 1 / 1 / 1 |
+| 2 | 211 | 174 | 1 / 1 / 1 |
+| 16 | 1,129 | 574 | 1 / 1 / 1 |
+| 64 | 4,770 | 2,313 | 1 / 1 / 1 |
+| 256 | 20,333 | 9,871 | 1 / 1 / 1 |
+
+All N retain N dynamic construction instructions. Native and Node/WASM produce
+the independently expected values (13, 17, ...). The N=2 case additionally checks
+u64 overflow failure, matching quantum-one logical boundaries, restore on a fresh
+runtime for every step, and rejection of an off-image checkpoint by the safe image.
+The same authenticated runtime is used for both arms; no checkpoint is rewritten.
+These observations do not establish effects, cleanup, mutable-cell or multi-shot
+coverage, real Agent value, or performance non-regression.
+
+[Machine-readable closure results](coalescing-closure-evidence.json) include sizes,
+record counts, discovery work and both candidates for each extraction round.
+They contain no timing or memory improvement claim.
+
+The selected baseline runtime was acquired with Agent's current authenticated
+setup, which verified source/archive/package/runtime inventories and rebuilt the
+locked kernel with digest
+`7d31effb1d4e32523d0fcbd5b4d5f5a8a2289fbd4c731173a33b1c174524282f`.
+A separate native fixture executable was built from the same authenticated World
+`c20695e` and Boundary `f512dbb` input directories.
+
+Reproduce the closure checks after acquiring the locked runtime and native peer:
+
+```sh
+zig build build-coalescing-fixtures -Doptimize=ReleaseSafe
+node test/coalescing_execution.mjs zig-out/bin/coalescing-fixture \
+  "$WORLD_RUNTIME" \
+  7d31effb1d4e32523d0fcbd5b4d5f5a8a2289fbd4c731173a33b1c174524282f \
+  "$WORLD_NATIVE"
+```
+
+## Outstanding delivery work
+
+At this implementation step, the ReleaseSafe data, authoring and component
+aggregates pass, as does the maintained native/WASM closure command above.
+The complete ReleaseSafe `check` aggregate passed before the final added
+component/capture tests and formatting; those affected aggregates were rerun
+afterward. Data tests additionally passed in Debug and ReleaseFast before final
+formatting. The added tests preserve all predecessor cases and assertions.
+The source-free component harness now exercises `safe` with only transported
+objects and the linker: its first linked image is 804 bytes versus 811 bytes off.
+This small change is not yet a substitute for the required explicit cross-object
+code/constructor-count witness.
+
+The goal remains active. In particular:
+
+- Complete the identity/opcode and admission-precision audit, many-origin
+  diagnostics, and original-to-final correspondence across selected rounds.
+- Exercise the actual candidate pipeline on deep parent trees, mutually recursive
+  groups, all semantic differences, simultaneous assignments, schema sums,
+  nominal identities, resource authority, handler modes and borrow provenance.
+- Complete corruption/generative/allocation/concurrency tests and the full T01–T42
+  matrix; existing green aggregates are not a replacement for these cases.
+- Add the explicit source-free cross-object code/constructor-sharing witness and
+  runtime evidence; retain distinct nominal anchors and original false contracts.
+- Propagate options through Agent's final compiled-tool link and update/authenticate
+  the candidate dependency selection without changing the locked World evaluator.
+- Run the unchanged real consumer opportunity census and B0/B1/B2 qualification,
+  including the complete timing, memory, checkpoint and platform protocols.
+- Complete phase/resource/work accounting, investigate measured scaling, and
+  remove redundant checks only where their exact obligations remain covered.
+- Run the required serial review/closeout workflow on final commits and publish
+  authorized draft changes. Promote the default only after all required gates pass.
