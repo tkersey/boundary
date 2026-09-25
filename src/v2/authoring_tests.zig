@@ -980,3 +980,58 @@ test "consolidation raw callable and resumption schemas reject missing children"
         try testing.expectError(error.InvalidSchema, a.interop.schema(c, bad));
     }
 }
+
+test "OOM replaces an earlier diagnostic across authoring allocation paths" {
+    for (0..4) |kind| {
+        var failing = testing.FailingAllocator.init(testing.allocator, .{});
+        var raw = source.Builder.init(failing.allocator());
+        defer raw.deinit();
+        const c = try a.Context.init(&raw);
+        const unit = try c.scalar(void);
+        const operation = try c.local("allocation", unit, unit, .linear);
+        const entry = try c.function("entry", &.{}, unit, &.{});
+        const body = try c.body(entry);
+        const value = try body.constant(void, {});
+        try testing.expectError(error.UnknownName, body.parameter("missing"));
+        if (kind == 3) try c.define(entry, try body.ret(value));
+        failing.fail_index = failing.alloc_index;
+        var failed = false;
+        for (0..4096) |i| {
+            const outcome: a.Error!void = switch (kind) {
+                0 => result: {
+                    _ = c.literalFailure(u64, @intCast(i)) catch |err| break :result err;
+                    break :result {};
+                },
+                1 => result: {
+                    _ = c.record(&.{.{ .name = "field", .schema = unit }}) catch |err| break :result err;
+                    break :result {};
+                },
+                2 => result: {
+                    _ = c.handler(operation, unit, unit, .{
+                        .mode = .deep,
+                        .use = .linear,
+                        .residual = &.{},
+                        .captures = &.{},
+                    }) catch |err| break :result err;
+                    break :result {};
+                },
+                3 => result: {
+                    _ = c.module(entry, unit) catch |err| break :result err;
+                    break :result {};
+                },
+                else => unreachable,
+            };
+            outcome catch |err| {
+                try testing.expectEqual(error.OutOfMemory, err);
+                try testing.expectEqual(error.OutOfMemory, c.lastDiagnostic().code.?);
+                try testing.expect(c.lastDiagnostic().expected == null);
+                try testing.expect(c.lastDiagnostic().actual == null);
+                try testing.expectError(error.PoisonedAuthoring, c.scalar(void));
+                try testing.expectEqual(error.OutOfMemory, c.lastDiagnostic().code.?);
+                failed = true;
+                break;
+            };
+        }
+        try testing.expect(failed);
+    }
+}
