@@ -4,13 +4,14 @@ const boundary = @import("boundary");
 
 pub const Application = struct {
     pub fn emit(b: *boundary.computation.Builder) !boundary.computation.Module {
-        const integer = try b.scalar(u32);
-        const unit = try b.scalar(void);
-        const lookup = try b.effect(.{ .identity = "example.lookup.v2", .payload = integer, .result = integer });
-        const entry = try b.declare(&.{integer}, integer, &.{lookup}, &.{});
-        const argument = try b.reference(b.parameter(entry, 0));
-        try b.define(entry, try b.term(.{ .perform = .{ .effect = lookup, .payload = argument } }));
-        return b.module(entry, unit);
+        const c = try boundary.authoring.Context.init(b);
+        const integer = try c.scalar(u32);
+        const lookup = try c.external("example.lookup.v2", integer, integer);
+        const entry = try c.function("lookup", &.{.{ .name = "key", .schema = integer }}, integer, &.{lookup});
+        const body = try c.body(entry);
+        const answer = try body.perform(lookup, try body.parameter("key"));
+        try c.define(entry, try body.ret(answer));
+        return c.module(entry, try c.scalar(void));
     }
 };
 

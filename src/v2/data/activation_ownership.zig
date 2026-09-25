@@ -17,8 +17,17 @@ pub fn analyze(allocator: std.mem.Allocator, image: ir.Program) Error!flow.Facts
     return analyzeDiagnosed(allocator, image, null);
 }
 
+/// Observes the same retained slots checked below; supplies no admission facts.
+pub const CaptureObserver = struct {
+    context: *anyopaque,
+    capture: *const fn (*anyopaque, p.Id, p.Id, p.Id) void,
+};
+pub fn analyzeObserved(allocator: std.mem.Allocator, image: ir.Program, diagnostic: ?*@import("admission.zig").Diagnostic, observer: ?CaptureObserver) Error!flow.Facts {
+    return analyzeInternal(allocator, image, &.{}, false, &.{}, diagnostic, observer);
+}
+
 pub fn analyzeDiagnosed(allocator: std.mem.Allocator, image: ir.Program, diagnostic: ?*@import("admission.zig").Diagnostic) Error!flow.Facts {
-    return analyzeInternal(allocator, image, &.{}, false, &.{}, diagnostic);
+    return analyzeInternal(allocator, image, &.{}, false, &.{}, diagnostic, null);
 }
 
 pub fn analyzeComponent(
@@ -27,7 +36,7 @@ pub fn analyzeComponent(
     imports: []const p.Id,
     borrows: []const @import("borrow_contract.zig").Summary,
 ) Error!flow.Facts {
-    return analyzeInternal(allocator, image, imports, true, borrows, null);
+    return analyzeInternal(allocator, image, imports, true, borrows, null, null);
 }
 fn analyzeInternal(
     allocator: std.mem.Allocator,
@@ -36,6 +45,7 @@ fn analyzeInternal(
     component: bool,
     borrows: []const @import("borrow_contract.zig").Summary,
     diagnostic: ?*@import("admission.zig").Diagnostic,
+    observer: ?CaptureObserver,
 ) Error!flow.Facts {
     if (component) try types.validateComponent(allocator, image, imports, borrows) else try types.validateDiagnosed(allocator, image, diagnostic);
     var facts = try flow.analyzeComponent(allocator, image, imports);
@@ -45,6 +55,7 @@ fn analyzeInternal(
     const scratch = arena.allocator();
     var checker: Check = .{
         .image = image,
+        .observer = observer,
         .diagnostic = diagnostic,
         .facts = &facts,
         .uses = try @import("traits.zig").derive(scratch, image.schemas),
@@ -65,6 +76,8 @@ fn analyzeInternal(
 
 const Check = struct {
     image: ir.Program,
+    observer: ?CaptureObserver = null,
+    function: p.Id = 0,
     diagnostic: ?*@import("admission.zig").Diagnostic = null,
     facts: *flow.Facts,
     uses: @import("traits.zig").Facts,
@@ -79,6 +92,7 @@ const Check = struct {
     }
 
     fn block(self: *Check, code: ir.Block) Error!void {
+        self.function = code.function;
         const slots = self.image.functions[@intCast(code.function)].layout.slots;
         switch (code.terminator) {
             .call => |call| try self.control(slots, self.image.functions[@intCast(call.function)].effects, call.next),
@@ -153,6 +167,7 @@ const Check = struct {
             d.slot = slot;
             d.effect = effect;
         }
+        if (self.observer) |observer| observer.capture(observer.context, self.function, effect, slot);
         const schema = slots[@intCast(slot)];
         if (self.image.effects[@intCast(effect)].control_use == .multi and
             !self.uses.clone[@intCast(schema)]) return error.InvalidOwnership;
