@@ -4,10 +4,12 @@ import {spawnSync} from 'node:child_process';
 import {readFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
+import {createHash} from 'node:crypto';
 
 const [emitter, runtime, expectedSha256, native, ...componentImages] = process.argv.slice(2);
 const trees = componentImages.length===1 && componentImages[0]==='trees';
 const edges = componentImages.length===1 && componentImages[0]==='edges';
+const generated = componentImages.length===1 && componentImages[0]==='generated';
 assert.ok(emitter && runtime && /^[a-f0-9]{64}$/.test(expectedSha256 ?? '') && native,
   'usage: node test/coalescing_execution.mjs EMITTER RUNTIME SHA256 NATIVE');
 const {Kernel, encodeInput, decodeOutcome} =
@@ -120,6 +122,36 @@ if (trees) {
     assert.equal(baseline.value,Buffer.from(words([...triple,...triple])).toString('hex'));
     measurements.push({kind,off:off.statistics,safe:safe.statistics,observation:baseline});
   }
+} else if (generated) {
+  // Independent value oracle: apply the requested mathematical permutation,
+  // then the one-field mutation. No optimizer classes or emitted records are used.
+  const permutations=[[0,1,2],[0,2,1],[1,0,2],[1,2,0],[2,0,1],[2,1,0]];
+  const input=[11,22,33];
+  for(let ordinal=0;ordinal<36;ordinal++)for(const mutation of [0,64]) {
+    const seed=ordinal+mutation, kind=`generated-${seed}`;
+    const off=emit('off',kind), safe=emit('safe',kind);
+    assert.equal(off.statistics.functions,3);
+    assert.equal(safe.statistics.functions,mutation?3:2);
+    assert.ok(safe.image.length<=off.image.length);
+    const first=permutations[ordinal%6].map(index=>input[index]);
+    const second=[...first];
+    if(mutation)[second[0],second[1]]=[second[1],second[0]];
+    const baseline=await execute(off.image,words(input),1);
+    assert.deepEqual(await execute(safe.image,words(input),1),baseline);
+    assert.equal(baseline.kind,'completed');
+    assert.equal(baseline.value,Buffer.from(words([...first,...second])).toString('hex'));
+    measurements.push({seed,off:off.statistics,safe:safe.statistics,observation:baseline});
+  }
+  for(let ordinal=0;ordinal<36;ordinal++) {
+    const seed=ordinal+128;
+    for(const mode of ['off','safe']) {
+      const rejected=spawnSync(emitter,[mode,`generated-${seed}`],{maxBuffer:16<<20});
+      assert.notEqual(rejected.status,0);
+      assert.match(rejected.stderr.toString(),/error: InvalidReference/);
+      assert.equal(rejected.stdout.length,0,'invalid input published an image');
+    }
+    measurements.push({seed,rejected:'InvalidReference',modes:['off','safe']});
+  }
 } else if (componentImages.length) {
   assert.equal(componentImages.length, 2);
   const images = await Promise.all(componentImages.map(async path => new Uint8Array(await readFile(path))));
@@ -130,7 +162,22 @@ if (trees) {
   assert.equal(safe.value, Buffer.from(words([13, 17])).toString('hex'));
   measurements.push({case: 'source-free components', observation: safe});
 }
-console.log(JSON.stringify({check: edges ? 'coalescing simultaneous assignments and slot reuse'
+if(generated) {
+  const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
+  const valid=measurements.filter(row=>row.observation),invalid=measurements.filter(row=>row.rejected);
+  console.log(JSON.stringify({
+    scope:'All three-slot assignment/renaming permutations and one-field mutations; bounded production-record corpus',
+    kernelSha256:expectedSha256,wasmtime:wasmtime?.identity??{status:'NOT_RUN'},
+    emitterSha256:hash(await readFile(emitter)),nativeSha256:hash(await readFile(native)),
+    harnessSha256:hash(await readFile(new URL(import.meta.url))),
+    validPrograms:valid.length,pairedExecutions:valid.length*2,
+    invalidPrograms:invalid.length,invalidCompileAttempts:invalid.length*2,
+    rows:measurements.map(row=>row.rejected?row:{seed:row.seed,
+      offBytes:row.off.bytes,safeBytes:row.safe.bytes,
+      offFunctions:row.off.functions,safeFunctions:row.safe.functions,
+      observation:row.observation}),
+  },null,2));
+} else console.log(JSON.stringify({check: edges ? 'coalescing simultaneous assignments and slot reuse'
   : trees ? 'coalescing depth-eight reference-induced sharing'
   : componentImages.length
   ? 'coalescing source-free components native/WASM and fresh-host resume'

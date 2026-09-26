@@ -175,3 +175,15 @@ test "coalescing handles whole-function slot renaming with simultaneous swaps an
         try testing.expectEqual(@as(usize, if (kind == .swap) 2 else 3), safe.program.blocks[0].terminator.jump.assignments.len);
     }
 }
+
+test "coalescing production generator covers all three-slot renamings and ordered mutations" {
+    const cases = @import("coalescing_edge_cases.zig");
+    for (0..36) |ordinal| for ([_]usize{ 0, 64 }) |mutation| {
+        var result = try cases.generated(testing.allocator, ordinal + mutation, .{ .mode = .safe });
+        defer result.deinit();
+        try testing.expectEqual(@as(usize, if (mutation == 0) 2 else 3), result.program.functions.len);
+    };
+    for (0..36) |ordinal| for ([_]data.coalescing.Mode{ .off, .safe }) |mode| {
+        try testing.expectError(error.InvalidReference, cases.generated(testing.allocator, ordinal + 128, .{ .mode = mode }));
+    };
+}

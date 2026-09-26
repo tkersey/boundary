@@ -230,6 +230,21 @@ node test/coalescing_execution.mjs zig-out/bin/coalescing-fixture \
 
 ### Enabled/disabled semantic fixtures
 
+The [bounded production-record corpus](coalescing-generated-evidence.json)
+enumerates all 36 combinations of three-slot renaming and simultaneous assignment
+permutations. Seeds 0–35 contain independently numbered equivalent functions and
+must share code. Seeds 64–99 swap one returned operand-list field and must remain
+distinct. All 72 valid programs execute in both modes on native World, Node/WASM
+and Wasmtime, with an independent permutation/value oracle and matched boundaries.
+Seeds 128–163 use an out-of-range destination; all 72 off/safe compilation attempts
+reject with `InvalidReference` and publish no bytes.
+
+Use the fixture emitter's `generated-SEED` selector for an individual case, or
+pass `generated` as the runtime harness's final argument for the complete corpus.
+The generator covers a bounded stable-slot subset; it is not a general program
+equivalence proof. Recursive generation and remaining semantic families still
+need their separately required coverage.
+
 The [simultaneous-assignment report](coalescing-edge-evidence.json) checks two
 alpha-renamed function bodies containing a swap or three-way slot cycle. Both
 fold to one body while retaining the representative's original input layout.
