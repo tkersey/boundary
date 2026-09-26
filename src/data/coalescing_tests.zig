@@ -73,3 +73,44 @@ fn allocationCase(allocator: std.mem.Allocator) !void {
 test "coalescing fixed point releases all owners at every allocation failure" {
     try testing.checkAllAllocationFailures(testing.allocator, allocationCase, .{});
 }
+
+test "coalescing preserves duplicate sum alternatives and old duplicate-containing codec input" {
+    const ir = @import("activation.zig");
+    const program: ir.Program = .{
+        .roots = .{ .entry = 0, .result = 2, .failure = 3 },
+        .schemas = &.{ .u64, .u64, .{ .sum = &.{ 0, 1 } }, .unit },
+        .constants = &.{},
+        .effects = &.{},
+        .functions = &.{.{ .entry = 0, .inputs = &.{0}, .layout = .{ .slots = &.{2} }, .result = 2 }},
+        .blocks = &.{.{ .function = 0, .instructions = &.{}, .terminator = .{ .return_value = 0 } }},
+    };
+    const original = try bytes(program);
+    defer testing.allocator.free(original);
+    var decoded = try image.decode(testing.allocator, original);
+    defer decoded.deinit();
+    // Decoding and encoding must never implicitly select optimizer normal form.
+    try testing.expectEqual(@as(usize, 4), decoded.program.schemas.len);
+    const roundtrip = try bytes(decoded.program);
+    defer testing.allocator.free(roundtrip);
+    try testing.expectEqualSlices(u8, original, roundtrip);
+    var optimized = try pass.run(testing.allocator, decoded.program, .{ .mode = .safe });
+    defer optimized.deinit();
+    try testing.expectEqual(@as(usize, 3), optimized.program.schemas.len);
+    const sum = optimized.program.schemas[@intCast(optimized.program.roots.result)].sum;
+    try testing.expectEqual(@as(usize, 2), sum.len);
+    try testing.expectEqual(sum[0], sum[1]);
+    const value = @import("admission.zig");
+    // Independently transcribed canonical u64 payloads in the two injections.
+    const left = [_]u8{ 0, 7, 0, 0, 0, 0, 0, 0, 0 };
+    const right = [_]u8{ 1, 7, 0, 0, 0, 0, 0, 0, 0 };
+    var scratch = std.heap.ArenaAllocator.init(testing.allocator);
+    defer scratch.deinit();
+    for ([_]ir.Program{ decoded.program, optimized.program }) |subject| {
+        const facts = try value.schemas(scratch.allocator(), subject.schemas);
+        for ([_][]const u8{ &left, &right }) |payload|
+            try value.value(scratch.allocator(), subject.schemas, facts, .{ .schema = subject.roots.result, .bytes = payload });
+        var invalid = right;
+        invalid[0] = 2;
+        try testing.expectError(error.InvalidValue, value.value(scratch.allocator(), subject.schemas, facts, .{ .schema = subject.roots.result, .bytes = &invalid }));
+    }
+}

@@ -230,6 +230,19 @@ node test/coalescing_execution.mjs zig-out/bin/coalescing-fixture \
 
 ### Enabled/disabled semantic fixtures
 
+The native authoring aggregate now starts four independent compiler threads
+with separate debug allocators. Each repeatedly alternates safe compilation,
+disabled compilation and deterministic work-limit fallback. Image identities
+must match serial controls after the source builders have been destroyed;
+observations must remain caller-local and each allocator must report no leak.
+This is bounded concurrent execution evidence, not a general race-freedom proof.
+
+The data aggregate also admits and round-trips an unoptimized image containing
+duplicate scalar schemas. Explicit coalescing merges those schemas while retaining
+both ordered alternatives of `sum(A, A)`. Both injection encodings remain valid,
+the third ordinal remains invalid, and codec-only round trips retain original
+bytes and the duplicate-containing catalogue.
+
 The [recursive execution report](coalescing-recursive-evidence.json) compares two
 independently emitted mutually recursive groups with distinct role base values.
 The equivalent groups coalesce role-for-role (five functions including entry

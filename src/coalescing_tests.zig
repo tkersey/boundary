@@ -199,3 +199,70 @@ test "coalescing authored recursive groups preserve role distinctions and change
         try testing.expectEqual(@as(usize, if (kind == .recursive_near) 5 else 3), safe.program.functions.len);
     }
 }
+
+const ConcurrentCompilation = struct {
+    count: usize,
+    expected: [2][32]u8,
+    failure: ?anyerror = null,
+    completed: usize = 0,
+
+    fn run(self: *ConcurrentCompilation) void {
+        var allocator: std.heap.DebugAllocator(.{}) = .init;
+        defer if (allocator.deinit() != .ok) {
+            self.failure = error.LeakedCompilationStorage;
+        };
+        self.check(allocator.allocator()) catch |err| {
+            self.failure = err;
+        };
+    }
+
+    fn check(self: *ConcurrentCompilation, allocator: std.mem.Allocator) !void {
+        for (0..4) |iteration| {
+            // Each thread alternates a discarded attempt, a selected quotient,
+            // and the disabled control with independent observations and owners.
+            var stats: data.coalescing.Statistics = .{};
+            var diagnostic: data.coalescing.Diagnostic = .{};
+            const limited = iteration % 3 == 0;
+            const enabled = iteration % 3 != 2;
+            var compiled = try closures(allocator, self.count, .{
+                .mode = if (enabled) .safe else .off,
+                .work_limit = if (limited) 0 else std.math.maxInt(u64),
+                .statistics = &stats,
+                .diagnostic = &diagnostic,
+            });
+            defer compiled.deinit();
+            // closures has already destroyed the source builder at this point.
+            const actual = try data.program_image.identity(allocator, compiled.program);
+            const expected = self.expected[@intFromBool(enabled and !limited)];
+            if (!std.mem.eql(u8, &expected, &actual)) return error.ConcurrentImageMismatch;
+            if (limited and stats.outcome != .work_limit) return error.MissingWorkLimit;
+            if (diagnostic.code != null) return error.StaleDiagnostic;
+            self.completed += 1;
+        }
+    }
+};
+
+test "coalescing concurrent independent compilers preserve deterministic owners and observations" {
+    var jobs: [4]ConcurrentCompilation = undefined;
+    for (&jobs, [_]usize{ 2, 16, 32, 64 }) |*job, count| {
+        job.* = .{ .count = count, .expected = undefined };
+        for ([_]data.coalescing.Mode{ .off, .safe }, 0..) |mode, index| {
+            var compiled = try closures(testing.allocator, count, .{ .mode = mode });
+            defer compiled.deinit();
+            job.expected[index] = try data.program_image.identity(testing.allocator, compiled.program);
+        }
+    }
+    var threads: [jobs.len]std.Thread = undefined;
+    var started: usize = 0;
+    defer for (threads[0..started]) |thread| thread.join();
+    for (&threads, &jobs) |*thread, *job| {
+        thread.* = try std.Thread.spawn(.{}, ConcurrentCompilation.run, .{job});
+        started += 1;
+    }
+    for (threads) |thread| thread.join();
+    started = 0;
+    for (jobs) |job| {
+        if (job.failure) |err| return err;
+        try testing.expectEqual(@as(usize, 4), job.completed);
+    }
+}
