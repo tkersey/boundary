@@ -67,6 +67,11 @@ async function execute(image, initialArgs, replies) {
 }
 const empty=new Uint8Array();
 const fixtureCases = {
+  hyper_duplicate:[{args:Uint8Array.of(...u64(3),...u64(7)),replies:[],value:Uint8Array.of(...u64(13),...u64(17))},
+    {args:Uint8Array.of(...u64(max),...u64(7)),replies:[],failure:true}],
+  hyper_configured:[{args:Uint8Array.of(...u64(3),...u64(7)),replies:[],value:Uint8Array.of(...u64(13),...u64(18))},
+    {args:Uint8Array.of(...u64(3),...u64(max-10n)),replies:[],failure:true}],
+  hyper_lazy:[{args:Uint8Array.of(...u64(3),...u64(7)),replies:[],value:Uint8Array.of(...u64(3),...u64(7))}],
   cells_independent:[{args:empty,replies:[],value:Uint8Array.of(...u64(1),...u64(1),...u64(2))}],
   cells_shared:[{args:empty,replies:[],value:Uint8Array.of(...u64(1),...u64(2),...u64(3))}],
   memo_independent:[{args:empty,replies:[],value:Uint8Array.of(...u64(1),...u64(1),...u64(2),...u64(2))}],

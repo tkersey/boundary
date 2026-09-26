@@ -33,6 +33,9 @@ pub const Kind = enum {
     memo_shared,
     state_local,
     state_shared,
+    hyper_duplicate,
+    hyper_configured,
+    hyper_lazy,
 };
 
 pub fn build(raw: *source.Builder, kind: Kind) !source.Module {
@@ -56,6 +59,9 @@ pub fn build(raw: *source.Builder, kind: Kind) !source.Module {
         .memo_shared => @import("coalescing_state_cases.zig").build(raw, .memo_shared),
         .state_local => @import("source/state_choice_example.zig").local(raw),
         .state_shared => @import("source/state_choice_example.zig").shared(raw),
+        .hyper_duplicate => @import("coalescing_hyper_cases.zig").build(raw, .duplicate),
+        .hyper_configured => @import("coalescing_hyper_cases.zig").build(raw, .configured),
+        .hyper_lazy => @import("coalescing_hyper_cases.zig").build(raw, .lazy),
     };
 }
 fn handlerCase(raw: *source.Builder, kind: Kind) !source.Module {

@@ -290,8 +290,8 @@ in both modes. Their authorized counterparts may be discarded by ordinary
 reachability; that discarded authority does not pin otherwise live helpers, and
 a second safe pass preserves exact image identity.
 
-The maintained [semantic report](coalescing-semantic-evidence.json) records 62
-executions across 28 authored fixtures. Both modes agree with native
+The maintained [semantic report](coalescing-semantic-evidence.json) records 72
+executions across 31 authored fixtures. Both modes agree with native
 World, Node/WASM, Wasmtime 48.0.0 (Python 3.14.7), and the independent higher-order
 source oracle. Coverage includes deep/shallow and answer-transforming handlers,
 cleanup and disposal, lazy/demanded behavior, failure ordering, arithmetic,
@@ -307,6 +307,16 @@ evaluates once and returns `1, 1, 1`. These observations survive quantum-one
 checkpoint/restore in each runtime. Existing multi-shot State/Choice examples
 also retain branch-local `[1, 1]` versus deliberately shared `[1, 2]` results.
 This does not yet close the full recursive multi-shot or hyperfunction matrix.
+
+The ordinary `hyper.ana`, `Query.ask`, `invoke`, `force` and `deferValue` paths
+are also exercised through separately emitted definitions. The duplicate case
+shrinks from 19 functions/15 constructors to 12 functions/nine constructors
+(887 to 531 bytes) while retaining captures 3 and 7 and returning 13 and 17.
+A second Step configuration adds one and returns 13 and 18; its distinct code
+remains (18 functions/14 constructors). The lazy case emits a real query but
+never forces its divergent peer, returning 3 and 7 in both modes. Normal and
+checked-overflow cases agree with the source oracle and all three runtimes at
+matched stepping boundaries. No emitter cache is used to manufacture sharing.
 
 Each execution uses quantum one and restores its own checkpoint on a fresh host
 instance at each boundary. The differential comparison includes semantic request

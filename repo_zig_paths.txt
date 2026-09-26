@@ -19,6 +19,7 @@ src/authoring_tests.zig
 src/coalescing_component_cases.zig
 src/coalescing_edge_cases.zig
 src/coalescing_emit.zig
+src/coalescing_hyper_cases.zig
 src/coalescing_recursive_cases.zig
 src/coalescing_state_cases.zig
 src/coalescing_tests.zig

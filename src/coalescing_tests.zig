@@ -266,3 +266,25 @@ test "coalescing concurrent independent compilers preserve deterministic owners 
         try testing.expectEqual(@as(usize, 4), job.completed);
     }
 }
+
+test "coalescing folds fresh hyper helper emissions but retains Step configuration" {
+    const cases = @import("coalescing_hyper_cases.zig");
+    var selected_functions: [3]usize = undefined;
+    for (std.enums.values(cases.Kind), 0..) |kind, index| {
+        var builder = source.Builder.init(testing.allocator);
+        defer builder.deinit();
+        const module = try cases.build(&builder, kind);
+        var off = try source.lower(testing.allocator, module);
+        defer off.deinit();
+        var safe = try source.lowerObserved(testing.allocator, module, .{ .coalescing = .{ .mode = .safe } });
+        defer safe.deinit();
+        try testing.expect(safe.program.functions.len < off.program.functions.len);
+        try testing.expect(safe.program.constructors.len < off.program.constructors.len);
+        try testing.expect(try data.program_image.encodedLength(safe.program) <
+            try data.program_image.encodedLength(off.program));
+        selected_functions[index] = safe.program.functions.len;
+    }
+    // The near case changes only the second Step's actual emitted arithmetic.
+    try testing.expect(selected_functions[@intFromEnum(cases.Kind.configured)] >
+        selected_functions[@intFromEnum(cases.Kind.duplicate)]);
+}
