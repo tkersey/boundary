@@ -11,15 +11,19 @@ assert.ok(runtime && native && images.length);
 const {Kernel, encodeInput, decodeOutcome, decodeRequest, encodeResult} =
   await import(pathToFileURL(resolve(runtime, 'src/embedding/index.mjs')));
 const bytes = new Uint8Array(await readFile(resolve(runtime,'world-kernel.wasm')));
-const expectedSha256 = 'df7fe1ae0ed0de7b2976c98b1534d1d55f4c341b7148837ce32f42ed8d011084';
+const expectedSha256 = process.env.WORLD_KERNEL_SHA256 ??
+  'df7fe1ae0ed0de7b2976c98b1534d1d55f4c341b7148837ce32f42ed8d011084';
+assert.match(expectedSha256,/^[a-f0-9]{64}$/);
 const wasmtime = process.env.WORLD_WASMTIME_PEER
   ? await (await import(pathToFileURL(resolve(process.env.WORLD_WASMTIME_PEER))))
       .wasmtimePeer(resolve(runtime,'world-kernel.wasm'),expectedSha256) : null;
 const u64 = n => {const b=new Uint8Array(8);new DataView(b.buffer).setBigUint64(0,BigInt(n),true);return b;};
+const i64 = n => {const b=new Uint8Array(8);new DataView(b.buffer).setBigInt64(0,BigInt(n),true);return b;};
 const u32 = n => {const b=new Uint8Array(4);new DataView(b.buffer).setUint32(0,n,true);return b;};
 const max=(1n<<64n)-1n;
-async function execute(image, initialArgs, replies) {
-  let state, control='none', value=new Uint8Array(), requests=[], transfers=0;
+async function execute(image, initialArgs, replies, cancel=false) {
+  let state, control='none', value=new Uint8Array(), requests=[], transfers=0,response=0;
+  const requestContracts=[], boundaries=[];
   for(let round=0;round<1024;round++) {
     const input=encodeInput({image,initialArgs:state ? undefined : initialArgs,state,control,value,quantum:1});
     const kernel=await Kernel.create({bytes,expectedSha256});
@@ -31,9 +35,13 @@ async function execute(image, initialArgs, replies) {
     const guest = wasmtime ? (await wasmtime.call('invoke',{bytes:input})).bytes : node;
     assert.deepEqual(guest,node);
     const outcome=decodeOutcome(round%3 === 0 ? guest : round%3 === 1 ? new Uint8Array(peer.stdout) : node);
-    if(['completed','failed'].includes(outcome.kind)) {
-      if(outcome.kind==='failed') assert.deepEqual(outcome.cleanupFailures,[]);
-      return {kind:outcome.kind,value:Buffer.from(outcome.value).toString('hex'),requests,transfers};
+    boundaries.push(outcome.kind);
+    if(['completed','failed','cancelled'].includes(outcome.kind)) {
+      if(outcome.kind!=='completed') assert.deepEqual(outcome.cleanupFailures,[]);
+      assert.equal(response,replies.length);
+      return {kind:outcome.kind,value:Buffer.from(outcome.value??new Uint8Array()).toString('hex'),requests,
+        requestContracts,transfers,boundaries,cleanupFailures:outcome.cleanupFailures??[],
+        cancellation:outcome.kind==='cancelled'?outcome.reason:outcome.cancellation??null};
     }
     assert.ok(outcome.state?.length,'real portable State required');
     state=outcome.state;transfers++;
@@ -44,9 +52,18 @@ async function execute(image, initialArgs, replies) {
       const restored=decodeOutcome(fresh.invoke(encodeInput({image,state,quantum:1})));
       assert.equal(restored.kind,'requested');
       const request=await decodeRequest(restored.request);
+      requestContracts.push({effect:request.effect.toString(),
+        identity:Buffer.from(request.semanticIdentityBytes).toString('hex'),
+        payloadSchema:Buffer.from(request.payloadSchema).toString('hex'),
+        resumeSchema:Buffer.from(request.resumeSchema).toString('hex'),
+        payload:Buffer.from(request.payload).toString('hex')});
       requests.push({identity:request.semanticIdentity,payload:Buffer.from(request.payload).toString('hex')});
-      assert.ok(requests.length<=replies.length,'unexpected external request');
-      value=await encodeResult(restored.request,replies[requests.length-1]);control='reply';
+      if(cancel&&requests.length===1) {
+        control='cancel_text';value=new TextEncoder().encode('stop');
+      } else {
+        assert.ok(response<replies.length,'unexpected external request');
+        value=await encodeResult(restored.request,replies[response++]);control='reply';
+      }
     } else {
       assert.ok(['progressed','yielded'].includes(outcome.kind));
       control=outcome.kind==='yielded'?'resume_yield':'none';value=new Uint8Array();
@@ -56,6 +73,47 @@ async function execute(image, initialArgs, replies) {
 }
 const empty=new Uint8Array();
 const fixtureCases = {
+  borrow_contexts:[{args:empty,replies:[u64(13),empty,u64(17),empty],
+    value:Uint8Array.of(...u64(13),...u64(17)),trace:[
+      {identity:'example/resource-acquire',payload:''},
+      {identity:'example/resource-release',payload:Buffer.from(u64(13)).toString('hex')},
+      {identity:'example/resource-acquire',payload:''},
+      {identity:'example/resource-release',payload:Buffer.from(u64(17)).toString('hex')},
+    ]}],
+  shared_cleanup:[
+    {args:Uint8Array.of(...u64(1),...u64(2)),replies:[u64(19),empty,empty],value:u64(20)},
+    {args:Uint8Array.of(...u64(1),...u64(2)),replies:[u64(max),empty,empty],failure:true},
+    {args:Uint8Array.of(...u64(1),...u64(2)),replies:[empty,empty],cancel:true},
+  ].map(test=>({...test,trace:[
+    {identity:'case/lookup',payload:Buffer.from(u64(19)).toString('hex')},
+    {identity:'case/release',payload:Buffer.from(u64(2)).toString('hex')},
+    {identity:'case/release',payload:Buffer.from(u64(1)).toString('hex')},
+  ]})),
+  handler_duplicate:[{args:Uint8Array.of(...u64(3),...u64(7)),replies:[],
+    value:Uint8Array.of(...u64(13),...u64(17))},
+    {args:Uint8Array.of(...u64(3),...u64(max)),replies:[],failure:true}],
+  handler_mixed_mode:[{args:Uint8Array.of(...u64(3),...u64(7)),replies:[],
+    value:Uint8Array.of(...u64(13),...u64(17))}],
+  handler_effect_duplicate:[{args:Uint8Array.of(...u64(3),...u64(7)),replies:[],
+    value:Uint8Array.of(...u64(13),...u64(17))}],
+  capture_order:[{args:Uint8Array.of(...i64(7),...i64(3)),replies:[],
+    value:Uint8Array.of(...i64(4),...i64(-4))},
+    {args:Uint8Array.of(...i64(-2),...i64(5)),replies:[],
+      value:Uint8Array.of(...i64(-7),...i64(7))},
+    {args:Uint8Array.of(...i64(-(1n<<63n)),...i64(1)),replies:[],failure:true}],
+  hyper_duplicate:[{args:Uint8Array.of(...u64(3),...u64(7)),replies:[],value:Uint8Array.of(...u64(13),...u64(17))},
+    {args:Uint8Array.of(...u64(max),...u64(7)),replies:[],failure:true}],
+  hyper_configured:[{args:Uint8Array.of(...u64(3),...u64(7)),replies:[],value:Uint8Array.of(...u64(13),...u64(18))},
+    {args:Uint8Array.of(...u64(3),...u64(max-10n)),replies:[],failure:true}],
+  hyper_lazy:[{args:Uint8Array.of(...u64(3),...u64(7)),replies:[],value:Uint8Array.of(...u64(3),...u64(7))}],
+  cells_independent:[{args:empty,replies:[],value:Uint8Array.of(...u64(1),...u64(1),...u64(2))}],
+  cells_shared:[{args:empty,replies:[],value:Uint8Array.of(...u64(1),...u64(2),...u64(3))}],
+  memo_independent:[{args:empty,replies:[],value:Uint8Array.of(...u64(1),...u64(1),...u64(2),...u64(2))}],
+  memo_shared:[{args:empty,replies:[],value:Uint8Array.of(...u64(1),...u64(1),...u64(1),...u64(1))}],
+  state_local:[{args:empty,replies:[],value:Uint8Array.of(2,...u64(1),...u64(1))}],
+  state_shared:[{args:empty,replies:[],value:Uint8Array.of(2,...u64(1),...u64(2))}],
+  state_recursive_local:[{args:empty,replies:[],value:Uint8Array.of(4,...u64(2),...u64(2),...u64(2),...u64(2))}],
+  state_recursive_shared:[{args:empty,replies:[],value:Uint8Array.of(4,...u64(2),...u64(3),...u64(5),...u64(6))}],
   obligations:[{args:empty,replies:[empty],value:u64(42),payload:empty,identity:'case/release'}],
   imported_scoped:[{args:empty,replies:[],value:u64(42)}],
   cleanup_named:[{args:Uint8Array.of(1,...u64(17),0,0),replies:[],value:u64(17)},
@@ -106,10 +164,11 @@ try {
 for(const path of images){
   const image=new Uint8Array(await readFile(path));const observations=[];
   for(const test of cases){
-    const result=await execute(image,test.args,test.replies);
-    assert.equal(result.kind,test.failure?'failed':'completed');
-    assert.equal(result.value,Buffer.from(test.failure?new Uint8Array():test.value).toString('hex'));
-    assert.equal(result.requests.length,test.replies.length);
+    const result=await execute(image,test.args,test.replies,test.cancel);
+    assert.equal(result.kind,test.cancel?'cancelled':test.failure?'failed':'completed');
+    assert.equal(result.value,Buffer.from(test.failure||test.cancel?new Uint8Array():test.value).toString('hex'));
+    assert.equal(result.requests.length,test.replies.length+(test.cancel?1:0));
+    if(test.cancel)assert.deepEqual(result.cancellation,{kind:'text',value:'stop'});
     if(test.trace) assert.deepEqual(result.requests,test.trace);
     else for(const request of result.requests){
       assert.equal(request.identity,test.identity);
@@ -117,13 +176,15 @@ for(const path of images){
     }
     if(fixtureCases[kind]) {
       const source=parseExactJson(await readFile(path.replace(/\.bpi3$/,'.json'),'utf8'));
-      const reference=oracle(source,Array.from(test.args),test.replies.map(x=>Array.from(x)));
+      const reference=oracle(source,Array.from(test.args),test.replies.map(x=>Array.from(x)),
+        test.cancel?[{at:0,reason:'stop'}]:[]);
       assert.equal(reference.kind.toLowerCase(),result.kind);
-      assert.equal(Buffer.from(reference.value).toString('hex'),result.value);
+      assert.equal(Buffer.from(reference.value??[]).toString('hex'),result.value);
+      if(test.cancel)assert.equal(reference.reason,'stop');
       assert.deepEqual(reference.trace.filter(x=>x.kind==='Requested').map(x=>({
         identity:x.identity,payload:Buffer.from(x.payload).toString('hex')})),result.requests);
     }
-    observations.push({kind:result.kind,value:result.value,requests:result.requests});
+    observations.push(result);
     console.log(JSON.stringify({path,imageBytes:image.length,...result}));
   }
   if(baseline)assert.deepEqual(observations,baseline);else baseline=observations;

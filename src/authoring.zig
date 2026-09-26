@@ -882,10 +882,29 @@ pub const Context = opaque {
     ) Error!source.Compiled {
         return self.lowerNamed(allocator, try self.publish(entry, failure, false));
     }
+    /// Narrow options preserve the mandatory original-occurrence capture observer.
+    pub fn compileWithOptions(
+        self: *Context,
+        allocator: std.mem.Allocator,
+        entry: *const Function,
+        failure: *const Schema,
+        coalescing: @import("boundary_data").coalescing.Options,
+    ) Error!source.Compiled {
+        return self.lowerNamedWithOptions(allocator, try self.publish(entry, failure, false), coalescing);
+    }
     fn lowerNamed(self: *Context, allocator: std.mem.Allocator, module_value: source.Module) Error!source.Compiled {
+        return self.lowerNamedWithOptions(allocator, module_value, .{});
+    }
+    fn lowerNamedWithOptions(
+        self: *Context,
+        allocator: std.mem.Allocator,
+        module_value: source.Module,
+        coalescing: @import("boundary_data").coalescing.Options,
+    ) Error!source.Compiled {
         var diagnostic: source.Diagnostic = .{};
         var result = source.lowerObserved(allocator, module_value, .{
             .diagnostic = &diagnostic,
+            .coalescing = coalescing,
             .captures = if (contextData(self).lambda_schemas.count() != 0 or contextData(self).handlers.items.len != 0) .{ .context = self, .capture = observeCapture, .closure = observeClosure } else null,
         }) catch |err| {
             if (contextData(self).capture_failure) |failure| return failure;

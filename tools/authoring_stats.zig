@@ -24,6 +24,9 @@ pub fn main(init: std.process.Init) !void {
             .constructors = p.constructors.len,
             .captures = p.scopes.captures.len,
             .constants = p.constants.len,
+            .effects = p.effects.len,
+            .regions = p.scopes.region_count,
+            .resources = p.scopes.resources.len,
         }, .{}, &output.interface);
         try output.interface.writeByte('\n');
     }

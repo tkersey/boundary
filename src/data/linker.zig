@@ -11,7 +11,7 @@ const Id = p.Id;
 pub const Instance = struct { key: []const u8, object: []const u8 };
 pub const Endpoint = struct { instance: []const u8, symbol: []const u8 };
 pub const Binding = struct { required: Endpoint, supplied: Endpoint };
-pub const Error = component.Error || error{ DuplicateInstance, MissingInstance, MissingSymbol, DuplicateBinding, UnresolvedImport, IncompatibleInterface, IncompatibleFailure };
+pub const Error = @import("coalescing.zig").Error || component.Error || error{ DuplicateInstance, MissingInstance, MissingSymbol, DuplicateBinding, UnresolvedImport, IncompatibleInterface, IncompatibleFailure };
 pub const Linked = struct {
     arena: std.heap.ArenaAllocator,
     program: ir.Program,
@@ -50,6 +50,11 @@ fn resolve(aliases: []const Id, imported: []const bool, start: usize) Error!usiz
 }
 
 pub fn link(allocator: std.mem.Allocator, input: []const Instance, bindings: []const Binding, entry: Endpoint) Error!Linked {
+    return linkWithOptions(allocator, input, bindings, entry, .{});
+}
+
+pub fn linkWithOptions(allocator: std.mem.Allocator, input: []const Instance, bindings: []const Binding, entry: Endpoint, options: @import("coalescing.zig").Options) Error!Linked {
+    options.resetObservations();
     var temporary = std.heap.ArenaAllocator.init(allocator);
     defer temporary.deinit();
     const a = temporary.allocator();
@@ -118,8 +123,8 @@ pub fn link(allocator: std.mem.Allocator, input: []const Instance, bindings: []c
     const root = try selected_mapper.id(.function, selected.id);
     var provisional = try assemble(a, units, imported, counts);
     provisional.roots = .{ .entry = root, .result = provisional.functions[@intCast(root)].result, .failure = try selected_mapper.id(.schema, selected_unit.object.program.roots.failure) };
-    const schema_map = try schemaClasses(a, provisional);
-    var final_maps = try identityMaps(a, try relocate.sizes(provisional));
+    const schema_map = try @import("schema_partition.zig").compute(a, provisional);
+    var final_maps = try relocate.identityMaps(a, try relocate.sizes(provisional));
     final_maps[@intFromEnum(Kind.schema)] = schema_map;
     var arena = std.heap.ArenaAllocator.init(allocator);
     errdefer arena.deinit();
@@ -135,8 +140,19 @@ pub fn link(allocator: std.mem.Allocator, input: []const Instance, bindings: []c
     var checked = try @import("activation_ownership.zig").analyze(allocator, result);
     defer checked.deinit();
     try checkBorrows(a, units, result);
+    if (options.mode == .safe) {
+        const optimized = try @import("coalescing.zig").run(allocator, result, options);
+        arena.deinit();
+        return .{ .arena = optimized.arena, .program = optimized.program, .flow = optimized.flow };
+    }
+    if (options.statistics) |stats| stats.* = .{ .outcome = .disabled, .rounds = stats.rounds };
     const projected = try relocate.ownReachable(arena.allocator(), a, result);
-    const flow = try @import("activation_ownership.zig").analyze(allocator, projected.program);
+    var flow = try @import("activation_ownership.zig").analyze(allocator, projected.program);
+    errdefer flow.deinit();
+    if (options.statistics) |stats| {
+        stats.baseline = try @import("coalescing.zig").Counts.of(projected.program);
+        stats.selected = stats.baseline;
+    }
     return .{ .arena = arena, .program = projected.program, .flow = flow };
 }
 
@@ -232,46 +248,6 @@ fn assemble(a: std.mem.Allocator, units: []const Unit, imported: [relocate.kind_
         .scopes = .{ .captures = try catalog(p.Capture, .capture, a, units, imported[6], counts[6], relocate.Mapper.capture), .region_count = counts[7], .resources = try catalog(p.Resource, .resource, a, units, imported[8], counts[8], relocate.Mapper.resource) },
         .constructors = try catalog(p.Constructor, .constructor, a, units, imported[9], counts[9], relocate.Mapper.constructor),
     };
-}
-fn identityMaps(a: std.mem.Allocator, counts: [relocate.kind_count]usize) Error!relocate.Maps {
-    var result: relocate.Maps = undefined;
-    for (&result, counts) |*map, count| {
-        const values = try a.alloc(Id, count);
-        for (values, 0..) |*value, index| value.* = index;
-        map.* = values;
-    }
-    return result;
-}
-fn schemaClasses(a: std.mem.Allocator, program: ir.Program) Error![]const Id {
-    var classes = try a.alloc(Id, program.schemas.len);
-    var next = try a.alloc(Id, classes.len);
-    @memset(classes, 0);
-    var maps = try identityMaps(a, try relocate.sizes(program));
-    while (true) {
-        var pass = std.heap.ArenaAllocator.init(a);
-        defer pass.deinit();
-        maps[@intFromEnum(Kind.schema)] = classes;
-        const mapper: relocate.Mapper = .{ .allocator = pass.allocator(), .maps = maps };
-        const shapes = try pass.allocator().alloc(p.Schema, classes.len);
-        for (shapes, program.schemas, 0..) |*shape, original, i| {
-            shape.* = try mapper.schema(original);
-            next[i] = i;
-            for (shapes[0..i], 0..) |prior, j| if (equal(p.Schema, shape.*, prior)) {
-                next[i] = next[j];
-                break;
-            };
-        }
-        if (std.mem.eql(Id, classes, next)) break;
-        std.mem.swap([]Id, &classes, &next);
-    }
-    const representatives = try a.alloc(Id, classes.len);
-    var count: Id = 0;
-    for (classes, 0..) |class, i| if (class == i) {
-        representatives[i] = count;
-        count += 1;
-    };
-    for (classes) |*class| class.* = representatives[@intCast(class.*)];
-    return classes;
 }
 fn rewrite(a: std.mem.Allocator, program: ir.Program, maps: relocate.Maps) Error!ir.Program {
     const mapper: relocate.Mapper = .{ .allocator = a, .maps = maps };

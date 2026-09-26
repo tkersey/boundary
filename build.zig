@@ -25,6 +25,38 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .imports = &.{.{ .name = "boundary_data", .module = data }},
     });
+    const coalescing_emit = b.addExecutable(.{
+        .name = "coalescing-fixture",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/coalescing_emit.zig"),
+            .target = b.graph.host,
+            .optimize = optimize,
+            .imports = &.{.{ .name = "boundary_data", .module = data }},
+        }),
+    });
+    const coalescing_fixtures = b.step("build-coalescing-fixtures", "Build independently authored coalescing witnesses");
+    coalescing_fixtures.dependOn(&b.addInstallArtifact(coalescing_emit, .{}).step);
+    const coalescing_inspect = b.addExecutable(.{
+        .name = "coalescing-inspect",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/authoring_stats.zig"),
+            .target = b.graph.host,
+            .optimize = optimize,
+            .imports = &.{.{ .name = "boundary_data", .module = data }},
+        }),
+    });
+    coalescing_fixtures.dependOn(&b.addInstallArtifact(coalescing_inspect, .{}).step);
+    const coalescing_bench = b.addExecutable(.{
+        .name = "coalescing-bench",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/coalescing_bench.zig"),
+            .target = b.graph.host,
+            .optimize = optimize,
+            .imports = &.{.{ .name = "boundary_data", .module = data }},
+        }),
+    });
+    b.step("build-coalescing-bench", "Build the paired compiler/admission measurement probe")
+        .dependOn(&b.addInstallArtifact(coalescing_bench, .{}).step);
     const linker = b.addExecutable(.{ .name = "boundary-link", .root_module = b.createModule(.{
         .root_source_file = b.path("tools/component_link.zig"),
         .target = target,
@@ -32,6 +64,7 @@ pub fn build(b: *std.Build) void {
         .imports = &.{.{ .name = "boundary_data", .module = data }},
     }) });
     const installed_linker = b.addInstallArtifact(linker, .{});
+    coalescing_fixtures.dependOn(&installed_linker.step);
     b.step("build-compiler", "Build the source-independent BMO1 linker")
         .dependOn(&installed_linker.step);
     const component_example = b.addExecutable(.{ .name = "component-example", .root_module = b.createModule(.{
@@ -47,6 +80,12 @@ pub fn build(b: *std.Build) void {
     component_checks.has_side_effects = true;
     const component_step = b.step("check-components", "Check object admission and source-independent composition");
     component_step.dependOn(&component_checks.step);
+    const coalescing_components = b.addSystemCommand(&.{ "node", "test/coalescing_components.mjs" });
+    coalescing_components.addArtifactArg(coalescing_emit);
+    coalescing_components.addArtifactArg(linker);
+    coalescing_components.addArtifactArg(coalescing_inspect);
+    coalescing_components.has_side_effects = true;
+    component_step.dependOn(&coalescing_components.step);
     const component_data_tests = b.addTest(.{ .root_module = b.createModule(.{
         .root_source_file = b.path("src/data/component_tests.zig"),
         .target = b.graph.host,
@@ -216,7 +255,7 @@ pub fn build(b: *std.Build) void {
     oracle.has_side_effects = true;
     const semantics = b.step("check-semantics", "Check higher-order source semantics without World");
     semantics.dependOn(&oracle.step);
-    semantics.dependOn(&oracleScopeChecks(b, boundary, optimize).step);
+    semantics.dependOn(&oracleScopeChecks(b, boundary, optimize, authoring_cases).step);
     semantics.dependOn(&borrowReturnChecks(b, boundary, optimize).step);
     semantics.dependOn(&b.addRunArtifact(authoring).step);
     const exact_json = b.addSystemCommand(&.{ "node", "--test" });
@@ -415,6 +454,7 @@ fn oracleScopeChecks(
     b: *std.Build,
     boundary: *std.Build.Module,
     optimize: std.builtin.OptimizeMode,
+    authoring_cases: *std.Build.Step.Compile,
 ) *std.Build.Step.Run {
     const emitter = b.addExecutable(.{
         .name = "oracle-scopes",
@@ -428,6 +468,7 @@ fn oracleScopeChecks(
     const check = b.addSystemCommand(&.{"node"});
     check.addFileArg(b.path("test/v2/oracle_scopes.mjs"));
     check.addFileArg(b.addRunArtifact(emitter).captureStdOut(.{}));
+    check.addFileArg(authoring_cases.getEmittedBin());
     check.has_side_effects = true;
     return check;
 }
