@@ -67,6 +67,12 @@ async function execute(image, initialArgs, replies) {
 }
 const empty=new Uint8Array();
 const fixtureCases = {
+  cells_independent:[{args:empty,replies:[],value:Uint8Array.of(...u64(1),...u64(1),...u64(2))}],
+  cells_shared:[{args:empty,replies:[],value:Uint8Array.of(...u64(1),...u64(2),...u64(3))}],
+  memo_independent:[{args:empty,replies:[],value:Uint8Array.of(...u64(1),...u64(1),...u64(2),...u64(2))}],
+  memo_shared:[{args:empty,replies:[],value:Uint8Array.of(...u64(1),...u64(1),...u64(1),...u64(1))}],
+  state_local:[{args:empty,replies:[],value:Uint8Array.of(2,...u64(1),...u64(1))}],
+  state_shared:[{args:empty,replies:[],value:Uint8Array.of(2,...u64(1),...u64(2))}],
   obligations:[{args:empty,replies:[empty],value:u64(42),payload:empty,identity:'case/release'}],
   imported_scoped:[{args:empty,replies:[],value:u64(42)}],
   cleanup_named:[{args:Uint8Array.of(1,...u64(17),0,0),replies:[],value:u64(17)},

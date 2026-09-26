@@ -133,3 +133,31 @@ test "coalescing shares depth-eight helper chains through calls and constructed 
             try data.program_image.encodedLength(off.program));
     }
 }
+
+test "coalescing shares stateful code while retaining every dynamic allocation site" {
+    const cases = @import("coalescing_state_cases.zig");
+    for (std.enums.values(cases.Kind)) |kind| {
+        var builder = source.Builder.init(testing.allocator);
+        defer builder.deinit();
+        const module = try cases.build(&builder, kind);
+        var off = try source.lower(testing.allocator, module);
+        defer off.deinit();
+        var safe = try source.lowerObserved(testing.allocator, module, .{ .coalescing = .{ .mode = .safe } });
+        defer safe.deinit();
+        try testing.expectEqual(off.program.functions.len - 1, safe.program.functions.len);
+        try testing.expectEqual(off.program.constructors.len - 1, safe.program.constructors.len);
+        const expected: usize = switch (kind) {
+            .cells_independent => 2,
+            .cells_shared => 1,
+            .memo_independent => 3,
+            .memo_shared => 2,
+        };
+        for ([_]data.activation.Program{ off.program, safe.program }) |program| {
+            var allocations: usize = 0;
+            for (program.blocks) |block| for (block.instructions) |operation| {
+                allocations += @intFromBool(operation.opcode == .cell_new);
+            };
+            try testing.expectEqual(expected, allocations);
+        }
+    }
+}

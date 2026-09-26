@@ -27,6 +27,12 @@ pub const Kind = enum {
     cleanup_named,
     imported_sequence,
     obligations,
+    cells_independent,
+    cells_shared,
+    memo_independent,
+    memo_shared,
+    state_local,
+    state_shared,
 };
 
 pub fn build(raw: *source.Builder, kind: Kind) !source.Module {
@@ -44,6 +50,12 @@ pub fn build(raw: *source.Builder, kind: Kind) !source.Module {
         .cleanup_named => cleanupNamedCase(raw),
         .imported_sequence => importedSequenceCase(raw),
         .arithmetic, .arithmetic_fail => arithmeticCase(raw, kind == .arithmetic_fail),
+        .cells_independent => @import("coalescing_state_cases.zig").build(raw, .cells_independent),
+        .cells_shared => @import("coalescing_state_cases.zig").build(raw, .cells_shared),
+        .memo_independent => @import("coalescing_state_cases.zig").build(raw, .memo_independent),
+        .memo_shared => @import("coalescing_state_cases.zig").build(raw, .memo_shared),
+        .state_local => @import("source/state_choice_example.zig").local(raw),
+        .state_shared => @import("source/state_choice_example.zig").shared(raw),
     };
 }
 fn handlerCase(raw: *source.Builder, kind: Kind) !source.Module {
