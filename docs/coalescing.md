@@ -230,6 +230,20 @@ node test/coalescing_execution.mjs zig-out/bin/coalescing-fixture \
 
 ### Enabled/disabled semantic fixtures
 
+The [recursive execution report](coalescing-recursive-evidence.json) compares two
+independently emitted mutually recursive groups with distinct role base values.
+The equivalent groups coalesce role-for-role (five functions including entry
+become three). Changing one group's odd-role base value preserves all five
+functions. Inputs 0, 1, 2, 7 and 16 return independently calculated values with
+matching quantum-one boundaries in native World, Node/WASM and Wasmtime.
+
+A nonterminating variant emits alternating role requests. Both modes preserve
+the first 128 stepping operations, request payloads and contracts, using replies
+bound to each image's own requests and fresh-host checkpoint restoration. This
+establishes the recorded finite prefix only; no timeout or finite prefix is
+presented as a proof of equivalent divergence. Reproduce with `recursive` as the
+final argument to the maintained coalescing execution harness.
+
 The [bounded production-record corpus](coalescing-generated-evidence.json)
 enumerates all 36 combinations of three-slot renaming and simultaneous assignment
 permutations. Seeds 0–35 contain independently numbered equivalent functions and

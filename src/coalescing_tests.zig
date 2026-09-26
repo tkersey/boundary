@@ -187,3 +187,15 @@ test "coalescing production generator covers all three-slot renamings and ordere
         try testing.expectError(error.InvalidReference, cases.generated(testing.allocator, ordinal + 128, .{ .mode = mode }));
     };
 }
+
+test "coalescing authored recursive groups preserve role distinctions and changed bases" {
+    const cases = @import("coalescing_recursive_cases.zig");
+    for (std.enums.values(cases.Kind)) |kind| {
+        var off = try cases.compile(testing.allocator, kind, .{});
+        defer off.deinit();
+        var safe = try cases.compile(testing.allocator, kind, .{ .mode = .safe });
+        defer safe.deinit();
+        try testing.expectEqual(@as(usize, 5), off.program.functions.len);
+        try testing.expectEqual(@as(usize, if (kind == .recursive_near) 5 else 3), safe.program.functions.len);
+    }
+}

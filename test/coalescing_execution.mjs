@@ -10,9 +10,10 @@ const [emitter, runtime, expectedSha256, native, ...componentImages] = process.a
 const trees = componentImages.length===1 && componentImages[0]==='trees';
 const edges = componentImages.length===1 && componentImages[0]==='edges';
 const generated = componentImages.length===1 && componentImages[0]==='generated';
+const recursive = componentImages.length===1 && componentImages[0]==='recursive';
 assert.ok(emitter && runtime && /^[a-f0-9]{64}$/.test(expectedSha256 ?? '') && native,
   'usage: node test/coalescing_execution.mjs EMITTER RUNTIME SHA256 NATIVE');
-const {Kernel, encodeInput, decodeOutcome} =
+const {Kernel, encodeInput, decodeOutcome, decodeRequest, encodeResult} =
   await import(pathToFileURL(resolve(runtime, 'src/embedding/index.mjs')));
 const kernelBytes = new Uint8Array(await readFile(resolve(runtime, 'world-kernel.wasm')));
 const wasmtime = process.env.WORLD_WASMTIME_PEER
@@ -56,6 +57,36 @@ async function execute(image, initialArgs, quantum = null) {
     state = outcome.state; // Each next operation restores on a fresh runtime instance.
   }
   throw Error('finite observation bound exceeded');
+}
+
+async function recursivePrefix(image, steps) {
+  let state, control='none', value=new Uint8Array();
+  const boundaries=[], requests=[];
+  for(let index=0;index<steps;index++) {
+    const input=encodeInput({image,initialArgs:state?undefined:words([0]),
+      state,control,value,quantum:1});
+    const kernel=await fresh(), encoded=kernel.invoke(input);
+    const peer=spawnSync(native,['invoke'],{input,maxBuffer:16<<20});
+    assert.equal(peer.status,0,peer.stderr.toString());
+    assert.deepEqual(encoded,new Uint8Array(peer.stdout));
+    if(wasmtime)assert.deepEqual((await wasmtime.call('invoke',{bytes:input})).bytes,encoded);
+    const outcome=decodeOutcome(encoded);
+    assert.ok(['progressed','requested'].includes(outcome.kind));
+    assert.ok(outcome.state?.length);
+    boundaries.push(outcome.kind);state=outcome.state;
+    if(outcome.kind==='requested') {
+      const request=await decodeRequest(outcome.request);
+      assert.equal(request.semanticIdentity,'coalescing/recursive-step');
+      assert.deepEqual(request.payload,words([requests.length%2===0?41:42]));
+      requests.push({effect:request.effect.toString(),identity:request.semanticIdentity,
+        payload:Buffer.from(request.payload).toString('hex'),
+        payloadSchema:Buffer.from(request.payloadSchema).toString('hex'),
+        resumeSchema:Buffer.from(request.resumeSchema).toString('hex')});
+      control='reply';value=await encodeResult(outcome.request,new Uint8Array());
+    } else {control='none';value=new Uint8Array();}
+  }
+  assert.ok(requests.length>=8,'prefix must exercise repeated reciprocal calls');
+  return {steps,boundaries,requests,qualification:'Matched finite prefix only; not a divergence proof'};
 }
 
 try {
@@ -152,6 +183,28 @@ if (trees) {
     }
     measurements.push({seed,rejected:'InvalidReference',modes:['off','safe']});
   }
+} else if (recursive) {
+  for(const kind of ['recursive','recursive_near']) {
+    const off=emit('off',kind),safe=emit('safe',kind);
+    assert.equal(off.statistics.functions,5);
+    assert.equal(safe.statistics.functions,kind==='recursive'?3:5);
+    const observations=[];
+    for(const n of [0,1,2,7,16]) {
+      const baseline=await execute(off.image,words([n]),1);
+      assert.deepEqual(await execute(safe.image,words([n]),1),baseline);
+      assert.equal(baseline.kind,'completed');
+      const left=n%2===0?41:42;
+      const right=kind==='recursive_near'&&n%2===1?43:left;
+      assert.equal(baseline.value,Buffer.from(words([left,right])).toString('hex'));
+      observations.push({n,...baseline});
+    }
+    measurements.push({kind,off:off.statistics,safe:safe.statistics,observations});
+  }
+  const off=emit('off','recursive_infinite'),safe=emit('safe','recursive_infinite');
+  assert.equal(off.statistics.functions,5);assert.equal(safe.statistics.functions,3);
+  const prefix=await recursivePrefix(off.image,128);
+  assert.deepEqual(await recursivePrefix(safe.image,128),prefix);
+  measurements.push({kind:'recursive_infinite',off:off.statistics,safe:safe.statistics,prefix});
 } else if (componentImages.length) {
   assert.equal(componentImages.length, 2);
   const images = await Promise.all(componentImages.map(async path => new Uint8Array(await readFile(path))));
@@ -177,7 +230,8 @@ if(generated) {
       offFunctions:row.off.functions,safeFunctions:row.safe.functions,
       observation:row.observation}),
   },null,2));
-} else console.log(JSON.stringify({check: edges ? 'coalescing simultaneous assignments and slot reuse'
+} else console.log(JSON.stringify({check: recursive ? 'coalescing recursive groups and finite prefixes'
+  : edges ? 'coalescing simultaneous assignments and slot reuse'
   : trees ? 'coalescing depth-eight reference-induced sharing'
   : componentImages.length
   ? 'coalescing source-free components native/WASM and fresh-host resume'

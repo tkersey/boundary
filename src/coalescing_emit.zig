@@ -5,6 +5,7 @@ const data = @import("boundary_data");
 const components = @import("coalescing_component_cases.zig");
 const trees = @import("coalescing_tree_cases.zig");
 const edges = @import("coalescing_edge_cases.zig");
+const recursive = @import("coalescing_recursive_cases.zig");
 
 fn emitComponent(init: std.process.Init, kind: components.Kind, mode: data.coalescing.Mode) !void {
     const object = try components.emit(init.gpa, kind, mode);
@@ -28,16 +29,19 @@ pub fn main(init: std.process.Init) !void {
     }
     const tree = std.meta.stringToEnum(trees.Kind, selection);
     const edge = std.meta.stringToEnum(edges.Kind, selection);
+    const recursion = std.meta.stringToEnum(recursive.Kind, selection);
     const seed = if (std.mem.startsWith(u8, selection, "generated-"))
         try std.fmt.parseInt(usize, selection[10..], 10)
     else
         @as(?usize, null);
-    const count = if (tree != null) 8 else if (edge != null or seed != null) 3 else try std.fmt.parseInt(usize, selection, 10);
+    const count = if (tree != null) 8 else if (edge != null or seed != null or recursion != null) 3 else try std.fmt.parseInt(usize, selection, 10);
     if (args.next() != null or count == 0 or count > 256) return error.InvalidCount;
     var rounds: [16]data.coalescing.Round = undefined;
     var statistics: data.coalescing.Statistics = .{ .rounds = &rounds };
     const options: data.coalescing.Options = .{ .mode = mode, .statistics = &statistics };
-    var compiled = if (seed) |value|
+    var compiled = if (recursion) |kind|
+        try recursive.compile(init.gpa, kind, options)
+    else if (seed) |value|
         try edges.generated(init.gpa, value, options)
     else if (edge) |kind|
         try edges.compile(init.gpa, kind, options)
