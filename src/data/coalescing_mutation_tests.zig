@@ -36,6 +36,75 @@ fn rejectMutation(before: ir.Program, after: ir.Program) !void {
     try testing.expectError(error.InvalidCorrespondence, validator.validate(testing.allocator, before, after, map));
 }
 
+test "coalescing preserves callable use effect and capture-bound distinctions" {
+    const callable: p.Schema = .{ .internal = .{ .computation = .{
+        .parameters = &.{},
+        .result = 0,
+        .use = .reusable,
+        .capture_bound = &.{0},
+    } } };
+    const program: ir.Program = .{
+        .roots = .{ .entry = 0, .result = 0, .failure = 1 },
+        .schemas = &.{ .u64, .unit, callable, callable },
+        .constants = &.{},
+        .effects = &.{.{ .identity = "latent", .payload = 1, .result = 0 }},
+        .functions = &.{.{ .entry = 0, .inputs = &.{0}, .layout = .{ .slots = &.{ 0, 2, 3 } }, .result = 0 }},
+        .blocks = &.{.{ .function = 0, .instructions = &.{}, .terminator = .{ .return_value = 0 } }},
+    };
+    var equivalent = try pass.run(testing.allocator, program, .{});
+    defer equivalent.deinit();
+    try testing.expectEqual(@as(usize, 3), equivalent.program.schemas.len);
+    for (0..3) |mutation| {
+        var changed = program;
+        var schemas = program.schemas[0..4].*;
+        switch (mutation) {
+            0 => schemas[3].internal.computation.use = .linear,
+            1 => schemas[3].internal.computation.effects = &.{0},
+            else => schemas[3].internal.computation.capture_bound = &.{},
+        }
+        changed.schemas = &schemas;
+        try rejectMutation(program, changed);
+        var distinct = try pass.run(testing.allocator, changed, .{});
+        defer distinct.deinit();
+        try testing.expectEqual(@as(usize, 4), distinct.program.schemas.len);
+    }
+}
+
+test "coalescing rejects changed region and resource contracts independently" {
+    const program: ir.Program = .{
+        .roots = .{ .entry = 0, .result = 0, .failure = 1 },
+        .schemas = &.{ .u64, .unit, .{ .internal = .{ .cell = .{ .element = 0, .region = 0 } } }, .{ .internal = .{ .cell = .{ .element = 0, .region = 1 } } }, .{ .internal = .{ .abstract_resource = 0 } }, .{ .internal = .{ .abstract_resource = 1 } } },
+        .constants = &.{},
+        .effects = &.{},
+        .functions = &.{.{ .entry = 0, .inputs = &.{0}, .layout = .{ .slots = &.{ 0, 2, 3, 4, 5 } }, .result = 0, .regions = &.{ 0, 1 } }},
+        .blocks = &.{.{ .function = 0, .instructions = &.{}, .terminator = .{ .return_value = 0 } }},
+        .scopes = .{ .region_count = 2, .resources = &.{
+            .{ .representation = 0, .introducers = &.{0}, .eliminators = &.{0} },
+            .{ .representation = 0, .introducers = &.{0}, .eliminators = &.{0} },
+        } },
+    };
+    var changed = program;
+    var schemas = program.schemas[0..6].*;
+    schemas[2].internal.cell.region = 1;
+    changed.schemas = &schemas;
+    try rejectMutation(program, changed);
+    for (0..3) |mutation| {
+        changed = program;
+        var resources = program.scopes.resources[0..2].*;
+        switch (mutation) {
+            0 => resources[0].representation = 1,
+            1 => resources[0].introducers = &.{},
+            else => resources[0].eliminators = &.{},
+        }
+        changed.scopes.resources = &resources;
+        try rejectMutation(program, changed);
+    }
+    var optimized = try pass.run(testing.allocator, program, .{});
+    defer optimized.deinit();
+    try testing.expectEqual(@as(usize, 2), optimized.program.scopes.resources.len);
+    try testing.expectEqual(@as(p.Id, 2), optimized.program.scopes.region_count);
+}
+
 const arithmetic: ir.Program = .{
     .roots = .{ .entry = 2, .result = 1, .failure = 0 },
     .schemas = &.{ .u64, .{ .product = &.{ 0, 0 } } },

@@ -557,7 +557,9 @@ test "converting an owned capture consumes the original before any template acti
     const resumed = b.terms.items[@intCast(saved.next)].bind.value;
     const original = try b.reference(b.parameter(clause, 3));
     b.terms.items[@intCast(resumed)].resume_value.resumption = original;
-    try std.testing.expectError(error.UnavailableSlot, source.lower(std.testing.allocator, b.module(module.entry, module.failure)));
+    for ([_]data.coalescing.Mode{ .off, .safe }) |mode| {
+        try std.testing.expectError(error.UnavailableSlot, source.lowerObserved(std.testing.allocator, b.module(module.entry, module.failure), .{ .coalescing = .{ .mode = mode } }));
+    }
 }
 
 test "unused binding annotations and undeclared captures still reject" {
@@ -622,7 +624,9 @@ test "a resource borrow cannot escape its protected body even when immediately r
     const next = try b.bind(escaped, protected, read);
     const changed = try b.bind(main_bind.variable, main_bind.value, next);
     b.functions.items[@intCast(original.entry)].body = changed;
-    try std.testing.expectError(error.InvalidOwnership, source.lower(std.testing.allocator, b.module(original.entry, original.failure)));
+    for ([_]data.coalescing.Mode{ .off, .safe }) |mode| {
+        try std.testing.expectError(error.InvalidOwnership, source.lowerObserved(std.testing.allocator, b.module(original.entry, original.failure), .{ .coalescing = .{ .mode = mode } }));
+    }
 }
 
 test "latent multi use rejects an exclusive caller capture but permits capture before acquisition" {

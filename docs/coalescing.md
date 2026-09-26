@@ -40,7 +40,7 @@ The exact Python appendix, executed with `uv run python3` and assertions enabled
 reproduced 4,330 exhaustive graphs, 500 seeded graphs, and 11 adversarial assertions.
 Unchanged Agent `zig build check-agent4 -Doptimize=ReleaseSafe` also passed.
 
-## Identity audit in progress
+## Identity and operation audit
 
 | Identity | Current owning use | Required treatment / outstanding proof |
 | --- | --- | --- |
@@ -67,10 +67,10 @@ runtime bodies does not discharge the valid-input preservation requirement.
 Original component borrow contracts are checked in `linker.checkBorrows` before
 the existing reachable projection; that ordering must remain intact.
 
-The audit is not yet exhaustive. No new identity exclusions or equivalence claims
-are authorized merely by the table. Remaining work includes the complete opcode
-argument, full checker mutation matrix, live-image opportunity census,
-Agent integration, the remaining execution witnesses, and the measurement protocol.
+The table covers the identities in the current record inventory. The correctness
+argument below binds each category to the raw checker, publication path and
+unchanged World operations. It is an engineering argument with bounded runtime
+witnesses, not a formal proof of the complete compiler.
 
 ## Discovery foundation
 
@@ -276,9 +276,9 @@ node test/coalescing_measure.mjs zig-out/bin/coalescing-bench measurements.json
 
 The no-change/idempotence tests require zero candidate validator/admission calls
 after reaching the fixed point. The complete data/authoring suite also retains
-work-limit rollback and deterministic allocation-failure tests. Remaining compiler
-measurement obligations include scaling/mostly-unique graphs, source-free linking,
-all internal phases, and the unchanged real consumer corpus.
+work-limit rollback and deterministic allocation-failure tests. More extensive
+scaling, source-free linker and internal-phase profiling remain possible follow-up
+work under v2.1; they are not a requirement to keep tuning this round.
 
 ### Enabled/disabled semantic fixtures
 
@@ -403,7 +403,8 @@ Independent memo cells evaluate twice and return `1, 1, 2`; a shared memo cell
 evaluates once and returns `1, 1, 1`. These observations survive quantum-one
 checkpoint/restore in each runtime. Existing multi-shot State/Choice examples
 also retain branch-local `[1, 1]` versus deliberately shared `[1, 2]` results.
-This does not yet close the full recursive multi-shot or hyperfunction matrix.
+The later recursive State/Choice and ordinary hyperfunction witnesses extend this
+coverage; see the current acceptance inventory.
 
 The ordinary `hyper.ana`, `Query.ask`, `invoke`, `force` and `deferValue` paths
 are also exercised through separately emitted definitions. The duplicate case
@@ -518,25 +519,11 @@ objects and the linker: its first linked image is 804 bytes versus 811 bytes off
 The dedicated witness above attributes its reductions to actual code and
 constructor coalescing.
 
-The goal remains active. In particular:
-
-- Complete the identity/opcode and admission-precision audit and the remaining
-  end-to-end diagnostic mutation cases.
-- Exercise the actual candidate pipeline on deep parent trees, mutually recursive
-  groups, all semantic differences, simultaneous assignments, schema sums,
-  nominal identities, resource authority, handler modes and borrow provenance.
-- Complete corruption/generative/allocation/concurrency tests and the full T01–T42
-  matrix; existing green aggregates are not a replacement for these cases.
-- Extend source-free cross-object coverage to the required nominal region/resource,
-  explicit-effect-binding and recursive constructor/handler cases.
-- Propagate options through Agent's final compiled-tool link and update/authenticate
-  the candidate dependency selection without changing the locked World evaluator.
-- Run the unchanged real consumer opportunity census and B0/B1/B2 qualification,
-  including the complete timing, memory, checkpoint and platform protocols.
-- Complete phase/resource/work accounting, investigate measured scaling, and
-  remove redundant checks only where their exact obligations remain covered.
-- Run the required serial review/closeout workflow on final commits and publish
-  authorized draft changes. The default is `safe`; complete correctness and integration qualification.
+Remaining delivery work is the final authenticated Agent pin/aggregate and serial
+review convergence. Agent owns its consumer qualification report and dependency
+lock in [PR 38](https://github.com/tkersey/agent/pull/38). The current
+[acceptance inventory](coalescing-acceptance.md) records Boundary's bounded
+correctness evidence. Further performance tuning is deferred under v2.1.
 
 ## Default enablement and bounded follow-up measurement
 
@@ -580,7 +567,131 @@ bounded performance attempt, independent of whether other workloads speed up.
 Default-enablement verification (Zig 0.16.0, macOS arm64): the complete
 `zig build check -Doptimize=ReleaseSafe` passed; data checks passed in Debug,
 ReleaseSafe and ReleaseFast. Component checks, formatting, and repository path
-registration passed. The source-oracle/native/Node/Wasmtime run passed 86 paired
+registration passed. At default-enablement commit `88330d5`, the source-oracle/native/Node/Wasmtime run passed 86 paired
 executions over 35 fixtures and checked that default emission equals explicit
 `safe` for every fixture. This evidence does not close the remaining partial
 correctness rows in the acceptance inventory.
+
+## Completed Boundary correctness witnesses
+
+The current semantic report records **98 executions over 39 fixtures**. In every
+fixture, the omitted option equals explicit `safe`, and each off/safe pair uses
+the same authenticated World artifact. Native World, Node/WASM, Wasmtime and the
+independent source oracle agree on values, failures, requests and logical stepping.
+The maintained Chromium/Firefox subset separately proves fresh-Worker transfer
+and rejects wrong image/kernel identities.
+
+Additional witnesses close the concrete gaps identified during implementation:
+
+- Function-local loops with renamed blocks/slots: zero, odd and even iteration
+  counts agree; equivalent loops shrink 230 to 167 bytes, while a changed exit
+  operand order retains distinct bodies at 230 bytes.
+- Source-free private regions/resources retain two nominal anchors and their
+  distinct code, with independent values and cleanup. Equal-named private effects
+  produce distinct effect IDs. An explicit effect import binding permits two
+  provider bodies to coalesce; both linked modes preserve their requests/results.
+- Two nested, suspending finalizers share code without sharing installations.
+  Return, overflow and cancellation retain inner marker 2 then outer marker 1.
+- Mutually recursive helpers inside multi-shot State/Choice share code. Owned
+  branch-local cells give `[2,2,2,2]`; deliberately shared cells give `[2,3,5,6]`.
+- Two separately established resource loans use equivalent identity/body helpers.
+  The valid image shares two bodies; moving a returned loan past the second
+  protection boundary rejects in both modes. Acquisition/release order and the
+  distinct values 13 and 17 remain intact.
+- Closure observation retains all three original source occurrences even when
+  two hit the constructor cache and coalescing then combines equivalent helpers.
+  Original source value/variable IDs and output bytes are preserved.
+- Exact count/encode comparisons cover closure-family sizes around 16, 64, 128
+  and 256. Cost-selection seam tests reject growth and nondecreasing record count;
+  synthetic cost orderings are explicitly distinguished from real codec results.
+
+### Source-oracle correction
+
+The nested multi-shot fixture also exposed a pre-existing oracle defect: an older
+`inMemory` wrapper could replace a descendant resumption's fresh memory snapshot.
+The oracle produced `[2,3,2,3]` where the authored owned-region contract and all
+three runtimes require independent inner branches `[2,2,2,2]`. The disabled image
+already exhibited the disagreement; coalescing was not its cause.
+
+Memory views now retain their parent and travel with suspended oracle nodes.
+Entering an older wrapper preserves an active descendant; entering a sibling
+resumption selects that sibling's snapshot. Only owned-region cells receive new
+storage; borrowed/shared cells retain their aliases. View ancestry is walked
+iteratively, and the previous view is restored on every normalization exit.
+The existing 42-fixture source suite and the expanded paired runtime suite pass.
+The two nested-memory expectations also run in the ordinary `check-semantics`
+aggregate without World, so the oracle correction has a local regression guard.
+This improves the tested interpreter model without changing World or treating
+runtime agreement as a formal proof of all possible source programs.
+
+## Correctness argument and allocation/limit audit
+
+The public source and linker paths check original declarations, interfaces and
+borrow obligations before choosing a mode or discarding unreachable records.
+Typed authoring retains its mandatory original capture observer and publication
+check. The raw pass independently admits the original and establishes the typed
+live baseline before discovery. Consequently optimization cannot sanitize an
+originally rejected obligation; tested negatives preserve exact error reasons.
+
+`coalescing_validation.zig` reads actual original/candidate records, never
+comparison labels. Compile-time field inventories and exhaustive opcode/control
+switches cover roots, schemas, literals, effects, functions/layouts/custody,
+blocks/instructions/edges, constructors, handlers/clauses, captures and resources.
+Ordered operands, captures, arguments, alternatives, assignments by destination,
+and edge roles commute under the maps. Only declared sets are normalized.
+Schema tags, bounds and use/mode/strategy contracts remain exact. Nominal maps
+are injective, and entry/resource-authority functions stay singleton.
+
+The dynamic correspondence retains each original runtime instance and maps only
+its immutable program references and local slot/custody positions. Ordinary
+instructions retain opcode, order, literals and typed operands. Construction,
+installation, cell/memo allocation, protection, resume and disposal operations
+remain present; no runtime-node map exists. Function interfaces and complete
+bodies correspond, including back edges, so following a call or control edge
+preserves the same relation. Selector paths through constructor environments and
+handler state keep their field ordinals and complete contracts; fresh admission
+rederives every borrow/ownership fact instead of retaining old indexed facts.
+The distinct-loan and stateful-handler witnesses exercise this precision.
+
+In World `c20695e`, `applyComputation` reads the environment from the dynamic
+closure node, and `install` allocates a fresh handler and attachment with that
+installation's state. Capabilities select attachments, not description equality.
+The identity-sensitive self-tail restart requires the same function, a tail edge
+and no initialized custody. Arguments are gathered first; restart clears old
+locals, applies the new inputs, and retains Slots' copy-on-write isolation for
+saved views. Ordinary and nested-state recursion witnesses compare every logical
+step. Neither these implementation facts nor shrinking images imply identical
+physical cost or checkpoint bytes across different program identities.
+
+Every nontrivial materialization passes raw validation before projection and
+again afterward, then fresh closed admission. Exact codec length selects the
+cheapest eligible candidate; accepted rounds strictly decrease live record count.
+The fixed-point loop is bounded by the baseline record count. Discovery is a
+finite split-only relation with iterative graph/local traversal. If full already
+has singleton functions, the description restriction changes no equivalence class;
+the identical candidate can be reused after validation, preserving tie-breaking.
+
+Scratch views, maps, local names and origin traces are arena-owned and never
+escape in `Owned`. Published records own their arena, and published facts own their
+storage. Losing candidates and every partial failure release both owners.
+Allocation injection covers graph/local naming, raw correspondence, full and
+restricted candidates, origin tracking, shared cleanup, recursive custody and
+resource loans. The complex fixtures retain the original image identity across
+all failed attempts and check diagnostic/statistical error propagation. Work
+counter overflow does not wrap or commit extra units. Exhaustion after a selected
+intermediate round discards it and returns the original validated baseline.
+
+The work counter bounds charged graph/key/local-discovery work. It is not a
+wall-clock or total allocator budget: original admission, the inherited schema
+partition, materialization and subsequent admission have separate costs. All
+remain finite over admitted finite input and allocation errors propagate. Detailed
+phase accounting and redesign of these remaining costs are deferred performance
+work, not claimed as measured improvements.
+
+Final Boundary qualification for this follow-up: the complete ReleaseSafe
+`check` aggregate passes. Authoring and data checks pass in Debug and ReleaseSafe;
+data checks also pass in ReleaseFast. The 98-execution/39-fixture semantic report,
+source-free effect/region/resource report, renamed-loop report, and expanded
+14-fixture Chromium/Firefox fresh-Worker report pass. Formatting, path registration
+and diff whitespace checks pass. Agent's final authenticated pin/consumer aggregate
+and the required review convergence are tracked by their respective delivery owners.

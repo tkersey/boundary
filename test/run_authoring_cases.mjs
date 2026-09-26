@@ -14,10 +14,11 @@ const observations=[], fixtures=[], peers=[];
 const directory=await mkdtemp(join(tmpdir(),'boundary-authoring-cases-'));
 try {
   for(const kind of ['deep','shallow','transform_deep','transform_shallow','bypass','twice',
-      'cleanup','obligations','lazy','demanded','failure_before','failure_after','match','configuration','region','arithmetic','arithmetic_fail','dispose','reusable_body','imported_scoped','cleanup_named','imported_sequence',
+      'cleanup','shared_cleanup','obligations','lazy','demanded','failure_before','failure_after','match','configuration','region','arithmetic','arithmetic_fail','dispose','reusable_body','imported_scoped','cleanup_named','imported_sequence',
       'cells_independent','cells_shared','memo_independent','memo_shared','state_local','state_shared',
+      'state_recursive_local','state_recursive_shared',
       'hyper_duplicate','hyper_configured','hyper_lazy','capture_order',
-      'handler_duplicate','handler_mixed_mode','handler_effect_duplicate']) {
+      'handler_duplicate','handler_mixed_mode','handler_effect_duplicate','borrow_contexts']) {
     const images=[];
     const source=execFileSync(resolve(emitter),[kind,'json']);
     const subjects=new Map();

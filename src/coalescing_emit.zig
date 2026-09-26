@@ -29,12 +29,13 @@ pub fn main(init: std.process.Init) !void {
     }
     const tree = std.meta.stringToEnum(trees.Kind, selection);
     const edge = std.meta.stringToEnum(edges.Kind, selection);
+    const loop = std.meta.stringToEnum(edges.LoopKind, selection);
     const recursion = std.meta.stringToEnum(recursive.Kind, selection);
     const seed = if (std.mem.startsWith(u8, selection, "generated-"))
         try std.fmt.parseInt(usize, selection[10..], 10)
     else
         @as(?usize, null);
-    const count = if (tree != null) 8 else if (edge != null or seed != null or recursion != null) 3 else try std.fmt.parseInt(usize, selection, 10);
+    const count = if (tree != null) 8 else if (edge != null or loop != null or seed != null or recursion != null) 3 else try std.fmt.parseInt(usize, selection, 10);
     if (args.next() != null or count == 0 or count > 256) return error.InvalidCount;
     var rounds: [16]data.coalescing.Round = undefined;
     var statistics: data.coalescing.Statistics = .{ .rounds = &rounds };
@@ -45,6 +46,8 @@ pub fn main(init: std.process.Init) !void {
         try edges.generated(init.gpa, value, options)
     else if (edge) |kind|
         try edges.compile(init.gpa, kind, options)
+    else if (loop) |kind|
+        try edges.compileLoop(init.gpa, kind, options)
     else if (tree) |kind|
         try trees.compile(init.gpa, kind, options)
     else

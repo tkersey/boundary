@@ -319,3 +319,27 @@ test "coalescing exact portfolio cost seam preserves byte then entry then full o
         choose(.{ .bytes = 100, .entries = 7 }, .{ .bytes = 100, .entries = 7 }).?,
     );
 }
+
+test "coalescing size guard independently rejects growth and nonreducing extraction" {
+    const testing = std.testing;
+    const original = @import("coalescing_witness_tests.zig").original;
+    var scratch = std.heap.ArenaAllocator.init(testing.allocator);
+    defer scratch.deinit();
+    var work: graph.Work = .{};
+    const analysis = try discovery.analyze(scratch.allocator(), original, &work);
+    var proposed = try candidate.build(testing.allocator, scratch.allocator(), original, analysis, .full, &work);
+    defer proposed.deinit();
+    const baseline = try Counts.of(original);
+    try testing.expect(eligible(proposed, baseline));
+    // Inject cost orderings at the selection seam; do not claim these costs
+    // were emitted by the real codec for this independently checked candidate.
+    var cost = proposed;
+    cost.bytes = baseline.bytes + 1;
+    try testing.expect(!eligible(cost, baseline));
+    cost.bytes = baseline.bytes;
+    try testing.expect(eligible(cost, baseline));
+    cost.entries = baseline.entries;
+    try testing.expect(!eligible(cost, baseline));
+    cost.bytes = 0;
+    try testing.expect(!eligible(cost, baseline));
+}

@@ -168,6 +168,18 @@ test "coalescing discovery releases every partial allocation" {
     try testing.checkAllAllocationFailures(testing.allocator, allocationCase, .{});
 }
 
+test "coalescing work accounting rejects overflow without wrapping or publishing extra units" {
+    var work: graph.Work = .{ .units = std.math.maxInt(u64) - 1 };
+    try work.charge(1);
+    try testing.expectEqual(std.math.maxInt(u64), work.units);
+    try testing.expectError(error.WorkLimit, work.charge(1));
+    try testing.expect(work.exhausted);
+    try testing.expectEqual(std.math.maxInt(u64), work.units);
+    work = .{ .limit = 3, .units = 2 };
+    try testing.expectError(error.WorkLimit, work.charge(2));
+    try testing.expectEqual(@as(u64, 2), work.units);
+}
+
 test "coalescing discovery rejects invalid references restrictions and exhausted work" {
     var work: graph.Work = .{};
     const bad = [_]Node{.{

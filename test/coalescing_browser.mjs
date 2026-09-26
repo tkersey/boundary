@@ -60,6 +60,19 @@ const cases=[
   {kind:'hyper_lazy',args:words([3,7]),result:words([3,7])},
   {kind:'state_local',args:empty,result:Uint8Array.of(2,...words([1,1]))},
   {kind:'state_shared',args:empty,result:Uint8Array.of(2,...words([1,2]))},
+  {kind:'state_recursive_local',args:empty,result:Uint8Array.of(4,...words([2,2,2,2]))},
+  {kind:'state_recursive_shared',args:empty,result:Uint8Array.of(4,...words([2,3,5,6]))},
+  {kind:'borrow_contexts',args:empty,result:words([13,17]),requests:[
+    {identity:'example/resource-acquire',payload:empty,reply:words([13])},
+    {identity:'example/resource-release',payload:words([13]),reply:empty},
+    {identity:'example/resource-acquire',payload:empty,reply:words([17])},
+    {identity:'example/resource-release',payload:words([17]),reply:empty},
+  ]},
+  {kind:'shared_cleanup',args:words([1,2]),result:words([20]),requests:[
+    {identity:'case/lookup',payload:words([19]),reply:words([19])},
+    {identity:'case/release',payload:words([2]),reply:empty},
+    {identity:'case/release',payload:words([1]),reply:empty},
+  ]},
   {kind:'cleanup',args:empty,result:words([20]),requests:[
     {identity:'case/lookup',payload:words([19]),reply:words([19])},
     {identity:'case/release',payload:empty,reply:empty},

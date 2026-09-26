@@ -35,10 +35,10 @@ async function fresh() {
   return kernel;
 }
 async function execute(image, initialArgs, quantum = null) {
-  let state;
-  const trace = [];
+  let state,control='none',value=new Uint8Array();
+  const trace = [],requests=[];
   for (let step = 0; step < 4096; step++) {
-    const input = encodeInput({image, initialArgs: state ? undefined : initialArgs, state, quantum});
+    const input = encodeInput({image, initialArgs: state ? undefined : initialArgs, state, control, value, quantum});
     const kernel = await fresh();
     const encoded = kernel.invoke(input);
     const peer = spawnSync(native, ['invoke'], {input, maxBuffer: 16 << 20});
@@ -50,9 +50,17 @@ async function execute(image, initialArgs, quantum = null) {
     trace.push(outcome.kind);
     if (outcome.kind === 'completed' || outcome.kind === 'failed') {
       if (outcome.kind === 'failed') assert.deepEqual(outcome.cleanupFailures, []);
-      return {kind: outcome.kind, value: Buffer.from(outcome.value).toString('hex'), trace};
+      return {kind: outcome.kind, value: Buffer.from(outcome.value).toString('hex'), trace,requests};
     }
-    assert.equal(outcome.kind, 'progressed');
+    if(outcome.kind==='requested') {
+      const request=await decodeRequest(outcome.request);
+      assert.equal(request.semanticIdentity,'coalescing/component-read');
+      assert.equal(request.payload.length,8);
+      requests.push({effect:request.effect.toString(),identity:request.semanticIdentity,
+        payload:Buffer.from(request.payload).toString('hex')});
+      const argument=new DataView(request.payload.buffer,request.payload.byteOffset,8).getBigUint64(0,true);
+      control='reply';value=await encodeResult(outcome.request,words([argument+10n]));
+    } else {assert.equal(outcome.kind, 'progressed');control='none';value=new Uint8Array();}
     assert.ok(outcome.state?.length);
     state = outcome.state; // Each next operation restores on a fresh runtime instance.
   }
@@ -152,6 +160,24 @@ if (trees) {
     const triple=kind==='swap'?[22,11,33]:[22,33,11];
     assert.equal(baseline.value,Buffer.from(words([...triple,...triple])).toString('hex'));
     measurements.push({kind,off:off.statistics,safe:safe.statistics,observation:baseline});
+  }
+  for(const kind of ['loop','loop_near']) {
+    const off=emit('off',kind),safe=emit('safe',kind);
+    assert.equal(off.statistics.functions,3);
+    assert.equal(safe.statistics.functions,kind==='loop'?2:3);
+    assert.ok(safe.image.length<=off.image.length);
+    const observations=[];
+    for(const count of [0,1,2,7]) {
+      const input=words([count,11,22]);
+      const baseline=await execute(off.image,input,1);
+      assert.deepEqual(await execute(safe.image,input,1),baseline);
+      const pair=count%2?[22,11]:[11,22];
+      const other=kind==='loop'?pair:[...pair].reverse();
+      assert.equal(baseline.kind,'completed');
+      assert.equal(baseline.value,Buffer.from(words([...pair,...other])).toString('hex'));
+      observations.push({count,...baseline});
+    }
+    measurements.push({kind,off:off.statistics,safe:safe.statistics,observations});
   }
 } else if (generated) {
   // Independent value oracle: apply the requested mathematical permutation,

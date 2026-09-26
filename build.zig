@@ -255,7 +255,7 @@ pub fn build(b: *std.Build) void {
     oracle.has_side_effects = true;
     const semantics = b.step("check-semantics", "Check higher-order source semantics without World");
     semantics.dependOn(&oracle.step);
-    semantics.dependOn(&oracleScopeChecks(b, boundary, optimize).step);
+    semantics.dependOn(&oracleScopeChecks(b, boundary, optimize, authoring_cases).step);
     semantics.dependOn(&borrowReturnChecks(b, boundary, optimize).step);
     semantics.dependOn(&b.addRunArtifact(authoring).step);
     const exact_json = b.addSystemCommand(&.{ "node", "--test" });
@@ -454,6 +454,7 @@ fn oracleScopeChecks(
     b: *std.Build,
     boundary: *std.Build.Module,
     optimize: std.builtin.OptimizeMode,
+    authoring_cases: *std.Build.Step.Compile,
 ) *std.Build.Step.Run {
     const emitter = b.addExecutable(.{
         .name = "oracle-scopes",
@@ -467,6 +468,7 @@ fn oracleScopeChecks(
     const check = b.addSystemCommand(&.{"node"});
     check.addFileArg(b.path("test/v2/oracle_scopes.mjs"));
     check.addFileArg(b.addRunArtifact(emitter).captureStdOut(.{}));
+    check.addFileArg(authoring_cases.getEmittedBin());
     check.has_side_effects = true;
     return check;
 }
