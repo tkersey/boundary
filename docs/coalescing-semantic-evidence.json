@@ -1,7 +1,7 @@
 {
   "scope": "Existing authored semantic fixtures, off/safe, independent source oracle and requested runtimes",
   "kernelSha256": "7d31effb1d4e32523d0fcbd5b4d5f5a8a2289fbd4c731173a33b1c174524282f",
-  "emitterSha256": "9fe46e872c5378970e69cd6db123046b770e3567f6ed0e362d1d4e4eb45a1bfb",
+  "emitterSha256": "2fd5fc19c85c748bf3979f40ad828b686a5acc70da6bc03bb49d7974f9b9b20a",
   "nativeSha256": "154d1e7424017304e7426c3beb269865ac2fe76dc7ca2c69a7db2ddf29615c3b",
   "harnessSha256": "6e50725a997380fa03b53afa0abe11f25222dcef35322c6de872b3a9f4e8781a",
   "fixtures": [

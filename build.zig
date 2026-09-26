@@ -46,6 +46,17 @@ pub fn build(b: *std.Build) void {
         }),
     });
     coalescing_fixtures.dependOn(&b.addInstallArtifact(coalescing_inspect, .{}).step);
+    const coalescing_bench = b.addExecutable(.{
+        .name = "coalescing-bench",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/coalescing_bench.zig"),
+            .target = b.graph.host,
+            .optimize = optimize,
+            .imports = &.{.{ .name = "boundary_data", .module = data }},
+        }),
+    });
+    b.step("build-coalescing-bench", "Build the paired compiler/admission measurement probe")
+        .dependOn(&b.addInstallArtifact(coalescing_bench, .{}).step);
     const linker = b.addExecutable(.{ .name = "boundary-link", .root_module = b.createModule(.{
         .root_source_file = b.path("tools/component_link.zig"),
         .target = target,

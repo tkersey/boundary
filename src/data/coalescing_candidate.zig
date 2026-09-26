@@ -59,7 +59,19 @@ pub fn buildObserved(
     diagnostic: ?*origins.Diagnostic,
 ) Error!Candidate {
     if (diagnostic) |d| d.* = .{ .stage = .mapping };
-    var correspondence = try discovery.correspondence(scratch, original, analysis, profile, work);
+    const correspondence = try discovery.correspondence(scratch, original, analysis, profile, work);
+    return materialize(allocator, scratch, original, correspondence, trace, diagnostic);
+}
+
+pub fn materialize(
+    allocator: std.mem.Allocator,
+    scratch: std.mem.Allocator,
+    original: ir.Program,
+    proposed: witness.Witness,
+    trace: ?*const origins.Trace,
+    diagnostic: ?*origins.Diagnostic,
+) Error!Candidate {
+    var correspondence = proposed;
     var temporary = std.heap.ArenaAllocator.init(allocator);
     defer temporary.deinit();
     const rewritten = try r.ownQuotient(

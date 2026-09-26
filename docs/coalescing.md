@@ -228,6 +228,50 @@ node test/coalescing_execution.mjs zig-out/bin/coalescing-fixture \
 
 ## Outstanding delivery work
 
+### Initial compiler measurements
+
+The maintained `coalescing-bench` measures source construction, lowering, encoding
+and cold Boundary image admission separately, with allocator calls, cumulative
+requested bytes and peak requested bytes per phase. These counters exclude
+allocator metadata/RSS and World runtime live memory. Source construction includes
+any checks performed by the public typed-module builder. The compiler phase
+observer reports the coalescing interval; individual discovery/validation/sizing
+times are not yet separately instrumented.
+
+[Before](coalescing-compiler-before.json) and [after](coalescing-compiler-after.json)
+reports retain all samples from independently launched alternating off/safe
+windows: three warmups and nine samples per process, three initial windows plus
+two confirmations when an initial cold-admission ratio exceeds 1.05. Ten small
+synthetic effect/closure/hyperfunction fixtures are measured. The host was not
+isolated from other work, so timings are observations with raw variation retained.
+This is neither the B0 control nor complete Agent/runtime/linking qualification.
+
+The initial profile exposed redundant no-change work: both portfolios were
+materialized, validated and admitted even after full discovery found only singleton
+classes. The pass now retains the current validated baseline directly in that
+case. The restricted description profile can only split full classes, so it
+cannot produce a merge when the full relation has none. Nontrivial transformations
+still cross both raw-record checks and fresh admission. Round observations mark
+`materialized: false` rather than pretending candidate work ran.
+
+In these windows, enabled compilation medians dropped 21–48% versus the initial
+implementation, with lower or unchanged peak requested allocation. The updated
+safe/off compiler ratios remain approximately 1.6–4.4×. All before/after image
+digests match, including disabled controls. No synthetic cold-admission cell met
+the specified confirmed >5% slowdown rule in these measurements; this does not
+close the real-consumer or World runtime non-regression gates.
+
+```sh
+zig build build-coalescing-bench -Doptimize=ReleaseSafe
+node test/coalescing_measure.mjs zig-out/bin/coalescing-bench measurements.json
+```
+
+The no-change/idempotence tests require zero candidate validator/admission calls
+after reaching the fixed point. The complete data/authoring suite also retains
+work-limit rollback and deterministic allocation-failure tests. Remaining compiler
+measurement obligations include scaling/mostly-unique graphs, source-free linking,
+all internal phases, and the unchanged real consumer corpus.
+
 ### Enabled/disabled semantic fixtures
 
 The native authoring aggregate now starts four independent compiler threads

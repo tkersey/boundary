@@ -28,6 +28,8 @@ test "coalescing selects exact economical candidate to an idempotent fixed point
     );
     defer again.deinit();
     try testing.expectEqual(pass.Outcome.no_change, again_stats.outcome);
+    try testing.expectEqual(@as(usize, 0), again_stats.validator_calls);
+    try testing.expectEqual(@as(usize, 0), again_stats.candidate_admissions);
     const first_bytes = try bytes(full.program);
     defer testing.allocator.free(first_bytes);
     const second_bytes = try bytes(again.program);

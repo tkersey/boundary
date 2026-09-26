@@ -2,6 +2,7 @@
 test {
     _ = @import("authoring_tests.zig");
     _ = @import("coalescing_tests.zig");
+    _ = @import("coalescing_allocation_meter.zig");
     _ = @import("root.zig");
     _ = @import("source/tests.zig");
     _ = @import("source/capture_tests.zig");

@@ -62,6 +62,7 @@ pub const Statistics = struct {
     failed_check: ?anyerror = null,
 };
 pub const Round = struct {
+    materialized: bool,
     baseline: Counts,
     full: Counts,
     descriptions: Counts,
@@ -183,9 +184,10 @@ fn choose(full: ?Cost, descriptions: ?Cost) ?discovery.Profile {
     return if (descriptions != null) .descriptions else null;
 }
 
-fn recordRound(stats: *Statistics, selected: ?discovery.Profile) void {
+fn recordRound(stats: *Statistics, selected: ?discovery.Profile, materialized: bool) void {
     if (stats.rounds_recorded < stats.rounds.len) {
         stats.rounds[stats.rounds_recorded] = .{
+            .materialized = materialized,
             .baseline = stats.selected,
             .full = stats.full,
             .descriptions = stats.descriptions,
@@ -212,7 +214,16 @@ fn attempt(allocator: std.mem.Allocator, baseline: ir.Program, stats: *Statistic
         if (stats.round_count == 0) for (analysis.nodes[0..program.functions.len]) |node| {
             stats.pinned_functions += @intFromBool(node.pinned);
         };
-        var full = try candidate.buildObserved(allocator, a, program, analysis, .full, &stats.work, trace, diagnostic);
+        const full_map = try discovery.correspondence(a, program, analysis, .full, &stats.work);
+        // A restricted profile can only split the complete full relation. If
+        // that relation has no merge, neither profile can reduce live records.
+        if (!hasMerge(full_map.representatives)) {
+            stats.full = stats.selected;
+            stats.descriptions = stats.selected;
+            recordRound(stats, null, false);
+            return selected;
+        }
+        var full = try candidate.materialize(allocator, a, program, full_map, trace, diagnostic);
         var keep_full = false;
         defer if (!keep_full) full.deinit();
         var descriptions = try candidate.buildObserved(
@@ -240,7 +251,7 @@ fn attempt(allocator: std.mem.Allocator, baseline: ir.Program, stats: *Statistic
             else
                 null,
         );
-        recordRound(stats, selected_profile);
+        recordRound(stats, selected_profile, true);
         if (!full_eligible and !description_eligible) {
             if (selected == null and (full.entries < stats.selected.entries or
                 descriptions.entries < stats.selected.entries)) stats.outcome = .size_guard;
@@ -270,6 +281,12 @@ fn attempt(allocator: std.mem.Allocator, baseline: ir.Program, stats: *Statistic
         stats.attempted_extraction_rounds += 1;
         if (stats.first_selected_work == 0) stats.first_selected_work = stats.work.units;
     }
+}
+
+fn hasMerge(maps: r.Maps) bool {
+    for (maps) |map| for (map, 0..) |representative, id|
+        if (representative != id) return true;
+    return false;
 }
 
 test "coalescing exact portfolio cost seam preserves byte then entry then full ordering" {

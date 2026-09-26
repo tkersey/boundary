@@ -16,6 +16,8 @@ examples/structured_branch.zig
 src/authoring.zig
 src/authoring_cases.zig
 src/authoring_tests.zig
+src/coalescing_allocation_meter.zig
+src/coalescing_bench.zig
 src/coalescing_component_cases.zig
 src/coalescing_edge_cases.zig
 src/coalescing_emit.zig
