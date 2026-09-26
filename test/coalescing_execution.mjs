@@ -6,11 +6,15 @@ import {resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 
 const [emitter, runtime, expectedSha256, native, ...componentImages] = process.argv.slice(2);
+const trees = componentImages.length===1 && componentImages[0]==='trees';
 assert.ok(emitter && runtime && /^[a-f0-9]{64}$/.test(expectedSha256 ?? '') && native,
   'usage: node test/coalescing_execution.mjs EMITTER RUNTIME SHA256 NATIVE');
 const {Kernel, encodeInput, decodeOutcome} =
   await import(pathToFileURL(resolve(runtime, 'src/embedding/index.mjs')));
 const kernelBytes = new Uint8Array(await readFile(resolve(runtime, 'world-kernel.wasm')));
+const wasmtime = process.env.WORLD_WASMTIME_PEER
+  ? await (await import(pathToFileURL(resolve(process.env.WORLD_WASMTIME_PEER))))
+      .wasmtimePeer(resolve(runtime,'world-kernel.wasm'),expectedSha256) : null;
 const words = values => {
   const bytes = new Uint8Array(8 * values.length), view = new DataView(bytes.buffer);
   values.forEach((value, i) => view.setBigUint64(i * 8, BigInt(value), true));
@@ -36,6 +40,8 @@ async function execute(image, initialArgs, quantum = null) {
     const peer = spawnSync(native, ['invoke'], {input, maxBuffer: 16 << 20});
     assert.equal(peer.status, 0, peer.stderr.toString());
     assert.deepEqual(encoded, new Uint8Array(peer.stdout), 'native/WASM envelope disagreement');
+    if(wasmtime)assert.deepEqual((await wasmtime.call('invoke',{bytes:input})).bytes,encoded,
+      'Wasmtime envelope disagreement');
     const outcome = decodeOutcome(encoded);
     trace.push(outcome.kind);
     if (outcome.kind === 'completed' || outcome.kind === 'failed') {
@@ -49,6 +55,7 @@ async function execute(image, initialArgs, quantum = null) {
   throw Error('finite observation bound exceeded');
 }
 
+try {
 const measurements = [];
 for (const count of componentImages.length ? [] : [1, 2, 16, 64, 256]) {
   const off = emit('off', count), safe = emit('safe', count);
@@ -80,7 +87,26 @@ for (const count of componentImages.length ? [] : [1, 2, 16, 64, 256]) {
   }
   measurements.push({count, off: off.statistics, safe: safe.statistics});
 }
-if (componentImages.length) {
+if (trees) {
+  for(const kind of ['tree','tree_near']) {
+    const off=emit('off',kind), safe=emit('safe',kind);
+    assert.equal(off.statistics.functions,19);
+    assert.equal(safe.statistics.functions,kind==='tree'?10:19);
+    assert.equal(off.statistics.constructors,8);
+    assert.equal(safe.statistics.constructors,kind==='tree'?4:8);
+    assert.ok(safe.image.length<=off.image.length);
+    if(kind==='tree')assert.ok(safe.image.length<off.image.length);
+    const baseline=await execute(off.image,words([10]),1);
+    assert.deepEqual(await execute(safe.image,words([10]),1),baseline);
+    assert.equal(baseline.kind,'completed');
+    assert.equal(baseline.value,Buffer.from(words([18,kind==='tree'?18:19])).toString('hex'));
+    const failure=await execute(off.image,words([(1n<<64n)-1n]),1);
+    assert.equal(failure.kind,'failed');
+    assert.deepEqual(await execute(safe.image,words([(1n<<64n)-1n]),1),failure);
+    measurements.push({kind,off:off.statistics,safe:safe.statistics,
+      normal:baseline,overflow:failure});
+  }
+} else if (componentImages.length) {
   assert.equal(componentImages.length, 2);
   const images = await Promise.all(componentImages.map(async path => new Uint8Array(await readFile(path))));
   const off = await execute(images[0], new Uint8Array(), 1);
@@ -90,7 +116,9 @@ if (componentImages.length) {
   assert.equal(safe.value, Buffer.from(words([13, 17])).toString('hex'));
   measurements.push({case: 'source-free components', observation: safe});
 }
-console.log(JSON.stringify({check: componentImages.length
+console.log(JSON.stringify({check: trees ? 'coalescing depth-eight reference-induced sharing'
+  : componentImages.length
   ? 'coalescing source-free components native/WASM and fresh-host resume'
   : 'coalescing captured closures native/WASM and fresh-host resume',
-  runtimeSha256: expectedSha256, measurements}));
+  runtimeSha256: expectedSha256, wasmtime:wasmtime?.identity??{status:'NOT_RUN'}, measurements}));
+} finally {if(wasmtime)await wasmtime.close();}

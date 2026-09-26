@@ -19,6 +19,7 @@ src/authoring_tests.zig
 src/coalescing_component_cases.zig
 src/coalescing_emit.zig
 src/coalescing_tests.zig
+src/coalescing_tree_cases.zig
 src/data/activation.zig
 src/data/activation_borrow_tests.zig
 src/data/activation_flow.zig

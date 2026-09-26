@@ -1,0 +1,1703 @@
+{
+  "scope": "Existing authored semantic fixtures, off/safe, independent source oracle and requested runtimes",
+  "kernelSha256": "7d31effb1d4e32523d0fcbd5b4d5f5a8a2289fbd4c731173a33b1c174524282f",
+  "emitterSha256": "3643b6ed25987323cdcf3bfd118d4add539a795d6f327b3745358e1bf53e392e",
+  "nativeSha256": "154d1e7424017304e7426c3beb269865ac2fe76dc7ca2c69a7db2ddf29615c3b",
+  "harnessSha256": "1ca35e38ba375f2d8d7baf9dcc977af252c289e266666f3af8a6b44603243b35",
+  "fixtures": [
+    {
+      "name": "deep",
+      "sourceSha256": "ef2a6d1a23e8e2dd1ab7bcef7059ed38f748db60c6a132bc27b05c77685d5889"
+    },
+    {
+      "name": "shallow",
+      "sourceSha256": "ee38147fd4c588ef885b97d37be422e72b847566422f2c500149aa6c7b5ef9b1"
+    },
+    {
+      "name": "transform_deep",
+      "sourceSha256": "b884c77b48a68865b84118320af6ac28e9460ff4b0d92ed00c1338209779a99c"
+    },
+    {
+      "name": "transform_shallow",
+      "sourceSha256": "55e976fd7ee3576d7eb8c81f09d37df5b9bc2f43a17074dc9ce7e9f690f1b8ef"
+    },
+    {
+      "name": "bypass",
+      "sourceSha256": "05fd3395893a6b3e3bd0ae9cfbd7bacb609c72ef4f78f03cba29d68f22bfd100"
+    },
+    {
+      "name": "twice",
+      "sourceSha256": "b218146564832f8c7e05d9f139e09e773d42572c2b232e04a4f412337c9170fa"
+    },
+    {
+      "name": "cleanup",
+      "sourceSha256": "e377629d2f27f5a56878bc9f25e396c5bfe0bdf5f9ad09639703d30658fa8b49"
+    },
+    {
+      "name": "obligations",
+      "sourceSha256": "ae5bbd012d33b6aa58b258e1bc6bcc61e3f057b510ad07b5347506ac7fdbd183"
+    },
+    {
+      "name": "lazy",
+      "sourceSha256": "30bf24f76df0c37670969a3699f4d4f189d851448168447144e7b5ba46f9ef87"
+    },
+    {
+      "name": "demanded",
+      "sourceSha256": "8af21aca2a7b0abc38af912d2e754cac22c841996e980606c23cdd0251f97e74"
+    },
+    {
+      "name": "failure_before",
+      "sourceSha256": "c14a788cc834c421ca2f77ca774dbd9ffb121fc2f68ed47c8343215d74f75103"
+    },
+    {
+      "name": "failure_after",
+      "sourceSha256": "e35d1c7b14a30efff8cbb7b4a3b5f665759a1b8187d2bf79a6c5c6771988db93"
+    },
+    {
+      "name": "match",
+      "sourceSha256": "3bc0dd0814ecee0b37a5bc0d8527564837fb87742ea4db5a5714b8a07b4787e1"
+    },
+    {
+      "name": "configuration",
+      "sourceSha256": "f81853d4caaac4a6752f7d142859cf695ce82dae82ade3a6c136344086716157"
+    },
+    {
+      "name": "region",
+      "sourceSha256": "472dffa76eda928e0cd1366ab1f0a61070bae7c76b33e3efb0c95b99b50984d1"
+    },
+    {
+      "name": "arithmetic",
+      "sourceSha256": "e40391f5b73a13501da4e01b4f11c8c41b6d38351352d204a425ba5a9e28b267"
+    },
+    {
+      "name": "arithmetic_fail",
+      "sourceSha256": "db0bc9f2821dea3ab55c3bc4dc81ac1df8ee4a422a3d4d43a042b8a363c39b8b"
+    },
+    {
+      "name": "dispose",
+      "sourceSha256": "368bd8809a5391651cbc741cdf5ecbae711495e081fcc8944cb1d28797f047bd"
+    },
+    {
+      "name": "reusable_body",
+      "sourceSha256": "6f25457620ffaf914db87f272956f532da8495fdbb36fb5aa91bea19e709fd24"
+    },
+    {
+      "name": "imported_scoped",
+      "sourceSha256": "6598a833e9637f5c65828571caaed7ba05d697c9f907c44e91f928a677b553b4"
+    },
+    {
+      "name": "cleanup_named",
+      "sourceSha256": "9f19f8f879e4c487d18cccd2065eecf05bfc22800500d8d48953a551f341846b"
+    },
+    {
+      "name": "imported_sequence",
+      "sourceSha256": "222e955cf9c5d635ff59893c5d28fd159936c7749edf113a0ccc42c481a320c4"
+    }
+  ],
+  "executions": 50,
+  "wasmtime": {
+    "ready": true,
+    "wasmtime": "48.0.0",
+    "python": "3.14.7 (main, Aug  5 2026, 10:29:49) [Clang 21.0.0 (clang-2100.1.1.101)]"
+  },
+  "rows": [
+    {
+      "fixture": "deep",
+      "mode": "off",
+      "imageSha256": "edd603d7c4e09af5c8b9cbfd039c4ee67200c89812de5b79cafc456fd41f9438",
+      "inputCase": 0,
+      "imageBytes": 256,
+      "kind": "completed",
+      "value": "6400000000000000",
+      "requests": [],
+      "requestContracts": [],
+      "transfers": 15,
+      "boundaries": [
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "completed"
+      ],
+      "cleanupFailures": [],
+      "cancellation": null
+    },
+    {
+      "fixture": "deep",
+      "mode": "safe",
+      "imageSha256": "edd603d7c4e09af5c8b9cbfd039c4ee67200c89812de5b79cafc456fd41f9438",
+      "inputCase": 0,
+      "imageBytes": 256,
+      "kind": "completed",
+      "value": "6400000000000000",
+      "requests": [],
+      "requestContracts": [],
+      "transfers": 15,
+      "boundaries": [
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "completed"
+      ],
+      "cleanupFailures": [],
+      "cancellation": null
+    },
+    {
+      "fixture": "shallow",
+      "mode": "off",
+      "imageSha256": "001be89460493a9e7efce5de4a2b98b30db016c1af44586e5c062c317c8f23f2",
+      "inputCase": 0,
+      "imageBytes": 264,
+      "kind": "completed",
+      "value": "2b00000000000000",
+      "requests": [],
+      "requestContracts": [],
+      "transfers": 13,
+      "boundaries": [
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "completed"
+      ],
+      "cleanupFailures": [],
+      "cancellation": null
+    },
+    {
+      "fixture": "shallow",
+      "mode": "safe",
+      "imageSha256": "001be89460493a9e7efce5de4a2b98b30db016c1af44586e5c062c317c8f23f2",
+      "inputCase": 0,
+      "imageBytes": 264,
+      "kind": "completed",
+      "value": "2b00000000000000",
+      "requests": [],
+      "requestContracts": [],
+      "transfers": 13,
+      "boundaries": [
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "completed"
+      ],
+      "cleanupFailures": [],
+      "cancellation": null
+    },
+    {
+      "fixture": "transform_deep",
+      "mode": "off",
+      "imageSha256": "bcd7837678d63dbb9be915bb63a2e55b6b349cc0134b761c2cf5cc561e21ba24",
+      "inputCase": 0,
+      "imageBytes": 299,
+      "kind": "completed",
+      "value": "6400000000000000",
+      "requests": [],
+      "requestContracts": [],
+      "transfers": 21,
+      "boundaries": [
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "completed"
+      ],
+      "cleanupFailures": [],
+      "cancellation": null
+    },
+    {
+      "fixture": "transform_deep",
+      "mode": "safe",
+      "imageSha256": "bcd7837678d63dbb9be915bb63a2e55b6b349cc0134b761c2cf5cc561e21ba24",
+      "inputCase": 0,
+      "imageBytes": 299,
+      "kind": "completed",
+      "value": "6400000000000000",
+      "requests": [],
+      "requestContracts": [],
+      "transfers": 21,
+      "boundaries": [
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "completed"
+      ],
+      "cleanupFailures": [],
+      "cancellation": null
+    },
+    {
+      "fixture": "transform_shallow",
+      "mode": "off",
+      "imageSha256": "c7c5ff299ca2eef9c4be99ac0488ac5816601fc8248dc00039720d3cbf8c5c54",
+      "inputCase": 0,
+      "imageBytes": 294,
+      "kind": "completed",
+      "value": "2b00000000000000",
+      "requests": [],
+      "requestContracts": [],
+      "transfers": 15,
+      "boundaries": [
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "completed"
+      ],
+      "cleanupFailures": [],
+      "cancellation": null
+    },
+    {
+      "fixture": "transform_shallow",
+      "mode": "safe",
+      "imageSha256": "c7c5ff299ca2eef9c4be99ac0488ac5816601fc8248dc00039720d3cbf8c5c54",
+      "inputCase": 0,
+      "imageBytes": 294,
+      "kind": "completed",
+      "value": "2b00000000000000",
+      "requests": [],
+      "requestContracts": [],
+      "transfers": 15,
+      "boundaries": [
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "completed"
+      ],
+      "cleanupFailures": [],
+      "cancellation": null
+    },
+    {
+      "fixture": "bypass",
+      "mode": "off",
+      "imageSha256": "7392402c63b032829854b894970b0c12ac8f32cadf9d24a3ef7a582dbcf4c2d6",
+      "inputCase": 0,
+      "imageBytes": 251,
+      "kind": "completed",
+      "value": "1200000000000000",
+      "requests": [],
+      "requestContracts": [],
+      "transfers": 10,
+      "boundaries": [
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "completed"
+      ],
+      "cleanupFailures": [],
+      "cancellation": null
+    },
+    {
+      "fixture": "bypass",
+      "mode": "safe",
+      "imageSha256": "7392402c63b032829854b894970b0c12ac8f32cadf9d24a3ef7a582dbcf4c2d6",
+      "inputCase": 0,
+      "imageBytes": 251,
+      "kind": "completed",
+      "value": "1200000000000000",
+      "requests": [],
+      "requestContracts": [],
+      "transfers": 10,
+      "boundaries": [
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "completed"
+      ],
+      "cleanupFailures": [],
+      "cancellation": null
+    },
+    {
+      "fixture": "twice",
+      "mode": "off",
+      "imageSha256": "44d8ec2da8365ae22d35eb03a5d2d9a44a6179d6c4bb252621282c579990ee10",
+      "inputCase": 0,
+      "imageBytes": 186,
+      "kind": "completed",
+      "value": "07000000000000000b00000000000000",
+      "requests": [
+        {
+          "identity": "case/lookup",
+          "payload": "1300000000000000"
+        },
+        {
+          "identity": "case/lookup",
+          "payload": "1300000000000000"
+        }
+      ],
+      "requestContracts": [
+        {
+          "effect": "0",
+          "identity": "636173652f6c6f6f6b7570",
+          "payloadSchema": "000109",
+          "resumeSchema": "000109",
+          "payload": "1300000000000000"
+        },
+        {
+          "effect": "0",
+          "identity": "636173652f6c6f6f6b7570",
+          "payloadSchema": "000109",
+          "resumeSchema": "000109",
+          "payload": "1300000000000000"
+        }
+      ],
+      "transfers": 13,
+      "boundaries": [
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "requested",
+        "progressed",
+        "progressed",
+        "progressed",
+        "requested",
+        "progressed",
+        "progressed",
+        "progressed",
+        "completed"
+      ],
+      "cleanupFailures": [],
+      "cancellation": null
+    },
+    {
+      "fixture": "twice",
+      "mode": "off",
+      "imageSha256": "44d8ec2da8365ae22d35eb03a5d2d9a44a6179d6c4bb252621282c579990ee10",
+      "inputCase": 1,
+      "imageBytes": 186,
+      "kind": "completed",
+      "value": "17000000000000000500000000000000",
+      "requests": [
+        {
+          "identity": "case/lookup",
+          "payload": "1300000000000000"
+        },
+        {
+          "identity": "case/lookup",
+          "payload": "1300000000000000"
+        }
+      ],
+      "requestContracts": [
+        {
+          "effect": "0",
+          "identity": "636173652f6c6f6f6b7570",
+          "payloadSchema": "000109",
+          "resumeSchema": "000109",
+          "payload": "1300000000000000"
+        },
+        {
+          "effect": "0",
+          "identity": "636173652f6c6f6f6b7570",
+          "payloadSchema": "000109",
+          "resumeSchema": "000109",
+          "payload": "1300000000000000"
+        }
+      ],
+      "transfers": 13,
+      "boundaries": [
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "requested",
+        "progressed",
+        "progressed",
+        "progressed",
+        "requested",
+        "progressed",
+        "progressed",
+        "progressed",
+        "completed"
+      ],
+      "cleanupFailures": [],
+      "cancellation": null
+    },
+    {
+      "fixture": "twice",
+      "mode": "safe",
+      "imageSha256": "44d8ec2da8365ae22d35eb03a5d2d9a44a6179d6c4bb252621282c579990ee10",
+      "inputCase": 0,
+      "imageBytes": 186,
+      "kind": "completed",
+      "value": "07000000000000000b00000000000000",
+      "requests": [
+        {
+          "identity": "case/lookup",
+          "payload": "1300000000000000"
+        },
+        {
+          "identity": "case/lookup",
+          "payload": "1300000000000000"
+        }
+      ],
+      "requestContracts": [
+        {
+          "effect": "0",
+          "identity": "636173652f6c6f6f6b7570",
+          "payloadSchema": "000109",
+          "resumeSchema": "000109",
+          "payload": "1300000000000000"
+        },
+        {
+          "effect": "0",
+          "identity": "636173652f6c6f6f6b7570",
+          "payloadSchema": "000109",
+          "resumeSchema": "000109",
+          "payload": "1300000000000000"
+        }
+      ],
+      "transfers": 13,
+      "boundaries": [
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "requested",
+        "progressed",
+        "progressed",
+        "progressed",
+        "requested",
+        "progressed",
+        "progressed",
+        "progressed",
+        "completed"
+      ],
+      "cleanupFailures": [],
+      "cancellation": null
+    },
+    {
+      "fixture": "twice",
+      "mode": "safe",
+      "imageSha256": "44d8ec2da8365ae22d35eb03a5d2d9a44a6179d6c4bb252621282c579990ee10",
+      "inputCase": 1,
+      "imageBytes": 186,
+      "kind": "completed",
+      "value": "17000000000000000500000000000000",
+      "requests": [
+        {
+          "identity": "case/lookup",
+          "payload": "1300000000000000"
+        },
+        {
+          "identity": "case/lookup",
+          "payload": "1300000000000000"
+        }
+      ],
+      "requestContracts": [
+        {
+          "effect": "0",
+          "identity": "636173652f6c6f6f6b7570",
+          "payloadSchema": "000109",
+          "resumeSchema": "000109",
+          "payload": "1300000000000000"
+        },
+        {
+          "effect": "0",
+          "identity": "636173652f6c6f6f6b7570",
+          "payloadSchema": "000109",
+          "resumeSchema": "000109",
+          "payload": "1300000000000000"
+        }
+      ],
+      "transfers": 13,
+      "boundaries": [
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "requested",
+        "progressed",
+        "progressed",
+        "progressed",
+        "requested",
+        "progressed",
+        "progressed",
+        "progressed",
+        "completed"
+      ],
+      "cleanupFailures": [],
+      "cancellation": null
+    },
+    {
+      "fixture": "cleanup",
+      "mode": "off",
+      "imageSha256": "0cbd8a3d7e2c9d007b3dfcd9f7b2faa6698b56ddedb79b8f283b8a0e12c8ea11",
+      "inputCase": 0,
+      "imageBytes": 277,
+      "kind": "completed",
+      "value": "1400000000000000",
+      "requests": [
+        {
+          "identity": "case/lookup",
+          "payload": "1300000000000000"
+        },
+        {
+          "identity": "case/release",
+          "payload": ""
+        }
+      ],
+      "requestContracts": [
+        {
+          "effect": "0",
+          "identity": "636173652f6c6f6f6b7570",
+          "payloadSchema": "000109",
+          "resumeSchema": "000109",
+          "payload": "1300000000000000"
+        },
+        {
+          "effect": "1",
+          "identity": "636173652f72656c65617365",
+          "payloadSchema": "000100",
+          "resumeSchema": "000100",
+          "payload": ""
+        }
+      ],
+      "transfers": 16,
+      "boundaries": [
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "requested",
+        "progressed",
+        "progressed",
+        "progressed",
+        "requested",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "completed"
+      ],
+      "cleanupFailures": [],
+      "cancellation": null
+    },
+    {
+      "fixture": "cleanup",
+      "mode": "safe",
+      "imageSha256": "96bd4f3a2493ae429ed4106ce1f361346d538a7ccc2f321c37b0a806dca0be3c",
+      "inputCase": 0,
+      "imageBytes": 273,
+      "kind": "completed",
+      "value": "1400000000000000",
+      "requests": [
+        {
+          "identity": "case/lookup",
+          "payload": "1300000000000000"
+        },
+        {
+          "identity": "case/release",
+          "payload": ""
+        }
+      ],
+      "requestContracts": [
+        {
+          "effect": "0",
+          "identity": "636173652f6c6f6f6b7570",
+          "payloadSchema": "000109",
+          "resumeSchema": "000109",
+          "payload": "1300000000000000"
+        },
+        {
+          "effect": "1",
+          "identity": "636173652f72656c65617365",
+          "payloadSchema": "000100",
+          "resumeSchema": "000100",
+          "payload": ""
+        }
+      ],
+      "transfers": 16,
+      "boundaries": [
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "requested",
+        "progressed",
+        "progressed",
+        "progressed",
+        "requested",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "completed"
+      ],
+      "cleanupFailures": [],
+      "cancellation": null
+    },
+    {
+      "fixture": "obligations",
+      "mode": "off",
+      "imageSha256": "d30ad32b8520d245319ba42d3244b96aad22ed040872e1482a718cce41eb5d96",
+      "inputCase": 0,
+      "imageBytes": 426,
+      "kind": "completed",
+      "value": "2a00000000000000",
+      "requests": [
+        {
+          "identity": "case/release",
+          "payload": ""
+        }
+      ],
+      "requestContracts": [
+        {
+          "effect": "1",
+          "identity": "636173652f72656c65617365",
+          "payloadSchema": "000100",
+          "resumeSchema": "000100",
+          "payload": ""
+        }
+      ],
+      "transfers": 23,
+      "boundaries": [
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "requested",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "completed"
+      ],
+      "cleanupFailures": [],
+      "cancellation": null
+    },
+    {
+      "fixture": "obligations",
+      "mode": "safe",
+      "imageSha256": "ec0c257c496a14f0a448612e22f3e697589519b06adf297278d44faa2225ff34",
+      "inputCase": 0,
+      "imageBytes": 422,
+      "kind": "completed",
+      "value": "2a00000000000000",
+      "requests": [
+        {
+          "identity": "case/release",
+          "payload": ""
+        }
+      ],
+      "requestContracts": [
+        {
+          "effect": "1",
+          "identity": "636173652f72656c65617365",
+          "payloadSchema": "000100",
+          "resumeSchema": "000100",
+          "payload": ""
+        }
+      ],
+      "transfers": 23,
+      "boundaries": [
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "requested",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "completed"
+      ],
+      "cleanupFailures": [],
+      "cancellation": null
+    },
+    {
+      "fixture": "lazy",
+      "mode": "off",
+      "imageSha256": "3179d9b0d77362ea2e46a334ea72f3ff9c7cb95fb9593ea92bf51ad23865b703",
+      "inputCase": 0,
+      "imageBytes": 129,
+      "kind": "completed",
+      "value": "2a00000000000000",
+      "requests": [],
+      "requestContracts": [],
+      "transfers": 3,
+      "boundaries": [
+        "progressed",
+        "progressed",
+        "progressed",
+        "completed"
+      ],
+      "cleanupFailures": [],
+      "cancellation": null
+    },
+    {
+      "fixture": "lazy",
+      "mode": "safe",
+      "imageSha256": "3179d9b0d77362ea2e46a334ea72f3ff9c7cb95fb9593ea92bf51ad23865b703",
+      "inputCase": 0,
+      "imageBytes": 129,
+      "kind": "completed",
+      "value": "2a00000000000000",
+      "requests": [],
+      "requestContracts": [],
+      "transfers": 3,
+      "boundaries": [
+        "progressed",
+        "progressed",
+        "progressed",
+        "completed"
+      ],
+      "cleanupFailures": [],
+      "cancellation": null
+    },
+    {
+      "fixture": "demanded",
+      "mode": "off",
+      "imageSha256": "b36a6fbd1776168acb6ddeebaa2ed42da813986fe531360cd330b85ed03161e5",
+      "inputCase": 0,
+      "imageBytes": 130,
+      "kind": "failed",
+      "value": "",
+      "requests": [],
+      "requestContracts": [],
+      "transfers": 6,
+      "boundaries": [
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "failed"
+      ],
+      "cleanupFailures": [],
+      "cancellation": null
+    },
+    {
+      "fixture": "demanded",
+      "mode": "safe",
+      "imageSha256": "b36a6fbd1776168acb6ddeebaa2ed42da813986fe531360cd330b85ed03161e5",
+      "inputCase": 0,
+      "imageBytes": 130,
+      "kind": "failed",
+      "value": "",
+      "requests": [],
+      "requestContracts": [],
+      "transfers": 6,
+      "boundaries": [
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "failed"
+      ],
+      "cleanupFailures": [],
+      "cancellation": null
+    },
+    {
+      "fixture": "failure_before",
+      "mode": "off",
+      "imageSha256": "eebac73a6dd113fb8f0eebbe4bc82d6edafe4d70fe4be10064911aac4009148b",
+      "inputCase": 0,
+      "imageBytes": 121,
+      "kind": "failed",
+      "value": "",
+      "requests": [],
+      "requestContracts": [],
+      "transfers": 3,
+      "boundaries": [
+        "progressed",
+        "progressed",
+        "progressed",
+        "failed"
+      ],
+      "cleanupFailures": [],
+      "cancellation": null
+    },
+    {
+      "fixture": "failure_before",
+      "mode": "safe",
+      "imageSha256": "eebac73a6dd113fb8f0eebbe4bc82d6edafe4d70fe4be10064911aac4009148b",
+      "inputCase": 0,
+      "imageBytes": 121,
+      "kind": "failed",
+      "value": "",
+      "requests": [],
+      "requestContracts": [],
+      "transfers": 3,
+      "boundaries": [
+        "progressed",
+        "progressed",
+        "progressed",
+        "failed"
+      ],
+      "cleanupFailures": [],
+      "cancellation": null
+    },
+    {
+      "fixture": "failure_after",
+      "mode": "off",
+      "imageSha256": "84a31c4e9f453d2d15f675b58156eb0224a851bc50791252e28cfd6bb45b299f",
+      "inputCase": 0,
+      "imageBytes": 121,
+      "kind": "failed",
+      "value": "",
+      "requests": [
+        {
+          "identity": "case/lookup",
+          "payload": "1300000000000000"
+        }
+      ],
+      "requestContracts": [
+        {
+          "effect": "0",
+          "identity": "636173652f6c6f6f6b7570",
+          "payloadSchema": "000109",
+          "resumeSchema": "000109",
+          "payload": "1300000000000000"
+        }
+      ],
+      "transfers": 5,
+      "boundaries": [
+        "progressed",
+        "requested",
+        "progressed",
+        "progressed",
+        "progressed",
+        "failed"
+      ],
+      "cleanupFailures": [],
+      "cancellation": null
+    },
+    {
+      "fixture": "failure_after",
+      "mode": "safe",
+      "imageSha256": "84a31c4e9f453d2d15f675b58156eb0224a851bc50791252e28cfd6bb45b299f",
+      "inputCase": 0,
+      "imageBytes": 121,
+      "kind": "failed",
+      "value": "",
+      "requests": [
+        {
+          "identity": "case/lookup",
+          "payload": "1300000000000000"
+        }
+      ],
+      "requestContracts": [
+        {
+          "effect": "0",
+          "identity": "636173652f6c6f6f6b7570",
+          "payloadSchema": "000109",
+          "resumeSchema": "000109",
+          "payload": "1300000000000000"
+        }
+      ],
+      "transfers": 5,
+      "boundaries": [
+        "progressed",
+        "requested",
+        "progressed",
+        "progressed",
+        "progressed",
+        "failed"
+      ],
+      "cleanupFailures": [],
+      "cancellation": null
+    },
+    {
+      "fixture": "match",
+      "mode": "off",
+      "imageSha256": "43c68c692813885cfd9c1b95b6d889796aa87b1095dfc38530c6acfd0357f6f7",
+      "inputCase": 0,
+      "imageBytes": 102,
+      "kind": "completed",
+      "value": "0700000000000000",
+      "requests": [],
+      "requestContracts": [],
+      "transfers": 2,
+      "boundaries": [
+        "progressed",
+        "progressed",
+        "completed"
+      ],
+      "cleanupFailures": [],
+      "cancellation": null
+    },
+    {
+      "fixture": "match",
+      "mode": "off",
+      "imageSha256": "43c68c692813885cfd9c1b95b6d889796aa87b1095dfc38530c6acfd0357f6f7",
+      "inputCase": 1,
+      "imageBytes": 102,
+      "kind": "completed",
+      "value": "0800000000000000",
+      "requests": [],
+      "requestContracts": [],
+      "transfers": 5,
+      "boundaries": [
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "completed"
+      ],
+      "cleanupFailures": [],
+      "cancellation": null
+    },
+    {
+      "fixture": "match",
+      "mode": "safe",
+      "imageSha256": "43c68c692813885cfd9c1b95b6d889796aa87b1095dfc38530c6acfd0357f6f7",
+      "inputCase": 0,
+      "imageBytes": 102,
+      "kind": "completed",
+      "value": "0700000000000000",
+      "requests": [],
+      "requestContracts": [],
+      "transfers": 2,
+      "boundaries": [
+        "progressed",
+        "progressed",
+        "completed"
+      ],
+      "cleanupFailures": [],
+      "cancellation": null
+    },
+    {
+      "fixture": "match",
+      "mode": "safe",
+      "imageSha256": "43c68c692813885cfd9c1b95b6d889796aa87b1095dfc38530c6acfd0357f6f7",
+      "inputCase": 1,
+      "imageBytes": 102,
+      "kind": "completed",
+      "value": "0800000000000000",
+      "requests": [],
+      "requestContracts": [],
+      "transfers": 5,
+      "boundaries": [
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "completed"
+      ],
+      "cleanupFailures": [],
+      "cancellation": null
+    },
+    {
+      "fixture": "configuration",
+      "mode": "off",
+      "imageSha256": "c35f1d91a77ec54fb73f8daf1e6e518ea710f5d2cd274a0cd8d6c15d0c7078bf",
+      "inputCase": 0,
+      "imageBytes": 117,
+      "kind": "completed",
+      "value": "07000000000000000b00000000000000",
+      "requests": [],
+      "requestContracts": [],
+      "transfers": 8,
+      "boundaries": [
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "completed"
+      ],
+      "cleanupFailures": [],
+      "cancellation": null
+    },
+    {
+      "fixture": "configuration",
+      "mode": "safe",
+      "imageSha256": "c35f1d91a77ec54fb73f8daf1e6e518ea710f5d2cd274a0cd8d6c15d0c7078bf",
+      "inputCase": 0,
+      "imageBytes": 117,
+      "kind": "completed",
+      "value": "07000000000000000b00000000000000",
+      "requests": [],
+      "requestContracts": [],
+      "transfers": 8,
+      "boundaries": [
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "completed"
+      ],
+      "cleanupFailures": [],
+      "cancellation": null
+    },
+    {
+      "fixture": "region",
+      "mode": "off",
+      "imageSha256": "75a9115ae23952f8025efc89c26a282c375b52bf3803f98fd8126b99f665ea07",
+      "inputCase": 0,
+      "imageBytes": 119,
+      "kind": "completed",
+      "value": "2a00000000000000",
+      "requests": [],
+      "requestContracts": [],
+      "transfers": 5,
+      "boundaries": [
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "completed"
+      ],
+      "cleanupFailures": [],
+      "cancellation": null
+    },
+    {
+      "fixture": "region",
+      "mode": "safe",
+      "imageSha256": "75a9115ae23952f8025efc89c26a282c375b52bf3803f98fd8126b99f665ea07",
+      "inputCase": 0,
+      "imageBytes": 119,
+      "kind": "completed",
+      "value": "2a00000000000000",
+      "requests": [],
+      "requestContracts": [],
+      "transfers": 5,
+      "boundaries": [
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "completed"
+      ],
+      "cleanupFailures": [],
+      "cancellation": null
+    },
+    {
+      "fixture": "arithmetic",
+      "mode": "off",
+      "imageSha256": "cb32527109ff5951c935a23504749f4d33801af74ce7624bc003432d387385e3",
+      "inputCase": 0,
+      "imageBytes": 172,
+      "kind": "completed",
+      "value": "070000000000000003000000000000000a0000000000000002000000000000000100000000000000",
+      "requests": [],
+      "requestContracts": [],
+      "transfers": 22,
+      "boundaries": [
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "completed"
+      ],
+      "cleanupFailures": [],
+      "cancellation": null
+    },
+    {
+      "fixture": "arithmetic",
+      "mode": "safe",
+      "imageSha256": "cb32527109ff5951c935a23504749f4d33801af74ce7624bc003432d387385e3",
+      "inputCase": 0,
+      "imageBytes": 172,
+      "kind": "completed",
+      "value": "070000000000000003000000000000000a0000000000000002000000000000000100000000000000",
+      "requests": [],
+      "requestContracts": [],
+      "transfers": 22,
+      "boundaries": [
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "completed"
+      ],
+      "cleanupFailures": [],
+      "cancellation": null
+    },
+    {
+      "fixture": "arithmetic_fail",
+      "mode": "off",
+      "imageSha256": "73caddee847f7ad510c7435f47b595fd6ac40655d8f1abbec613d08982818258",
+      "inputCase": 0,
+      "imageBytes": 77,
+      "kind": "failed",
+      "value": "",
+      "requests": [],
+      "requestContracts": [],
+      "transfers": 3,
+      "boundaries": [
+        "progressed",
+        "progressed",
+        "progressed",
+        "failed"
+      ],
+      "cleanupFailures": [],
+      "cancellation": null
+    },
+    {
+      "fixture": "arithmetic_fail",
+      "mode": "safe",
+      "imageSha256": "73caddee847f7ad510c7435f47b595fd6ac40655d8f1abbec613d08982818258",
+      "inputCase": 0,
+      "imageBytes": 77,
+      "kind": "failed",
+      "value": "",
+      "requests": [],
+      "requestContracts": [],
+      "transfers": 3,
+      "boundaries": [
+        "progressed",
+        "progressed",
+        "progressed",
+        "failed"
+      ],
+      "cleanupFailures": [],
+      "cancellation": null
+    },
+    {
+      "fixture": "dispose",
+      "mode": "off",
+      "imageSha256": "6bbac2ee0dac46f604b9d76b72b70ed461adfda85f0f4d73631cf0644cf42291",
+      "inputCase": 0,
+      "imageBytes": 269,
+      "kind": "completed",
+      "value": "1200000000000000",
+      "requests": [],
+      "requestContracts": [],
+      "transfers": 16,
+      "boundaries": [
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "completed"
+      ],
+      "cleanupFailures": [],
+      "cancellation": null
+    },
+    {
+      "fixture": "dispose",
+      "mode": "safe",
+      "imageSha256": "6bbac2ee0dac46f604b9d76b72b70ed461adfda85f0f4d73631cf0644cf42291",
+      "inputCase": 0,
+      "imageBytes": 269,
+      "kind": "completed",
+      "value": "1200000000000000",
+      "requests": [],
+      "requestContracts": [],
+      "transfers": 16,
+      "boundaries": [
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "completed"
+      ],
+      "cleanupFailures": [],
+      "cancellation": null
+    },
+    {
+      "fixture": "reusable_body",
+      "mode": "off",
+      "imageSha256": "f16b3fe2ad65d2a1f847de9133b757b92b78f263d19a6ad45598758e77e83bec",
+      "inputCase": 0,
+      "imageBytes": 275,
+      "kind": "completed",
+      "value": "c800000000000000",
+      "requests": [],
+      "requestContracts": [],
+      "transfers": 30,
+      "boundaries": [
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "completed"
+      ],
+      "cleanupFailures": [],
+      "cancellation": null
+    },
+    {
+      "fixture": "reusable_body",
+      "mode": "safe",
+      "imageSha256": "f16b3fe2ad65d2a1f847de9133b757b92b78f263d19a6ad45598758e77e83bec",
+      "inputCase": 0,
+      "imageBytes": 275,
+      "kind": "completed",
+      "value": "c800000000000000",
+      "requests": [],
+      "requestContracts": [],
+      "transfers": 30,
+      "boundaries": [
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "completed"
+      ],
+      "cleanupFailures": [],
+      "cancellation": null
+    },
+    {
+      "fixture": "imported_scoped",
+      "mode": "off",
+      "imageSha256": "fb3946f02b62f477f6c64fd059ba9cfb40a35e97423d840cfc3ad49422f9c876",
+      "inputCase": 0,
+      "imageBytes": 278,
+      "kind": "completed",
+      "value": "2a00000000000000",
+      "requests": [],
+      "requestContracts": [],
+      "transfers": 14,
+      "boundaries": [
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "completed"
+      ],
+      "cleanupFailures": [],
+      "cancellation": null
+    },
+    {
+      "fixture": "imported_scoped",
+      "mode": "safe",
+      "imageSha256": "c7f08a46dcd00ee0fb7f7bd4d19a2f1a73ba1d43449541b7db87416666699a64",
+      "inputCase": 0,
+      "imageBytes": 274,
+      "kind": "completed",
+      "value": "2a00000000000000",
+      "requests": [],
+      "requestContracts": [],
+      "transfers": 14,
+      "boundaries": [
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "completed"
+      ],
+      "cleanupFailures": [],
+      "cancellation": null
+    },
+    {
+      "fixture": "cleanup_named",
+      "mode": "off",
+      "imageSha256": "bfeb66f3ca9990e3bce683831414524f1950543a7b6a15dcbbcb433611cf9b14",
+      "inputCase": 0,
+      "imageBytes": 165,
+      "kind": "completed",
+      "value": "1100000000000000",
+      "requests": [],
+      "requestContracts": [],
+      "transfers": 6,
+      "boundaries": [
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "completed"
+      ],
+      "cleanupFailures": [],
+      "cancellation": null
+    },
+    {
+      "fixture": "cleanup_named",
+      "mode": "off",
+      "imageSha256": "bfeb66f3ca9990e3bce683831414524f1950543a7b6a15dcbbcb433611cf9b14",
+      "inputCase": 1,
+      "imageBytes": 165,
+      "kind": "completed",
+      "value": "0000000000000000",
+      "requests": [],
+      "requestContracts": [],
+      "transfers": 5,
+      "boundaries": [
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "completed"
+      ],
+      "cleanupFailures": [],
+      "cancellation": null
+    },
+    {
+      "fixture": "cleanup_named",
+      "mode": "safe",
+      "imageSha256": "bfeb66f3ca9990e3bce683831414524f1950543a7b6a15dcbbcb433611cf9b14",
+      "inputCase": 0,
+      "imageBytes": 165,
+      "kind": "completed",
+      "value": "1100000000000000",
+      "requests": [],
+      "requestContracts": [],
+      "transfers": 6,
+      "boundaries": [
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "completed"
+      ],
+      "cleanupFailures": [],
+      "cancellation": null
+    },
+    {
+      "fixture": "cleanup_named",
+      "mode": "safe",
+      "imageSha256": "bfeb66f3ca9990e3bce683831414524f1950543a7b6a15dcbbcb433611cf9b14",
+      "inputCase": 1,
+      "imageBytes": 165,
+      "kind": "completed",
+      "value": "0000000000000000",
+      "requests": [],
+      "requestContracts": [],
+      "transfers": 5,
+      "boundaries": [
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "completed"
+      ],
+      "cleanupFailures": [],
+      "cancellation": null
+    },
+    {
+      "fixture": "imported_sequence",
+      "mode": "off",
+      "imageSha256": "db11a5b8f3b259420fa350c43979d7d04621b1c217e107fcfbfbd40dd1a3c10d",
+      "inputCase": 0,
+      "imageBytes": 73,
+      "kind": "completed",
+      "value": "03",
+      "requests": [],
+      "requestContracts": [],
+      "transfers": 4,
+      "boundaries": [
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "completed"
+      ],
+      "cleanupFailures": [],
+      "cancellation": null
+    },
+    {
+      "fixture": "imported_sequence",
+      "mode": "safe",
+      "imageSha256": "db11a5b8f3b259420fa350c43979d7d04621b1c217e107fcfbfbd40dd1a3c10d",
+      "inputCase": 0,
+      "imageBytes": 73,
+      "kind": "completed",
+      "value": "03",
+      "requests": [],
+      "requestContracts": [],
+      "transfers": 4,
+      "boundaries": [
+        "progressed",
+        "progressed",
+        "progressed",
+        "progressed",
+        "completed"
+      ],
+      "cleanupFailures": [],
+      "cancellation": null
+    }
+  ]
+}

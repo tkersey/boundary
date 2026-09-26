@@ -11,7 +11,9 @@ assert.ok(runtime && native && images.length);
 const {Kernel, encodeInput, decodeOutcome, decodeRequest, encodeResult} =
   await import(pathToFileURL(resolve(runtime, 'src/embedding/index.mjs')));
 const bytes = new Uint8Array(await readFile(resolve(runtime,'world-kernel.wasm')));
-const expectedSha256 = 'df7fe1ae0ed0de7b2976c98b1534d1d55f4c341b7148837ce32f42ed8d011084';
+const expectedSha256 = process.env.WORLD_KERNEL_SHA256 ??
+  'df7fe1ae0ed0de7b2976c98b1534d1d55f4c341b7148837ce32f42ed8d011084';
+assert.match(expectedSha256,/^[a-f0-9]{64}$/);
 const wasmtime = process.env.WORLD_WASMTIME_PEER
   ? await (await import(pathToFileURL(resolve(process.env.WORLD_WASMTIME_PEER))))
       .wasmtimePeer(resolve(runtime,'world-kernel.wasm'),expectedSha256) : null;
@@ -20,6 +22,7 @@ const u32 = n => {const b=new Uint8Array(4);new DataView(b.buffer).setUint32(0,n
 const max=(1n<<64n)-1n;
 async function execute(image, initialArgs, replies) {
   let state, control='none', value=new Uint8Array(), requests=[], transfers=0;
+  const requestContracts=[], boundaries=[];
   for(let round=0;round<1024;round++) {
     const input=encodeInput({image,initialArgs:state ? undefined : initialArgs,state,control,value,quantum:1});
     const kernel=await Kernel.create({bytes,expectedSha256});
@@ -31,9 +34,12 @@ async function execute(image, initialArgs, replies) {
     const guest = wasmtime ? (await wasmtime.call('invoke',{bytes:input})).bytes : node;
     assert.deepEqual(guest,node);
     const outcome=decodeOutcome(round%3 === 0 ? guest : round%3 === 1 ? new Uint8Array(peer.stdout) : node);
+    boundaries.push(outcome.kind);
     if(['completed','failed'].includes(outcome.kind)) {
       if(outcome.kind==='failed') assert.deepEqual(outcome.cleanupFailures,[]);
-      return {kind:outcome.kind,value:Buffer.from(outcome.value).toString('hex'),requests,transfers};
+      return {kind:outcome.kind,value:Buffer.from(outcome.value).toString('hex'),requests,
+        requestContracts,transfers,boundaries,cleanupFailures:outcome.cleanupFailures??[],
+        cancellation:outcome.cancellation??null};
     }
     assert.ok(outcome.state?.length,'real portable State required');
     state=outcome.state;transfers++;
@@ -44,6 +50,11 @@ async function execute(image, initialArgs, replies) {
       const restored=decodeOutcome(fresh.invoke(encodeInput({image,state,quantum:1})));
       assert.equal(restored.kind,'requested');
       const request=await decodeRequest(restored.request);
+      requestContracts.push({effect:request.effect.toString(),
+        identity:Buffer.from(request.semanticIdentityBytes).toString('hex'),
+        payloadSchema:Buffer.from(request.payloadSchema).toString('hex'),
+        resumeSchema:Buffer.from(request.resumeSchema).toString('hex'),
+        payload:Buffer.from(request.payload).toString('hex')});
       requests.push({identity:request.semanticIdentity,payload:Buffer.from(request.payload).toString('hex')});
       assert.ok(requests.length<=replies.length,'unexpected external request');
       value=await encodeResult(restored.request,replies[requests.length-1]);control='reply';
@@ -123,7 +134,7 @@ for(const path of images){
       assert.deepEqual(reference.trace.filter(x=>x.kind==='Requested').map(x=>({
         identity:x.identity,payload:Buffer.from(x.payload).toString('hex')})),result.requests);
     }
-    observations.push({kind:result.kind,value:result.value,requests:result.requests});
+    observations.push(result);
     console.log(JSON.stringify({path,imageBytes:image.length,...result}));
   }
   if(baseline)assert.deepEqual(observations,baseline);else baseline=observations;

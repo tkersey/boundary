@@ -3,6 +3,7 @@
 const std = @import("std");
 const data = @import("boundary_data");
 const components = @import("coalescing_component_cases.zig");
+const trees = @import("coalescing_tree_cases.zig");
 
 fn emitComponent(init: std.process.Init, kind: components.Kind, mode: data.coalescing.Mode) !void {
     const object = try components.emit(init.gpa, kind, mode);
@@ -24,15 +25,20 @@ pub fn main(init: std.process.Init) !void {
         if (args.next() != null) return error.UnexpectedArgument;
         return emitComponent(init, kind, mode);
     }
-    const count = try std.fmt.parseInt(usize, selection, 10);
+    const tree = std.meta.stringToEnum(trees.Kind, selection);
+    const count = if (tree != null) 8 else try std.fmt.parseInt(usize, selection, 10);
     if (args.next() != null or count == 0 or count > 256) return error.InvalidCount;
     var rounds: [16]data.coalescing.Round = undefined;
     var statistics: data.coalescing.Statistics = .{ .rounds = &rounds };
-    var compiled = try @import("coalescing_tests.zig").closures(
-        init.gpa,
-        count,
-        .{ .mode = mode, .statistics = &statistics },
-    );
+    const options: data.coalescing.Options = .{ .mode = mode, .statistics = &statistics };
+    var compiled = if (tree) |kind|
+        try trees.compile(init.gpa, kind, options)
+    else
+        try @import("coalescing_tests.zig").closures(
+            init.gpa,
+            count,
+            options,
+        );
     defer compiled.deinit();
     const bytes = try init.gpa.alloc(u8, try data.program_image.encodedLength(compiled.program));
     defer init.gpa.free(bytes);

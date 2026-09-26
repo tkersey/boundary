@@ -228,6 +228,46 @@ node test/coalescing_execution.mjs zig-out/bin/coalescing-fixture \
 
 ## Outstanding delivery work
 
+### Enabled/disabled semantic fixtures
+
+The maintained [semantic report](coalescing-semantic-evidence.json) records 50
+executions across 22 existing authored fixtures. Both modes agree with native
+World, Node/WASM, Wasmtime 48.0.0 (Python 3.14.7), and the independent higher-order
+source oracle. Coverage includes deep/shallow and answer-transforming handlers,
+cleanup and disposal, lazy/demanded behavior, failure ordering, arithmetic,
+regions, and typed capture/handler interfaces.
+
+Each execution uses quantum one and restores its own checkpoint on a fresh host
+instance at each boundary. The differential comparison includes semantic request
+identity bytes, effect IDs, payload/resume schemas, payload bytes, boundary kinds,
+cleanup failures and cancellation fields. Only image-bound request/checkpoint
+identities are excluded. Replies are bound independently to each actual request.
+The report binds the emitter, native peer, runtime kernel, harness and source
+fixtures by digest. These cases do not establish the entire acceptance matrix.
+
+The [depth-eight helper-chain report](coalescing-tree-evidence.json) exercises
+reference-induced sharing through alternating direct calls and constructed
+computations. Equivalent chains reduce 19 functions to 10 and eight constructors
+to four (780 to 424 bytes). A changed leaf propagates through the relation and
+retains all 19 functions/eight constructors; its small description saving is
+reported separately. Normal and checked-overflow executions preserve matched
+boundaries. The source-level structural assertions are in `check-authoring`.
+
+Reproduce with the authenticated World paths described above. Keep the Wasmtime
+environment outside the immutable source input:
+
+```sh
+zig build build-authoring-cases build-coalescing-fixtures -Doptimize=ReleaseSafe
+export WORLD_KERNEL_SHA256=7d31effb1d4e32523d0fcbd5b4d5f5a8a2289fbd4c731173a33b1c174524282f
+export WORLD_WASMTIME_PEER="$WORLD_SOURCE/test/current/peer.mjs"
+export UV_PROJECT_ENVIRONMENT="$WORLD_WORK/cache/coalescing-wasmtime"
+export PYTHONDONTWRITEBYTECODE=1
+node test/run_authoring_cases.mjs "$WORLD_RUNTIME" "$WORLD_NATIVE" \
+  zig-out/bin/authoring-cases coalescing docs/coalescing-semantic-evidence.json
+node test/coalescing_execution.mjs zig-out/bin/coalescing-fixture "$WORLD_RUNTIME" \
+  "$WORLD_KERNEL_SHA256" "$WORLD_NATIVE" trees > docs/coalescing-tree-evidence.json
+```
+
 ### Diagnostic provenance update
 
 The source translator no longer chooses the first constructor using a capture

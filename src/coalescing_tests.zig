@@ -117,3 +117,19 @@ test "coalescing statistics and bounded round storage do not change typed output
         try data.program_image.identity(testing.allocator, observed.program),
     );
 }
+
+test "coalescing shares depth-eight helper chains through calls and constructed computations" {
+    const trees = @import("coalescing_tree_cases.zig");
+    inline for (.{ trees.Kind.tree, trees.Kind.tree_near }) |kind| {
+        var off = try trees.compile(testing.allocator, kind, .{});
+        defer off.deinit();
+        var safe = try trees.compile(testing.allocator, kind, .{ .mode = .safe });
+        defer safe.deinit();
+        try testing.expectEqual(@as(usize, 19), off.program.functions.len);
+        try testing.expectEqual(@as(usize, if (kind == .tree) 10 else 19), safe.program.functions.len);
+        try testing.expectEqual(@as(usize, 8), off.program.constructors.len);
+        try testing.expectEqual(@as(usize, if (kind == .tree) 4 else 8), safe.program.constructors.len);
+        try testing.expect(try data.program_image.encodedLength(safe.program) <=
+            try data.program_image.encodedLength(off.program));
+    }
+}
