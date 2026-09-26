@@ -230,6 +230,24 @@ node test/coalescing_execution.mjs zig-out/bin/coalescing-fixture \
 
 ### Enabled/disabled semantic fixtures
 
+The [simultaneous-assignment report](coalescing-edge-evidence.json) checks two
+alpha-renamed function bodies containing a swap or three-way slot cycle. Both
+fold to one body while retaining the representative's original input layout.
+For inputs `11, 22, 33`, each invocation returns `22, 11, 33` for the swap and
+`22, 33, 11` for the cycle. Native, Node/WASM and Wasmtime agree at quantum-one
+boundaries. These raw admitted-record fixtures intentionally exercise stable-slot
+assignment patterns that the higher-level source API does not expose directly.
+Run `test/coalescing_execution.mjs` with the existing runtime arguments and
+`edges` as its final argument to reproduce them.
+
+Authority tests now cross the public pass after original admission and live
+projection. The former discovery-only test was corrected to root its resource
+through a live layout. Privileged/unprivileged and distinct privileged identities
+stay separate. Unauthorized unused resource introduction and elimination reject
+in both modes. Their authorized counterparts may be discarded by ordinary
+reachability; that discarded authority does not pin otherwise live helpers, and
+a second safe pass preserves exact image identity.
+
 The maintained [semantic report](coalescing-semantic-evidence.json) records 62
 executions across 28 authored fixtures. Both modes agree with native
 World, Node/WASM, Wasmtime 48.0.0 (Python 3.14.7), and the independent higher-order

@@ -4,6 +4,7 @@ const std = @import("std");
 const data = @import("boundary_data");
 const components = @import("coalescing_component_cases.zig");
 const trees = @import("coalescing_tree_cases.zig");
+const edges = @import("coalescing_edge_cases.zig");
 
 fn emitComponent(init: std.process.Init, kind: components.Kind, mode: data.coalescing.Mode) !void {
     const object = try components.emit(init.gpa, kind, mode);
@@ -26,12 +27,15 @@ pub fn main(init: std.process.Init) !void {
         return emitComponent(init, kind, mode);
     }
     const tree = std.meta.stringToEnum(trees.Kind, selection);
-    const count = if (tree != null) 8 else try std.fmt.parseInt(usize, selection, 10);
+    const edge = std.meta.stringToEnum(edges.Kind, selection);
+    const count = if (tree != null) 8 else if (edge != null) 3 else try std.fmt.parseInt(usize, selection, 10);
     if (args.next() != null or count == 0 or count > 256) return error.InvalidCount;
     var rounds: [16]data.coalescing.Round = undefined;
     var statistics: data.coalescing.Statistics = .{ .rounds = &rounds };
     const options: data.coalescing.Options = .{ .mode = mode, .statistics = &statistics };
-    var compiled = if (tree) |kind|
+    var compiled = if (edge) |kind|
+        try edges.compile(init.gpa, kind, options)
+    else if (tree) |kind|
         try trees.compile(init.gpa, kind, options)
     else
         try @import("coalescing_tests.zig").closures(

@@ -81,15 +81,23 @@ test "coalescing candidate keeps pinned authority functions separate" {
     defer scratch.deinit();
     var work: graph.Work = .{};
     var program = fixture;
+    program.schemas = &.{ .u64, .unit, .{ .internal = .{ .abstract_resource = 0 } } };
+    var functions = fixture.functions[0..3].*;
+    functions[2].layout.slots = &.{ 0, 2 };
+    program.functions = &functions;
     program.scopes.resources = &.{.{
         .representation = 0,
         .introducers = &.{0},
         .eliminators = &.{1},
     }};
-    const opportunities = try discovery.analyze(scratch.allocator(), program, &work);
+    var admitted = try @import("activation_ownership.zig").analyze(testing.allocator, program);
+    admitted.deinit();
+    const projected = try r.ownReachable(scratch.allocator(), scratch.allocator(), program);
+    try testing.expectEqual(@as(usize, 1), projected.program.scopes.resources.len);
+    const opportunities = try discovery.analyze(scratch.allocator(), projected.program, &work);
     const map = try discovery.correspondence(
         scratch.allocator(),
-        program,
+        projected.program,
         opportunities,
         .full,
         &work,
@@ -99,4 +107,68 @@ test "coalescing candidate keeps pinned authority functions separate" {
         &.{ 0, 1, 2 },
         map.representatives[@intFromEnum(r.Kind.function)],
     );
+}
+
+test "coalescing public pass separates privileged and unprivileged identical code" {
+    const pass = @import("coalescing.zig");
+    for ([_]bool{ false, true }) |both| {
+        var program = fixture;
+        program.schemas = &.{ .u64, .unit, .{ .internal = .{ .abstract_resource = 0 } } };
+        var functions = fixture.functions[0..3].*;
+        functions[2].layout.slots = &.{ 0, 2 };
+        program.functions = &functions;
+        program.scopes.resources = &.{.{
+            .representation = 0,
+            .introducers = &.{0},
+            .eliminators = if (both) &.{1} else &.{},
+        }};
+        var result = try pass.run(testing.allocator, program, .{ .mode = .safe });
+        defer result.deinit();
+        try testing.expectEqual(@as(usize, 3), result.program.functions.len);
+        try testing.expectEqual(@as(usize, 1), result.program.scopes.resources.len);
+        try testing.expectEqualSlices(ir.Id, &.{0}, result.program.scopes.resources[0].introducers);
+        try testing.expectEqualSlices(ir.Id, if (both) &.{1} else &.{}, result.program.scopes.resources[0].eliminators);
+    }
+}
+
+test "discarded authority neither pins live helpers nor hides an invalid unused declaration" {
+    const pass = @import("coalescing.zig");
+    inline for (.{ false, true }) |eliminate| {
+        var program = fixture;
+        program.schemas = &.{ .u64, .unit, .{ .internal = .{ .abstract_resource = 0 } } };
+        var functions = [_]ir.Function{ fixture.functions[0], fixture.functions[1], fixture.functions[2], .{
+            .entry = fixture.blocks.len,
+            .inputs = &.{0},
+            .layout = .{ .slots = if (eliminate) &.{ 2, 0 } else &.{ 0, 2 } },
+            .result = if (eliminate) 0 else 2,
+        } };
+        var blocks: [fixture.blocks.len + 1]ir.Block = undefined;
+        @memcpy(blocks[0..fixture.blocks.len], fixture.blocks);
+        blocks[fixture.blocks.len] = .{
+            .function = 3,
+            .instructions = &.{.{ .opcode = if (eliminate) .resource_unpack else .resource_pack, .destination = 1, .operands = &.{0} }},
+            .terminator = .{ .return_value = 1 },
+        };
+        program.functions = &functions;
+        program.blocks = &blocks;
+        program.scopes.resources = &.{.{
+            .representation = 0,
+            .introducers = &.{0},
+            .eliminators = &.{1},
+        }};
+        for ([_]pass.Mode{ .off, .safe }) |mode|
+            try testing.expectError(error.InvalidOwnership, pass.run(testing.allocator, program, .{ .mode = mode }));
+        program.scopes.resources = &.{.{
+            .representation = 0,
+            .introducers = if (eliminate) &.{0} else &.{ 0, 3 },
+            .eliminators = if (eliminate) &.{ 1, 3 } else &.{1},
+        }};
+        var result = try pass.run(testing.allocator, program, .{ .mode = .safe });
+        defer result.deinit();
+        try testing.expectEqual(@as(usize, 0), result.program.scopes.resources.len);
+        try testing.expectEqual(@as(usize, 2), result.program.functions.len);
+        var repeated = try pass.run(testing.allocator, result.program, .{ .mode = .safe });
+        defer repeated.deinit();
+        try testing.expectEqual(try image.identity(testing.allocator, result.program), try image.identity(testing.allocator, repeated.program));
+    }
 }

@@ -14,6 +14,7 @@
         "docs/coalescing-component-evidence.json",
         "docs/coalescing-semantic-evidence.json",
         "docs/coalescing-tree-evidence.json",
+        "docs/coalescing-edge-evidence.json",
         "docs/bpi3-wire.md",
         "docs/pst3-wire.md",
         "docs/bmo1-components.md",

@@ -7,6 +7,7 @@ import {pathToFileURL} from 'node:url';
 
 const [emitter, runtime, expectedSha256, native, ...componentImages] = process.argv.slice(2);
 const trees = componentImages.length===1 && componentImages[0]==='trees';
+const edges = componentImages.length===1 && componentImages[0]==='edges';
 assert.ok(emitter && runtime && /^[a-f0-9]{64}$/.test(expectedSha256 ?? '') && native,
   'usage: node test/coalescing_execution.mjs EMITTER RUNTIME SHA256 NATIVE');
 const {Kernel, encodeInput, decodeOutcome} =
@@ -106,6 +107,19 @@ if (trees) {
     measurements.push({kind,off:off.statistics,safe:safe.statistics,
       normal:baseline,overflow:failure});
   }
+} else if (edges) {
+  for(const kind of ['swap','cycle']) {
+    const off=emit('off',kind), safe=emit('safe',kind);
+    assert.equal(off.statistics.functions,3);
+    assert.equal(safe.statistics.functions,2);
+    assert.ok(safe.image.length<off.image.length);
+    const input=words([11,22,33]);
+    const baseline=await execute(off.image,input,1);
+    assert.deepEqual(await execute(safe.image,input,1),baseline);
+    const triple=kind==='swap'?[22,11,33]:[22,33,11];
+    assert.equal(baseline.value,Buffer.from(words([...triple,...triple])).toString('hex'));
+    measurements.push({kind,off:off.statistics,safe:safe.statistics,observation:baseline});
+  }
 } else if (componentImages.length) {
   assert.equal(componentImages.length, 2);
   const images = await Promise.all(componentImages.map(async path => new Uint8Array(await readFile(path))));
@@ -116,7 +130,8 @@ if (trees) {
   assert.equal(safe.value, Buffer.from(words([13, 17])).toString('hex'));
   measurements.push({case: 'source-free components', observation: safe});
 }
-console.log(JSON.stringify({check: trees ? 'coalescing depth-eight reference-induced sharing'
+console.log(JSON.stringify({check: edges ? 'coalescing simultaneous assignments and slot reuse'
+  : trees ? 'coalescing depth-eight reference-induced sharing'
   : componentImages.length
   ? 'coalescing source-free components native/WASM and fresh-host resume'
   : 'coalescing captured closures native/WASM and fresh-host resume',

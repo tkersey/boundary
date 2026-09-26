@@ -161,3 +161,17 @@ test "coalescing shares stateful code while retaining every dynamic allocation s
         }
     }
 }
+
+test "coalescing handles whole-function slot renaming with simultaneous swaps and cycles" {
+    const edges = @import("coalescing_edge_cases.zig");
+    for (std.enums.values(edges.Kind)) |kind| {
+        var off = try edges.compile(testing.allocator, kind, .{});
+        defer off.deinit();
+        var safe = try edges.compile(testing.allocator, kind, .{ .mode = .safe });
+        defer safe.deinit();
+        try testing.expectEqual(@as(usize, 3), off.program.functions.len);
+        try testing.expectEqual(@as(usize, 2), safe.program.functions.len);
+        try testing.expectEqualSlices(data.program.Id, &.{ 0, 1, 2 }, safe.program.functions[0].inputs);
+        try testing.expectEqual(@as(usize, if (kind == .swap) 2 else 3), safe.program.blocks[0].terminator.jump.assignments.len);
+    }
+}
