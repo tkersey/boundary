@@ -4,6 +4,9 @@ Status: in progress. An opt-in `safe` path now performs checked coalescing in
 direct compilation and final linking. The default remains `off` pending the full
 acceptance and promotion gates. This is not a completed qualification report.
 
+The [acceptance inventory](coalescing-acceptance.md) maps every T01–T42 row and
+promotion gate to current bounded evidence and explicit outstanding work.
+
 The accepted source is the September 25, 2026 version 2.0 specification supplied
 with this task (attachment `76f1c36f-9372-40cc-9466-f61061359f29/pasted-text-1.txt`).
 All T01–T42 and promotion gates remain required. A finite graph test does not
@@ -273,6 +276,25 @@ measurement obligations include scaling/mostly-unique graphs, source-free linkin
 all internal phases, and the unchanged real consumer corpus.
 
 ### Enabled/disabled semantic fixtures
+
+The [browser report](coalescing-browser-evidence.json) runs ten fixtures under
+both modes in real Chromium and Firefox Workers. Every quantum-one output is
+compared byte-for-byte with the native peer for that exact image. Workers are
+destroyed after each step, so each successor restores on a fresh host instance.
+The server exposes only runtime embedding modules, the authenticated kernel,
+and a small transport worker; it exposes no compiler or application source.
+Semantic traces/results are compared between modes, replies are bound to each
+actual request, wrong-program restores reject, and a wrong kernel digest rejects.
+
+```sh
+node test/coalescing_browser.mjs zig-out/bin/authoring-cases "$WORLD_RUNTIME" \
+  7d31effb1d4e32523d0fcbd5b4d5f5a8a2289fbd4c731173a33b1c174524282f \
+  "$WORLD_NATIVE" "$WORLD_BROWSER_TOOLS" > docs/coalescing-browser-evidence.json
+```
+
+`WORLD_BROWSER_TOOLS` selects the existing locked World Playwright installation.
+This recorded subset covers cell/memo separation, fresh hyper helpers, State/Choice
+and cleanup. It is not a claim that every remaining fixture/platform gate passed.
 
 The native authoring aggregate now starts four independent compiler threads
 with separate debug allocators. Each repeatedly alternates safe compilation,

@@ -19,6 +19,8 @@
         "docs/coalescing-recursive-evidence.json",
         "docs/coalescing-compiler-before.json",
         "docs/coalescing-compiler-after.json",
+        "docs/coalescing-acceptance.md",
+        "docs/coalescing-browser-evidence.json",
         "docs/bpi3-wire.md",
         "docs/pst3-wire.md",
         "docs/bmo1-components.md",
