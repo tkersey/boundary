@@ -46,7 +46,7 @@ test "coalescing work limit after an intermediate selection returns original bas
     );
     defer measured.deinit();
     try testing.expect(stats.first_selected_work > 0);
-    var off = try pass.run(testing.allocator, fixture, .{});
+    var off = try pass.run(testing.allocator, fixture, .{ .mode = .off });
     defer off.deinit();
     const baseline = try bytes(off.program);
     defer testing.allocator.free(baseline);
@@ -74,6 +74,49 @@ fn allocationCase(allocator: std.mem.Allocator) !void {
 
 test "coalescing fixed point releases all owners at every allocation failure" {
     try testing.checkAllAllocationFailures(testing.allocator, allocationCase, .{});
+}
+
+const description_only: @import("activation.zig").Program = .{
+    .roots = .{ .entry = 0, .result = 2, .failure = 0 },
+    .schemas = &.{ .u64, .u64, .{ .product = &.{ 0, 1 } } },
+    .constants = &.{},
+    .effects = &.{},
+    .functions = &.{.{ .entry = 0, .inputs = &.{ 0, 1 }, .layout = .{ .slots = &.{ 0, 1, 2 } }, .result = 2 }},
+    .blocks = &.{.{ .function = 0, .instructions = &.{.{
+        .destination = 2,
+        .opcode = .product,
+        .operands = &.{ 0, 1 },
+    }}, .terminator = .{ .return_value = 2 } }},
+};
+
+fn descriptionAllocationCase(allocator: std.mem.Allocator) !void {
+    var stats: pass.Statistics = .{};
+    var result = try pass.run(allocator, description_only, .{ .statistics = &stats });
+    defer result.deinit();
+    try testing.expectEqual(@as(usize, 2), result.program.schemas.len);
+    try testing.expectEqual(@as(usize, 1), stats.candidate_admissions);
+    try testing.expectEqual(@as(usize, 2), stats.validator_calls);
+    try testing.expectEqualDeep(stats.full, stats.descriptions);
+    try testing.expectEqual(@import("coalescing_discovery.zig").Profile.full, stats.selected_profile.?);
+}
+
+test "coalescing reuses equal portfolios with identical bytes and allocation failure cleanup" {
+    try testing.checkAllAllocationFailures(testing.allocator, descriptionAllocationCase, .{});
+    const discovery = @import("coalescing_discovery.zig");
+    const candidate = @import("coalescing_candidate.zig");
+    var scratch = std.heap.ArenaAllocator.init(testing.allocator);
+    defer scratch.deinit();
+    var work: @import("coalescing_graph.zig").Work = .{};
+    const analysis = try discovery.analyze(scratch.allocator(), description_only, &work);
+    var separate = try candidate.build(testing.allocator, scratch.allocator(), description_only, analysis, .descriptions, &work);
+    defer separate.deinit();
+    var selected = try pass.run(testing.allocator, description_only, .{});
+    defer selected.deinit();
+    const expected = try bytes(separate.program);
+    defer testing.allocator.free(expected);
+    const actual = try bytes(selected.program);
+    defer testing.allocator.free(actual);
+    try testing.expectEqualSlices(u8, expected, actual);
 }
 
 test "coalescing preserves duplicate sum alternatives and old duplicate-containing codec input" {

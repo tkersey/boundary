@@ -1,12 +1,13 @@
 # Coalescing v2 acceptance inventory
 
 This is a current evidence inventory, not a completion certificate. It follows
-the accepted September 25 version 2 specification without weakening its gates.
-The compiler default remains **off**. Agent's 18-configuration census found no
-function/constructor reductions; description-only savings do not satisfy §16.2.
+the September 25 version 2 specification as amended by the user in
+[v2.1](coalescing-spec.md). The compiler/linker default is **safe**. Current
+compile-time overhead and limited Agent reductions are accepted trade-offs;
+a speedup and the former §16.2 real-consumer benefit are not acceptance gates.
 
-The implementation/evidence basis is Boundary `1a212c3` plus the browser harness
-in this change, Agent `3e794e0` (pinned to Boundary `cc1cdb0`), and authenticated
+The implementation/evidence basis is the current Boundary default-enablement
+change, Agent `3e794e0` (still pinned to Boundary `cc1cdb0`), and authenticated
 World `c20695e`. Agent must be repinned and requalified against the final Boundary
 candidate. No final CAS review epoch has begun.
 
@@ -31,7 +32,7 @@ runtime identities, measurements, limits, and remaining work.
 | T11 | Actual recursive candidate groups; terminating role/base cases and 128-step/42-request prefix | Partial: function-local cyclic CFG has structural/view tests, but its renamed-loop execution witness remains missing. |
 | T12 | Fresh ordinary `ana`/query/invoke/defer helpers; differing Step configuration; unforced divergent peer | Supported bounded reciprocal/lazy cases with source oracle and three runtimes; browser subset included. |
 | T13 | Independent/shared memo cells plus evaluation counter | Supported: independent cells evaluate twice, deliberate sharing once; runtime transfer retains this distinction. |
-| T14 | Existing deep/shallow/answer-transforming fixtures in both modes and source oracle | Partial: assert actual handler-description merging and explicit incompatible mode/strategy no-merge fixtures. |
+| T14 | Deep/shallow/answer transformation; duplicate stateful and effectful descriptions; separate valid tail/general contracts | Supported bounded witnesses: actual descriptions merge, installations retain state, mixed modes/strategies remain distinct. |
 | T15 | Same-named private effect instances remain distinct under off/safe linking; sparse-region tests | Partial: extend explicit same-shaped private region/resource cross-object cases and runtime traces. |
 | T16 | Public pass with live privileged/unprivileged identical helpers; unauthorized pack/unpack rejection | Supported admission/structural witnesses; no authority widening. |
 | T17 | Two live privileged identical helpers remain singleton with separate authority sets | Supported structural witness. |
@@ -61,15 +62,15 @@ runtime identities, measurements, limits, and remaining work.
 | T41 | Exhaustion after an accepted intermediate round returns original baseline bytes | Supported deterministic rollback and ownership tests. |
 | T42 | Exact Python appendix results reproduced; Zig exhaustive 4,330 graphs and independent 500-case oracle | Supported finite-model scope only; does not discharge the full runtime laws. |
 
-## Promotion and measurement gates
+## Correctness, integration and bounded measurement
 
 | Gate | Current state |
 | --- | --- |
 | §16.1 structural/semantic | Incomplete while the partial rows above remain. |
-| §16.2 real consumer code-sharing benefit | Unmet in recorded Agent corpus; no workload inflation or gate substitution authorized. |
-| §16.3 runtime/admission/memory/checkpoint | Incomplete. Synthetic cold Boundary admission measurements are not World/Agent runtime qualification. |
-| §16.4 compiler/linker economics | Initial ten-fixture compiler measurements exist. B0 control, scaling, unique graphs, source-free link and full phase accounting remain open. |
-| §16.5 default/promotion | Keep off by default and retain drafts. |
+| §16.2 real consumer code-sharing benefit | Retired by v2.1. The recorded 18 Agent configurations have unchanged function/constructor counts; report description savings honestly. |
+| §16.3 runtime/admission/memory/checkpoint | Correctness and capacity safety remain required. Synthetic cold admission measurements do not establish World/Agent runtime improvements. |
+| §16.4 compiler/linker economics | Bounded measured optimization retained; 21–48% enabled compile-time improvement on ten synthetic fixtures, with remaining 1.6–4.4× safe/off overhead accepted. A further bounded experiment reuses identical portfolios: cleanup compilation improves 19%, with identical images. Further gains are optional. |
+| §16.5 default/promotion | Default safe; explicit off retained. Draft retention tracks incomplete correctness/integration/review, not performance benefit. |
 | Serial review convergence | Not started; only a fully realized, locally proved candidate can earn closure credit. |
 
 The next implementation work follows the partial rows; another passing aggregate

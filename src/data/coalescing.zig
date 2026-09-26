@@ -70,7 +70,7 @@ pub const Round = struct {
     work: u64,
 };
 pub const Options = struct {
-    mode: Mode = .off,
+    mode: Mode = .safe,
     statistics: ?*Statistics = null,
     diagnostic: ?*Diagnostic = null,
     /// Deterministic discovery-work units; unlimited unless a caller selects a bound.
@@ -226,7 +226,12 @@ fn attempt(allocator: std.mem.Allocator, baseline: ir.Program, stats: *Statistic
         var full = try candidate.materialize(allocator, a, program, full_map, trace, diagnostic);
         var keep_full = false;
         defer if (!keep_full) full.deinit();
-        var descriptions = try candidate.buildObserved(
+        // The description profile adds only singleton function restrictions.
+        // When full discovery already has those singletons, both fixed points
+        // and materializations are identical. Reuse the independently checked
+        // full candidate; the existing tie-break selects it in either case.
+        const same_profiles = !mapHasMerge(full_map.representatives[@intFromEnum(r.Kind.function)]);
+        var separate_descriptions: ?candidate.Candidate = if (same_profiles) null else try candidate.buildObserved(
             allocator,
             a,
             program,
@@ -236,14 +241,15 @@ fn attempt(allocator: std.mem.Allocator, baseline: ir.Program, stats: *Statistic
             trace,
             diagnostic,
         );
+        const descriptions = if (separate_descriptions) |*value| value else &full;
         var keep_descriptions = false;
-        defer if (!keep_descriptions) descriptions.deinit();
-        stats.validator_calls += 4;
-        stats.candidate_admissions += 2;
+        defer if (!keep_descriptions) if (separate_descriptions) |*value| value.deinit();
+        stats.validator_calls += if (same_profiles) @as(usize, 2) else 4;
+        stats.candidate_admissions += if (same_profiles) @as(usize, 1) else 2;
         stats.full = try Counts.of(full.program);
         stats.descriptions = try Counts.of(descriptions.program);
         const full_eligible = eligible(full, stats.selected);
-        const description_eligible = eligible(descriptions, stats.selected);
+        const description_eligible = eligible(descriptions.*, stats.selected);
         const selected_profile = choose(
             if (full_eligible) .{ .bytes = full.bytes, .entries = full.entries } else null,
             if (description_eligible)
@@ -272,7 +278,7 @@ fn attempt(allocator: std.mem.Allocator, baseline: ir.Program, stats: *Statistic
             stats.selected_profile = .full;
         } else {
             keep_descriptions = true;
-            selected = owned(descriptions);
+            selected = owned(descriptions.*);
             stats.selected = stats.descriptions;
             stats.selected_profile = .descriptions;
         }
@@ -284,8 +290,12 @@ fn attempt(allocator: std.mem.Allocator, baseline: ir.Program, stats: *Statistic
 }
 
 fn hasMerge(maps: r.Maps) bool {
-    for (maps) |map| for (map, 0..) |representative, id|
-        if (representative != id) return true;
+    for (maps) |map| if (mapHasMerge(map)) return true;
+    return false;
+}
+
+fn mapHasMerge(map: []const @import("program.zig").Id) bool {
+    for (map, 0..) |representative, id| if (representative != id) return true;
     return false;
 }
 

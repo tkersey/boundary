@@ -284,3 +284,97 @@ test "coalescing does not erase same-shaped code type width sign bound or tag co
         try testing.expect(!@import("record.zig").equal(p.Schema, first, second));
     }
 }
+
+const handler_strategies: ir.Program = .{
+    .roots = .{ .entry = 4, .result = 5, .failure = 0 },
+    .schemas = &.{ .unit, .u64, .{ .internal = .{ .capability = 0 } }, .{ .internal = .{ .resumption = .{
+        .effect = 0,
+        .input = 1,
+        .answer = 1,
+        .handled = &.{0},
+        .capture_bound = &.{ 0, 1, 2 },
+        .mode = .deep,
+        .use = .linear,
+    } } }, .{ .internal = .{ .computation = .{
+        .parameters = &.{2},
+        .result = 1,
+        .effects = &.{0},
+    } } }, .{ .product = &.{ 1, 1 } } },
+    .constants = &.{ .{ .schema = 0, .bytes = &.{} }, .{ .schema = 1, .bytes = &.{ 42, 0, 0, 0, 0, 0, 0, 0 } } },
+    .effects = &.{.{ .identity = "handled", .payload = 0, .result = 1, .external = false }},
+    .functions = &.{
+        .{ .entry = 0, .inputs = &.{0}, .layout = .{ .slots = &.{1} }, .result = 1 },
+        .{ .entry = 1, .inputs = &.{0}, .layout = .{ .slots = &.{ 0, 1 } }, .result = 1 },
+        .{ .entry = 2, .inputs = &.{ 0, 1 }, .layout = .{ .slots = &.{ 0, 3, 1, 1 } }, .result = 1 },
+        .{ .entry = 4, .inputs = &.{0}, .layout = .{ .slots = &.{ 2, 0, 1 } }, .result = 1, .effects = &.{0} },
+        .{ .entry = 6, .inputs = &.{}, .layout = .{ .slots = &.{ 4, 1, 1, 5 } }, .result = 5 },
+    },
+    .blocks = &.{
+        .{ .function = 0, .instructions = &.{}, .terminator = .{ .return_value = 0 } },
+        .{ .function = 1, .instructions = &.{.{
+            .opcode = .constant,
+            .destination = 1,
+            .immediate = 1,
+        }}, .terminator = .{ .return_value = 1 } },
+        .{ .function = 2, .instructions = &.{.{
+            .opcode = .constant,
+            .destination = 2,
+            .immediate = 1,
+        }}, .terminator = .{ .resume_value = .{
+            .resumption = 1,
+            .argument = 2,
+            .next = .{ .block = 3, .assignments = &.{.{ .destination = 3, .source = .returned }} },
+        } } },
+        .{ .function = 2, .instructions = &.{}, .terminator = .{ .return_value = 3 } },
+        .{ .function = 3, .instructions = &.{.{ .opcode = .constant, .destination = 1 }}, .terminator = .{ .perform = .{
+            .effect = 0,
+            .capability = 0,
+            .payload = 1,
+            .next = .{ .block = 5, .assignments = &.{.{ .destination = 2, .source = .returned }} },
+        } } },
+        .{ .function = 3, .instructions = &.{}, .terminator = .{ .return_value = 2 } },
+        .{ .function = 4, .instructions = &.{.{ .opcode = .computation, .destination = 0 }}, .terminator = .{ .handle = .{
+            .handler = 0,
+            .body = 0,
+            .arguments = &.{},
+            .state = &.{},
+            .next = .{
+                .block = 7,
+                .assignments = &.{.{ .destination = 1, .source = .returned }},
+            },
+        } } },
+        .{ .function = 4, .instructions = &.{}, .terminator = .{ .handle = .{
+            .handler = 1,
+            .body = 0,
+            .arguments = &.{},
+            .state = &.{},
+            .next = .{
+                .block = 8,
+                .assignments = &.{.{ .destination = 2, .source = .returned }},
+            },
+        } } },
+        .{ .function = 4, .instructions = &.{.{
+            .opcode = .product,
+            .destination = 3,
+            .operands = &.{ 1, 2 },
+        }}, .terminator = .{ .return_value = 3 } },
+    },
+    .handlers = &.{
+        .{ .mode = .deep, .input = 1, .answer = 1, .return_function = 0, .clauses = &.{.{ .effect = 0, .function = 1, .resumption = 3, .strategy = .tail }} },
+        .{ .mode = .deep, .input = 1, .answer = 1, .return_function = 0, .clauses = &.{.{ .effect = 0, .function = 2, .resumption = 3, .strategy = .general }} },
+    },
+    .constructors = &.{.{ .function = 3, .capture = 0, .schema = 4 }},
+    .scopes = .{ .captures = &.{.{ .fields = &.{}, .use = .reusable }} },
+};
+
+test "coalescing preserves distinct valid tail and general handler contracts" {
+    try admitted(handler_strategies);
+    var result = try pass.run(testing.allocator, handler_strategies, .{ .mode = .safe });
+    defer result.deinit();
+    try testing.expectEqual(@as(usize, 2), result.program.handlers.len);
+    try testing.expect(result.program.handlers[0].clauses[0].strategy == .tail);
+    try testing.expect(result.program.handlers[1].clauses[0].strategy == .general);
+    var changed = handler_strategies;
+    changed.handlers = &.{ handler_strategies.handlers[1], handler_strategies.handlers[1] };
+    try rejectMutation(handler_strategies, changed);
+}

@@ -6,7 +6,7 @@ const Manifest = struct {
     instances: []const struct { key: []const u8, path: []const u8 },
     bindings: []const data.linker.Binding,
     entry: data.linker.Endpoint,
-    coalescing: data.coalescing.Mode = .off,
+    coalescing: data.coalescing.Mode = .safe,
 };
 
 pub fn main(init: std.process.Init) !void {

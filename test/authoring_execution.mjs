@@ -68,6 +68,13 @@ async function execute(image, initialArgs, replies) {
 }
 const empty=new Uint8Array();
 const fixtureCases = {
+  handler_duplicate:[{args:Uint8Array.of(...u64(3),...u64(7)),replies:[],
+    value:Uint8Array.of(...u64(13),...u64(17))},
+    {args:Uint8Array.of(...u64(3),...u64(max)),replies:[],failure:true}],
+  handler_mixed_mode:[{args:Uint8Array.of(...u64(3),...u64(7)),replies:[],
+    value:Uint8Array.of(...u64(13),...u64(17))}],
+  handler_effect_duplicate:[{args:Uint8Array.of(...u64(3),...u64(7)),replies:[],
+    value:Uint8Array.of(...u64(13),...u64(17))}],
   capture_order:[{args:Uint8Array.of(...i64(7),...i64(3)),replies:[],
     value:Uint8Array.of(...i64(4),...i64(-4))},
     {args:Uint8Array.of(...i64(-2),...i64(5)),replies:[],

@@ -23,6 +23,7 @@ try {
   const binding = (from, name, to, target = name) => ({ required: { instance: from, symbol: name }, supplied: { instance: to, symbol: target } });
   const bindings = [binding("call", "read", "state"), binding("state", "twice", "call"), binding("suspend", "compute", "state"), binding("suspend", "read", "state")];
   const manifest = {
+    coalescing: "off",
     instances: ["call", "state", "suspend"].map(key => ({ key, path: `${key}.bmo1` })),
     bindings,
     entry: { instance: "suspend", symbol: "main" },
@@ -36,6 +37,7 @@ try {
   assert.equal(first.subarray(0, 8).toString(), "ABL_BPI3");
   assert.deepEqual(await link({ ...manifest, instances: [...manifest.instances].reverse(), bindings: [...bindings].reverse() }), first);
   const second = await link({
+    coalescing: "off",
     instances: [...manifest.instances, { key: "double", path: "double.bmo1" }],
     bindings: [...bindings, ...["main", "read", "release"].map(name => binding("double", name, "suspend"))],
     entry: { instance: "double", symbol: "main" },

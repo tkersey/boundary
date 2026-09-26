@@ -37,6 +37,9 @@ pub const Kind = enum {
     hyper_configured,
     hyper_lazy,
     capture_order,
+    handler_duplicate,
+    handler_mixed_mode,
+    handler_effect_duplicate,
 };
 
 pub fn build(raw: *source.Builder, kind: Kind) !source.Module {
@@ -64,6 +67,9 @@ pub fn build(raw: *source.Builder, kind: Kind) !source.Module {
         .hyper_configured => @import("coalescing_hyper_cases.zig").build(raw, .configured),
         .hyper_lazy => @import("coalescing_hyper_cases.zig").build(raw, .lazy),
         .capture_order => @import("coalescing_capture_case.zig").build(raw),
+        .handler_duplicate => @import("coalescing_handler_cases.zig").build(raw, .duplicate),
+        .handler_mixed_mode => @import("coalescing_handler_cases.zig").build(raw, .mixed_mode),
+        .handler_effect_duplicate => @import("coalescing_handler_cases.zig").build(raw, .effect_duplicate),
     };
 }
 fn handlerCase(raw: *source.Builder, kind: Kind) !source.Module {
@@ -393,7 +399,7 @@ pub fn main(init: std.process.Init) !void {
     const mode = if (args.next()) |selected|
         std.meta.stringToEnum(data.coalescing.Mode, selected) orelse return error.InvalidMode
     else
-        data.coalescing.Mode.off;
+        (data.coalescing.Options{}).mode;
     if (args.next() != null) return error.UnexpectedArgument;
     var raw = source.Builder.init(init.gpa);
     defer raw.deinit();

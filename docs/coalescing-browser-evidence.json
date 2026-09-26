@@ -2,7 +2,7 @@
   "scope": "Real Chromium/Firefox Worker/native/fresh Worker transfer for off/safe images",
   "runtimeSha256": "7d31effb1d4e32523d0fcbd5b4d5f5a8a2289fbd4c731173a33b1c174524282f",
   "playwright": "1.63.0",
-  "emitterSha256": "2fd5fc19c85c748bf3979f40ad828b686a5acc70da6bc03bb49d7974f9b9b20a",
+  "emitterSha256": "b4d004cb2cddc51ca1578d760262804e7c779a155f82e151dad0fa6b8ec5e36f",
   "nativeSha256": "154d1e7424017304e7426c3beb269865ac2fe76dc7ca2c69a7db2ddf29615c3b",
   "servedPaths": [
     "/",

@@ -728,36 +728,38 @@ test "large sparse region names preserve alpha-equivalent canonical images" {
 }
 
 test "capture diagnostics name the responsible source variable without changing compiled bytes" {
-    const Trace = struct {
-        stages: std.ArrayList(source.CompileStage) = .empty,
-        fn enter(context: *anyopaque, stage: source.CompileStage) void {
-            const self: *@This() = @ptrCast(@alignCast(context));
-            self.stages.append(std.testing.allocator, stage) catch @panic("test trace allocation");
-        }
-    };
-    var b = source.Builder.init(std.testing.allocator);
-    defer b.deinit();
-    const module = try examples.lexical(&b);
-    var original = try source.lower(std.testing.allocator, module);
-    defer original.deinit();
-    var trace: Trace = .{};
-    defer trace.stages.deinit(std.testing.allocator);
-    var diagnostic: source.Diagnostic = .{};
-    var observed = try source.lowerObserved(std.testing.allocator, module, .{ .diagnostic = &diagnostic, .observer = .{ .context = &trace, .enter = Trace.enter } });
-    defer observed.deinit();
-    try std.testing.expectEqualSlices(source.CompileStage, &.{ .source_check, .lowering, .target_check, .direct_optimization, .canonicalization, .target_check, .complete }, trace.stages.items);
-    try std.testing.expect(diagnostic.code == null and diagnostic.phase == .complete);
-    var a: [1024]u8 = undefined;
-    var c: [1024]u8 = undefined;
-    try std.testing.expectEqualSlices(u8, try original.encode(std.testing.allocator, &a), try observed.encode(std.testing.allocator, &c));
-    for (b.schemas.items) |*schema| if (schema.* == .internal and schema.internal == .computation) {
-        schema.internal.computation.capture_bound = &.{};
-    };
-    try std.testing.expectError(error.InvalidOwnership, source.lowerObserved(std.testing.allocator, b.module(module.entry, module.failure), .{ .diagnostic = &diagnostic }));
-    try std.testing.expectEqual(source.CompileStage.target_check, diagnostic.phase);
-    try std.testing.expectEqual(@as(data.program.Id, 1), diagnostic.function.?);
-    try std.testing.expectEqual(b.parameter(module.entry, 0), diagnostic.variable.?);
-    try std.testing.expect(diagnostic.target.capture != null and diagnostic.target.field != null);
+    inline for (.{ data.coalescing.Mode.off, data.coalescing.Mode.safe }) |mode| {
+        const Trace = struct {
+            stages: std.ArrayList(source.CompileStage) = .empty,
+            fn enter(context: *anyopaque, stage: source.CompileStage) void {
+                const self: *@This() = @ptrCast(@alignCast(context));
+                self.stages.append(std.testing.allocator, stage) catch @panic("test trace allocation");
+            }
+        };
+        var b = source.Builder.init(std.testing.allocator);
+        defer b.deinit();
+        const module = try examples.lexical(&b);
+        var original = try source.lowerObserved(std.testing.allocator, module, .{ .coalescing = .{ .mode = mode } });
+        defer original.deinit();
+        var trace: Trace = .{};
+        defer trace.stages.deinit(std.testing.allocator);
+        var diagnostic: source.Diagnostic = .{};
+        var observed = try source.lowerObserved(std.testing.allocator, module, .{ .coalescing = .{ .mode = mode }, .diagnostic = &diagnostic, .observer = .{ .context = &trace, .enter = Trace.enter } });
+        defer observed.deinit();
+        try std.testing.expectEqualSlices(source.CompileStage, if (mode == .off) &.{ .source_check, .lowering, .target_check, .direct_optimization, .canonicalization, .target_check, .complete } else &.{ .source_check, .lowering, .target_check, .direct_optimization, .coalescing, .complete }, trace.stages.items);
+        try std.testing.expect(diagnostic.code == null and diagnostic.phase == .complete);
+        var a: [1024]u8 = undefined;
+        var c: [1024]u8 = undefined;
+        try std.testing.expectEqualSlices(u8, try original.encode(std.testing.allocator, &a), try observed.encode(std.testing.allocator, &c));
+        for (b.schemas.items) |*schema| if (schema.* == .internal and schema.internal == .computation) {
+            schema.internal.computation.capture_bound = &.{};
+        };
+        try std.testing.expectError(error.InvalidOwnership, source.lowerObserved(std.testing.allocator, b.module(module.entry, module.failure), .{ .coalescing = .{ .mode = mode }, .diagnostic = &diagnostic }));
+        try std.testing.expectEqual(source.CompileStage.target_check, diagnostic.phase);
+        try std.testing.expectEqual(@as(data.program.Id, 1), diagnostic.function.?);
+        try std.testing.expectEqual(b.parameter(module.entry, 0), diagnostic.variable.?);
+        try std.testing.expect(diagnostic.target.capture != null and diagnostic.target.field != null);
+    }
 }
 
 test "unbound handler captures identify the return or operation clause" {

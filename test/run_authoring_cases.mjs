@@ -16,16 +16,18 @@ try {
   for(const kind of ['deep','shallow','transform_deep','transform_shallow','bypass','twice',
       'cleanup','obligations','lazy','demanded','failure_before','failure_after','match','configuration','region','arithmetic','arithmetic_fail','dispose','reusable_body','imported_scoped','cleanup_named','imported_sequence',
       'cells_independent','cells_shared','memo_independent','memo_shared','state_local','state_shared',
-      'hyper_duplicate','hyper_configured','hyper_lazy','capture_order']) {
+      'hyper_duplicate','hyper_configured','hyper_lazy','capture_order',
+      'handler_duplicate','handler_mixed_mode','handler_effect_duplicate']) {
     const images=[];
     const source=execFileSync(resolve(emitter),[kind,'json']);
     const subjects=new Map();
     let baselineBytes;
-    for(const mode of comparison ? ['off','safe'] : ['off']) {
+    for(const mode of comparison ? ['off','safe'] : ['default']) {
       const stem=join(directory,kind+'-'+mode);
-      const bytes=execFileSync(resolve(emitter),[kind,'bpi3',mode]);
+      const bytes=execFileSync(resolve(emitter),[kind,'bpi3',...(mode==='default'?[]:[mode])]);
       if(mode==='off')baselineBytes=bytes.length;
-      else assert.ok(bytes.length<=baselineBytes,'selected image grew');
+      else if(comparison)assert.ok(bytes.length<=baselineBytes,'selected image grew');
+      if(mode==='safe')assert.deepEqual(execFileSync(resolve(emitter),[kind,'bpi3']),bytes);
       await writeFile(stem+'.bpi3',bytes);
       await writeFile(stem+'.json',source);
       images.push(stem+'.bpi3');
@@ -46,7 +48,7 @@ try {
     fixtures.push({name:kind,sourceSha256:sha256(source)});
   }
   if(reportPath) await writeFile(reportPath,JSON.stringify({
-    scope:'Existing authored semantic fixtures, off/safe, independent source oracle and requested runtimes',
+    scope:'Existing authored semantic fixtures, off/safe, default equals safe, independent source oracle and requested runtimes',
     kernelSha256:sha256(await readFile(join(runtime,'world-kernel.wasm'))),
     emitterSha256:sha256(await readFile(emitter)),nativeSha256:sha256(await readFile(native)),
     harnessSha256:sha256(await readFile('test/authoring_execution.mjs')),

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
-import {mkdtemp, copyFile, writeFile, readdir, rm} from 'node:fs/promises';
+import {mkdtemp, copyFile, writeFile, readFile, readdir, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {resolve, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -35,6 +35,9 @@ try {
   }
   const counts = execFileSync(inspector, images, {encoding: 'utf8'}).trim().split('\n').map(JSON.parse);
   const [off, safe] = counts;
+  await writeFile(join(directory, 'link.json'), JSON.stringify(manifest));
+  const ordinary = execFileSync(join(directory, 'link'), ['link.json'], {cwd: directory});
+  assert.deepEqual(ordinary, await readFile(images[1]));
   assert.ok(safe.bytes < off.bytes);
   assert.equal(off.functions, 5); assert.equal(safe.functions, 3);
   assert.equal(off.constructors, 2); assert.equal(safe.constructors, 1);
@@ -47,7 +50,7 @@ try {
       [harness, '-', resolve(runtime), digest, resolve(native), ...images], {encoding: 'utf8'}));
   }
   console.log(JSON.stringify({check: 'source-free cross-object code and constructor coalescing',
-    emitterProcesses: 5, linkerProcesses: 2,
+    emitterProcesses: 5, linkerProcesses: 3, defaultMatchesSafe: true,
     off: {...off, path: 'off.bpi3'}, safe: {...safe, path: 'safe.bpi3'}, execution}));
 } finally {
   await rm(directory, {recursive: true, force: true});

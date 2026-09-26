@@ -5,7 +5,7 @@ const testing = std.testing;
 
 test "component coalescing mode defers without changing independent object bytes" {
     for (std.enums.values(source.component_examples.Kind)) |kind| {
-        const off = try source.component_examples.emit(testing.allocator, kind);
+        const off = try source.component_examples.emitWithOptions(testing.allocator, kind, .{ .coalescing = .{ .mode = .off } });
         defer testing.allocator.free(off);
         var stats: data.coalescing.Statistics = .{};
         const safe = try source.component_examples.emitWithOptions(testing.allocator, kind, .{ .coalescing = .{ .mode = .safe, .statistics = &stats } });

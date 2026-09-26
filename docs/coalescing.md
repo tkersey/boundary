@@ -1,15 +1,17 @@
 # Whole-program coalescing — implementation evidence
 
-Status: in progress. An opt-in `safe` path now performs checked coalescing in
-direct compilation and final linking. The default remains `off` pending the full
-acceptance and promotion gates. This is not a completed qualification report.
+Status: correctness and integration qualification in progress. `safe` is now the
+ordinary default for direct compilation and final linking. Explicit `off` remains
+available for diagnostics and ablation. This is not a completed qualification report.
 
 The [acceptance inventory](coalescing-acceptance.md) maps every T01–T42 row and
 promotion gate to current bounded evidence and explicit outstanding work.
 
 The accepted source is the September 25, 2026 version 2.0 specification supplied
 with this task (attachment `76f1c36f-9372-40cc-9466-f61061359f29/pasted-text-1.txt`).
-All T01–T42 and promotion gates remain required. A finite graph test does not
+The [v2.1 amendment](coalescing-spec.md) accepts the current compile-time overhead
+and limited Agent reductions, removes the required-speedup/value gate, and directs
+default enablement. T01–T42 correctness requirements remain. A finite graph test does not
 prove the raw-record transformation, admission precision, or World execution.
 
 ## Starting tuple
@@ -114,7 +116,7 @@ The initial negative test independently admits both a return-41 program and its
 return-42 mutant, then requires correspondence rejection. Further tests cover
 forged maps, changed continuation edges, authority merges, profile restrictions,
 and allocation failures. No claim of complete T35/T36 coverage is made yet.
-Every candidate built by opt-in compilation/linking now passes this checker both
+Every candidate built by enabled compilation/linking now passes this checker both
 before and after typed reachable projection, followed by fresh closed admission.
 
 The existing linker's schema partition was moved unchanged into
@@ -138,14 +140,15 @@ registry contains every new Zig file, and both test files are in the data aggreg
 No existing tests or assertions were removed or weakened.
 
 These original results establish the foundation. The following progress adds an
-opt-in implementation; outstanding work remains listed explicitly below.
+enabled implementation; outstanding work remains listed explicitly below.
 
-## Opt-in compilation and selection
+## Compilation defaults and selection
 
 Select the same options through these paths:
 
 ```zig
-// Existing calls remain off by default.
+// Ordinary compile/lower/link calls now use safe by default.
+// Use .{ .mode = .off } for the diagnostic/ablation control.
 const options: boundary.data.coalescing.Options = .{ .mode = .safe };
 // Typed authoring retains its own mandatory capture observer/publication check.
 var compiled = try context.compileWithOptions(allocator, entry, failure, options);
@@ -157,7 +160,8 @@ var linked = try boundary.data.linker.linkWithOptions(allocator, instances,
     bindings, entry_point, options);
 ```
 
-The standalone linker manifest accepts `"coalescing": "safe"` or `"off"`.
+The standalone linker manifest accepts `"coalescing": "safe"` or `"off"`; omission
+selects `safe`.
 Open component emission defers the pass. Existing `link` and typed `compile`
 remain source-compatible wrappers. No codec implicitly optimizes its input.
 
@@ -262,7 +266,8 @@ implementation, with lower or unchanged peak requested allocation. The updated
 safe/off compiler ratios remain approximately 1.6–4.4×. All before/after image
 digests match, including disabled controls. No synthetic cold-admission cell met
 the specified confirmed >5% slowdown rule in these measurements; this does not
-close the real-consumer or World runtime non-regression gates.
+establish a World runtime speedup. The v2.1 amendment accepts the measured
+compiler overhead and makes further speedup optional.
 
 ```sh
 zig build build-coalescing-bench -Doptimize=ReleaseSafe
@@ -276,6 +281,17 @@ measurement obligations include scaling/mostly-unique graphs, source-free linkin
 all internal phases, and the unchanged real consumer corpus.
 
 ### Enabled/disabled semantic fixtures
+
+The handler witnesses now assert actual immutable-description sharing while
+retaining two dynamic installations with different state. Duplicate return
+handlers shrink from 209 to 157 bytes; duplicate handlers with real operation
+clauses shrink from 341 to 247 bytes. Both preserve results 13 and 17 at matched
+runtime boundaries. A mixed deep/shallow pair keeps two descriptions even though
+its return/body code can share. Raw admitted-record tests retain separate tail
+and general clause contracts and reject a separately admissible substitution
+of one strategy/function contract for the other. The source fixture cannot
+isolate that last difference because the existing local tail-clause pass would
+legitimately specialize the general form before coalescing.
 
 Ordered capture operands now have a dedicated execution witness. Two separately
 emitted subtraction closures receive same-typed captures in opposite orders.
@@ -371,8 +387,8 @@ in both modes. Their authorized counterparts may be discarded by ordinary
 reachability; that discarded authority does not pin otherwise live helpers, and
 a second safe pass preserves exact image identity.
 
-The maintained [semantic report](coalescing-semantic-evidence.json) records 78
-executions across 32 authored fixtures. Both modes agree with native
+The maintained [semantic report](coalescing-semantic-evidence.json) records 86
+executions across 35 authored fixtures. Both modes agree with native
 World, Node/WASM, Wasmtime 48.0.0 (Python 3.14.7), and the independent higher-order
 source oracle. Coverage includes deep/shallow and answer-transforming handlers,
 cleanup and disposal, lazy/demanded behavior, failure ordering, arithmetic,
@@ -520,4 +536,51 @@ The goal remains active. In particular:
 - Complete phase/resource/work accounting, investigate measured scaling, and
   remove redundant checks only where their exact obligations remain covered.
 - Run the required serial review/closeout workflow on final commits and publish
-  authorized draft changes. Promote the default only after all required gates pass.
+  authorized draft changes. The default is `safe`; complete correctness and integration qualification.
+
+## Default enablement and bounded follow-up measurement
+
+The [v2.1 amendment](coalescing-spec.md) makes `safe` the ordinary default and
+accepts the existing compiler overhead and limited reductions in Agent. Explicit
+`off` selects the unchanged disabled path. Tests compare omitted options with
+explicit `safe` on sharing fixtures, and preserve explicit disabled controls.
+Observer tests verify the full expected stage sequence separately for both modes.
+
+The bounded follow-up considered one additional opportunity: full discovery often
+leaves every function singleton while sharing only immutable descriptions. The
+description profile adds exactly the function-singleton restriction. If full
+already satisfies it, the stable relations, representative choices, local maps,
+materialized bytes and cost tie-break are identical. Reusing the full candidate
+avoids a second materialization, two raw checks and one admission. The reused
+candidate still passes both raw checks and fresh admission. No resource ceiling,
+semantic ordering, float behavior, randomness or global cache changes. Removed
+allocation/work sites cannot fail; failures at remaining sites still propagate,
+and work exhaustion still restores the original baseline.
+
+[Before](coalescing-default-before.json) and [after](coalescing-default-after.json)
+use the same ten fixtures, ReleaseSafe probe, three warmups, nine samples per arm,
+and alternating windows. All disabled and enabled image SHA-256 values match
+across the change. Cleanup's enabled compilation median fell from 95,709 ns to
+77,375 ns (19%); peak requested bytes fell from 101,714 to 91,316 (10%). Other
+fixtures varied from about -4% to +4%; no timing benefit is claimed for them.
+These are small synthetic workloads on an unisolated macOS arm64 host, not Agent
+or World runtime speedups. Remaining enabled/disabled median ratios are about
+1.5–4.5×. None of these cold Boundary admission cells met the confirmed >5%
+regression criterion.
+
+The regression guard independently materializes the description profile, compares
+its bytes with the selected result, asserts one admission/two raw validations,
+and injects allocation failure at every allocation on the reused path. Existing
+nontrivial full/description and work-limit tests remain in place. Further compiler
+cost is in baseline admission, graph extraction/refinement, candidate rewriting,
+validation, projection and admission. Redesigning or caching these phases would
+require substantial correctness work; that tuning is deferred. This completes the
+bounded performance attempt, independent of whether other workloads speed up.
+
+Default-enablement verification (Zig 0.16.0, macOS arm64): the complete
+`zig build check -Doptimize=ReleaseSafe` passed; data checks passed in Debug,
+ReleaseSafe and ReleaseFast. Component checks, formatting, and repository path
+registration passed. The source-oracle/native/Node/Wasmtime run passed 86 paired
+executions over 35 fixtures and checked that default emission equals explicit
+`safe` for every fixture. This evidence does not close the remaining partial
+correctness rows in the acceptance inventory.
