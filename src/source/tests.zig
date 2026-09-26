@@ -694,6 +694,9 @@ test "installing the same family cannot hide a captured older capability from a 
 test "large sparse region names preserve alpha-equivalent canonical images" {
     const Example = struct {
         fn compile(parent: std.mem.Allocator, region_id: data.program.Id) !source.Compiled {
+            return compileObserved(parent, region_id, .{});
+        }
+        fn compileObserved(parent: std.mem.Allocator, region_id: data.program.Id, options: source.CompileOptions) !source.Compiled {
             var b = source.Builder.init(parent);
             defer b.deinit();
             b.region_count = region_id + 1;
@@ -705,7 +708,7 @@ test "large sparse region names preserve alpha-equivalent canonical images" {
             try b.define(body, try b.pure(try b.constant(u64, 42)));
             const signature = try b.schema(.{ .internal = .{ .computation = .{ .parameters = &.{region_schema}, .result = integer, .regions = &.{region_id} } } });
             try b.define(main, try b.term(.{ .with_region = .{ .region = region_id, .body = try b.lambda(body, signature) } }));
-            return source.lower(parent, b.module(main, unit));
+            return source.lowerObserved(parent, b.module(main, unit), options);
         }
     };
     var small = try Example.compile(std.testing.allocator, 0);
@@ -716,6 +719,12 @@ test "large sparse region names preserve alpha-equivalent canonical images" {
     var small_bytes: [512]u8 = undefined;
     var large_bytes: [512]u8 = undefined;
     try std.testing.expectEqualSlices(u8, try small.encode(std.testing.allocator, &small_bytes), try large.encode(std.testing.allocator, &large_bytes));
+    var diagnostic: data.coalescing.Diagnostic = .{};
+    var optimized = try Example.compileObserved(std.testing.allocator, std.math.maxInt(data.program.Id) - 1, .{ .coalescing = .{ .mode = .safe, .diagnostic = &diagnostic } });
+    defer optimized.deinit();
+    var optimized_bytes: [512]u8 = undefined;
+    try std.testing.expectEqualSlices(u8, try large.encode(std.testing.allocator, &large_bytes), try optimized.encode(std.testing.allocator, &optimized_bytes));
+    try std.testing.expectEqual(@as(?anyerror, null), diagnostic.code);
 }
 
 test "capture diagnostics name the responsible source variable without changing compiled bytes" {

@@ -8,6 +8,8 @@ const admission = @import("activation_ownership.zig");
 const graph = @import("coalescing_graph.zig");
 const discovery = @import("coalescing_discovery.zig");
 const candidate = @import("coalescing_candidate.zig");
+const origins = @import("coalescing_origins.zig");
+pub const Diagnostic = origins.Diagnostic;
 pub const Mode = enum { off, safe };
 pub const Outcome = enum {
     disabled,
@@ -57,6 +59,7 @@ pub const Statistics = struct {
     validator_calls: usize = 0,
     candidate_admissions: usize = 0,
     pinned_functions: usize = 0,
+    failed_check: ?anyerror = null,
 };
 pub const Round = struct {
     baseline: Counts,
@@ -68,8 +71,14 @@ pub const Round = struct {
 pub const Options = struct {
     mode: Mode = .off,
     statistics: ?*Statistics = null,
+    diagnostic: ?*Diagnostic = null,
     /// Deterministic discovery-work units; unlimited unless a caller selects a bound.
     work_limit: u64 = std.math.maxInt(u64),
+
+    pub fn resetObservations(self: Options) void {
+        if (self.statistics) |stats| stats.* = .{ .rounds = stats.rounds };
+        if (self.diagnostic) |diagnostic| diagnostic.* = .{};
+    }
 };
 pub const Error = candidate.Error;
 pub const Owned = struct {
@@ -88,17 +97,41 @@ pub const Owned = struct {
 /// Source/component obligations remain the outer compiler/linker's responsibility.
 /// Returned records/facts own their storage; statistics retain no record references.
 pub fn run(allocator: std.mem.Allocator, original: ir.Program, options: Options) Error!Owned {
+    options.resetObservations();
+    const result = runInternal(allocator, original, options) catch |err| {
+        if (options.diagnostic) |d| d.code = err;
+        if (options.statistics) |stats| stats.failed_check = err;
+        return err;
+    };
+    if (options.diagnostic) |d| d.* = .{};
+    return result;
+}
+
+fn runInternal(allocator: std.mem.Allocator, original: ir.Program, options: Options) Error!Owned {
     const round_storage: []Round = if (options.statistics) |stats| stats.rounds else &.{};
-    if (options.statistics) |stats| stats.* = .{ .rounds = round_storage };
-    var checked = try admission.analyze(allocator, original);
+    var checked = admission.analyzeDiagnosed(allocator, original, if (options.diagnostic) |d| &d.target else null) catch |err| {
+        if (options.diagnostic) |d| origins.explainOriginal(original, d);
+        return err;
+    };
     checked.deinit();
+    if (options.diagnostic) |d| d.* = .{ .stage = .baseline };
     var scratch = std.heap.ArenaAllocator.init(allocator);
     defer scratch.deinit();
     var baseline_arena = std.heap.ArenaAllocator.init(allocator);
     errdefer baseline_arena.deinit();
     const baseline = try r.ownReachable(baseline_arena.allocator(), scratch.allocator(), original);
-    var flow = try admission.analyze(allocator, baseline.program);
+    var trace: ?origins.Trace = if (options.diagnostic != null)
+        try origins.Trace.init(allocator, original, baseline)
+    else
+        null;
+    defer if (trace) |*value| value.deinit();
+    if (options.diagnostic) |d| d.* = .{ .stage = .baseline };
+    var flow = admission.analyzeDiagnosed(allocator, baseline.program, if (options.diagnostic) |d| &d.target else null) catch |err| {
+        if (options.diagnostic) |d| if (trace) |*t| t.explain(null, d);
+        return err;
+    };
     errdefer flow.deinit();
+    if (options.diagnostic) |d| d.* = .{ .stage = .cost };
     const counts = try Counts.of(baseline.program);
     var stats: Statistics = .{
         .baseline = counts,
@@ -110,7 +143,7 @@ pub fn run(allocator: std.mem.Allocator, original: ir.Program, options: Options)
         if (options.statistics) |output| output.* = stats;
     }
     if (options.mode == .safe) {
-        const selected = attempt(allocator, baseline.program, &stats) catch |err| switch (err) {
+        const selected = attempt(allocator, baseline.program, &stats, if (trace) |*t| t else null, options.diagnostic) catch |err| switch (err) {
             error.WorkLimit => blk: {
                 stats.outcome = .work_limit;
                 stats.selected = counts;
@@ -164,12 +197,13 @@ fn recordRound(stats: *Statistics, selected: ?discovery.Profile) void {
     stats.round_count += 1;
 }
 
-fn attempt(allocator: std.mem.Allocator, baseline: ir.Program, stats: *Statistics) Error!?Owned {
+fn attempt(allocator: std.mem.Allocator, baseline: ir.Program, stats: *Statistics, trace: ?*origins.Trace, diagnostic: ?*Diagnostic) Error!?Owned {
     var selected: ?Owned = null;
     errdefer if (selected) |*value| value.deinit();
     stats.outcome = .no_change;
     var remaining = stats.baseline.entries;
     while (true) {
+        if (diagnostic) |d| d.* = .{ .stage = .mapping };
         var scratch = std.heap.ArenaAllocator.init(allocator);
         defer scratch.deinit();
         const a = scratch.allocator();
@@ -178,16 +212,18 @@ fn attempt(allocator: std.mem.Allocator, baseline: ir.Program, stats: *Statistic
         if (stats.round_count == 0) for (analysis.nodes[0..program.functions.len]) |node| {
             stats.pinned_functions += @intFromBool(node.pinned);
         };
-        var full = try candidate.build(allocator, a, program, analysis, .full, &stats.work);
+        var full = try candidate.buildObserved(allocator, a, program, analysis, .full, &stats.work, trace, diagnostic);
         var keep_full = false;
         defer if (!keep_full) full.deinit();
-        var descriptions = try candidate.build(
+        var descriptions = try candidate.buildObserved(
             allocator,
             a,
             program,
             analysis,
             .descriptions,
             &stats.work,
+            trace,
+            diagnostic,
         );
         var keep_descriptions = false;
         defer if (!keep_descriptions) descriptions.deinit();
@@ -212,6 +248,11 @@ fn attempt(allocator: std.mem.Allocator, baseline: ir.Program, stats: *Statistic
         }
         if (remaining == 0) return error.InvalidCorrespondence;
         remaining -= 1;
+        if (diagnostic) |d| d.* = .{ .stage = .mapping };
+        if (trace) |t| try t.advance(if (selected_profile.? == .full)
+            full.correspondence
+        else
+            descriptions.correspondence);
         if (selected) |*old| old.deinit();
         if (selected_profile.? == .full) {
             keep_full = true;

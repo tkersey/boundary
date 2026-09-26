@@ -53,6 +53,7 @@ Unchanged Agent `zig build check-agent4 -Doptimize=ReleaseSafe` also passed.
 | Schema | exact type contracts, state admission, callable dispatch filtering | Reuse linker partition semantics; nominal anchors and ordered variants preserved. |
 | Literal | schema plus immutable bytes | Exact schema class and payload equality. |
 | Runtime node | World store, frames, cells, environments, resumptions, custody | No optimizer map; preserve allocations and original alias/separation relations. |
+| Value comparison | `admission.zig` restricts `equal`/`less` to integer scalars (and boolean equality); World `instruction.zig` uses scalar decoding | These opcodes do not compare closure constructor identities. This does not discharge other identity uses. |
 | Image / checkpoint | BPI3 identity, PST3 and authenticated request envelope | New image identity; no checkpoint or reply transplantation. |
 
 `borrow_flow.zig` filters constructor projections by exact constructor identity
@@ -227,6 +228,37 @@ node test/coalescing_execution.mjs zig-out/bin/coalescing-fixture \
 
 ## Outstanding delivery work
 
+### Diagnostic provenance update
+
+The source translator no longer chooses the first constructor using a capture
+description when admission already names a different failing function. When the
+source is ambiguous, it reports a representative and related original function
+IDs and leaves the lexical variable unset. Presentation retains up to eight IDs
+with an explicit truncation flag; the full temporary correspondence remains
+available while the checks run.
+
+Optional coalescing diagnostics identify the original/baseline/transformation/
+candidate/mapping/cost stage. All catalogue maps and local slot/custody maps are
+composed from the original input across accepted rounds; dead originals retain
+the missing sentinel. Nominal regions use the existing sparse projection rather
+than a dense allocation proportional to their largest identifier. Map updates
+check every domain before mutation. Scratch is released before returning an
+owned program, and no source AST, provenance record, or diagnostic enters a wire
+image or saved state.
+
+Transformation locations refer to the current round's original records;
+candidate-admission locations refer to the candidate. Both are translated to
+original aliases. Constructor diagnostics additionally match capture and callable
+schema references so different typed constructors sharing code are not conflated.
+Successful calls and new phases clear stale observations. Statistics expose a
+failed check as an error rather than a successful optimization outcome.
+
+Tests cover renamed slots and custody trees across successive mappings, a dead
+lower-ID declaration, sparse live regions, stale-map rejection without partial
+updates, allocation failures, and identical output with diagnostics enabled.
+Separately admitted constructor-contract and shared-body mutants distinguish a
+unique constructor origin from a shared implementation's multiple origins.
+
 The dedicated [cross-object witness](coalescing-component-evidence.json) now
 passes object-only linking and native/WASM execution. Two independent processes
 emit library objects with private captured helpers; a third emits the importing
@@ -270,8 +302,8 @@ constructor coalescing.
 
 The goal remains active. In particular:
 
-- Complete the identity/opcode and admission-precision audit, many-origin
-  diagnostics, and original-to-final correspondence across selected rounds.
+- Complete the identity/opcode and admission-precision audit and the remaining
+  end-to-end diagnostic mutation cases.
 - Exercise the actual candidate pipeline on deep parent trees, mutually recursive
   groups, all semantic differences, simultaneous assignments, schema sums,
   nominal identities, resource authority, handler modes and borrow provenance.

@@ -6,6 +6,7 @@ const ir = @import("activation.zig");
 const r = @import("relocation.zig");
 const witness = @import("coalescing_witness.zig");
 const equal = @import("record.zig").equal;
+const Diagnostic = @import("admission.zig").Diagnostic;
 pub const Error = witness.Error;
 
 fn require(ok: bool) Error!void {
@@ -30,10 +31,26 @@ pub fn validate(
     candidate: ir.Program,
     map: witness.Witness,
 ) Error!void {
+    return validateDiagnosed(allocator, original, candidate, map, null);
+}
+
+/// Locations refer to the current round's original records, never discovery keys.
+pub fn validateDiagnosed(
+    allocator: std.mem.Allocator,
+    original: ir.Program,
+    candidate: ir.Program,
+    map: witness.Witness,
+    diagnostic: ?*Diagnostic,
+) Error!void {
+    if (diagnostic) |d| d.* = .{};
     try witness.checkDomains(allocator, original, candidate, map);
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
-    const check: Check = .{ .allocator = arena.allocator(), .maps = map.final };
+    const check: Check = .{
+        .allocator = arena.allocator(),
+        .maps = map.final,
+        .diagnostic = diagnostic,
+    };
     comptime fields(ir.Program, &.{
         "roots",    "schemas", "constants",    "effects", "functions", "blocks",
         "handlers", "scopes",  "constructors",
@@ -43,6 +60,20 @@ pub fn validate(
     try check.ref(.function, original.roots.entry, candidate.roots.entry);
     try check.ref(.schema, original.roots.result, candidate.roots.result);
     try check.ref(.schema, original.roots.failure, candidate.roots.failure);
+    try checkCatalogues(check, original, candidate);
+    for (original.functions, map.locals, 0..) |function, local, id| {
+        if (diagnostic) |d| d.* = .{ .phase = .function, .function = id };
+        try check.function(function, candidate.functions[try check.id(.function, id)], local);
+    }
+    for (original.blocks, 0..) |block, id| {
+        if (diagnostic) |d| d.* = .{ .phase = .block, .function = block.function, .block = id };
+        if (block.function >= map.locals.len) return error.InvalidCorrespondence;
+        const local: Body = .{ .check = check, .local = map.locals[@intCast(block.function)] };
+        try local.block(block, candidate.blocks[try check.id(.block, id)]);
+    }
+}
+
+fn checkCatalogues(check: Check, original: ir.Program, candidate: ir.Program) Error!void {
     inline for (.{
         .{ r.Kind.schema, "schemas", Check.schema },
         .{ r.Kind.constant, "constants", Check.literal },
@@ -50,25 +81,31 @@ pub fn validate(
         .{ r.Kind.handler, "handlers", Check.handler },
         .{ r.Kind.constructor, "constructors", Check.constructor },
     }) |item| for (@field(original, item[1]), 0..) |record, id| {
+        if (check.diagnostic) |d| d.* = switch (item[0]) {
+            .schema => .{ .phase = .schema, .schema = id },
+            .constant => .{ .phase = .constant },
+            .effect => .{ .phase = .effect, .effect = id },
+            .handler => .{ .phase = .handler, .handler = id },
+            .constructor => .{ .phase = .constructor, .function = record.function, .capture = record.capture, .schema = record.schema },
+            else => @compileError("classify new coalescing catalogue diagnostic"),
+        };
         try item[2](check, record, @field(candidate, item[1])[try check.id(item[0], id)]);
     };
     comptime fields(p.ScopeCatalog, &.{ "captures", "region_count", "resources" });
-    for (original.scopes.captures, 0..) |record, id|
+    for (original.scopes.captures, 0..) |record, id| {
+        if (check.diagnostic) |d| d.* = .{ .phase = .capture, .capture = id };
         try check.capture(record, candidate.scopes.captures[try check.id(.capture, id)]);
-    for (original.scopes.resources, 0..) |record, id|
+    }
+    for (original.scopes.resources, 0..) |record, id| {
+        if (check.diagnostic) |d| d.* = .{ .phase = .region };
         try check.resource(record, candidate.scopes.resources[try check.id(.resource, id)]);
-    for (original.functions, map.locals, 0..) |function, local, id|
-        try check.function(function, candidate.functions[try check.id(.function, id)], local);
-    for (original.blocks, 0..) |block, id| {
-        if (block.function >= map.locals.len) return error.InvalidCorrespondence;
-        const local: Body = .{ .check = check, .local = map.locals[@intCast(block.function)] };
-        try local.block(block, candidate.blocks[try check.id(.block, id)]);
     }
 }
 
 const Check = struct {
     allocator: std.mem.Allocator,
     maps: r.Maps,
+    diagnostic: ?*Diagnostic = null,
 
     fn id(self: Check, kind: r.Kind, old: p.Id) Error!usize {
         const map = self.maps[@intFromEnum(kind)];
@@ -196,7 +233,12 @@ const Check = struct {
     fn capture(self: Check, old: p.Capture, new: p.Capture) Error!void {
         comptime fields(p.Capture, &.{ "fields", "owned_regions", "borrowed_regions", "use" });
         try require(old.use == new.use);
-        try self.ids(.schema, old.fields, new.fields, false);
+        try require(old.fields.len == new.fields.len);
+        for (old.fields, new.fields, 0..) |source, target, index| {
+            if (self.diagnostic) |d| d.field = index;
+            try self.ref(.schema, source, target);
+        }
+        if (self.diagnostic) |d| d.field = null;
         try self.ids(.region, old.owned_regions, new.owned_regions, true);
         try self.ids(.region, old.borrowed_regions, new.borrowed_regions, true);
     }
@@ -263,7 +305,9 @@ const Body = struct {
     local: witness.Local,
 
     fn slot(self: Body, old: p.Id, new: p.Id) Error!void {
+        if (self.check.diagnostic) |d| d.slot = old;
         try require(try localId(self.local.slots, old) == new);
+        if (self.check.diagnostic) |d| d.slot = null;
     }
     fn optionalSlot(self: Body, old: ?p.Id, new: ?p.Id) Error!void {
         try require((old == null) == (new == null));
@@ -292,7 +336,14 @@ const Body = struct {
         try self.check.ref(.function, old.function, new.function);
         try require(try localId(self.local.custody, old.custody) == new.custody);
         try require(old.instructions.len == new.instructions.len);
-        for (old.instructions, new.instructions) |a, b| try self.instruction(a, b);
+        for (old.instructions, new.instructions, 0..) |a, b, index| {
+            if (self.check.diagnostic) |d| d.instruction = index;
+            try self.instruction(a, b);
+        }
+        if (self.check.diagnostic) |d| {
+            d.instruction = null;
+            d.terminator = std.meta.activeTag(old.terminator);
+        }
         try self.terminator(old.terminator, new.terminator);
     }
     fn instruction(self: Body, old: ir.Instruction, new: ir.Instruction) Error!void {

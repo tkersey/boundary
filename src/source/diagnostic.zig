@@ -18,8 +18,11 @@ pub const Diagnostic = struct {
     term: ?p.Id = null,
     value: ?p.Id = null,
     variable: ?p.Id = null,
+    /// `function` is a representative when this summary is ambiguous.
+    origins: Origins = .{},
     target: data.admission.Diagnostic = .{},
 };
+pub const Origins = data.admission.Origins;
 pub const Observer = struct {
     context: *anyopaque,
     enter: *const fn (*anyopaque, Stage) void,

@@ -54,6 +54,7 @@ pub fn link(allocator: std.mem.Allocator, input: []const Instance, bindings: []c
 }
 
 pub fn linkWithOptions(allocator: std.mem.Allocator, input: []const Instance, bindings: []const Binding, entry: Endpoint, options: @import("coalescing.zig").Options) Error!Linked {
+    options.resetObservations();
     var temporary = std.heap.ArenaAllocator.init(allocator);
     defer temporary.deinit();
     const a = temporary.allocator();

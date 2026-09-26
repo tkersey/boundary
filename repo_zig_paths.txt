@@ -42,6 +42,8 @@ src/data/coalescing_discovery.zig
 src/data/coalescing_graph.zig
 src/data/coalescing_graph_tests.zig
 src/data/coalescing_locals.zig
+src/data/coalescing_origins.zig
+src/data/coalescing_origins_tests.zig
 src/data/coalescing_recursive_tests.zig
 src/data/coalescing_tests.zig
 src/data/coalescing_validation.zig
@@ -123,6 +125,7 @@ src/source/control_examples.zig
 src/source/custody_edge_example.zig
 src/source/custody_order_example.zig
 src/source/diagnostic.zig
+src/source/diagnostic_origins.zig
 src/source/economy_examples.zig
 src/source/examples.zig
 src/source/generator_example.zig
