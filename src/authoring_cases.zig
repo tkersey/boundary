@@ -36,6 +36,7 @@ pub const Kind = enum {
     hyper_duplicate,
     hyper_configured,
     hyper_lazy,
+    capture_order,
 };
 
 pub fn build(raw: *source.Builder, kind: Kind) !source.Module {
@@ -62,6 +63,7 @@ pub fn build(raw: *source.Builder, kind: Kind) !source.Module {
         .hyper_duplicate => @import("coalescing_hyper_cases.zig").build(raw, .duplicate),
         .hyper_configured => @import("coalescing_hyper_cases.zig").build(raw, .configured),
         .hyper_lazy => @import("coalescing_hyper_cases.zig").build(raw, .lazy),
+        .capture_order => @import("coalescing_capture_case.zig").build(raw),
     };
 }
 fn handlerCase(raw: *source.Builder, kind: Kind) !source.Module {

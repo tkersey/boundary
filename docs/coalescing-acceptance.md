@@ -20,11 +20,11 @@ runtime identities, measurements, limits, and remaining work.
 | --- | --- | --- |
 | T01 | Public independently emitted closures at N=1,2,16,64,256; native/Node/Wasmtime values and overflow | Supported; constant helper/constructor/capture cardinality and shrinking images recorded. |
 | T02 | `coalescing_view_tests`, `coalescing_origins_tests`, runtime edge cases | Supported for renamed blocks/slots/custody including unused locals and ancestor structure; representative layout checked independently. |
-| T03 | All three-slot input renamings and returned operand-order mutations; view branch/input tests | Partial: add an explicit ordered capture-permutation negative through actual candidates and execution. |
+| T03 | Three-slot renamings, returned operand-order mutations, view input tests, reversed same-typed captures | Supported bounded witnesses; shared subtraction code preserves opposite captured operand order and overflow across runtimes. |
 | T04 | Swap and three-way simultaneous cycles, repeated slots, native/Node/Wasmtime step agreement | Supported bounded assignment domain. |
-| T05 | Different literal bodies, changed recursive base case, separately admissible return mutation, arithmetic fixtures | Partial: actual candidate mutation matrix still needs explicit opcode/immediate/failure-table and swapped-variant coverage. |
-| T06 | Raw validator checks complete schema contracts; typed-constructor distinction fixture | Partial: focused no-merge witnesses for equal-width/different-type and all use/effect/bound differences. |
-| T07 | Duplicate `sum(A,A)` schemas retain both injections and reject ordinal 2; ordered product runtime cases | Supported for existing cases; expand explicit swapped-variant mutant with T05. |
+| T05 | Different literals/base cases, arithmetic opcode/operand mutations, field immediate, fault payloads, swapped branch/sum roles | Supported focused mutation witnesses; originals and mutants admit independently before correspondence rejection. |
+| T06 | Width/sign, bytes/text/array bounds and enum-tag no-merge cases; typed-constructor distinction | Partial: extend use/effect/internal contract differences systematically. |
+| T07 | Duplicate `sum(A,A)` retains both injections and rejects ordinal 2; swapped-case mutant rejected | Supported existing ordinal/product witnesses. |
 | T08 | Closure scaling and stateful closure capture descriptions share while values differ | Supported; independent expected captures and allocation-site counts. |
 | T09 | Independent/shared mutable-cell fixtures; native/Node/Wasmtime/browser transfer | Supported: `1,1,2` versus `1,2,3`, with cell allocation sites retained. |
 | T10 | Depth-eight alternating direct/constructed helper chains and changed leaf | Supported; structural reductions, normal/overflow results and matched boundaries. |
@@ -53,7 +53,7 @@ runtime identities, measurements, limits, and remaining work.
 | T33 | Agent forwards through direct and final compiled-tool paths; protected applications in census | Partial: final dependency tuple and complete protected-runtime off/safe matrix required. |
 | T34 | Output survives source/scratch release; four independent compiler threads and separate leak-checking allocators | Supported bounded lifetime/concurrency tests. |
 | T35 | Separately admitted return-41/42, constructor-contract, and shared-body mutants rejected | Supported independent raw-record validation witnesses. |
-| T36 | Missing/cyclic/foreign map entries, local nonbijections, pins, changed continuation edges | Partial: expand corruption across edge roles, failures, nominal maps and every scalar/ordered contract. |
+| T36 | Missing/cyclic/foreign maps, nonbijections, pins, continuation/branch/sum edges, fault payloads, nominal effect maps | Partial: remaining region/resource and handler/constructor scalar/ordered contracts need systematic mutation coverage. |
 | T37 | Singleton child restriction splits parents in graph oracle; both production profiles validate | Supported bounded restriction witnesses; production nested-parent coverage can be strengthened. |
 | T38 | Exact ordering seam tests bytes/entry/full tie-break; fixed-point idempotence | Partial: demonstrate nontrivial repeated selection and description-winning cost path through the full selector. |
 | T39 | Dead lower-ID duplicate origin test; live versus discarded authority; invalid unused pack/unpack rejection | Supported public-path witnesses and replay/idempotence checks. |

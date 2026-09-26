@@ -288,3 +288,26 @@ test "coalescing folds fresh hyper helper emissions but retains Step configurati
     try testing.expect(selected_functions[@intFromEnum(cases.Kind.configured)] >
         selected_functions[@intFromEnum(cases.Kind.duplicate)]);
 }
+
+test "coalescing preserves reversed equal-type capture operands at distinct construction sites" {
+    var builder = source.Builder.init(testing.allocator);
+    defer builder.deinit();
+    const module = try @import("coalescing_capture_case.zig").build(&builder);
+    var off = try source.lower(testing.allocator, module);
+    defer off.deinit();
+    var safe = try source.lowerObserved(testing.allocator, module, .{ .coalescing = .{ .mode = .safe } });
+    defer safe.deinit();
+    try testing.expectEqual(@as(usize, 3), off.program.functions.len);
+    try testing.expectEqual(@as(usize, 2), safe.program.functions.len);
+    try testing.expectEqual(@as(usize, 2), off.program.constructors.len);
+    try testing.expectEqual(@as(usize, 1), safe.program.constructors.len);
+    try testing.expectEqual(@as(usize, 2), safe.program.scopes.captures[0].fields.len);
+    var constructions: usize = 0;
+    for (safe.program.blocks) |block| for (block.instructions) |op| {
+        if (op.opcode == .computation) {
+            try testing.expectEqual(@as(usize, 2), op.operands.len);
+            constructions += 1;
+        }
+    };
+    try testing.expectEqual(@as(usize, 2), constructions);
+}

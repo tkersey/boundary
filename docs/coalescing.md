@@ -277,6 +277,21 @@ all internal phases, and the unchanged real consumer corpus.
 
 ### Enabled/disabled semantic fixtures
 
+Ordered capture operands now have a dedicated execution witness. Two separately
+emitted subtraction closures receive same-typed captures in opposite orders.
+Their code and constructor descriptions share (209 to 178 bytes), while runtime
+results remain `(4, -4)` and `(-7, 7)` for the two inputs. Checked overflow also
+remains a failure. All three runtimes and the independent source oracle agree.
+
+The raw-record mutation tests independently admit both original and mutant, then
+require correspondence rejection for changed arithmetic opcodes, operand order,
+returned slots, field ordinals, failure payloads, swapped division fault payloads,
+branch/sum-case edge roles and nominal effect use. The public pass keeps distinct
+arithmetic bodies separate. Forged many-to-one nominal-effect maps reject, and
+same-shaped identity bodies with different width/sign/bound/enum contracts remain
+distinct. These focused tests extend the mutation matrix without treating ordinary
+admission as an equivalence oracle.
+
 The [browser report](coalescing-browser-evidence.json) runs ten fixtures under
 both modes in real Chromium and Firefox Workers. Every quantum-one output is
 compared byte-for-byte with the native peer for that exact image. Workers are
@@ -356,8 +371,8 @@ in both modes. Their authorized counterparts may be discarded by ordinary
 reachability; that discarded authority does not pin otherwise live helpers, and
 a second safe pass preserves exact image identity.
 
-The maintained [semantic report](coalescing-semantic-evidence.json) records 72
-executions across 31 authored fixtures. Both modes agree with native
+The maintained [semantic report](coalescing-semantic-evidence.json) records 78
+executions across 32 authored fixtures. Both modes agree with native
 World, Node/WASM, Wasmtime 48.0.0 (Python 3.14.7), and the independent higher-order
 source oracle. Coverage includes deep/shallow and answer-transforming handlers,
 cleanup and disposal, lazy/demanded behavior, failure ordering, arithmetic,

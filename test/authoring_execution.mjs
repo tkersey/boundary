@@ -18,6 +18,7 @@ const wasmtime = process.env.WORLD_WASMTIME_PEER
   ? await (await import(pathToFileURL(resolve(process.env.WORLD_WASMTIME_PEER))))
       .wasmtimePeer(resolve(runtime,'world-kernel.wasm'),expectedSha256) : null;
 const u64 = n => {const b=new Uint8Array(8);new DataView(b.buffer).setBigUint64(0,BigInt(n),true);return b;};
+const i64 = n => {const b=new Uint8Array(8);new DataView(b.buffer).setBigInt64(0,BigInt(n),true);return b;};
 const u32 = n => {const b=new Uint8Array(4);new DataView(b.buffer).setUint32(0,n,true);return b;};
 const max=(1n<<64n)-1n;
 async function execute(image, initialArgs, replies) {
@@ -67,6 +68,11 @@ async function execute(image, initialArgs, replies) {
 }
 const empty=new Uint8Array();
 const fixtureCases = {
+  capture_order:[{args:Uint8Array.of(...i64(7),...i64(3)),replies:[],
+    value:Uint8Array.of(...i64(4),...i64(-4))},
+    {args:Uint8Array.of(...i64(-2),...i64(5)),replies:[],
+      value:Uint8Array.of(...i64(-7),...i64(7))},
+    {args:Uint8Array.of(...i64(-(1n<<63n)),...i64(1)),replies:[],failure:true}],
   hyper_duplicate:[{args:Uint8Array.of(...u64(3),...u64(7)),replies:[],value:Uint8Array.of(...u64(13),...u64(17))},
     {args:Uint8Array.of(...u64(max),...u64(7)),replies:[],failure:true}],
   hyper_configured:[{args:Uint8Array.of(...u64(3),...u64(7)),replies:[],value:Uint8Array.of(...u64(13),...u64(18))},
