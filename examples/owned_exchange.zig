@@ -2,105 +2,119 @@
 const std = @import("std");
 const boundary = @import("boundary");
 const source = boundary.source;
+const a = boundary.authoring;
 const generator = boundary.library.generator;
-const Id = source.Id;
 const Build = struct {
-    b: *source.Builder,
-    g: generator.Generator,
-    integer: Id,
-    unit: Id,
-    release: Id,
-    activity: Id,
-    fn ref(e: @This(), id: Id) !Id {
-        return e.b.reference(id);
+    c: *a.Context,
+    g: generator.Exchange,
+    integer: *const a.Schema,
+    unit: *const a.Schema,
+    activity_payload: *const a.Schema,
+    release: *const a.Operation,
+    activity: *const a.Operation,
+    fn add(e: @This(), body: *a.Body, value: *const a.Value, n: u64) !*const a.Value {
+        return body.checkedAdd(value, try body.constant(u64, n), try e.c.literalFailure(void, {}));
     }
-    fn add(e: @This(), a: Id, n: u64) !Id {
-        return e.b.value(.{ .schema = e.integer, .expression = .{ .primitive = .{ .opcode = .integer_add, .operands = &.{ a, try e.b.constant(u64, n) }, .failures = &.{.{ .kind = .arithmetic_overflow, .value = try e.b.failureLiteral(try e.b.constant(void, {})) }} } } });
+    fn producer(e: @This()) !*const a.Function {
+        const c = e.c;
+        const signature = try c.handledSchema(e.g.handler);
+        const f = try c.functionFor("owned producer", signature);
+        const body = try c.body(f);
+        const capability = try body.parameter("capability");
+        const input = try body.parameter("input");
+        const work_type = try c.callable(&.{}, e.integer, &.{ e.activity, e.g.effect }, .{ .use = .reusable, .captures = &.{ e.integer, e.g.capability } });
+        const work = try c.functionFor("exchange work", work_type);
+        const working = try body.closureBody(work);
+        const first = try working.performLocal(e.g.effect, capability, input);
+        _ = try working.perform(e.activity, try working.product(e.activity_payload, &.{ .{ .name = "initial", .value = input }, .{ .name = "reply", .value = first } }));
+        const second = try working.performLocal(e.g.effect, capability, try e.add(working, first, 10));
+        try c.define(work, try working.ret(try e.add(working, second, 100)));
+        const cleanup_type = try c.callable(&.{.{ .name = "exit", .schema = try c.cleanupInfo(e.unit) }}, e.unit, &.{e.release}, .{ .use = .reusable, .captures = &.{e.integer} });
+        const cleanup = try c.functionFor("exchange cleanup", cleanup_type);
+        const cleaning = try body.closureBody(cleanup);
+        try c.define(cleanup, try cleaning.ret(try cleaning.perform(e.release, input)));
+        try c.define(f, try body.ret(try body.protect(try body.lambda(work, work_type), try body.lambda(cleanup, cleanup_type), &.{})));
+        return f;
     }
-    fn fail(e: @This()) !Id {
-        return e.b.term(.{ .fail = try e.b.constant(void, {}) });
+    const CheckedAnswer = struct {
+        e: Build,
+        parent: *a.Body,
+        answer: *const a.Value,
+        unexpected: *const a.Case,
+        selected: *const a.Case,
+        condition: *const a.Value,
+        work: *a.Body,
+        rejected: *a.Body,
+        future: ?*const a.Value = null,
+        fn finish(self: @This(), value: *const a.Value) !*const a.Value {
+            const result = try self.selected.body().conditional(self.condition, try self.work.ret(value), try self.rejected.fail(self.e.integer, try self.rejected.constant(void, {})));
+            return self.parent.match(self.answer, &.{ try self.unexpected.fail(self.e.integer, try self.unexpected.body().constant(void, {})), try self.selected.ret(result) });
+        }
+    };
+    fn yielded(e: @This(), body: *a.Body, answer: *const a.Value, wanted: u64) !CheckedAnswer {
+        const done = try body.caseOf(answer, "done");
+        const offered = try body.caseOf(answer, "yielded");
+        const parts = try offered.body().destructure(offered.payload());
+        const future = try parts.get("future");
+        const condition = try offered.body().equal(try parts.get("value"), try offered.body().constant(u64, wanted));
+        const valid = try offered.body().branch();
+        const invalid = try offered.body().branch();
+        _ = try invalid.disposePackage(future);
+        return .{ .e = e, .parent = body, .answer = answer, .unexpected = done, .selected = offered, .condition = condition, .work = valid, .rejected = invalid, .future = future };
     }
-    fn body(e: @This()) !Id {
-        const b = e.b;
-        const f = try b.declare(&.{ e.g.capability, e.integer }, e.integer, &.{ e.release, e.activity, e.g.effect }, &.{});
-        const work = try b.declare(&.{}, e.integer, &.{ e.activity, e.g.effect }, &.{});
-        const first = try b.variable(e.integer);
-        const second = try b.variable(e.integer);
-        const offer1 = try b.term(.{ .perform = .{ .effect = e.g.effect, .capability = try e.ref(b.parameter(f, 0)), .payload = try e.ref(b.parameter(f, 1)) } });
-        const offer2 = try b.term(.{ .perform = .{ .effect = e.g.effect, .capability = try e.ref(b.parameter(f, 0)), .payload = try e.add(try e.ref(first), 10) } });
-        const payload = try b.primitive(try b.schema(.{ .product = &.{ e.integer, e.integer } }), .product, &.{ try e.ref(b.parameter(f, 1)), try e.ref(first) }, 0);
-        const activity = try b.term(.{ .perform = .{ .effect = e.activity, .payload = payload } });
-        try b.define(work, try b.bind(first, offer1, try b.bind(try b.variable(e.unit), activity, try b.bind(second, offer2, try b.pure(try e.add(try e.ref(second), 100))))));
-        const exit = try boundary.library.cleanup.exitInfo(b, e.unit);
-        const cleanup = try b.declare(&.{exit}, e.unit, &.{e.release}, &.{});
-        try b.define(cleanup, try b.term(.{ .perform = .{ .effect = e.release, .payload = try e.ref(b.parameter(f, 1)) } }));
-        const work_type = try b.schema(.{ .internal = .{ .computation = .{ .parameters = &.{}, .result = e.integer, .effects = &.{ e.activity, e.g.effect }, .capture_bound = &.{ e.integer, e.g.capability } } } });
-        const cleanup_type = try b.schema(.{ .internal = .{ .computation = .{ .parameters = &.{exit}, .result = e.unit, .effects = &.{e.release}, .capture_bound = &.{e.integer} } } });
-        try b.define(f, try b.term(.{ .protect = .{ .body = try b.lambda(work, work_type), .cleanup = try b.lambda(cleanup, cleanup_type) } }));
-        const signature = try b.schema(.{ .internal = .{ .computation = .{ .parameters = &.{ e.g.capability, e.integer }, .result = e.integer, .effects = &.{ e.release, e.activity, e.g.effect } } } });
-        return b.lambda(f, signature);
-    }
-    fn yielded(e: @This(), answer: Id, wanted: u64, package: Id, next: Id) !Id {
-        const b = e.b;
-        const pair = try b.variable(e.g.yielded);
-        const value = try b.variable(e.integer);
-        const equal = try b.primitive(try b.scalar(bool), .equal, &.{ try e.ref(value), try b.constant(u64, wanted) }, 0);
-        const dropped = try b.bind(try b.variable(e.unit), try generator.close(b, e.g, try e.ref(package)), try e.fail());
-        const guarded = try b.term(.{ .conditional = .{ .condition = equal, .when_true = next, .when_false = dropped } });
-        const unpack = try b.term(.{ .unpack_product = .{ .value = try e.ref(pair), .variables = &.{ value, package }, .body = guarded } });
-        return b.term(.{ .match_sum = .{ .value = answer, .cases = &.{
-            .{ .variable = try b.variable(e.integer), .body = try e.fail() }, .{ .variable = pair, .body = unpack },
-        } } });
+    fn completed(e: @This(), body: *a.Body, answer: *const a.Value, wanted: u64) !CheckedAnswer {
+        const done = try body.caseOf(answer, "done");
+        const offered = try body.caseOf(answer, "yielded");
+        const parts = try offered.body().destructure(offered.payload());
+        _ = try offered.body().disposePackage(try parts.get("future"));
+        const condition = try done.body().equal(done.payload(), try done.body().constant(u64, wanted));
+        return .{ .e = e, .parent = body, .answer = answer, .unexpected = offered, .selected = done, .condition = condition, .work = try done.body().branch(), .rejected = try done.body().branch() };
     }
 };
 const Application = struct {
     var normal = false;
     var duplicate = false;
     pub fn emit(b: *source.Builder) !source.Module {
-        const unit = try b.scalar(void);
-        const integer = try b.scalar(u64);
-        const release = try b.effect(.{ .identity = "owned-exchange/release", .payload = integer, .result = unit });
-        const activity = try b.effect(.{ .identity = "owned-exchange/work", .payload = try b.schema(.{ .product = &.{ integer, integer } }), .result = unit });
-        const g = try generator.defineExchange(b, "owned-exchange/offer", integer, integer, integer, &.{ unit, integer }, &.{}, &.{}, .{ .effects = &.{ release, activity } });
-        const e = Build{ .b = b, .g = g, .integer = integer, .unit = unit, .release = release, .activity = activity };
-        const body = try e.body();
-        const entry = try b.declare(&.{}, integer, &.{ release, activity }, &.{});
-        const a = try b.variable(g.answer);
-        const z = try b.variable(g.answer);
-        const ap = try b.variable(g.package);
-        const zp = try b.variable(g.package);
-        const next = try b.variable(g.answer);
-        const nextp = try b.variable(g.package);
-        const finish = try b.bind(try b.variable(unit), try generator.close(b, g, try e.ref(nextp)), try b.pure(try b.constant(u64, 42)));
-        const after_side = try e.yielded(try e.ref(next), 17, nextp, finish);
-        const resume_side = try b.bind(next, try generator.exchange(b, g, try e.ref(zp), try b.constant(u64, 7)), after_side);
-        const after_dispose = if (duplicate) try b.bind(try b.variable(unit), try generator.close(b, g, try e.ref(ap)), resume_side) else resume_side;
-        var dispose = try b.bind(try b.variable(unit), try generator.close(b, g, try e.ref(ap)), after_dispose);
-        if (normal) dispose = try normalExchange(e, ap, resume_side);
-        const side = try e.yielded(try e.ref(z), 50, zp, dispose);
-        const started = try b.bind(z, try generator.start(b, g, body, &.{try b.constant(u64, 50)}), side);
-        try b.define(entry, try b.bind(a, try generator.start(b, g, body, &.{try b.constant(u64, 5)}), try e.yielded(try e.ref(a), 5, ap, started)));
-        return b.module(entry, unit);
+        const c = try a.Context.init(b);
+        const unit = try c.scalar(void);
+        const integer = try c.scalar(u64);
+        const payload = try c.record(&.{ .{ .name = "initial", .schema = integer }, .{ .name = "reply", .schema = integer } });
+        const release = try c.external("owned-exchange/release", integer, unit);
+        const activity = try c.external("owned-exchange/work", payload, unit);
+        const g = try generator.create(c, "owned-exchange/offer", integer, integer, integer, .{
+            .captures = .{ .continuation = &.{ unit, integer } },
+            .residual = &.{ release, activity },
+            .parameters = &.{.{ .name = "input", .schema = integer }},
+            .body_use = .reusable,
+        });
+        const e = Build{ .c = c, .g = g, .integer = integer, .unit = unit, .activity_payload = payload, .release = release, .activity = activity };
+        const producer = try e.producer();
+        const entry = try c.function("entry", &.{}, integer, &.{ release, activity });
+        const body = try c.body(entry);
+        const callable = try body.lambda(producer, try c.handledSchema(g.handler));
+        const local = try e.yielded(body, try body.handleWithArguments(g.handler, callable, &.{.{ .name = "input", .value = try body.constant(u64, 5) }}, &.{}), 5);
+        const side = try e.yielded(local.work, try local.work.handleWithArguments(g.handler, callable, &.{.{ .name = "input", .value = try local.work.constant(u64, 50) }}, &.{}), 50);
+        var work = side.work;
+        var advanced: ?Build.CheckedAnswer = null;
+        var finished: ?Build.CheckedAnswer = null;
+        if (normal) {
+            advanced = try e.yielded(work, try work.resumePackage(local.future.?, try work.constant(u64, 7)), 17);
+            work = advanced.?.work;
+            finished = try e.completed(work, try work.resumePackage(advanced.?.future.?, try work.constant(u64, 9)), 109);
+            work = finished.?.work;
+        } else {
+            _ = try work.disposePackage(local.future.?);
+            if (duplicate) _ = try work.disposePackage(local.future.?);
+        }
+        const next_side = try e.yielded(work, try work.resumePackage(side.future.?, try work.constant(u64, 7)), 17);
+        _ = try next_side.work.disposePackage(next_side.future.?);
+        var result = try next_side.finish(try next_side.work.constant(u64, 42));
+        if (finished) |done| result = try done.finish(result);
+        if (advanced) |next| result = try next.finish(result);
+        try c.define(entry, try body.ret(try local.finish(try side.finish(result))));
+        return c.module(entry, unit);
     }
 };
-fn normalExchange(e: Build, package: Id, next: Id) !Id {
-    const b = e.b;
-    const answer = try b.variable(e.g.answer);
-    const successor = try b.variable(e.g.package);
-    const final = try b.variable(e.g.answer);
-    const completed = try b.variable(e.integer);
-    const unexpected = try b.variable(e.g.yielded);
-    const v = try b.variable(e.integer);
-    const owned = try b.variable(e.g.package);
-    const dispose = try b.term(.{ .unpack_product = .{ .value = try e.ref(unexpected), .variables = &.{ v, owned }, .body = try b.bind(try b.variable(e.unit), try generator.close(b, e.g, try e.ref(owned)), try e.fail()) } });
-    const equal = try b.primitive(try b.scalar(bool), .equal, &.{ try e.ref(completed), try b.constant(u64, 109) }, 0);
-    const done = try b.term(.{ .match_sum = .{ .value = try e.ref(final), .cases = &.{
-        .{ .variable = completed, .body = try b.term(.{ .conditional = .{ .condition = equal, .when_true = next, .when_false = try e.fail() } }) },
-        .{ .variable = unexpected, .body = dispose },
-    } } });
-    const last = try b.bind(final, try generator.exchange(b, e.g, try e.ref(successor), try b.constant(u64, 9)), done);
-    return b.bind(answer, try generator.exchange(b, e.g, try e.ref(package), try b.constant(u64, 7)), try e.yielded(try e.ref(answer), 17, successor, last));
-}
 pub fn main(init: std.process.Init) !void {
     var args = init.minimal.args.iterate();
     _ = args.next();
