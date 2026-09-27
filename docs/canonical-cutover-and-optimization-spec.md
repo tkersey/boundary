@@ -34,7 +34,10 @@ Coalescing must remain mandatory in every production closed compile/final link;
 its checked preconditions, exact cost guard, independent validator, legal no-op,
 open-component deferral and explicit work-limit behavior remain intact.
 
-Use $st and $fixed-point-driver through the installed $actuating workflow.
+Use the currently installed $actuating serial-reviews workflow as defined.
+That workflow owns planning, task tracking, implementation and reviews.
+The former $st and $fixed-point-driver references were erroneous; do not restore
+or recreate those skills or change global configuration to satisfy them.
 Use $metanoetic to challenge the scope/architecture and remove unjustified
 machinery, and $tune for measured compiler/runtime improvements. Neither may
 expand the task into storage, a second evaluator, or another framework.
@@ -297,7 +300,7 @@ Where retained test descriptions say “both modes”, perform the equivalent in
 
 ## I.12 Final reporting, tools and limits
 
-Use `$metanoetic` to challenge duplication, hidden application control and unnecessary architecture. Use `$tune` against measured costs and actual semantic contracts. Reuse the installed `$actuating`, `$st`, `$fixed-point-driver` and `serial-reviews` definitions; this specification does not add review quotas, new custom workflows or required global tool upgrades. Missing tool capability must be reported specifically, not replaced with invented execution evidence.
+Use `$metanoetic` to challenge duplication, hidden application control and unnecessary architecture. Use `$tune` against measured costs and actual semantic contracts. Use the currently installed `$actuating serial-reviews` workflow as defined; it owns planning, task tracking, implementation and reviews. The user corrected the erroneous `$st` and `$fixed-point-driver` references: do not restore or recreate those skills, change skills or global configuration, or restart implementation. This correction leaves all engineering requirements unchanged and adds no review quotas or custom workflows.
 
 The coding agent executes repository, build, test and ordinary authorized publication commands. The user supplies the prompt. Do not return scripts the user must operate, launch new model-comparison sessions, change this session's model/reasoning, or modify global credentials/configuration. No paid inference, account/billing changes, live user-document writes or new service deployment is authorized.
 

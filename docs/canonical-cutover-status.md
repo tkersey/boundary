@@ -71,9 +71,22 @@ World's fixture-only successor and Agent's authoring dependency. Existing artifa
 `10923323364` was available at correction entry (expires October 27, 2026).
 Reuse authenticated executable bytes where applicable; do not relabel them.
 
-Requested `st` and `fixed-point-driver` skills/commands were not installed at
-correction entry. The installed Actuating uses goal/Git/CAS authority. This tool
-gap is reported; no substitute execution receipts or workflow store are invented.
+The user withdrew the erroneous `st` and `fixed-point-driver` instructions.
+The currently installed `actuating serial-reviews` workflow owns planning, task
+tracking, implementation and reviews. No skill restoration, recreation or global
+configuration change is required or authorized. Engineering requirements remain
+unchanged.
+
+## Selected closure progress
+
+Agent `cc1200c` migrated parser delivery to typed equality/control while retaining
+protected observation/approval ownership. ReleaseSafe `parser-delivery-images`
+and all 11 runtime cases passed against the existing authenticated World bundle.
+The added cases cover mismatched/failed read evidence, zero-principal authority
+and wrong approval challenge. Local image size is 2,582 → 2,577 bytes; maximum
+observed parked-State sizes are unchanged (569 or 1,958 bytes across the original
+seven scenarios). This is a local comparison, not the cumulative pre-cutover
+baseline or timing/private-memory acceptance. Other selected adapters remain.
 
 ## Stage B
 
