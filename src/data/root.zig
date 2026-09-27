@@ -17,6 +17,7 @@ pub const relocation = @import("relocation.zig");
 pub const coalescing = @import("coalescing.zig");
 pub const value_facts = @import("value_facts.zig");
 pub const application_specialization = @import("application_specialization.zig");
+pub const branch_reduction = @import("branch_reduction.zig");
 pub const component = @import("component.zig");
 pub const borrow_contract = @import("borrow_contract.zig");
 pub const borrow_flow = @import("borrow_flow.zig");
