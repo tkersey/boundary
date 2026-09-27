@@ -227,7 +227,7 @@ fn access(term: ir.Terminator, slot: p.Id) Access {
         },
         .handle => |v| {
             result = edge(v.next, slot);
-            result.reads += slots(v.arguments, slot) + slots(v.state, slot);
+            result.reads += @as(usize, @intFromBool(v.body == slot)) + slots(v.arguments, slot) + slots(v.state, slot);
         },
         .resume_value => |v| {
             result = edge(v.next, slot);
@@ -247,15 +247,21 @@ fn access(term: ir.Terminator, slot: p.Id) Access {
         },
         .protect => |v| {
             result = edge(v.next, slot);
-            result.reads += slots(v.arguments, slot);
+            result.reads += @as(usize, @intFromBool(v.body == slot)) + @intFromBool(v.cleanup == slot) + slots(v.arguments, slot);
             if (v.resource) |id| {
                 result.reads += @intFromBool(id == slot);
             }
         },
         .with_region => |v| {
             result = edge(v.next, slot);
-            result.reads += slots(v.arguments, slot);
+            result.reads += @as(usize, @intFromBool(v.body == slot)) + slots(v.arguments, slot);
         },
     }
     return result;
+}
+
+test "scope bodies and cleanup computations are real closure uses" {
+    try std.testing.expectEqual(@as(usize, 1), access(.{ .handle = .{ .handler = 0, .body = 5, .arguments = &.{}, .state = &.{}, .next = .{ .block = 0 } } }, 5).reads);
+    try std.testing.expectEqual(@as(usize, 2), access(.{ .protect = .{ .body = 5, .cleanup = 5, .arguments = &.{}, .next = .{ .block = 0 } } }, 5).reads);
+    try std.testing.expectEqual(@as(usize, 1), access(.{ .with_region = .{ .region = 0, .body = 5, .arguments = &.{}, .next = .{ .block = 0 } } }, 5).reads);
 }

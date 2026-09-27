@@ -502,3 +502,23 @@ fn deadArgumentAllocationAttempt(allocator: std.mem.Allocator) !void {
 test "dead argument transformation releases all partial owners" {
     try std.testing.checkAllAllocationFailures(a, deadArgumentAllocationAttempt, .{});
 }
+
+test "a computation reused as a handler body retains its construction" {
+    var program = captured;
+    program.schemas = &.{ .u64, .unit, .{ .internal = .{ .computation = .{ .parameters = &.{0}, .result = 3, .capture_bound = &.{0}, .use = .reusable } } }, captured.schemas[3] };
+    program.scopes = .{ .captures = &.{.{ .fields = &.{0}, .use = .reusable }} };
+    program.functions = &.{ captured.functions[0], captured.functions[1], .{ .entry = 4, .inputs = &.{0}, .layout = .{ .slots = &.{3} }, .result = 3 } };
+    program.handlers = &.{.{ .mode = .deep, .input = 3, .answer = 3, .return_function = 2, .clauses = &.{} }};
+    program.blocks = &.{
+        captured.blocks[0],
+        .{ .function = 0, .instructions = &.{}, .terminator = .{ .handle = .{ .handler = 0, .body = 2, .arguments = &.{1}, .state = &.{}, .next = .{ .block = 3, .assignments = &.{.{ .destination = 3, .source = .returned }} } } } },
+        captured.blocks[2],
+        .{ .function = 0, .instructions = &.{}, .terminator = .{ .return_value = 3 } },
+        .{ .function = 2, .instructions = &.{}, .terminator = .{ .return_value = 0 } },
+    };
+    var stats: specialize.Statistics = .{};
+    var result = try specialize.run(a, program, &stats, .{});
+    defer result.deinit();
+    try std.testing.expectEqual(@as(usize, 0), stats.eliminated_constructions);
+    try std.testing.expectEqual(@as(usize, 0), stats.direct_applications);
+}

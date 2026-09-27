@@ -76,8 +76,8 @@ traces raw definitions backwards, verifies the ordered field and rejects a sourc
 overwritten after construction. Copy/drop permissions and original/fresh admission
 remain required. Subsequent checked DCE removes unobserved product construction;
 an externally returned aggregate remains materialized. The witness shrinks from
-81 to 69 bytes. This is logical product scalar replacement; private-cell reduction
-and physical allocation placement are still outstanding.
+81 to 69 bytes. This is logical product scalar replacement; physical allocation
+placement remains a separate obligation.
 
 Data-only native tests now cover source-free BMO decoding and closed linking.
 One links the product object before reduction. Another binds an independently
@@ -106,6 +106,28 @@ correspondence work deterministically, defaults to one million work units, and
 rolls back the complete candidate before final P01 when that budget is exhausted.
 Original/fresh admission and P01 retain their own obligations and budgets.
 
+`data.cell_reduction` implements the minimum private-cell case for a worker with
+one returning block. A portable copy/drop payload replaces the cell's private slot;
+allocation/read/store operations become value assignments and unit results at the
+same ordered points. The independent checker matches the entire original record
+sequence against those scalar state transitions and checks all uses, interfaces
+and permissions. Original/fresh admission precedes final P01. Subsequent checked
+DCE removes overwritten scalar assignments. Aliases, payload capture, suspension,
+calls and intervening fault observations remain outside this local case.
+
+The one-store witness shrinks 135 to 119 bytes. A source-free linked witness with
+two stores before a read shrinks 136 to 119 bytes: one cell allocation, one read
+and two cell stores disappear, and World preserves the final value for three
+input pairs. Store unit results remain explicit until independently proved dead.
+This establishes logical elimination, not physical stack placement or a measured
+World latency/memory gain.
+
+The cell-use inspection also exposed missing body-slot reads in P03's existing
+scope-control census. Handler/region bodies and cleanup computations now count as
+uses; a reusable computation applied and then used as a handler body retains its
+construction. This repairs the existing specialization guard without expanding
+authoring scope.
+
 Focused checks cover swapped equal-type operands, capture reassignment, stale
 facts after constructor mutation, range/known-bit and length/bound distinctions,
 and every allocation-failure point in the small transformation witness.
@@ -129,6 +151,10 @@ operand writes and parallel swaps, non-dominance, self-overwritten producers,
 early/late budget rollback, differing fault payloads, distinct closure captures,
 mutable cell reads and allocation failures. Three native tests cover linked
 diamond execution, path-specific mutation and a real cell read after mutation.
+The cell suite has seven focused cases (25 with module tests), including a wrong
+stored-value mutation, aliases, suspension, fault observation and allocation
+failures. The scope-census regression expands the specialization suite to 48 tests.
+One additional native linked-cell test covers three input pairs before/after.
 
 ## Remaining M2 obligations
 
@@ -136,13 +162,13 @@ This is not complete M2 or canonical pipeline adoption. Remaining work includes:
 
 - Remaining P02 domains, return summaries and richer recursive/calling contexts
   beyond the current conservative argument fixed point.
-- Context cloning where callers disagree, and remaining dead
-  store/capture/cell reductions and product forwarding across control flow.
+- Context cloning where callers disagree, capture reductions and product forwarding
+  across control flow; broader cell cases remain conservative.
   Private dead arguments, local product scalar replacement, singleton incoming-callable specialization
   and polymorphic/opaque negatives are implemented.
 - Remaining P04 value numbering across aliases/renaming and cyclic proofs;
-  P05 private stores, P07 capture reduction/summaries, and P08 private-cell
-  replacement, with their independent certificates.
+  P07 capture reduction/summaries and the remaining qualification of P05/P08's
+  implemented private-cell/store subset, with independent certificates.
 - Semantic/structural contract integration into compilation and final linking,
   the owned-consumer policy audit, deterministic semantic work budgets, and
   automatic source-free closed-link adoption (explicit linked-record execution
