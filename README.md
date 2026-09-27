@@ -10,8 +10,9 @@ for qualification and live review/readiness status.
 
 ## Author and compile
 
-Import the Zig build module `boundary`. Its public namespaces include `effect`,
-`computation`, `handler`, `region`, `program`, `data`, and `library`.
+Import the Zig build module `boundary`. Use `authoring` for ordinary construction,
+`program` for compilation, `data` for portable records, and `library` for reusable
+compositions. The `handler` and `region` raw-Builder facades have been removed.
 
 Start with the [typed structured authoring guide](docs/typed-authoring.md) and
 `boundary.authoring` for named values, forward sequencing and derived handlers.

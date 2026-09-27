@@ -1,5 +1,12 @@
 const std = @import("std");
 const b = @import("boundary");
+test "public package retires handler and region facades" {
+    try std.testing.expect(!@hasDecl(b, "handler"));
+    try std.testing.expect(!@hasDecl(b, "region"));
+    try std.testing.expect(@hasDecl(b.authoring.Context, "handler"));
+    try std.testing.expect(@hasDecl(b.authoring.Context, "region"));
+}
+
 test "foreign effect rejects in public package while local binding succeeds" {
     var first = b.computation.Builder.init(std.testing.allocator);
     defer first.deinit();

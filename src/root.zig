@@ -4,19 +4,6 @@ pub const authoring = @import("authoring.zig");
 pub const computation = @import("source.zig");
 pub const source = computation;
 pub const effect = @import("effect.zig");
-pub const handler = struct {
-    pub const Definition = data.program.Handler;
-    pub const Clause = data.program.Clause;
-    pub const Mode = data.program.Mode;
-    pub const Resumption = data.program.ResumptionType;
-    pub const Use = data.program.Use;
-    pub const define = computation.Builder.handler;
-};
-pub const region = struct {
-    pub const create = computation.Builder.region;
-    pub const resource = computation.Builder.resource;
-    pub const authority = computation.Builder.resourceAuthority;
-};
 pub const library = struct {
     pub const hyper = @import("library/hyper.zig");
     pub const hyper_authoring = @import("library/hyper_authoring.zig");

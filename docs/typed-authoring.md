@@ -4,6 +4,11 @@ Import `boundary.authoring`. It stages ordinary Boundary source; the existing
 source checker, lowering, target admission and unchanged World interpreter remain
 authoritative. The low-level `boundary.computation` API remains available.
 
+Construct handlers and regions through `authoring.Context.handler` and
+`authoring.Context.region`. The former top-level `boundary.handler` and
+`boundary.region` aliases are removed. Expert record inspection uses
+`boundary.data.program` types; it does not require those construction facades.
+
 ## Start here
 
 [`examples/structured_branch.zig`](../examples/structured_branch.zig) is a complete
