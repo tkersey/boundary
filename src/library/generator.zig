@@ -1,5 +1,6 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
 //! Owned generators are ordinary deep handlers and recursive source data.
+const std = @import("std");
 const source = @import("../source.zig");
 const a = @import("../authoring.zig");
 const p = @import("boundary_data").program;
@@ -21,7 +22,44 @@ pub fn defineExchange(builder: *source.Builder, identity: []const u8, input: p.I
     return instance.finish(builder, value);
 }
 
-pub const Exchange = struct {
+pub const Exchange = opaque {
+    pub fn input(self: *const Exchange) *const a.Schema {
+        return exchangeData(self).input;
+    }
+    pub fn element(self: *const Exchange) *const a.Schema {
+        return exchangeData(self).element;
+    }
+    pub fn result(self: *const Exchange) *const a.Schema {
+        return exchangeData(self).result;
+    }
+    pub fn effect(self: *const Exchange) *const a.Operation {
+        return exchangeData(self).effect;
+    }
+    pub fn capability(self: *const Exchange) *const a.Schema {
+        return exchangeData(self).capability;
+    }
+    pub fn answer(self: *const Exchange) *const a.Schema {
+        return exchangeData(self).answer;
+    }
+    pub fn yielded(self: *const Exchange) *const a.Schema {
+        return exchangeData(self).yielded;
+    }
+    pub fn package(self: *const Exchange) *const a.Schema {
+        return exchangeData(self).package;
+    }
+    pub fn resumption(self: *const Exchange) *const a.Schema {
+        return exchangeData(self).resumption;
+    }
+    pub fn handler(self: *const Exchange) *const a.Handler {
+        return exchangeData(self).handler;
+    }
+};
+fn exchangeData(value: *const Exchange) *ExchangeData {
+    return @ptrCast(@alignCast(@constCast(value)));
+}
+const ExchangeData = struct {
+    owner: *a.Context,
+    pipelines: std.ArrayList(PipelineCache) = .empty,
     input: *const a.Schema,
     element: *const a.Schema,
     result: *const a.Schema,
@@ -47,7 +85,7 @@ pub const Options = struct {
 
 /// Declare a typed owned exchange. Reuse this definition for every endpoint
 /// sharing its nominal operation and recursive answer contract.
-pub fn create(c: *a.Context, identity: []const u8, input: *const a.Schema, element: *const a.Schema, result: *const a.Schema, options: Options) a.Error!Exchange {
+pub fn create(c: *a.Context, identity: []const u8, input: *const a.Schema, element: *const a.Schema, result: *const a.Schema, options: Options) a.Error!*const Exchange {
     return makeExchange(c, identity, input, element, result, options.captures.continuation, options.owned_regions, options.borrowed_regions, options.residual, options.parameters, options.captures.body, options.body_use);
 }
 
@@ -69,9 +107,9 @@ fn regionHandles(c: *a.Context, ids: []const p.Id) a.Error![]const *const a.Regi
 fn authoredExchange(b: *source.Builder, identity: []const u8, input: p.Id, element: p.Id, result: p.Id, captures: []const p.Id, owned_regions: []const p.Id, borrowed_regions: []const p.Id, residual: source.Row) a.Error!Generator {
     const c = try a.Context.init(b);
     const value = try makeExchange(c, identity, try a.interop.schema(c, input), try a.interop.schema(c, element), try a.interop.schema(c, result), try schemas(c, captures), try regionHandles(c, owned_regions), try regionHandles(c, borrowed_regions), try operations(c, residual.effects), &.{}, &.{}, .linear);
-    return value.sourceIds(c);
+    return exchangeData(value).sourceIds(c);
 }
-fn makeExchange(c: *a.Context, identity: []const u8, input: *const a.Schema, element: *const a.Schema, result: *const a.Schema, captures: []const *const a.Schema, owned: []const *const a.Region, borrowed: []const *const a.Region, residual: []const *const a.Operation, parameters: []const a.Field, body_captures: []const *const a.Schema, body_use: p.Use) a.Error!Exchange {
+fn makeExchange(c: *a.Context, identity: []const u8, input: *const a.Schema, element: *const a.Schema, result: *const a.Schema, captures: []const *const a.Schema, owned: []const *const a.Region, borrowed: []const *const a.Region, residual: []const *const a.Operation, parameters: []const a.Field, body_captures: []const *const a.Schema, body_use: p.Use) a.Error!*const Exchange {
     const effect = try c.local(identity, element, input, .linear);
     const capability = try c.capability(effect);
     const bound = try a.interop.builder(c).allocator().alloc(*const a.Schema, captures.len + 1);
@@ -105,7 +143,9 @@ fn makeExchange(c: *a.Context, identity: []const u8, input: *const a.Schema, ele
     const suspended = try clause.package(try clause.parameter("resumption"));
     const offered = try clause.product(yielded, &.{ .{ .name = "value", .value = try clause.parameter("payload") }, .{ .name = "future", .value = suspended } });
     try c.define(clause_fn, try clause.ret(try clause.variant(answer, "yielded", offered)));
-    return .{ .input = input, .result = result, .effect = effect, .capability = capability, .element = element, .answer = answer, .yielded = yielded, .package = package, .resumption = resumption, .handler = handler };
+    const saved = try a.interop.builder(c).allocator().create(ExchangeData);
+    saved.* = .{ .owner = c, .input = input, .result = result, .effect = effect, .capability = capability, .element = element, .answer = answer, .yielded = yielded, .package = package, .resumption = resumption, .handler = handler };
+    return @ptrCast(saved);
 }
 
 pub fn next(builder: *source.Builder, generator: Generator, package: p.Id) Error!p.Id {
@@ -141,52 +181,71 @@ test "owned exchange construction releases partial allocation owners" {
 
 /// A derived sequential pipeline. Construction emits code only; start consumes
 /// both running packages and its first input. Later exchange/close use generator.
-pub const Composition = struct { generator: Generator, start: p.Id };
-pub fn compose(builder: *source.Builder, identity: []const u8, left: Generator, right: Generator) Error!Composition {
-    if (left.element != right.input or left.result != right.result) return error.TypeMismatch;
-    if (left.resumption >= builder.schemas.items.len or right.resumption >= builder.schemas.items.len) return error.InvalidReference;
-    const l = builder.schemas.items[@intCast(left.resumption)];
-    const r = builder.schemas.items[@intCast(right.resumption)];
-    if (l != .internal or r != .internal or l.internal != .resumption or r.internal != .resumption) return error.TypeMismatch;
-    const cache = try builder.specialization(Composition, "boundary.library.exchange-compose/v1", .{ identity, left, right });
-    if (cache.cached) |value| return value;
-    const residual = try (source.Row{ .effects = l.internal.resumption.effects }).unionWith(builder.allocator(), .{ .effects = r.internal.resumption.effects });
-    // These are declaration-region bounds. Dynamic owners remain distinct
-    // packages; sharing a region descriptor never duplicates their custody.
-    const regions = try unionRegions(builder, l.internal.resumption.owned_regions, r.internal.resumption.owned_regions);
-    const borrowed = try unionRegions(builder, try borrowedRegions(builder, left), try borrowedRegions(builder, right));
-    const composed = composeTyped(builder, identity, left, right, residual, regions, borrowed) catch |err| return a.sourceError(err);
-    return cache.finish(builder, composed);
+pub const Pipeline = struct { generator: *const Exchange, start: *const a.Function };
+const PipelineCache = struct { identity: []const u8, right: *const Exchange, value: Pipeline };
+
+/// Compose two checked exchanges in the same authoring context. Repeated
+/// construction of the same named pair shares one generated pipeline.
+pub fn pipeline(c: *a.Context, identity: []const u8, left: *const Exchange, right: *const Exchange) a.Error!Pipeline {
+    const l = exchangeData(left);
+    const r = exchangeData(right);
+    if (l.owner != c or r.owner != c) return error.ForeignHandle;
+    const left_ids = try l.sourceIds(c);
+    const right_ids = try r.sourceIds(c);
+    if (left_ids.element != right_ids.input or left_ids.result != right_ids.result) return error.TypeMismatch;
+    for (l.pipelines.items) |cached| {
+        if (cached.right == right and std.mem.eql(u8, cached.identity, identity)) return cached.value;
+    }
+    const b = a.interop.builder(c);
+    const lr = b.schemas.items[@intCast(left_ids.resumption)].internal.resumption;
+    const rr = b.schemas.items[@intCast(right_ids.resumption)].internal.resumption;
+    const effects = try (source.Row{ .effects = lr.effects }).unionWith(b.allocator(), .{ .effects = rr.effects });
+    const owned = try unionRegions(b, lr.owned_regions, rr.owned_regions);
+    const borrowed = try unionRegions(b, try borrowedRegions(b, left_ids), try borrowedRegions(b, right_ids));
+    const result = try composeIn(c, identity, endpoint(l), endpoint(r), effects, owned, borrowed);
+    try l.pipelines.append(b.allocator(), .{ .identity = try b.allocator().dupe(u8, identity), .right = right, .value = result });
+    return result;
 }
-fn composeTyped(b: *source.Builder, identity: []const u8, left: Generator, right: Generator, residual: source.Row, owned_regions: []const p.Id, borrowed_regions: []const p.Id) a.Error!Composition {
-    const c = try a.Context.init(b);
-    const lp = try a.interop.schema(c, left.package);
-    const rp = try a.interop.schema(c, right.package);
-    const input = try a.interop.schema(c, left.input);
-    const result = try a.interop.schema(c, left.result);
-    const element = try a.interop.schema(c, right.element);
+
+const Endpoint = struct { input: *const a.Schema, element: *const a.Schema, result: *const a.Schema, package: *const a.Schema };
+fn endpoint(value: *const ExchangeData) Endpoint {
+    return .{ .input = value.input, .element = value.element, .result = value.result, .package = value.package };
+}
+fn composeIn(c: *a.Context, identity: []const u8, left: Endpoint, right: Endpoint, residual: source.Row, owned_regions: []const p.Id, borrowed_regions: []const p.Id) a.Error!Pipeline {
+    const lp = left.package;
+    const rp = right.package;
+    const input = left.input;
+    const result = left.result;
+    const element = right.element;
+    const left_answer_schema = (lp.resultSchema() orelse return error.InvalidCategory).resultSchema() orelse return error.InvalidSchema;
+    const right_answer_schema = (rp.resultSchema() orelse return error.InvalidCategory).resultSchema() orelse return error.InvalidSchema;
+    if (left_answer_schema.fields().len != 2 or right_answer_schema.fields().len != 2) return error.InvalidSchema;
+    const left_parts_schema = left_answer_schema.fields()[1].schema;
+    const right_parts_schema = right_answer_schema.fields()[1].schema;
+    if (left_parts_schema.fields().len != 2 or right_parts_schema.fields().len != 2) return error.InvalidSchema;
     const effects = try operations(c, residual.effects);
     const borrowed = try regionHandles(c, borrowed_regions);
     const parameters = &[_]a.Field{ .{ .name = "left", .schema = lp }, .{ .name = "right", .schema = rp }, .{ .name = "input", .schema = input } };
-    const g = try makeExchange(c, identity, input, element, result, &.{ lp, rp, input, try a.interop.schema(c, left.element), element, result, try c.scalar(void) }, try regionHandles(c, owned_regions), borrowed, effects, parameters, &.{}, .linear);
+    const generated = try makeExchange(c, identity, input, element, result, &.{ lp, rp, input, left.element, element, result, try c.scalar(void) }, try regionHandles(c, owned_regions), borrowed, effects, parameters, &.{}, .linear);
+    const g = exchangeData(generated);
     const loop_schema = try c.handledSchema(g.handler);
     const loop_fn = try c.functionFor("exchange pipeline", loop_schema);
     const loop = try c.body(loop_fn);
     const capability = try loop.parameter("capability");
     const right_package = try loop.parameter("right");
     const left_answer = try loop.resumeValue(try loop.unpack(try loop.parameter("left")), try loop.parameter("input"));
-    const left_done = try loop.caseOf(left_answer, "0");
+    const left_done = try loop.caseOf(left_answer, left_answer_schema.fields()[0].name);
     _ = try left_done.body().dispose(try left_done.body().unpack(right_package));
-    const left_yield = try loop.caseOf(left_answer, "1");
+    const left_yield = try loop.caseOf(left_answer, left_answer_schema.fields()[1].name);
     const left_parts = try left_yield.body().destructure(left_yield.payload());
-    const next_left = try left_parts.get("1");
-    const right_answer = try left_yield.body().resumeValue(try left_yield.body().unpack(right_package), try left_parts.get("0"));
-    const right_done = try left_yield.body().caseOf(right_answer, "0");
+    const next_left = try left_parts.get(left_parts_schema.fields()[1].name);
+    const right_answer = try left_yield.body().resumeValue(try left_yield.body().unpack(right_package), try left_parts.get(left_parts_schema.fields()[0].name));
+    const right_done = try left_yield.body().caseOf(right_answer, right_answer_schema.fields()[0].name);
     _ = try right_done.body().dispose(try right_done.body().unpack(next_left));
-    const right_yield = try left_yield.body().caseOf(right_answer, "1");
+    const right_yield = try left_yield.body().caseOf(right_answer, right_answer_schema.fields()[1].name);
     const right_parts = try right_yield.body().destructure(right_yield.payload());
-    const next_input = try right_yield.body().performLocal(g.effect, capability, try right_parts.get("0"));
-    const continued = try right_yield.body().call(loop_fn, &.{ .{ .name = "capability", .value = capability }, .{ .name = "left", .value = next_left }, .{ .name = "right", .value = try right_parts.get("1") }, .{ .name = "input", .value = next_input } });
+    const next_input = try right_yield.body().performLocal(g.effect, capability, try right_parts.get(right_parts_schema.fields()[0].name));
+    const continued = try right_yield.body().call(loop_fn, &.{ .{ .name = "capability", .value = capability }, .{ .name = "left", .value = next_left }, .{ .name = "right", .value = try right_parts.get(right_parts_schema.fields()[1].name) }, .{ .name = "input", .value = next_input } });
     const after_right = try left_yield.body().match(right_answer, &.{ try right_done.ret(right_done.payload()), try right_yield.ret(continued) });
     try c.define(loop_fn, try loop.ret(try loop.match(left_answer, &.{ try left_done.ret(left_done.payload()), try left_yield.ret(after_right) })));
     const entry_schema = try c.callable(parameters, g.answer, effects, .{ .use = .linear, .captures = &.{}, .regions = borrowed });
@@ -196,7 +255,7 @@ fn composeTyped(b: *source.Builder, identity: []const u8, left: Generator, right
         .{ .name = "left", .value = try entry.parameter("left") },   .{ .name = "right", .value = try entry.parameter("right") },
         .{ .name = "input", .value = try entry.parameter("input") },
     }, &.{})));
-    return .{ .generator = try g.sourceIds(c), .start = try a.interop.functionId(c, entry_fn) };
+    return .{ .generator = generated, .start = entry_fn };
 }
 
 fn borrowedRegions(b: *source.Builder, g: Generator) Error![]const p.Id {
@@ -206,7 +265,6 @@ fn borrowedRegions(b: *source.Builder, g: Generator) Error![]const p.Id {
     return b.functions.items[@intCast(function)].regions;
 }
 fn unionRegions(b: *source.Builder, left: []const p.Id, right: []const p.Id) Error![]const p.Id {
-    const std = @import("std");
     var values: std.ArrayList(p.Id) = .empty;
     try values.appendSlice(b.allocator(), left);
     try values.appendSlice(b.allocator(), right);
@@ -220,19 +278,54 @@ fn unionRegions(b: *source.Builder, left: []const p.Id, right: []const p.Id) Err
     return values.toOwnedSlice(b.allocator());
 }
 
-fn compositionAllocation(allocator: @import("std").mem.Allocator) !void {
+fn compositionAllocation(allocator: std.mem.Allocator) !void {
     var b = source.Builder.init(allocator);
     defer b.deinit();
-    const integer = try b.scalar(u64);
-    const boolean = try b.scalar(bool);
-    const left = try defineExchange(&b, "allocation/left", integer, integer, integer, &.{integer}, &.{}, &.{}, .{ .effects = &.{} });
-    const right = try defineExchange(&b, "allocation/right", integer, integer, integer, &.{integer}, &.{}, &.{}, .{ .effects = &.{} });
-    const combined = try compose(&b, "allocation/combined", left, right);
-    _ = try compose(&b, "allocation/three", combined.generator, right);
-    const mismatch = try defineExchange(&b, "allocation/mismatch", boolean, integer, integer, &.{integer}, &.{}, &.{}, .{ .effects = &.{} });
-    try @import("std").testing.expectError(error.TypeMismatch, compose(&b, "allocation/invalid", left, mismatch));
+    const c = try a.Context.init(&b);
+    const integer = try c.scalar(u64);
+    const boolean = try c.scalar(bool);
+    const options: Options = .{ .captures = .{ .continuation = &.{integer} } };
+    const left = try create(c, "allocation/left", integer, integer, integer, options);
+    const right = try create(c, "allocation/right", integer, integer, integer, options);
+    const combined = try pipeline(c, "allocation/combined", left, right);
+    _ = try pipeline(c, "allocation/three", combined.generator, right);
+    const mismatch = try create(c, "allocation/mismatch", boolean, integer, integer, options);
+    try std.testing.expectError(error.TypeMismatch, pipeline(c, "allocation/invalid", left, mismatch));
 }
+
 test "owned composition checks compatibility and releases partial construction" {
     const testing = @import("std").testing;
     try testing.checkAllAllocationFailures(testing.allocator, compositionAllocation, .{});
+}
+
+test "typed exchange pipelines preserve ownership, compatibility and definition sharing" {
+    const testing = std.testing;
+    try testing.expect(@typeInfo(Exchange) == .@"opaque");
+    var b = source.Builder.init(testing.allocator);
+    defer b.deinit();
+    const c = try a.Context.init(&b);
+    const integer = try c.scalar(u64);
+    const boolean = try c.scalar(bool);
+    const options: Options = .{ .captures = .{ .continuation = &.{integer} } };
+    const left = try create(c, "typed/left", integer, integer, integer, options);
+    const right = try create(c, "typed/right", integer, integer, integer, options);
+    const joined = try pipeline(c, "typed/pair", left, right);
+    const functions = b.functions.items.len;
+    const repeated = try pipeline(c, "typed/pair", left, right);
+    try testing.expect(joined.generator == repeated.generator);
+    try testing.expect(joined.start == repeated.start);
+    try testing.expectEqual(functions, b.functions.items.len);
+    _ = try pipeline(c, "typed/three", joined.generator, right);
+    const wrong_input = try create(c, "typed/input", boolean, integer, integer, options);
+    try testing.expectError(error.TypeMismatch, pipeline(c, "typed/bad-input", left, wrong_input));
+    const wrong_result = try create(c, "typed/result", integer, integer, boolean, options);
+    try testing.expectError(error.TypeMismatch, pipeline(c, "typed/bad-result", left, wrong_result));
+    const foreign = try a.Context.init(&b);
+    try testing.expectError(error.ForeignHandle, pipeline(foreign, "typed/foreign", left, right));
+    // Pipeline start consumes owned packages, so its public artifact is a
+    // callable component, not a byte-input/byte-result Program entry.
+    var compiled = try source.component.compileObserved(testing.allocator, b.module(try a.interop.functionId(c, joined.start), try a.interop.schemaId(c, try c.scalar(void))), .{
+        .exports = &.{.{ .name = "start", .reference = .{ .kind = .function, .id = try a.interop.functionId(c, joined.start) } }},
+    }, .{});
+    defer compiled.deinit();
 }

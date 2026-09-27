@@ -21,21 +21,21 @@ fn authored(b: *source.Builder) a.Error!source.Module {
         .residual = &.{release},
         .body_use = .reusable,
     });
-    const effects = &.{ release, generator.effect };
-    const start_type = try c.handledSchema(generator.handler);
+    const effects = &.{ release, generator.effect() };
+    const start_type = try c.handledSchema(generator.handler());
     const start_fn = try c.functionFor("generator producer", start_type);
     const start = try c.body(start_fn);
     const capability = try start.parameter("capability");
-    const private_type = try c.regionBodySchema(scope, &.{}, unit, effects, .{ .use = .reusable, .captures = &.{generator.capability} });
+    const private_type = try c.regionBodySchema(scope, &.{}, unit, effects, .{ .use = .reusable, .captures = &.{generator.capability()} });
     const private_fn = try c.functionFor("private generator state", private_type);
     const private = try start.closureBody(private_fn);
     const cell = try private.newCell(cell_type, try private.parameter("region"), try private.constant(u64, 42));
-    const body_type = try c.callable(&.{}, unit, &.{generator.effect}, .{ .use = .reusable, .captures = &.{ generator.capability, cell_type }, .regions = &.{scope} });
+    const body_type = try c.callable(&.{}, unit, &.{generator.effect()}, .{ .use = .reusable, .captures = &.{ generator.capability(), cell_type }, .regions = &.{scope} });
     const body_fn = try c.functionFor("generator yields", body_type);
     const body = try private.closureBody(body_fn);
-    _ = try body.performLocal(generator.effect, capability, try body.readCell(cell));
+    _ = try body.performLocal(generator.effect(), capability, try body.readCell(cell));
     _ = try body.writeCell(cell, try body.constant(u64, 43));
-    _ = try body.performLocal(generator.effect, capability, try body.readCell(cell));
+    _ = try body.performLocal(generator.effect(), capability, try body.readCell(cell));
     try c.define(body_fn, try body.ret(try body.constant(void, {})));
     const cleanup_type = try c.callable(&.{.{ .name = "exit", .schema = try c.cleanupInfo(unit) }}, unit, &.{release}, .{ .use = .reusable, .captures = &.{cell_type}, .regions = &.{scope} });
     const cleanup_fn = try c.functionFor("generator release", cleanup_type);
@@ -46,7 +46,7 @@ fn authored(b: *source.Builder) a.Error!source.Module {
 
     const main = try c.function("entry", &.{}, pair, &.{release});
     const entry = try c.body(main);
-    const answer = try entry.handleWith(generator.handler, try entry.lambda(start_fn, start_type), &.{});
+    const answer = try entry.handleWith(generator.handler(), try entry.lambda(start_fn, start_type), &.{});
     const done = try entry.caseOf(answer, "done");
     const yielded = try entry.caseOf(answer, "yielded");
     const first = yielded.body();

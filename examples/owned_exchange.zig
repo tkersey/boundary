@@ -6,7 +6,7 @@ const a = boundary.authoring;
 const generator = boundary.library.generator;
 const Build = struct {
     c: *a.Context,
-    g: generator.Exchange,
+    g: *const generator.Exchange,
     integer: *const a.Schema,
     unit: *const a.Schema,
     activity_payload: *const a.Schema,
@@ -17,17 +17,17 @@ const Build = struct {
     }
     fn producer(e: @This()) !*const a.Function {
         const c = e.c;
-        const signature = try c.handledSchema(e.g.handler);
+        const signature = try c.handledSchema(e.g.handler());
         const f = try c.functionFor("owned producer", signature);
         const body = try c.body(f);
         const capability = try body.parameter("capability");
         const input = try body.parameter("input");
-        const work_type = try c.callable(&.{}, e.integer, &.{ e.activity, e.g.effect }, .{ .use = .reusable, .captures = &.{ e.integer, e.g.capability } });
+        const work_type = try c.callable(&.{}, e.integer, &.{ e.activity, e.g.effect() }, .{ .use = .reusable, .captures = &.{ e.integer, e.g.capability() } });
         const work = try c.functionFor("exchange work", work_type);
         const working = try body.closureBody(work);
-        const first = try working.performLocal(e.g.effect, capability, input);
+        const first = try working.performLocal(e.g.effect(), capability, input);
         _ = try working.perform(e.activity, try working.product(e.activity_payload, &.{ .{ .name = "initial", .value = input }, .{ .name = "reply", .value = first } }));
-        const second = try working.performLocal(e.g.effect, capability, try e.add(working, first, 10));
+        const second = try working.performLocal(e.g.effect(), capability, try e.add(working, first, 10));
         try c.define(work, try working.ret(try e.add(working, second, 100)));
         const cleanup_type = try c.callable(&.{.{ .name = "exit", .schema = try c.cleanupInfo(e.unit) }}, e.unit, &.{e.release}, .{ .use = .reusable, .captures = &.{e.integer} });
         const cleanup = try c.functionFor("exchange cleanup", cleanup_type);
@@ -91,9 +91,9 @@ const Application = struct {
         const producer = try e.producer();
         const entry = try c.function("entry", &.{}, integer, &.{ release, activity });
         const body = try c.body(entry);
-        const callable = try body.lambda(producer, try c.handledSchema(g.handler));
-        const local = try e.yielded(body, try body.handleWithArguments(g.handler, callable, &.{.{ .name = "input", .value = try body.constant(u64, 5) }}, &.{}), 5);
-        const side = try e.yielded(local.work, try local.work.handleWithArguments(g.handler, callable, &.{.{ .name = "input", .value = try local.work.constant(u64, 50) }}, &.{}), 50);
+        const callable = try body.lambda(producer, try c.handledSchema(g.handler()));
+        const local = try e.yielded(body, try body.handleWithArguments(g.handler(), callable, &.{.{ .name = "input", .value = try body.constant(u64, 5) }}, &.{}), 5);
+        const side = try e.yielded(local.work, try local.work.handleWithArguments(g.handler(), callable, &.{.{ .name = "input", .value = try local.work.constant(u64, 50) }}, &.{}), 50);
         var work = side.work;
         var advanced: ?Build.CheckedAnswer = null;
         var finished: ?Build.CheckedAnswer = null;

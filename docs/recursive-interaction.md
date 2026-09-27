@@ -235,18 +235,18 @@ real-reference/model witness will be migrated onto this handler path next.
 
 ## Owned bidirectional exchange substrate
 
-The existing generator owner now also provides `defineExchange`, `begin` and
-`exchange`. A definition has distinct input, offered-output and completion schemas.
-Beginning supplies the first input; exchanging consumes the old owned package,
+`generator.create` constructs an opaque typed exchange with distinct input,
+offered-output and completion schemas. Its handler is installed through
+`Body.handleWithArguments`; `Body.resumePackage` consumes an old owned package,
 accepts the supplied input, and advances to the next output or completion. It does
-not return the previous yield. The original unit-input/unit-completion generator
-API delegates to this construction; its existing checks remain intact.
+not return the previous yield. The constructor keeps the nominal operation,
+handler, recursive answer, and package contracts together.
 
 The implementation uses the existing deep handler, linear resumption and suspension
-package representation. Local `close` disposes only the selected owner and returns
-to its caller. It does not use enclosing World cancellation. Captures, regions,
-obligations and consumed-package rejection remain owned by the existing validators.
-No opcode, interpreter or wire-format change is made.
+package representation. `Body.disposePackage` disposes only the selected owner and
+returns to its caller. It does not use enclosing World cancellation. Captures,
+regions, obligations and consumed-package rejection remain owned by the existing
+validators. No opcode, interpreter or wire-format change is made.
 
 `examples/owned_exchange.zig` retains two independent owned endpoints. Ordinary
 exchanges verify input 7 produces the next output 17, and input 9 produces completion
@@ -435,11 +435,12 @@ complete the owned three-part channel/composition and broader remaining requirem
 
 ## Derived owned exchange composition
 
-`generator.compose` emits a reusable composition definition with its own ordinary
-Generator interface and a `start` function. Starting consumes two live packages and
+`generator.pipeline` takes two opaque exchanges from the same authoring context
+and emits a typed exchange with a `start` function. Repeating a named pair shares
+its generated definition. Starting consumes two live packages and
 the first supplied input. Left outputs feed right inputs; a yielded right output
-returns one owned composite successor. That successor uses the existing `exchange`
-and `close` operations and can itself be composed with another compatible endpoint.
+returns one owned composite successor. That successor uses `Body.resumePackage`
+and `Body.disposePackage` and can itself be composed with another compatible endpoint.
 The left output/right input and completion types must agree. Either completion path
 closes the other retained endpoint before returning the actual completion value.
 
@@ -460,7 +461,12 @@ fourth participant's real observation and final cleanup. Left completion and rig
 early completion also dispose the remaining peers. These outcomes retain the
 foundation's unwind order rather than imposing an invented global cleanup order.
 
-All four executions pass fresh native/Node/Wasmtime/Chromium transfer using actual
+### Historical runtime qualification
+
+The following measurements refer to the earlier authored images, before the typed
+consumer cutover. They do not qualify later image identities.
+
+All four executions passed fresh native/Node/Wasmtime/Chromium transfer using actual
 destination outcomes (170 destroyed Workers). Local disposal has 51 transfers;
 normal completion 53; right early completion 34; separate whole-execution cancellation
 28. Cancellation begins at a pending observation before the test adapter executes
