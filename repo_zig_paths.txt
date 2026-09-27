@@ -42,6 +42,8 @@ src/data/admission.zig
 src/data/aggregate_admission.zig
 src/data/analysis_sets.zig
 src/data/analysis_sets_tests.zig
+src/data/application_specialization.zig
+src/data/application_specialization_tests.zig
 src/data/blob_admission.zig
 src/data/borrow_contract.zig
 src/data/borrow_flow.zig
@@ -99,6 +101,7 @@ src/data/test_root.zig
 src/data/tests.zig
 src/data/total_clause.zig
 src/data/traits.zig
+src/data/value_facts.zig
 src/data/wire.zig
 src/facts_profile.zig
 src/library/choice.zig
@@ -177,6 +180,7 @@ test/package_authoring/data.zig
 test/package_authoring/failure_literal_category.zig
 test/package_authoring/lifecycle.zig
 test/package_authoring/rejection.zig
+test/v2/application_specialization.zig
 test/v2/borrow_returns.zig
 test/v2/compact_fixtures.zig
 test/v2/compact_wasm.zig
