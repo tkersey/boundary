@@ -1,32 +1,62 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
 //! A clause fails while still owning the continuation of a protected body.
 const source = @import("../source.zig");
-const cleanup = @import("../library/cleanup.zig");
+const a = @import("../authoring.zig");
 
 pub fn build(b: *source.Builder) source.Error!source.Module {
-    const unit = try b.scalar(void);
-    const integer = try b.scalar(u64);
-    const info = try cleanup.exitInfo(b, integer);
-    const operation = try b.effect(.{ .identity = "example/abort-owned-continuation", .payload = unit, .result = unit, .external = false });
-    const release = try b.effect(.{ .identity = "example/abandoned-release", .payload = info, .result = unit });
-    const cap = try b.schema(.{ .internal = .{ .capability = operation } });
-    const token = try b.schema(.{ .internal = .{ .resumption = .{ .effect = operation, .input = unit, .answer = integer, .effects = &.{release}, .capture_bound = &.{ unit, cap }, .handled = &.{operation}, .mode = .deep, .use = .linear, .obligations = true } } });
-    const returns = try b.declare(&.{integer}, integer, &.{}, &.{});
-    try b.define(returns, try b.pure(try b.reference(b.parameter(returns, 0))));
-    const clause = try b.declare(&.{ unit, token }, integer, &.{release}, &.{});
-    try b.define(clause, try b.term(.{ .fail = try b.constant(u64, 9) }));
-    const handler = try b.handler(.{ .mode = .deep, .input = integer, .answer = integer, .return_function = returns, .effects = &.{release}, .clauses = &.{.{ .effect = operation, .function = clause, .resumption = token }} });
-    const main = try b.declare(&.{}, integer, &.{release}, &.{});
-    const body = try b.declare(&.{cap}, integer, &.{ operation, release }, &.{});
-    const inside = try b.declare(&.{}, integer, &.{operation}, &.{});
-    const performed = try b.term(.{ .perform = .{ .effect = operation, .capability = try b.reference(b.parameter(body, 0)), .payload = try b.constant(void, {}) } });
-    try b.define(inside, try b.bind(try b.variable(unit), performed, try b.pure(try b.constant(u64, 42))));
-    const release_fn = try b.declare(&.{info}, unit, &.{release}, &.{});
-    try b.define(release_fn, try b.term(.{ .perform = .{ .effect = release, .payload = try b.reference(b.parameter(release_fn, 0)) } }));
-    const inside_type = try b.schema(.{ .internal = .{ .computation = .{ .parameters = &.{}, .result = integer, .effects = &.{operation}, .capture_bound = &.{cap} } } });
-    const cleanup_type = try b.schema(.{ .internal = .{ .computation = .{ .parameters = &.{info}, .result = unit, .effects = &.{release} } } });
-    try b.define(body, try b.term(.{ .protect = .{ .body = try b.lambda(inside, inside_type), .cleanup = try b.lambda(release_fn, cleanup_type) } }));
-    const body_type = try b.schema(.{ .internal = .{ .computation = .{ .parameters = &.{cap}, .result = integer, .effects = &.{ operation, release } } } });
-    try b.define(main, try b.term(.{ .handle = .{ .handler = handler, .body = try b.lambda(body, body_type) } }));
-    return b.module(main, integer);
+    return authored(b) catch |err| return a.sourceError(err);
+}
+
+fn authored(b: *source.Builder) a.Error!source.Module {
+    const c = try a.Context.init(b);
+    const unit = try c.scalar(void);
+    const integer = try c.scalar(u64);
+    const info = try c.cleanupInfo(integer);
+    const operation = try c.local("example/abort-owned-continuation", unit, unit, .linear);
+    const release = try c.external("example/abandoned-release", info, unit);
+    const cap = try c.capability(operation);
+    const handler = try c.handler(operation, integer, integer, .{
+        .mode = .deep,
+        .use = .linear,
+        .residual = &.{release},
+        .captures = &.{ unit, cap },
+        .obligations = true,
+    });
+    const returns_fn = try c.returnFunction(handler);
+    const returns = try c.body(returns_fn);
+    try c.define(returns_fn, try returns.ret(try returns.parameter("result")));
+    const clause_fn = try c.clauseFunction(handler);
+    const clause = try c.body(clause_fn);
+    try c.define(clause_fn, try clause.fail(integer, try clause.constant(u64, 9)));
+
+    const body_type = try c.handledSchema(handler);
+    const body_fn = try c.functionFor("protected work", body_type);
+    const body = try c.body(body_fn);
+    const capability = try body.parameter("capability");
+    const inside_type = try c.callable(&.{}, integer, &.{operation}, .{
+        .use = .linear,
+        .captures = &.{cap},
+    });
+    const inside_fn = try c.functionFor("request", inside_type);
+    const inside = try body.closureBody(inside_fn);
+    _ = try inside.performLocal(operation, capability, try inside.constant(void, {}));
+    try c.define(inside_fn, try inside.ret(try inside.constant(u64, 42)));
+    const cleanup_type = try c.callable(&.{.{ .name = "exit", .schema = info }}, unit, &.{release}, .{ .use = .linear, .captures = &.{} });
+    const cleanup_fn = try c.functionFor("release", cleanup_type);
+    const cleanup = try c.body(cleanup_fn);
+    try c.define(cleanup_fn, try cleanup.ret(try cleanup.perform(release, try cleanup.parameter("exit"))));
+    const protected = try body.protect(
+        try body.lambda(inside_fn, inside_type),
+        try body.lambda(cleanup_fn, cleanup_type),
+        &.{},
+    );
+    try c.define(body_fn, try body.ret(protected));
+    const main = try c.function("entry", &.{}, integer, &.{release});
+    const entry = try c.body(main);
+    try c.define(main, try entry.ret(try entry.handleWith(
+        handler,
+        try entry.lambda(body_fn, body_type),
+        &.{},
+    )));
+    return c.module(main, integer);
 }

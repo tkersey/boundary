@@ -638,6 +638,37 @@ fn twiceSharing(allocator: std.mem.Allocator) !void {
     try testing.expectError(error.ForeignHandle, other.twice(first));
 }
 
+const FailureCase = enum { matching, mismatch, discarded };
+fn explicitFailure(allocator: std.mem.Allocator, mode: FailureCase) !void {
+    var raw = source.Builder.init(allocator);
+    defer raw.deinit();
+    const c = try a.Context.init(&raw);
+    const integer = try c.scalar(u64);
+    const left = try c.record(&.{.{ .name = "left", .schema = integer }});
+    const right = try c.record(&.{.{ .name = "right", .schema = integer }});
+    const entry = try c.function("entry", &.{.{ .name = "error", .schema = left }}, integer, &.{});
+    const body = try c.body(entry);
+    const failure = try body.parameter("error");
+    const target = if (mode == .discarded) try body.branch() else body;
+    const finished = try target.fail(integer, failure);
+    try testing.expectError(error.ClosedBody, target.constant(u64, 0));
+    try c.define(entry, if (mode == .discarded)
+        try body.ret(try body.constant(u64, 42))
+    else
+        finished);
+    _ = try c.module(entry, if (mode == .matching) left else right);
+}
+
+test "explicit failure retains names and closes only its authored body" {
+    try explicitFailure(testing.allocator, .matching);
+    try testing.expectError(error.SchemaMismatch, explicitFailure(testing.allocator, .mismatch));
+    try explicitFailure(testing.allocator, .discarded);
+}
+
+test "explicit failure publication releases partial allocation failures" {
+    try testing.checkAllAllocationFailures(testing.allocator, explicitFailure, .{.matching});
+}
+
 test "typed twice shares definitions without erasing names or builder origins" {
     try twiceSharing(testing.allocator);
 }

@@ -1644,7 +1644,31 @@ pub const Body = opaque {
         const v = try self.useValue(result);
         const c = bodyData(self).context;
         errdefer |err| c.poison(err);
-        var term = try contextData(c).raw.pure(v.id);
+        return self.finish(try contextData(c).raw.pure(v.id), v.schema);
+    }
+    /// Fail with an authored value and close this body. The result schema lets
+    /// a failing branch compose with another branch that returns that type.
+    /// Publication checks the failure value against the module failure contract.
+    pub fn fail(
+        self: *Body,
+        result: *const Schema,
+        failure: *const Value,
+    ) Error!*const Computation {
+        const value = try self.useValue(failure);
+        const c = bodyData(self).context;
+        _ = try c.schemaId(result);
+        errdefer |err| c.poison(err);
+        const term = try contextData(c).raw.term(.{ .fail = value.id });
+        try c.notePublication(.{
+            .anchor = .{ .term = term },
+            .contract = .{ .failure = value.schema },
+        });
+        return self.finish(term, result);
+    }
+    fn finish(self: *Body, final: p.Id, schema: *const Schema) Error!*const Computation {
+        const c = bodyData(self).context;
+        errdefer |err| c.poison(err);
+        var term = final;
         var index = bodyData(self).bindings.items.len;
         while (index != 0) {
             index -= 1;
@@ -1654,7 +1678,7 @@ pub const Body = opaque {
         const computation = handle(Computation, try c.save(ComputationData, .{
             .owner = c,
             .id = term,
-            .schema = v.schema,
+            .schema = schema,
             .scope = bodyData(self).scope,
         }));
         bodyData(self).scope.active = false;

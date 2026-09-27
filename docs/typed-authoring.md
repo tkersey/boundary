@@ -78,6 +78,13 @@ being authored. The runtime lifetime of those captures is checked independently.
 Sibling values and branch-local values cannot escape directly: use `conditional`,
 `block` or `match` to produce a parent-scope result.
 
+`Body.fail(result_schema, failure_value)` closes a body with an explicit authored
+failure. The result schema lets a failing branch join a returning branch.
+The failure value keeps its lexical scope and named schema; module publication
+checks it against the declared failure contract. Discarded staging branches do
+not introduce executable failures. Protected cleanup follows the same runtime
+failure semantics, including when a failing clause still owns a continuation.
+
 Construction errors, including allocation and named-argument validation failures,
 may poison the context. After an error, retain its diagnostic, discard the context
 and tear down its source builder; general transactional recovery is not promised. No successful checked
