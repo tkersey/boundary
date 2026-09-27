@@ -100,7 +100,6 @@ src/data/tests.zig
 src/data/total_clause.zig
 src/data/traits.zig
 src/data/wire.zig
-src/effect.zig
 src/facts_profile.zig
 src/library/choice.zig
 src/library/cleanup.zig

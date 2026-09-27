@@ -22,6 +22,12 @@ Construct handlers and regions through `authoring.Context.handler` and
 `boundary.region` aliases are removed. Expert record inspection uses
 `boundary.data.program` types; it does not require those construction facades.
 
+Declare operations with `Context.external`, `local`, or `scoped`. The raw-ID
+`boundary.effect` facade and its indexed-declaration wrapper are removed. A finite
+native collection of typed operation handles retains each operation's result
+schema. The independent indexed source-IR fixture keeps its explicit source terms
+to test row-polymorphic composition, using checked operation declarations.
+
 ## Start here
 
 [`examples/structured_branch.zig`](../examples/structured_branch.zig) is a complete
