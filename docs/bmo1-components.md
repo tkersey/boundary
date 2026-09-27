@@ -160,7 +160,8 @@ one external release carrying 83. It also runs a separately compiled mutually
 recursive even/odd pair. Agent tool integration and the required real-file
 browser transfer have their own consumer checks and authenticated dependency pins.
 
-`library/combinators.zig` authors `twice` once and specializes from a callable's
+`authoring.Context.twice` authors a definition once per checked callable and specializes from its
 declared signature. Tests instantiate it for one-effect and two-effect residual
 contexts and verify specialization reuse; callers do not rewrite its body or
-copy residual rows. This is staged specialization, not runtime polymorphism.
+copy residual rows. The raw-ID `library/combinators.zig` wrapper is removed.
+This is staged specialization, not runtime polymorphism.

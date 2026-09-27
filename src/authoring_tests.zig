@@ -613,6 +613,39 @@ test "review callable and resumption compatibility retain named capture bounds" 
     // The failed construction is intentionally followed only by teardown.
 }
 
+fn twiceSharing(allocator: std.mem.Allocator) !void {
+    var raw = source.Builder.init(allocator);
+    defer raw.deinit();
+    const c = try a.Context.init(&raw);
+    const integer = try c.scalar(u64);
+    const left = try c.record(&.{.{ .name = "left", .schema = integer }});
+    const right = try c.record(&.{.{ .name = "right", .schema = integer }});
+    const options: a.CallableOptions = .{ .use = .reusable, .captures = &.{} };
+    const first = try c.callable(&.{}, left, &.{}, options);
+    const second = try c.callable(&.{}, right, &.{}, options);
+    // Equal wire shapes must not collapse distinct named authoring contracts.
+    try testing.expectEqual(try a.interop.schemaId(c, first), try a.interop.schemaId(c, second));
+    const one = try c.twice(first);
+    const two = try c.twice(second);
+    try testing.expect(one != two);
+    const definitions = raw.functions.items.len;
+    for (0..16) |_| {
+        try testing.expectEqual(one, try c.twice(first));
+        try testing.expectEqual(two, try c.twice(second));
+    }
+    try testing.expectEqual(definitions, raw.functions.items.len);
+    const other = try a.Context.init(&raw);
+    try testing.expectError(error.ForeignHandle, other.twice(first));
+}
+
+test "typed twice shares definitions without erasing names or builder origins" {
+    try twiceSharing(testing.allocator);
+}
+
+test "typed twice definition sharing releases partial allocation failures" {
+    try testing.checkAllAllocationFailures(testing.allocator, twiceSharing, .{});
+}
+
 test "review twice rejection replaces stale diagnostics with its own relationship" {
     var raw = source.Builder.init(testing.allocator);
     defer raw.deinit();

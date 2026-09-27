@@ -2,6 +2,7 @@
 //! Three independently authored effectful objects and a second closed wrapper.
 const std = @import("std");
 const source = @import("../source.zig");
+const authoring = @import("../authoring.zig");
 const data = @import("boundary_data");
 const p = data.program;
 const gen = @import("../library/generator.zig");
@@ -48,7 +49,9 @@ pub fn emitWithOptions(allocator: std.mem.Allocator, kind: Kind, options: source
 }
 const Built = struct { entry: p.Id, interface: source.component.Interface };
 fn caller(b: *source.Builder, c: Common) !Built {
-    const function = try @import("../library/combinators.zig").twice(b, c.callback);
+    const context = try authoring.Context.init(b);
+    const callback = try authoring.interop.schema(context, c.callback);
+    const function = try authoring.interop.functionId(context, try context.twice(callback));
     return .{ .entry = function, .interface = .{
         .imports = try b.allocator().dupe(data.component.Symbol, &.{symbol("read", .effect, c.read)}),
         .exports = try b.allocator().dupe(data.component.Symbol, &.{symbol("twice", .function, function)}),

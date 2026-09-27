@@ -186,12 +186,17 @@ the checked handle contract.
 
 ## Migrated constructions
 
-All four source consumers retain their existing behavior and public entry points:
-`one_effect`, `combinators.twice`, choice family/first/all/allScoped, and
+The migrated source consumers retain their existing behavior:
+`one_effect`, `Context.twice`, choice family/first/all/allScoped, and
 `hyper_demand`. The hyper bridge handles recursive interface setup and existing
 library calls; the example retains its own demands, runtime branch, checked
 additions, delayed descriptors and reciprocal startup. Two Need instances remain
 nominally distinct despite identical display strings.
+
+`Context.twice` shares its complete definition for repeated use of the same
+checked callable in one context. Its key preserves named result layouts and
+effect identities; it does not identify schemas solely by their raw record ID.
+The former raw-ID combinator wrapper has been removed.
 
 Before, `twice` allocated destination variables, built references, and nested two
 binds backward. Its implementation now expresses:

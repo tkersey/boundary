@@ -223,6 +223,7 @@ const ContextData = struct {
     schemas: std.ArrayList(*const Schema) = .empty,
     imported: std.AutoHashMapUnmanaged(p.Id, *const Schema) = .empty,
     functions: std.ArrayList(*const Function) = .empty,
+    twice_definitions: std.AutoHashMapUnmanaged(*const Schema, *const Function) = .empty,
     publication_uses: std.ArrayList(PublicationUse) = .empty,
     variable_schemas: std.AutoHashMapUnmanaged(p.Id, *const Schema) = .empty,
     lambda_schemas: std.AutoHashMapUnmanaged(p.Id, *const Schema) = .empty,
@@ -662,6 +663,7 @@ pub const Context = opaque {
     pub fn twice(self: *Context, schema: *const Schema) Error!*const Function {
         errdefer |err| if (err == error.OutOfMemory) self.poison(err);
         const id = try self.schemaId(schema);
+        if (contextData(self).twice_definitions.get(schema)) |existing| return existing;
         const shape = contextData(self).raw.schemas.items[@intCast(id)];
         if (shape != .internal or shape.internal != .computation) return @as(Error!*const Function, self.reject(error.InvalidCategory, "twice", "requires a reusable zero-argument callable"));
         const signature = shape.internal.computation;
@@ -687,6 +689,11 @@ pub const Context = opaque {
             .{ .name = "second", .value = second },
         });
         try self.define(function_handle, try forward.ret(result));
+        try contextData(self).twice_definitions.put(
+            contextData(self).raw.allocator(),
+            schema,
+            function_handle,
+        );
         return function_handle;
     }
     const HandlerFunctions = struct { returns: *const Function, clause: *const Function };

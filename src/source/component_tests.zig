@@ -269,25 +269,37 @@ test "component linking releases every partial owner on allocation failure" {
 test "one reusable combinator specializes for two residual effect contexts" {
     var b = source.Builder.init(testing.allocator);
     defer b.deinit();
-    const unit = try b.scalar(void);
-    const integer = try b.scalar(u64);
-    const read = try b.effect(.{ .identity = "polymorphic/read", .payload = unit, .result = integer });
-    const write = try b.effect(.{ .identity = "polymorphic/write", .payload = integer, .result = unit });
-    const first = try b.schema(.{ .internal = .{ .computation = .{ .parameters = &.{}, .result = integer, .effects = &.{read} } } });
-    const second = try b.schema(.{ .internal = .{ .computation = .{ .parameters = &.{}, .result = integer, .effects = &.{ read, write } } } });
-    const twice = @import("../library/combinators.zig").twice;
-    const one = try twice(&b, first);
-    const two = try twice(&b, second);
-    try testing.expect(one != two);
-    try testing.expectEqual(one, try twice(&b, first));
-    try testing.expectEqual(two, try twice(&b, second));
-    var compiled = try source.component.compile(testing.allocator, b.module(one, unit), .{ .exports = &.{
+    const a = @import("../authoring.zig");
+    const c = try a.Context.init(&b);
+    const unit = try c.scalar(void);
+    const integer = try c.scalar(u64);
+    const read = try c.external("polymorphic/read", unit, integer);
+    const write = try c.external("polymorphic/write", integer, unit);
+    const first = try c.callable(&.{}, integer, &.{read}, .{
+        .use = .reusable,
+        .captures = &.{},
+    });
+    const second = try c.callable(&.{}, integer, &.{ read, write }, .{
+        .use = .reusable,
+        .captures = &.{},
+    });
+    const one_handle = try c.twice(first);
+    const two_handle = try c.twice(second);
+    try testing.expect(one_handle != two_handle);
+    try testing.expectEqual(one_handle, try c.twice(first));
+    try testing.expectEqual(two_handle, try c.twice(second));
+    // Object exports and record inspection deliberately use the component IR boundary.
+    const one = try a.interop.functionId(c, one_handle);
+    const two = try a.interop.functionId(c, two_handle);
+    var compiled = try source.component.compile(testing.allocator, try c.module(one_handle, unit), .{ .exports = &.{
         .{ .name = "read", .reference = .{ .kind = .function, .id = one } },
         .{ .name = "read-write", .reference = .{ .kind = .function, .id = two } },
     } });
     defer compiled.deinit();
-    try testing.expectEqualSlices(data.program.Id, &.{read}, compiled.object.program.functions[@intCast(one)].effects);
-    try testing.expectEqualSlices(data.program.Id, &.{ read, write }, compiled.object.program.functions[@intCast(two)].effects);
+    const read_id = try a.interop.operationId(c, read);
+    const write_id = try a.interop.operationId(c, write);
+    try testing.expectEqualSlices(data.program.Id, &.{read_id}, compiled.object.program.functions[@intCast(one)].effects);
+    try testing.expectEqualSlices(data.program.Id, &.{ read_id, write_id }, compiled.object.program.functions[@intCast(two)].effects);
 }
 
 test "mutually recursive component implementations link as one closed group" {
