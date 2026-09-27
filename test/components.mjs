@@ -23,7 +23,6 @@ try {
   const binding = (from, name, to, target = name) => ({ required: { instance: from, symbol: name }, supplied: { instance: to, symbol: target } });
   const bindings = [binding("call", "read", "state"), binding("state", "twice", "call"), binding("suspend", "compute", "state"), binding("suspend", "read", "state")];
   const manifest = {
-    coalescing: "off",
     instances: ["call", "state", "suspend"].map(key => ({ key, path: `${key}.bmo1` })),
     bindings,
     entry: { instance: "suspend", symbol: "main" },
@@ -37,21 +36,23 @@ try {
   assert.equal(first.subarray(0, 8).toString(), "ABL_BPI3");
   assert.deepEqual(await link({ ...manifest, instances: [...manifest.instances].reverse(), bindings: [...bindings].reverse() }), first);
   const second = await link({
-    coalescing: "off",
     instances: [...manifest.instances, { key: "double", path: "double.bmo1" }],
     bindings: [...bindings, ...["main", "read", "release"].map(name => binding("double", name, "suspend"))],
     entry: { instance: "double", symbol: "main" },
   });
   assert.notDeepEqual(first, second);
-  const safe = await link({...manifest, coalescing: "safe"});
-  assert.equal(safe.subarray(0, 8).toString(), "ABL_BPI3");
-  assert.ok(safe.length <= first.length);
-  assert.deepEqual(await link({...manifest, coalescing: "safe",
-    instances: [...manifest.instances].reverse(), bindings: [...bindings].reverse()}), safe);
+  for (const coalescing of ["off", "safe"]) {
+    await assert.rejects(link({...manifest, coalescing}), error => {
+      assert.match(error.stderr.toString(), /UnknownField/);
+      assert.equal(error.stdout.length, 0, "obsolete selector published an image");
+      return true;
+    });
+  }
   assert.deepEqual(emitterCalls, { call: 1, state: 1, suspend: 1, double: 1 });
   assert.equal(linkerCalls, 5);
   console.log(JSON.stringify({ check: "source-independent BMO1 composition", emitterCalls,
-    linkerCalls, objectBytes: sizes, linkedBytes: [first.length, second.length], safeBytes: safe.length }));
+    linkerCalls, objectBytes: sizes, linkedBytes: [first.length, second.length],
+    retiredSelectorsRejected: ["off", "safe"] }));
 } finally {
   await rm(directory, { recursive: true, force: true });
 }

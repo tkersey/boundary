@@ -116,6 +116,10 @@ grammar includes the contract table; objects emitted before it must be rebuilt.
 
 ## Standalone use and witnesses
 
+The manifest contains `instances`, `bindings`, and `entry`. Linking applies
+the canonical optimizations automatically where their preconditions hold.
+The retired `coalescing` selector is rejected; it cannot disable the pass.
+
 ```
 zig build build-compiler
 zig-out/bin/boundary-link link.json > application.bpi3

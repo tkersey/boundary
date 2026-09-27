@@ -6,7 +6,6 @@ const Manifest = struct {
     instances: []const struct { key: []const u8, path: []const u8 },
     bindings: []const data.linker.Binding,
     entry: data.linker.Endpoint,
-    coalescing: data.coalescing.Mode = (data.coalescing.Options{}).mode,
 };
 
 pub fn main(init: std.process.Init) !void {
@@ -32,7 +31,7 @@ pub fn main(init: std.process.Init) !void {
         .key = item.key,
         .object = try std.Io.Dir.cwd().readFileAlloc(init.io, item.path, a, .limited(64 << 20)),
     };
-    var linked = try data.linker.linkWithOptions(init.gpa, instances, manifest.value.bindings, manifest.value.entry, .{ .mode = manifest.value.coalescing });
+    var linked = try data.linker.link(init.gpa, instances, manifest.value.bindings, manifest.value.entry);
     defer linked.deinit();
     const image = try a.alloc(u8, try data.program_image.encodedLength(linked.program));
     _ = try linked.encode(init.gpa, image);

@@ -160,8 +160,10 @@ var linked = try boundary.data.linker.linkWithOptions(allocator, instances,
     bindings, entry_point, options);
 ```
 
-The standalone linker manifest accepts `"coalescing": "safe"` or `"off"`; omission
-selects `safe`.
+The standalone linker always applies the canonical pass. Its manifest rejects
+the retired `coalescing` field, including both `"safe"` and `"off"`.
+The source-free comparison tests retain frozen predecessor images as data;
+they do not select a predecessor through the installed linker.
 Open component emission defers the pass. Existing `link` and typed `compile`
 remain source-compatible wrappers. No codec implicitly optimizes its input.
 
