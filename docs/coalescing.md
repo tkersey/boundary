@@ -1,8 +1,19 @@
 # Whole-program coalescing — implementation evidence
 
-Status: correctness and integration qualification in progress. `safe` is now the
-ordinary default for direct compilation and final linking. Explicit `off` remains
-available for diagnostics and ablation. This is not a completed qualification report.
+Closed compilation and final linking always run the canonical pass. The `mode`
+option and `Mode` type are removed; diagnostics and discovery-work limits remain.
+Open component emission still defers the closed-program pass.
+
+Historical comparison runners require `BOUNDARY_PREDECESSOR_BIN`, pointing to
+separately built, recorded predecessor executables (`coalescing-fixture`,
+`authoring-cases`, and `coalescing-bench`). Those executables stay outside the
+current package. Current emitters accept their fixture argument without a mode.
+The unit comparisons use 39 frozen Program images from accepted commit `6313768`;
+the predecessor compiler is not embedded or invoked by the current library.
+
+The reports below record the preceding coalescing qualification, including its
+historical `off`/`safe` comparisons. They do not reintroduce a production selector
+or establish completion of the subsequent canonical cutover.
 
 The [acceptance inventory](coalescing-acceptance.md) maps every T01–T42 row and
 promotion gate to current bounded evidence and explicit outstanding work.
@@ -142,14 +153,13 @@ No existing tests or assertions were removed or weakened.
 These original results establish the foundation. The following progress adds an
 enabled implementation; outstanding work remains listed explicitly below.
 
-## Compilation defaults and selection
+## Compilation and observation
 
-Select the same options through these paths:
+Use the same observation and work-limit options through these paths:
 
 ```zig
-// Ordinary compile/lower/link calls now use safe by default.
-// Use .{ .mode = .off } for the diagnostic/ablation control.
-const options: boundary.data.coalescing.Options = .{ .mode = .safe };
+// Ordinary compile/lower/link calls always use the canonical pass.
+const options: boundary.data.coalescing.Options = .{};
 // Typed authoring retains its own mandatory capture observer/publication check.
 var compiled = try context.compileWithOptions(allocator, entry, failure, options);
 // Raw staged source:

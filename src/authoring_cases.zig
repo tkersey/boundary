@@ -442,10 +442,6 @@ pub fn main(init: std.process.Init) !void {
     const kind = std.meta.stringToEnum(Kind, args.next() orelse return error.MissingKind) orelse
         return error.InvalidKind;
     const format = args.next() orelse "bpi3";
-    const mode = if (args.next()) |selected|
-        std.meta.stringToEnum(data.coalescing.Mode, selected) orelse return error.InvalidMode
-    else
-        (data.coalescing.Options{}).mode;
     if (args.next() != null) return error.UnexpectedArgument;
     var raw = source.Builder.init(init.gpa);
     defer raw.deinit();
@@ -455,7 +451,7 @@ pub fn main(init: std.process.Init) !void {
     if (std.mem.eql(u8, format, "json")) {
         try std.json.Stringify.value(module, .{ .emit_strings_as_arrays = true }, &output.interface);
     } else {
-        var compiled = try source.lowerObserved(init.gpa, module, .{ .coalescing = .{ .mode = mode } });
+        var compiled = try source.lowerObserved(init.gpa, module, .{});
         defer compiled.deinit();
         const bytes = try init.gpa.alloc(u8, try data.program_image.encodedLength(compiled.program));
         defer init.gpa.free(bytes);

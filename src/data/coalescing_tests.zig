@@ -5,6 +5,11 @@ const pass = @import("coalescing.zig");
 const image = @import("program_image.zig");
 const fixture = @import("coalescing_witness_tests.zig").original;
 
+test "canonical coalescing has no product mode selector" {
+    try testing.expect(!@hasDecl(pass, "Mode"));
+    try testing.expect(!@hasField(pass.Options, "mode"));
+}
+
 fn bytes(program: @import("activation.zig").Program) ![]u8 {
     const result = try testing.allocator.alloc(u8, try image.encodedLength(program));
     errdefer testing.allocator.free(result);
@@ -14,7 +19,7 @@ fn bytes(program: @import("activation.zig").Program) ![]u8 {
 
 test "coalescing selects exact economical candidate to an idempotent fixed point" {
     var stats: pass.Statistics = .{};
-    var full = try pass.run(testing.allocator, fixture, .{ .mode = .safe, .statistics = &stats });
+    var full = try pass.run(testing.allocator, fixture, .{ .statistics = &stats });
     defer full.deinit();
     try testing.expectEqual(pass.Outcome.applied, stats.outcome);
     try testing.expectEqual(@as(usize, 1), stats.extraction_rounds);
@@ -24,7 +29,7 @@ test "coalescing selects exact economical candidate to an idempotent fixed point
     var again = try pass.run(
         testing.allocator,
         full.program,
-        .{ .mode = .safe, .statistics = &again_stats },
+        .{ .statistics = &again_stats },
     );
     defer again.deinit();
     try testing.expectEqual(pass.Outcome.no_change, again_stats.outcome);
@@ -42,20 +47,25 @@ test "coalescing work limit after an intermediate selection returns original bas
     var measured = try pass.run(
         testing.allocator,
         fixture,
-        .{ .mode = .safe, .statistics = &stats },
+        .{ .statistics = &stats },
     );
     defer measured.deinit();
     try testing.expect(stats.first_selected_work > 0);
-    var off = try pass.run(testing.allocator, fixture, .{ .mode = .off });
-    defer off.deinit();
-    const baseline = try bytes(off.program);
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const original = try @import("relocation.zig").ownReachable(
+        arena.allocator(),
+        arena.allocator(),
+        fixture,
+    );
+    const baseline = try bytes(original.program);
     defer testing.allocator.free(baseline);
     for ([_]u64{ 0, stats.first_selected_work }) |limit| {
         var limited_stats: pass.Statistics = .{};
         var limited = try pass.run(
             testing.allocator,
             fixture,
-            .{ .mode = .safe, .work_limit = limit, .statistics = &limited_stats },
+            .{ .work_limit = limit, .statistics = &limited_stats },
         );
         defer limited.deinit();
         try testing.expectEqual(pass.Outcome.work_limit, limited_stats.outcome);
@@ -67,7 +77,7 @@ test "coalescing work limit after an intermediate selection returns original bas
 }
 
 fn allocationCase(allocator: std.mem.Allocator) !void {
-    var result = try pass.run(allocator, fixture, .{ .mode = .safe });
+    var result = try pass.run(allocator, fixture, .{});
     defer result.deinit();
     try testing.expectEqual(@as(usize, 2), result.program.functions.len);
 }
@@ -138,7 +148,7 @@ test "coalescing preserves duplicate sum alternatives and old duplicate-containi
     const roundtrip = try bytes(decoded.program);
     defer testing.allocator.free(roundtrip);
     try testing.expectEqualSlices(u8, original, roundtrip);
-    var optimized = try pass.run(testing.allocator, decoded.program, .{ .mode = .safe });
+    var optimized = try pass.run(testing.allocator, decoded.program, .{});
     defer optimized.deinit();
     try testing.expectEqual(@as(usize, 3), optimized.program.schemas.len);
     const sum = optimized.program.schemas[@intCast(optimized.program.roots.result)].sum;

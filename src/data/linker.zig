@@ -126,8 +126,6 @@ pub fn linkWithOptions(allocator: std.mem.Allocator, input: []const Instance, bi
     const schema_map = try @import("schema_partition.zig").compute(a, provisional);
     var final_maps = try relocate.identityMaps(a, try relocate.sizes(provisional));
     final_maps[@intFromEnum(Kind.schema)] = schema_map;
-    var arena = std.heap.ArenaAllocator.init(allocator);
-    errdefer arena.deinit();
     const result = try rewrite(a, provisional, final_maps);
     for (units) |*unit| {
         const mapped = try a.alloc(Id, unit.maps[@intFromEnum(Kind.schema)].len);
@@ -140,20 +138,8 @@ pub fn linkWithOptions(allocator: std.mem.Allocator, input: []const Instance, bi
     var checked = try @import("activation_ownership.zig").analyze(allocator, result);
     defer checked.deinit();
     try checkBorrows(a, units, result);
-    if (options.mode == .safe) {
-        const optimized = try @import("coalescing.zig").run(allocator, result, options);
-        arena.deinit();
-        return .{ .arena = optimized.arena, .program = optimized.program, .flow = optimized.flow };
-    }
-    if (options.statistics) |stats| stats.* = .{ .outcome = .disabled, .rounds = stats.rounds };
-    const projected = try relocate.ownReachable(arena.allocator(), a, result);
-    var flow = try @import("activation_ownership.zig").analyze(allocator, projected.program);
-    errdefer flow.deinit();
-    if (options.statistics) |stats| {
-        stats.baseline = try @import("coalescing.zig").Counts.of(projected.program);
-        stats.selected = stats.baseline;
-    }
-    return .{ .arena = arena, .program = projected.program, .flow = flow };
+    const optimized = try @import("coalescing.zig").run(allocator, result, options);
+    return .{ .arena = optimized.arena, .program = optimized.program, .flow = optimized.flow };
 }
 
 fn checkBorrows(a: std.mem.Allocator, units: []const Unit, result: ir.Program) Error!void {

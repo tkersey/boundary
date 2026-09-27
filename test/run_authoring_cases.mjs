@@ -9,6 +9,8 @@ assert.ok(runtime&&native&&emitter,'usage: node test/run_authoring_cases.mjs RUN
 assert.ok(comparison===undefined||comparison==='coalescing');
 assert.ok(!reportPath||comparison==='coalescing');
 assert.ok(process.argv.slice(2).length<=5);
+const predecessor=process.env.BOUNDARY_PREDECESSOR_BIN;
+if(comparison)assert.ok(predecessor,'comparison requires an external predecessor bin directory');
 const sha256=bytes=>createHash('sha256').update(bytes).digest('hex');
 const observations=[], fixtures=[], peers=[];
 const directory=await mkdtemp(join(tmpdir(),'boundary-authoring-cases-'));
@@ -25,7 +27,8 @@ try {
     let baselineBytes;
     for(const mode of comparison ? ['off','safe'] : ['default']) {
       const stem=join(directory,kind+'-'+mode);
-      const bytes=execFileSync(resolve(emitter),[kind,'bpi3',...(mode==='default'?[]:[mode])]);
+      const bytes=execFileSync(mode==='off'?join(predecessor,'authoring-cases'):resolve(emitter),
+        mode==='off'?[kind,'bpi3','off']:[kind,'bpi3']);
       if(mode==='off')baselineBytes=bytes.length;
       else if(comparison)assert.ok(bytes.length<=baselineBytes,'selected image grew');
       if(mode==='safe')assert.deepEqual(execFileSync(resolve(emitter),[kind,'bpi3']),bytes);
@@ -51,7 +54,8 @@ try {
   if(reportPath) await writeFile(reportPath,JSON.stringify({
     scope:'Existing authored semantic fixtures, off/safe, default equals safe, independent source oracle and requested runtimes',
     kernelSha256:sha256(await readFile(join(runtime,'world-kernel.wasm'))),
-    emitterSha256:sha256(await readFile(emitter)),nativeSha256:sha256(await readFile(native)),
+    emitterSha256:sha256(await readFile(emitter)),
+    predecessorSha256:comparison?sha256(await readFile(join(predecessor,'authoring-cases'))):null,nativeSha256:sha256(await readFile(native)),
     harnessSha256:sha256(await readFile('test/authoring_execution.mjs')),
     fixtures,executions:observations.length,
     wasmtime:peers.length?peers[0]:{status:'NOT_RUN'},rows:observations,

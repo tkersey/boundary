@@ -31,8 +31,8 @@ where applicable. Observation does not change emitted bytes. The compiler checks
 the original target before specialization and the final target after normalization.
 
 [Whole-program coalescing](docs/coalescing.md) shares checked code and immutable
-descriptions by default during compilation and final linking. Select `off` for
-diagnostics or an unoptimized comparison.
+descriptions automatically during compilation and final linking. The retired
+mode selector is rejected. Diagnostics and bounded discovery remain available.
 
 The [public example](examples/one_effect.zig) compiles without a runtime:
 

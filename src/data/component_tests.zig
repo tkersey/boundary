@@ -152,7 +152,7 @@ const borrow_bindings = [_]data.linker.Binding{.{
 }};
 
 test "public linker proves imported borrow promises against the actual implementation" {
-    inline for (.{ data.coalescing.Mode.off, data.coalescing.Mode.safe }) |mode| {
+    {
         inline for (.{ false, true }) |honest| {
             var object_value = borrow_example;
             var summaries = borrow_example.borrows[0..4].*;
@@ -164,7 +164,7 @@ test "public linker proves imported borrow promises against the actual implement
             var buffer: [1024]u8 = undefined;
             // Both clients are locally valid under their distinct import assumptions.
             const bytes = try data.component.encode(testing.allocator, object_value, &buffer);
-            const result = data.linker.linkWithOptions(testing.allocator, &.{.{ .key = "case", .object = bytes }}, &borrow_bindings, .{ .instance = "case", .symbol = "main" }, .{ .mode = mode });
+            const result = data.linker.linkWithOptions(testing.allocator, &.{.{ .key = "case", .object = bytes }}, &borrow_bindings, .{ .instance = "case", .symbol = "main" }, .{});
             if (honest) {
                 var linked = try result;
                 linked.deinit();
@@ -229,7 +229,7 @@ test "component guarantees bind cell writes and outlives requirements" {
 }
 
 test "imported handler and constructor functions cannot substitute different borrow provenance" {
-    inline for (.{ data.coalescing.Mode.off, data.coalescing.Mode.safe }) |mode| {
+    {
         inline for (.{ data.relocation.Kind.handler, data.relocation.Kind.constructor }) |kind| {
             inline for (.{ false, true }) |honest| {
                 const provider_input: data.program.Id = if (honest) 1 else 0;
@@ -280,7 +280,7 @@ test "imported handler and constructor functions cannot substitute different bor
                 const result = data.linker.linkWithOptions(testing.allocator, &.{.{ .key = "case", .object = bytes }}, &.{.{
                     .required = .{ .instance = "case", .symbol = "need" },
                     .supplied = .{ .instance = "case", .symbol = "provided" },
-                }}, .{ .instance = "case", .symbol = "main" }, .{ .mode = mode });
+                }}, .{ .instance = "case", .symbol = "main" }, .{});
                 if (honest) {
                     var linked = try result;
                     linked.deinit();

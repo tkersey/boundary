@@ -68,13 +68,13 @@ fn program(a: std.mem.Allocator, changed: bool) !ir.Program {
 test "coalescing actual recursive candidates merge role for role and propagate deep differences" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    var equal = try pass.run(testing.allocator, try program(arena.allocator(), false), .{ .mode = .safe });
+    var equal = try pass.run(testing.allocator, try program(arena.allocator(), false), .{});
     defer equal.deinit();
     try testing.expectEqual(@as(usize, 3), equal.program.functions.len);
-    var different = try pass.run(testing.allocator, try program(arena.allocator(), true), .{ .mode = .safe });
+    var different = try pass.run(testing.allocator, try program(arena.allocator(), true), .{});
     defer different.deinit();
     try testing.expectEqual(@as(usize, 5), different.program.functions.len);
-    var again = try pass.run(testing.allocator, equal.program, .{ .mode = .safe });
+    var again = try pass.run(testing.allocator, equal.program, .{});
     defer again.deinit();
     const image = @import("program_image.zig");
     try testing.expectEqual(try image.identity(testing.allocator, equal.program), try image.identity(testing.allocator, again.program));

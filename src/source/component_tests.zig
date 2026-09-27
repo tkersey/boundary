@@ -3,12 +3,12 @@ const source = @import("../source.zig");
 const data = @import("boundary_data");
 const testing = std.testing;
 
-test "component coalescing mode defers without changing independent object bytes" {
+test "component emission defers coalescing and observation preserves object bytes" {
     for (std.enums.values(source.component_examples.Kind)) |kind| {
-        const off = try source.component_examples.emitWithOptions(testing.allocator, kind, .{ .coalescing = .{ .mode = .off } });
+        const off = try source.component_examples.emit(testing.allocator, kind);
         defer testing.allocator.free(off);
         var stats: data.coalescing.Statistics = .{};
-        const safe = try source.component_examples.emitWithOptions(testing.allocator, kind, .{ .coalescing = .{ .mode = .safe, .statistics = &stats } });
+        const safe = try source.component_examples.emitWithOptions(testing.allocator, kind, .{ .coalescing = .{ .statistics = &stats } });
         defer testing.allocator.free(safe);
         try testing.expectEqualSlices(u8, off, safe);
         try testing.expectEqual(data.coalescing.Outcome.deferred_open_component, stats.outcome);
@@ -163,7 +163,7 @@ test "public linker rejects missing duplicate wrong-kind and incompatible effect
 }
 
 test "same-named private declarations remain distinct across explicit component instances" {
-    inline for (.{ data.coalescing.Mode.off, data.coalescing.Mode.safe }) |mode| {
+    {
         const bytes = try object(true, false);
         defer testing.allocator.free(bytes);
         const client = try dualClient(true);
@@ -173,7 +173,7 @@ test "same-named private declarations remain distinct across explicit component 
             .{ .required = .{ .instance = "client", .symbol = "b" }, .supplied = .{ .instance = "two", .symbol = "value" } },
             .{ .required = .{ .instance = "client", .symbol = "read-a" }, .supplied = .{ .instance = "one", .symbol = "read" } },
             .{ .required = .{ .instance = "client", .symbol = "read-b" }, .supplied = .{ .instance = "two", .symbol = "read" } },
-        }, .{ .instance = "client", .symbol = "main" }, .{ .mode = mode });
+        }, .{ .instance = "client", .symbol = "main" }, .{});
         defer linked.deinit();
         try testing.expectEqual(2, linked.program.effects.len);
         try testing.expectEqualStrings(linked.program.effects[0].identity, linked.program.effects[1].identity);

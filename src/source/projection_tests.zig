@@ -49,8 +49,8 @@ test "consuming projections cannot hide repeated owned uses behind an expression
         var b = source.Builder.init(std.testing.allocator);
         defer b.deinit();
         const module = try program(&b, mode);
-        for ([_]boundary.data.coalescing.Mode{ .off, .safe }) |coalescing| {
-            try std.testing.expectError(error.UnavailableSlot, boundary.program.compileObserved(std.testing.allocator, module, .{ .coalescing = .{ .mode = coalescing } }));
+        {
+            try std.testing.expectError(error.UnavailableSlot, boundary.program.compileObserved(std.testing.allocator, module, .{}));
         }
     }
 }
@@ -110,8 +110,8 @@ test "borrow expression sharing cannot conceal use after consumption" {
         var b = source.Builder.init(std.testing.allocator);
         defer b.deinit();
         const module = try borrowProgram(&b, mode);
-        for ([_]boundary.data.coalescing.Mode{ .off, .safe }) |coalescing| {
-            try std.testing.expectError(error.UnavailableSlot, boundary.program.compileObserved(std.testing.allocator, module, .{ .coalescing = .{ .mode = coalescing } }));
+        {
+            try std.testing.expectError(error.UnavailableSlot, boundary.program.compileObserved(std.testing.allocator, module, .{}));
         }
     }
 }

@@ -6,16 +6,16 @@ const data = @import("boundary_data");
 const Id = data.program.Id;
 pub const Kind = enum { leaf, client, region_leaf, resource_leaf, effect_leaf, effect_import_leaf, effect_client };
 
-pub fn emit(a: std.mem.Allocator, kind: Kind, mode: data.coalescing.Mode) ![]u8 {
+pub fn emit(a: std.mem.Allocator, kind: Kind) ![]u8 {
     var builder = source.Builder.init(a);
     defer builder.deinit();
     const integer = try builder.scalar(u64);
     const unit = try builder.scalar(void);
     var compiled = switch (kind) {
-        .leaf => try leaf(a, &builder, integer, unit, mode),
-        .client, .effect_client => try client(a, &builder, integer, unit, mode, kind == .effect_client),
-        .region_leaf, .resource_leaf => try nominalLeaf(a, &builder, integer, unit, mode, kind),
-        .effect_leaf, .effect_import_leaf => try effectLeaf(a, &builder, integer, unit, mode, kind == .effect_import_leaf),
+        .leaf => try leaf(a, &builder, integer, unit),
+        .client, .effect_client => try client(a, &builder, integer, unit, kind == .effect_client),
+        .region_leaf, .resource_leaf => try nominalLeaf(a, &builder, integer, unit, kind),
+        .effect_leaf, .effect_import_leaf => try effectLeaf(a, &builder, integer, unit, kind == .effect_import_leaf),
     };
     defer compiled.deinit();
     const bytes = try a.alloc(u8, try data.component.encodedLength(compiled.object));
@@ -32,7 +32,7 @@ fn addTen(b: *source.Builder, integer: Id, value: Id) !Id {
     } } });
 }
 
-fn nominalLeaf(a: std.mem.Allocator, b: *source.Builder, integer: Id, unit: Id, mode: data.coalescing.Mode, kind: Kind) !source.component.Compiled {
+fn nominalLeaf(a: std.mem.Allocator, b: *source.Builder, integer: Id, unit: Id, kind: Kind) !source.component.Compiled {
     const main = try b.declare(&.{integer}, integer, &.{}, &.{});
     const argument = try b.reference(b.parameter(main, 0));
     if (kind == .resource_leaf) {
@@ -66,10 +66,10 @@ fn nominalLeaf(a: std.mem.Allocator, b: *source.Builder, integer: Id, unit: Id, 
     }
     return source.component.compileObserved(a, b.module(main, unit), .{
         .exports = &.{.{ .name = "main", .reference = .{ .kind = .function, .id = main } }},
-    }, .{ .coalescing = .{ .mode = mode } });
+    }, .{});
 }
 
-fn leaf(a: std.mem.Allocator, b: *source.Builder, integer: Id, unit: Id, mode: data.coalescing.Mode) !source.component.Compiled {
+fn leaf(a: std.mem.Allocator, b: *source.Builder, integer: Id, unit: Id) !source.component.Compiled {
     const main = try b.declare(&.{integer}, integer, &.{}, &.{});
     const helper = try b.declare(&.{integer}, integer, &.{}, &.{});
     const shape = try b.schema(.{ .internal = .{ .computation = .{
@@ -93,10 +93,10 @@ fn leaf(a: std.mem.Allocator, b: *source.Builder, integer: Id, unit: Id, mode: d
     try b.define(main, try b.bind(closure, try b.pure(try b.lambda(helper, shape)), apply));
     return source.component.compileObserved(a, b.module(main, unit), .{
         .exports = &.{.{ .name = "main", .reference = .{ .kind = .function, .id = main } }},
-    }, .{ .coalescing = .{ .mode = mode } });
+    }, .{});
 }
 
-fn effectLeaf(a: std.mem.Allocator, b: *source.Builder, integer: Id, unit: Id, mode: data.coalescing.Mode, imported: bool) !source.component.Compiled {
+fn effectLeaf(a: std.mem.Allocator, b: *source.Builder, integer: Id, unit: Id, imported: bool) !source.component.Compiled {
     const effect = try b.effect(.{ .identity = "coalescing/component-read", .payload = integer, .result = integer });
     const main = try b.declare(&.{integer}, integer, &.{effect}, &.{});
     try b.define(main, try b.term(.{ .perform = .{ .effect = effect, .payload = try b.reference(b.parameter(main, 0)) } }));
@@ -104,10 +104,10 @@ fn effectLeaf(a: std.mem.Allocator, b: *source.Builder, integer: Id, unit: Id, m
     return source.component.compileObserved(a, b.module(main, unit), .{
         .imports = if (imported) &.{read} else &.{},
         .exports = &.{ .{ .name = "main", .reference = .{ .kind = .function, .id = main } }, read },
-    }, .{ .coalescing = .{ .mode = mode } });
+    }, .{});
 }
 
-fn client(a: std.mem.Allocator, b: *source.Builder, integer: Id, unit: Id, mode: data.coalescing.Mode, external: bool) !source.component.Compiled {
+fn client(a: std.mem.Allocator, b: *source.Builder, integer: Id, unit: Id, external: bool) !source.component.Compiled {
     const pair = try b.schema(.{ .product = &.{ integer, integer } });
     var effects: [2]Id = undefined;
     if (external) for (&effects) |*effect| {
@@ -139,5 +139,5 @@ fn client(a: std.mem.Allocator, b: *source.Builder, integer: Id, unit: Id, mode:
         .imports = imports[0..@as(usize, if (external) 4 else 2)],
         .borrows = &.{ .{ .function = first }, .{ .function = second } },
         .exports = &.{.{ .name = "main", .reference = .{ .kind = .function, .id = main } }},
-    }, .{ .coalescing = .{ .mode = mode } });
+    }, .{});
 }

@@ -557,8 +557,8 @@ test "converting an owned capture consumes the original before any template acti
     const resumed = b.terms.items[@intCast(saved.next)].bind.value;
     const original = try b.reference(b.parameter(clause, 3));
     b.terms.items[@intCast(resumed)].resume_value.resumption = original;
-    for ([_]data.coalescing.Mode{ .off, .safe }) |mode| {
-        try std.testing.expectError(error.UnavailableSlot, source.lowerObserved(std.testing.allocator, b.module(module.entry, module.failure), .{ .coalescing = .{ .mode = mode } }));
+    {
+        try std.testing.expectError(error.UnavailableSlot, source.lowerObserved(std.testing.allocator, b.module(module.entry, module.failure), .{}));
     }
 }
 
@@ -624,8 +624,8 @@ test "a resource borrow cannot escape its protected body even when immediately r
     const next = try b.bind(escaped, protected, read);
     const changed = try b.bind(main_bind.variable, main_bind.value, next);
     b.functions.items[@intCast(original.entry)].body = changed;
-    for ([_]data.coalescing.Mode{ .off, .safe }) |mode| {
-        try std.testing.expectError(error.InvalidOwnership, source.lowerObserved(std.testing.allocator, b.module(original.entry, original.failure), .{ .coalescing = .{ .mode = mode } }));
+    {
+        try std.testing.expectError(error.InvalidOwnership, source.lowerObserved(std.testing.allocator, b.module(original.entry, original.failure), .{}));
     }
 }
 
@@ -724,7 +724,7 @@ test "large sparse region names preserve alpha-equivalent canonical images" {
     var large_bytes: [512]u8 = undefined;
     try std.testing.expectEqualSlices(u8, try small.encode(std.testing.allocator, &small_bytes), try large.encode(std.testing.allocator, &large_bytes));
     var diagnostic: data.coalescing.Diagnostic = .{};
-    var optimized = try Example.compileObserved(std.testing.allocator, std.math.maxInt(data.program.Id) - 1, .{ .coalescing = .{ .mode = .safe, .diagnostic = &diagnostic } });
+    var optimized = try Example.compileObserved(std.testing.allocator, std.math.maxInt(data.program.Id) - 1, .{ .coalescing = .{ .diagnostic = &diagnostic } });
     defer optimized.deinit();
     var optimized_bytes: [512]u8 = undefined;
     try std.testing.expectEqualSlices(u8, try large.encode(std.testing.allocator, &large_bytes), try optimized.encode(std.testing.allocator, &optimized_bytes));
@@ -732,7 +732,7 @@ test "large sparse region names preserve alpha-equivalent canonical images" {
 }
 
 test "capture diagnostics name the responsible source variable without changing compiled bytes" {
-    inline for (.{ data.coalescing.Mode.off, data.coalescing.Mode.safe }) |mode| {
+    {
         const Trace = struct {
             stages: std.ArrayList(source.CompileStage) = .empty,
             fn enter(context: *anyopaque, stage: source.CompileStage) void {
@@ -743,14 +743,14 @@ test "capture diagnostics name the responsible source variable without changing 
         var b = source.Builder.init(std.testing.allocator);
         defer b.deinit();
         const module = try examples.lexical(&b);
-        var original = try source.lowerObserved(std.testing.allocator, module, .{ .coalescing = .{ .mode = mode } });
+        var original = try source.lowerObserved(std.testing.allocator, module, .{});
         defer original.deinit();
         var trace: Trace = .{};
         defer trace.stages.deinit(std.testing.allocator);
         var diagnostic: source.Diagnostic = .{};
-        var observed = try source.lowerObserved(std.testing.allocator, module, .{ .coalescing = .{ .mode = mode }, .diagnostic = &diagnostic, .observer = .{ .context = &trace, .enter = Trace.enter } });
+        var observed = try source.lowerObserved(std.testing.allocator, module, .{ .diagnostic = &diagnostic, .observer = .{ .context = &trace, .enter = Trace.enter } });
         defer observed.deinit();
-        try std.testing.expectEqualSlices(source.CompileStage, if (mode == .off) &.{ .source_check, .lowering, .target_check, .direct_optimization, .canonicalization, .target_check, .complete } else &.{ .source_check, .lowering, .target_check, .direct_optimization, .coalescing, .complete }, trace.stages.items);
+        try std.testing.expectEqualSlices(source.CompileStage, &.{ .source_check, .lowering, .target_check, .direct_optimization, .coalescing, .complete }, trace.stages.items);
         try std.testing.expect(diagnostic.code == null and diagnostic.phase == .complete);
         var a: [1024]u8 = undefined;
         var c: [1024]u8 = undefined;
@@ -758,7 +758,7 @@ test "capture diagnostics name the responsible source variable without changing 
         for (b.schemas.items) |*schema| if (schema.* == .internal and schema.internal == .computation) {
             schema.internal.computation.capture_bound = &.{};
         };
-        try std.testing.expectError(error.InvalidOwnership, source.lowerObserved(std.testing.allocator, b.module(module.entry, module.failure), .{ .coalescing = .{ .mode = mode }, .diagnostic = &diagnostic }));
+        try std.testing.expectError(error.InvalidOwnership, source.lowerObserved(std.testing.allocator, b.module(module.entry, module.failure), .{ .diagnostic = &diagnostic }));
         try std.testing.expectEqual(source.CompileStage.target_check, diagnostic.phase);
         try std.testing.expectEqual(@as(data.program.Id, 1), diagnostic.function.?);
         try std.testing.expectEqual(b.parameter(module.entry, 0), diagnostic.variable.?);

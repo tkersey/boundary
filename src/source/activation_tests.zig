@@ -390,7 +390,7 @@ test "complete BPI3 installation images stay within the fixed BPC1 anchors" {
     }
 }
 test "stable construction observations preserve bytes and report source failures" {
-    inline for (.{ data.coalescing.Mode.off, data.coalescing.Mode.safe }) |mode| {
+    {
         const Trace = struct {
             stages: [7]source.CompileStage = undefined,
             count: usize = 0,
@@ -403,23 +403,21 @@ test "stable construction observations preserve bytes and report source failures
         var builder = source.Builder.init(testing.allocator);
         defer builder.deinit();
         const module = try source.examples.installations(&builder, 2);
-        var plain = try source.lowerObserved(testing.allocator, module, .{ .coalescing = .{ .mode = mode } });
+        var plain = try source.lowerObserved(testing.allocator, module, .{});
         defer plain.deinit();
         var trace: Trace = .{};
         var diagnostic: source.Diagnostic = .{};
         var observed = try source.lowerObserved(testing.allocator, module, .{
-            .coalescing = .{ .mode = mode },
             .diagnostic = &diagnostic,
             .observer = .{ .context = &trace, .enter = Trace.enter },
         });
         defer observed.deinit();
-        try testing.expectEqualSlices(source.CompileStage, if (mode == .off) &.{ .source_check, .lowering, .target_check, .direct_optimization, .canonicalization, .target_check, .complete } else &.{ .source_check, .lowering, .target_check, .direct_optimization, .coalescing, .complete }, trace.stages[0..trace.count]);
+        try testing.expectEqualSlices(source.CompileStage, &.{ .source_check, .lowering, .target_check, .direct_optimization, .coalescing, .complete }, trace.stages[0..trace.count]);
         try testing.expectEqual(@as(?anyerror, null), diagnostic.code);
         try testing.expectEqual(try data.program_image.identity(testing.allocator, plain.program), try data.program_image.identity(testing.allocator, observed.program));
         builder.functions.items[@intCast(module.entry)].body = null;
         trace.count = 0;
         try testing.expectError(error.UndefinedFunction, source.lowerObserved(testing.allocator, builder.module(module.entry, module.failure), .{
-            .coalescing = .{ .mode = mode },
             .diagnostic = &diagnostic,
             .observer = .{ .context = &trace, .enter = Trace.enter },
         }));

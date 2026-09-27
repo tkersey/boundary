@@ -127,27 +127,17 @@ fn lowerInternal(
     const threaded = try @import("thread_jumps.zig").optimize(a, program);
     const selected = try @import("tail_clauses.zig").optimize(a, threaded, traits);
     const ordered = try @import("slot_order.zig").optimize(a, selected);
-    if (!component and options.coalescing.mode == .safe)
-        return coalesce(allocator, ordered, &compiler, options);
+    if (!component) return coalesce(allocator, ordered, &compiler, options);
     if (options.coalescing.statistics) |stats| stats.* = .{
         .rounds = stats.rounds,
-        .outcome = if (component) .deferred_open_component else .disabled,
+        .outcome = .deferred_open_component,
     };
     var output = std.heap.ArenaAllocator.init(allocator);
     errdefer output.deinit();
-    options.stage(if (component) .source_copy else .canonicalization);
-    const projected: data.relocation.Projection = if (component)
-        .{ .program = try source.own(ir.Program, output.allocator(), ordered), .function_origins = &.{} }
-    else
-        try data.relocation.ownReachable(output.allocator(), a, ordered);
-    const result = projected.program;
+    options.stage(.source_copy);
+    const result = try source.own(ir.Program, output.allocator(), ordered);
     options.stage(.target_check);
-    var flow = try checkTarget(allocator, &compiler, result, imports, component, borrows, if (component) null else projected.function_origins, options);
-    errdefer flow.deinit();
-    if (!component) if (options.coalescing.statistics) |stats| {
-        stats.baseline = try data.coalescing.Counts.of(result);
-        stats.selected = stats.baseline;
-    };
+    const flow = try checkTarget(allocator, &compiler, result, imports, true, borrows, null, options);
     options.stage(.complete);
     if (options.diagnostic) |diagnostic| diagnostic.* = .{ .phase = .complete };
     return .{ .arena = output, .program = result, .flow = flow };

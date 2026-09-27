@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
 //! Independently emitted closures through the public typed authoring API.
 const std = @import("std");
+const frozen = @import("coalescing_baselines.zig");
 const testing = std.testing;
 const source = @import("source.zig");
 const authoring = @import("authoring.zig");
@@ -67,13 +68,13 @@ fn buildClosures(
 
 test "coalescing typed authoring shares independently emitted captured closure family" {
     for ([_]usize{ 1, 2, 15, 16, 17, 63, 64, 65, 127, 128, 129, 255, 256, 257 }) |count| {
-        var off = try closures(testing.allocator, count, .{ .mode = .off });
+        var off = try frozen.closures(testing.allocator, count);
         defer off.deinit();
         var statistics: data.coalescing.Statistics = .{};
         var safe = try closures(
             testing.allocator,
             count,
-            .{ .mode = .safe, .statistics = &statistics },
+            .{ .statistics = &statistics },
         );
         defer safe.deinit();
         try testing.expectEqual(count + 1, off.program.functions.len);
@@ -85,11 +86,11 @@ test "coalescing typed authoring shares independently emitted captured closure f
         const after = try data.program_image.encodedLength(safe.program);
         try testing.expect(after <= before);
         if (count >= 16) try testing.expect(after < before);
-        for ([_]*source.Compiled{ &off, &safe }) |compiled| {
-            const length = try data.program_image.encodedLength(compiled.program);
+        for ([_]data.activation.Program{ off.program, safe.program }) |program| {
+            const length = try data.program_image.encodedLength(program);
             const buffer = try testing.allocator.alloc(u8, length);
             defer testing.allocator.free(buffer);
-            const encoded = try compiled.encode(testing.allocator, buffer);
+            const encoded = try data.program_image.encode(testing.allocator, program, buffer);
             try testing.expectEqual(length, encoded.len);
         }
         var constructions: usize = 0;
@@ -102,7 +103,7 @@ test "coalescing typed authoring shares independently emitted captured closure f
 }
 
 test "coalescing preserves distinct literals embedded by independent authoring" {
-    var safe = try buildClosures(testing.allocator, 2, .{ .mode = .safe }, true);
+    var safe = try buildClosures(testing.allocator, 2, .{}, true);
     defer safe.deinit();
     try testing.expectEqual(@as(usize, 3), safe.program.functions.len);
     try testing.expectEqual(@as(usize, 2), safe.program.constructors.len);
@@ -110,14 +111,14 @@ test "coalescing preserves distinct literals embedded by independent authoring" 
     try testing.expectEqual(@as(usize, 0), safe.program.scopes.captures[0].fields.len);
 }
 
-test "coalescing default shares code and matches explicit safe with observations" {
+test "canonical coalescing shares code and observations preserve its output" {
     var ordinary = try closures(testing.allocator, 2, .{});
     defer ordinary.deinit();
     try testing.expectEqual(@as(usize, 2), ordinary.program.functions.len);
     try testing.expectEqual(@as(usize, 1), ordinary.program.constructors.len);
     var rounds: [1]data.coalescing.Round = undefined;
     var stats: data.coalescing.Statistics = .{ .rounds = &rounds };
-    var observed = try closures(testing.allocator, 2, .{ .mode = .safe, .statistics = &stats });
+    var observed = try closures(testing.allocator, 2, .{ .statistics = &stats });
     defer observed.deinit();
     try testing.expect(stats.round_count > stats.rounds_recorded);
     try testing.expectEqual(@as(usize, 1), stats.rounds_recorded);
@@ -180,18 +181,17 @@ test "coalescing retains each original closure observation through constructor c
     }
     try b.define(entry, next);
     const module = b.module(entry, unit);
-    for ([_]data.coalescing.Mode{ .off, .safe }) |mode| {
+    {
         var trace: Trace = .{};
         var observed = try source.lowerObserved(testing.allocator, module, .{
-            .coalescing = .{ .mode = mode },
             .captures = .{ .context = &trace, .closure = Trace.closure, .capture = Trace.capture },
         });
         defer observed.deinit();
         try testing.expectEqual(@as(usize, 3), trace.count);
         try testing.expectEqualSlices(Id, &lambdas, &trace.values);
         try testing.expectEqualSlices(Id, &.{ variable, variable, variable }, &trace.variables);
-        try testing.expectEqual(@as(usize, if (mode == .off) 2 else 1), observed.program.constructors.len);
-        var plain = try source.lowerObserved(testing.allocator, module, .{ .coalescing = .{ .mode = mode } });
+        try testing.expectEqual(@as(usize, 1), observed.program.constructors.len);
+        var plain = try source.lowerObserved(testing.allocator, module, .{});
         defer plain.deinit();
         try testing.expectEqual(try data.program_image.identity(testing.allocator, plain.program), try data.program_image.identity(testing.allocator, observed.program));
     }
@@ -200,9 +200,9 @@ test "coalescing retains each original closure observation through constructor c
 test "coalescing shares depth-eight helper chains through calls and constructed computations" {
     const trees = @import("coalescing_tree_cases.zig");
     inline for (.{ trees.Kind.tree, trees.Kind.tree_near }) |kind| {
-        var off = try trees.compile(testing.allocator, kind, .{ .mode = .off });
+        var off = try frozen.kind(testing.allocator, "", kind);
         defer off.deinit();
-        var safe = try trees.compile(testing.allocator, kind, .{ .mode = .safe });
+        var safe = try trees.compile(testing.allocator, kind, .{});
         defer safe.deinit();
         try testing.expectEqual(@as(usize, 19), off.program.functions.len);
         try testing.expectEqual(@as(usize, if (kind == .tree) 10 else 19), safe.program.functions.len);
@@ -219,9 +219,9 @@ test "coalescing shares stateful code while retaining every dynamic allocation s
         var builder = source.Builder.init(testing.allocator);
         defer builder.deinit();
         const module = try cases.build(&builder, kind);
-        var off = try source.lowerObserved(testing.allocator, module, .{ .coalescing = .{ .mode = .off } });
+        var off = try frozen.kind(testing.allocator, "", kind);
         defer off.deinit();
-        var safe = try source.lowerObserved(testing.allocator, module, .{ .coalescing = .{ .mode = .safe } });
+        var safe = try source.lowerObserved(testing.allocator, module, .{});
         defer safe.deinit();
         try testing.expectEqual(off.program.functions.len - 1, safe.program.functions.len);
         try testing.expectEqual(off.program.constructors.len - 1, safe.program.constructors.len);
@@ -244,9 +244,9 @@ test "coalescing shares stateful code while retaining every dynamic allocation s
 test "coalescing handles whole-function slot renaming with simultaneous swaps and cycles" {
     const edges = @import("coalescing_edge_cases.zig");
     for (std.enums.values(edges.Kind)) |kind| {
-        var off = try edges.compile(testing.allocator, kind, .{ .mode = .off });
+        var off = try frozen.kind(testing.allocator, "", kind);
         defer off.deinit();
-        var safe = try edges.compile(testing.allocator, kind, .{ .mode = .safe });
+        var safe = try edges.compile(testing.allocator, kind, .{});
         defer safe.deinit();
         try testing.expectEqual(@as(usize, 3), off.program.functions.len);
         try testing.expectEqual(@as(usize, 2), safe.program.functions.len);
@@ -258,19 +258,19 @@ test "coalescing handles whole-function slot renaming with simultaneous swaps an
 test "coalescing production generator covers all three-slot renamings and ordered mutations" {
     const cases = @import("coalescing_edge_cases.zig");
     for (0..36) |ordinal| for ([_]usize{ 0, 64 }) |mutation| {
-        var result = try cases.generated(testing.allocator, ordinal + mutation, .{ .mode = .safe });
+        var result = try cases.generated(testing.allocator, ordinal + mutation, .{});
         defer result.deinit();
         try testing.expectEqual(@as(usize, if (mutation == 0) 2 else 3), result.program.functions.len);
     };
-    for (0..36) |ordinal| for ([_]data.coalescing.Mode{ .off, .safe }) |mode| {
-        try testing.expectError(error.InvalidReference, cases.generated(testing.allocator, ordinal + 128, .{ .mode = mode }));
-    };
+    for (0..36) |ordinal| {
+        try testing.expectError(error.InvalidReference, cases.generated(testing.allocator, ordinal + 128, .{}));
+    }
 }
 
 test "coalescing matches renamed function-local loops and retains changed exit order" {
     const edges = @import("coalescing_edge_cases.zig");
     for (std.enums.values(edges.LoopKind)) |kind| {
-        var off = try edges.compileLoop(testing.allocator, kind, .{ .mode = .off });
+        var off = try frozen.kind(testing.allocator, "", kind);
         defer off.deinit();
         var safe = try edges.compileLoop(testing.allocator, kind, .{});
         defer safe.deinit();
@@ -284,9 +284,9 @@ test "coalescing matches renamed function-local loops and retains changed exit o
 test "coalescing authored recursive groups preserve role distinctions and changed bases" {
     const cases = @import("coalescing_recursive_cases.zig");
     for (std.enums.values(cases.Kind)) |kind| {
-        var off = try cases.compile(testing.allocator, kind, .{ .mode = .off });
+        var off = try frozen.kind(testing.allocator, "", kind);
         defer off.deinit();
-        var safe = try cases.compile(testing.allocator, kind, .{ .mode = .safe });
+        var safe = try cases.compile(testing.allocator, kind, .{});
         defer safe.deinit();
         try testing.expectEqual(@as(usize, 5), off.program.functions.len);
         try testing.expectEqual(@as(usize, if (kind == .recursive_near) 5 else 3), safe.program.functions.len);
@@ -311,14 +311,11 @@ const ConcurrentCompilation = struct {
 
     fn check(self: *ConcurrentCompilation, allocator: std.mem.Allocator) !void {
         for (0..4) |iteration| {
-            // Each thread alternates a discarded attempt, a selected quotient,
-            // and the disabled control with independent observations and owners.
+            // Alternate work-limited and completed canonical passes with independent owners.
             var stats: data.coalescing.Statistics = .{};
             var diagnostic: data.coalescing.Diagnostic = .{};
             const limited = iteration % 3 == 0;
-            const enabled = iteration % 3 != 2;
             var compiled = try closures(allocator, self.count, .{
-                .mode = if (enabled) .safe else .off,
                 .work_limit = if (limited) 0 else std.math.maxInt(u64),
                 .statistics = &stats,
                 .diagnostic = &diagnostic,
@@ -326,7 +323,7 @@ const ConcurrentCompilation = struct {
             defer compiled.deinit();
             // closures has already destroyed the source builder at this point.
             const actual = try data.program_image.identity(allocator, compiled.program);
-            const expected = self.expected[@intFromBool(enabled and !limited)];
+            const expected = self.expected[@intFromBool(!limited)];
             if (!std.mem.eql(u8, &expected, &actual)) return error.ConcurrentImageMismatch;
             if (limited and stats.outcome != .work_limit) return error.MissingWorkLimit;
             if (diagnostic.code != null) return error.StaleDiagnostic;
@@ -339,11 +336,12 @@ test "coalescing concurrent independent compilers preserve deterministic owners 
     var jobs: [4]ConcurrentCompilation = undefined;
     for (&jobs, [_]usize{ 2, 16, 32, 64 }) |*job, count| {
         job.* = .{ .count = count, .expected = undefined };
-        for ([_]data.coalescing.Mode{ .off, .safe }, 0..) |mode, index| {
-            var compiled = try closures(testing.allocator, count, .{ .mode = mode });
-            defer compiled.deinit();
-            job.expected[index] = try data.program_image.identity(testing.allocator, compiled.program);
-        }
+        var original = try frozen.closures(testing.allocator, count);
+        defer original.deinit();
+        var compiled = try closures(testing.allocator, count, .{});
+        defer compiled.deinit();
+        job.expected[0] = try data.program_image.identity(testing.allocator, original.program);
+        job.expected[1] = try data.program_image.identity(testing.allocator, compiled.program);
     }
     var threads: [jobs.len]std.Thread = undefined;
     var started: usize = 0;
@@ -367,9 +365,9 @@ test "coalescing folds fresh hyper helper emissions but retains Step configurati
         var builder = source.Builder.init(testing.allocator);
         defer builder.deinit();
         const module = try cases.build(&builder, kind);
-        var off = try source.lowerObserved(testing.allocator, module, .{ .coalescing = .{ .mode = .off } });
+        var off = try frozen.kind(testing.allocator, "hyper_", kind);
         defer off.deinit();
-        var safe = try source.lowerObserved(testing.allocator, module, .{ .coalescing = .{ .mode = .safe } });
+        var safe = try source.lowerObserved(testing.allocator, module, .{});
         defer safe.deinit();
         try testing.expect(safe.program.functions.len < off.program.functions.len);
         try testing.expect(safe.program.constructors.len < off.program.constructors.len);
@@ -386,9 +384,9 @@ test "coalescing preserves reversed equal-type capture operands at distinct cons
     var builder = source.Builder.init(testing.allocator);
     defer builder.deinit();
     const module = try @import("coalescing_capture_case.zig").build(&builder);
-    var off = try source.lowerObserved(testing.allocator, module, .{ .coalescing = .{ .mode = .off } });
+    var off = try frozen.get(testing.allocator, "capture_order");
     defer off.deinit();
-    var safe = try source.lowerObserved(testing.allocator, module, .{ .coalescing = .{ .mode = .safe } });
+    var safe = try source.lowerObserved(testing.allocator, module, .{});
     defer safe.deinit();
     try testing.expectEqual(@as(usize, 3), off.program.functions.len);
     try testing.expectEqual(@as(usize, 2), safe.program.functions.len);
@@ -411,9 +409,9 @@ test "coalescing shares immutable handler descriptions but not installations or 
         var builder = source.Builder.init(testing.allocator);
         defer builder.deinit();
         const module = try cases.build(&builder, kind);
-        var off = try source.lowerObserved(testing.allocator, module, .{ .coalescing = .{ .mode = .off } });
+        var off = try frozen.kind(testing.allocator, "handler_", kind);
         defer off.deinit();
-        var safe = try source.lowerObserved(testing.allocator, module, .{ .coalescing = .{ .mode = .safe } });
+        var safe = try source.lowerObserved(testing.allocator, module, .{});
         defer safe.deinit();
         try testing.expectEqual(@as(usize, 2), off.program.handlers.len);
         try testing.expectEqual(@as(usize, if (kind == .mixed_mode) 2 else 1), safe.program.handlers.len);
@@ -431,13 +429,15 @@ test "coalescing shares suspending cleanup code without merging protection insta
     var builder = source.Builder.init(testing.allocator);
     defer builder.deinit();
     const module = try @import("authoring_cases.zig").build(&builder, .shared_cleanup);
-    for ([_]data.coalescing.Mode{ .off, .safe }) |mode| {
-        var compiled = try source.lowerObserved(testing.allocator, module, .{ .coalescing = .{ .mode = mode } });
-        defer compiled.deinit();
-        try testing.expectEqual(@as(usize, if (mode == .off) 5 else 4), compiled.program.functions.len);
-        try testing.expectEqual(@as(usize, if (mode == .off) 4 else 3), compiled.program.constructors.len);
+    var original = try frozen.get(testing.allocator, "shared_cleanup");
+    defer original.deinit();
+    var compiled = try source.lower(testing.allocator, module);
+    defer compiled.deinit();
+    for ([_]data.activation.Program{ original.program, compiled.program }, 0..) |program, index| {
+        try testing.expectEqual(@as(usize, if (index == 0) 5 else 4), program.functions.len);
+        try testing.expectEqual(@as(usize, if (index == 0) 4 else 3), program.constructors.len);
         var protections: usize = 0;
-        for (compiled.program.blocks) |block| protections += @intFromBool(block.terminator == .protect);
+        for (program.blocks) |block| protections += @intFromBool(block.terminator == .protect);
         try testing.expectEqual(@as(usize, 2), protections);
     }
 }
@@ -448,7 +448,7 @@ test "coalescing shares recursive helpers inside local and shared multi-shot sta
         var builder = source.Builder.init(testing.allocator);
         defer builder.deinit();
         const module = try cases.build(&builder, kind);
-        var off = try source.lowerObserved(testing.allocator, module, .{ .coalescing = .{ .mode = .off } });
+        var off = try frozen.kind(testing.allocator, "", kind);
         defer off.deinit();
         var safe = try source.lower(testing.allocator, module);
         defer safe.deinit();
@@ -468,14 +468,14 @@ test "coalescing retains valid distinct caller provenance and rejects an escapin
         var builder = source.Builder.init(testing.allocator);
         defer builder.deinit();
         const module = try @import("coalescing_borrow_cases.zig").build(&builder, escape);
-        for ([_]data.coalescing.Mode{ .off, .safe }) |mode| {
-            const result = source.lowerObserved(testing.allocator, module, .{ .coalescing = .{ .mode = mode } });
+        {
+            const result = source.lowerObserved(testing.allocator, module, .{});
             if (escape) {
                 try testing.expectError(error.InvalidOwnership, result);
             } else {
                 var compiled = try result;
                 defer compiled.deinit();
-                try testing.expectEqual(@as(usize, if (mode == .off) 9 else 7), compiled.program.functions.len);
+                try testing.expectEqual(@as(usize, 7), compiled.program.functions.len);
             }
         }
     }
@@ -502,7 +502,7 @@ test "coalescing allocation failures cover handlers constructors regions resourc
     for ([_]cases.Kind{ .shared_cleanup, .state_recursive_local, .borrow_contexts }) |kind| {
         var builder = source.Builder.init(testing.allocator);
         defer builder.deinit();
-        var baseline = try source.lowerObserved(testing.allocator, try cases.build(&builder, kind), .{ .coalescing = .{ .mode = .off } });
+        var baseline = try frozen.kind(testing.allocator, "", kind);
         defer baseline.deinit();
         const before = try data.program_image.identity(testing.allocator, baseline.program);
         try testing.checkAllAllocationFailures(testing.allocator, richAllocationCase, .{baseline.program});

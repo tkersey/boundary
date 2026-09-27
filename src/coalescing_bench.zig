@@ -40,17 +40,17 @@ const Trace = struct {
 fn phase(io: std.Io, start: std.Io.Timestamp, meter: Meter) Phase {
     return .{ .ns = @intCast(start.durationTo(std.Io.Clock.awake.now(io)).nanoseconds), .allocations = meter.calls, .allocated_bytes = meter.allocated, .peak_requested_bytes = meter.peak };
 }
-fn measure(init: std.process.Init, kind: cases.Kind, mode: data.coalescing.Mode) !Sample {
+fn measure(init: std.process.Init, kind: cases.Kind) !Sample {
     var source_meter: Meter = .{ .parent = init.gpa };
     var compile_meter: Meter = .{ .parent = init.gpa };
     var encode_meter: Meter = .{ .parent = init.gpa };
     var admit_meter: Meter = .{ .parent = init.gpa };
-    const result = try sample(init.io, kind, mode, &source_meter, &compile_meter, &encode_meter, &admit_meter);
+    const result = try sample(init.io, kind, &source_meter, &compile_meter, &encode_meter, &admit_meter);
     if (source_meter.live != 0 or compile_meter.live != 0 or
         encode_meter.live != 0 or admit_meter.live != 0) return error.UnreleasedMeasuredStorage;
     return result;
 }
-fn sample(io: std.Io, kind: cases.Kind, mode: data.coalescing.Mode, source_meter: *Meter, compile_meter: *Meter, encode_meter: *Meter, admit_meter: *Meter) !Sample {
+fn sample(io: std.Io, kind: cases.Kind, source_meter: *Meter, compile_meter: *Meter, encode_meter: *Meter, admit_meter: *Meter) !Sample {
     const start = std.Io.Clock.awake.now(io);
     var builder = source.Builder.init(source_meter.allocator());
     defer builder.deinit();
@@ -60,7 +60,7 @@ fn sample(io: std.Io, kind: cases.Kind, mode: data.coalescing.Mode, source_meter
     const lowering = std.Io.Clock.awake.now(io);
     var trace: Trace = .{ .io = io, .last = lowering };
     var compiled = try source.lowerObserved(compile_meter.allocator(), module, .{
-        .coalescing = .{ .mode = mode, .statistics = &stats },
+        .coalescing = .{ .statistics = &stats },
         .observer = .{ .context = &trace, .enter = Trace.enter },
     });
     defer compiled.deinit();
@@ -80,16 +80,15 @@ pub fn main(init: std.process.Init) !void {
     var args = init.minimal.args.iterate();
     _ = args.next();
     const kind = std.meta.stringToEnum(cases.Kind, args.next() orelse return error.MissingFixture) orelse return error.InvalidFixture;
-    const mode = std.meta.stringToEnum(data.coalescing.Mode, args.next() orelse return error.MissingMode) orelse return error.InvalidMode;
     if (args.next() != null) return error.UnexpectedArgument;
-    for (0..3) |_| _ = try measure(init, kind, mode);
+    for (0..3) |_| _ = try measure(init, kind);
     var samples: [9]Sample = undefined;
-    for (&samples) |*row| row.* = try measure(init, kind, mode);
+    for (&samples) |*row| row.* = try measure(init, kind);
     for (samples) |row| if (!std.mem.eql(u8, &samples[0].sha256, &row.sha256))
         return error.NondeterministicImage;
     var buffer: [4096]u8 = undefined;
     var output = std.Io.File.stdout().writer(init.io, &buffer);
-    try std.json.Stringify.value(.{ .fixture = kind, .mode = mode, .warmups = 3, .zig = builtin.zig_version_string, .optimization = @tagName(builtin.mode), .architecture = @tagName(builtin.cpu.arch), .os = @tagName(builtin.os.tag), .stage_names = std.meta.fieldNames(source.CompileStage), .samples = samples }, .{}, &output.interface);
+    try std.json.Stringify.value(.{ .fixture = kind, .pipeline = "canonical", .warmups = 3, .zig = builtin.zig_version_string, .optimization = @tagName(builtin.mode), .architecture = @tagName(builtin.cpu.arch), .os = @tagName(builtin.os.tag), .stage_names = std.meta.fieldNames(source.CompileStage), .samples = samples }, .{}, &output.interface);
     try output.interface.writeByte('\n');
     try output.interface.flush();
 }

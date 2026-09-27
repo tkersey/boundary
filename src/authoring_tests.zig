@@ -854,9 +854,6 @@ test "review functionFor retains its full declared callable interface" {
 }
 
 fn namedContinuation(allocator: std.mem.Allocator, matching: bool, retained: bool, snapshot: bool) !void {
-    return namedContinuationMode(allocator, matching, retained, snapshot, .off);
-}
-fn namedContinuationMode(allocator: std.mem.Allocator, matching: bool, retained: bool, snapshot: bool, mode: @import("boundary_data").coalescing.Mode) !void {
     var raw = source.Builder.init(allocator);
     defer raw.deinit();
     const c = try a.Context.init(&raw);
@@ -890,13 +887,13 @@ fn namedContinuationMode(allocator: std.mem.Allocator, matching: bool, retained:
     try c.define(work_fn, try work.ret(result));
     try c.define(entry, try body.ret(try body.handleWith(h, try body.lambda(work_fn, shape), &.{})));
     var compiled = if (snapshot)
-        try source.lowerObserved(allocator, try c.module(entry, unit), .{ .coalescing = .{ .mode = mode } })
+        try source.lowerObserved(allocator, try c.module(entry, unit), .{})
     else
-        try c.compileWithOptions(allocator, entry, unit, .{ .mode = mode });
+        try c.compileWithOptions(allocator, entry, unit, .{});
     compiled.deinit();
 }
 
-test "review continuation names use authoritative liveness, not all lexical captures" {
+test "canonical coalescing preserves named captures using authoritative liveness" {
     for ([_]bool{ false, true }) |snapshot| {
         try testing.expectError(error.SchemaMismatch, namedContinuation(testing.allocator, false, true, snapshot));
         try namedContinuation(testing.allocator, true, true, snapshot);
@@ -906,14 +903,6 @@ test "review continuation names use authoritative liveness, not all lexical capt
 
 test "review named capture observation reclaims scratch and tolerates allocation failure" {
     try testing.checkAllAllocationFailures(testing.allocator, namedContinuation, .{ true, true, true });
-}
-
-test "coalescing preserves original named continuation capture publication checks" {
-    for ([_]bool{ false, true }) |snapshot| {
-        try testing.expectError(error.SchemaMismatch, namedContinuationMode(testing.allocator, false, true, snapshot, .safe));
-        try namedContinuationMode(testing.allocator, true, true, snapshot, .safe);
-        try namedContinuationMode(testing.allocator, false, false, snapshot, .safe);
-    }
 }
 
 test "review actual generic closure captures must satisfy named callable allowance" {

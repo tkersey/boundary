@@ -17,6 +17,7 @@ src/authoring.zig
 src/authoring_cases.zig
 src/authoring_tests.zig
 src/coalescing_allocation_meter.zig
+src/coalescing_baselines.zig
 src/coalescing_bench.zig
 src/coalescing_borrow_cases.zig
 src/coalescing_capture_case.zig

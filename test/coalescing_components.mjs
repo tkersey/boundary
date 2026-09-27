@@ -27,11 +27,18 @@ async function link(manifest, name) {
   return path;
 }
 try {
-  const first = execFileSync(emitter, ['off', 'leaf']);
-  const second = execFileSync(emitter, ['off', 'leaf']);
-  const client = execFileSync(emitter, ['off', 'client']);
-  assert.deepEqual(execFileSync(emitter, ['safe', 'leaf']), first);
-  assert.deepEqual(execFileSync(emitter, ['safe', 'client']), client);
+  for (const retired of ['off', 'safe']) {
+    assert.throws(() => execFileSync(emitter, [retired, 'leaf'],
+      {stdio: ['ignore', 'pipe', 'pipe']}), error => {
+      assert.equal(error.stdout.length, 0, 'retired selector published an object');
+      return true;
+    });
+  }
+  const first = execFileSync(emitter, ['leaf']);
+  const second = execFileSync(emitter, ['leaf']);
+  const client = execFileSync(emitter, ['client']);
+  assert.deepEqual(execFileSync(emitter, ['leaf']), first);
+  assert.deepEqual(execFileSync(emitter, ['client']), client);
   for (const [key, bytes] of [['a', first], ['b', second], ['client', client]]) {
     assert.equal(bytes.subarray(0, 8).toString(), 'ABL_BMO1');
     await writeFile(join(directory, `${key}.bmo1`), bytes);
@@ -64,7 +71,7 @@ try {
   const nominal=[];
   for(const kind of ['region_leaf','resource_leaf']) {
     for(const key of ['a','b'])await writeFile(join(directory,`${key}.bmo1`),
-      execFileSync(emitter,['off',kind]));
+      execFileSync(emitter,[kind]));
     const paths=[await baseline(`${kind}-off`), await link(manifest, `${kind}-safe`)];
     const [before,after]=execFileSync(inspector,paths,{encoding:'utf8'}).trim().split('\n').map(JSON.parse);
     const anchor=kind==='region_leaf'?'regions':'resources';
@@ -83,7 +90,7 @@ try {
   for(const shared of [false,true]) {
     const kind=shared?'bound-effect':'private-effects';
     for(const [key,subject] of [['a','effect_leaf'],['b',shared?'effect_import_leaf':'effect_leaf'],['client','effect_client']])
-      await writeFile(join(directory,`${key}.bmo1`),execFileSync(emitter,['off',subject]));
+      await writeFile(join(directory,`${key}.bmo1`),execFileSync(emitter,[subject]));
     const bindings=[...manifest.bindings,...['a','b'].map(key=>({
       required:{instance:'client',symbol:`${key}-read`},supplied:{instance:key,symbol:'read'}}))];
     if(shared)bindings.push({required:{instance:'b',symbol:'read'},supplied:{instance:'a',symbol:'read'}});
