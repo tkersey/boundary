@@ -81,12 +81,51 @@ fn recordShape(comptime T: type, value: T, result: *Shape) Error!void {
         else => {},
     }
 }
+fn sumWork(values: []const u64) Error!u64 {
+    var result: u64 = 0;
+    for (values) |value| result = std.math.add(u64, result, value) catch return error.Capacity;
+    return result;
+}
 fn reservation(program: ir.Program, stage: Stage) Error!u64 {
     // Wire compression is deliberately irrelevant to a scan-work bound.
     var shape: Shape = .{};
     try recordShape(ir.Program, program, &shape);
-    const square = std.math.mul(u64, shape.records, shape.records) catch return error.Capacity;
-    const scans = std.math.mul(u64, square, 64) catch return error.Capacity;
+    var instructions: u64 = 0;
+    var block_squares: u64 = 0;
+    var applications_count: u64 = 0;
+    var cells_count: u64 = 0;
+    var constructions: u64 = 0;
+    var max_slots: u64 = 0;
+    var max_inputs: u64 = 0;
+    for (program.functions) |function| {
+        max_slots = @max(max_slots, function.layout.slots.len);
+        max_inputs = @max(max_inputs, function.inputs.len);
+    }
+    for (program.blocks) |block| {
+        instructions = std.math.add(u64, instructions, block.instructions.len) catch return error.Capacity;
+        const square = std.math.mul(u64, block.instructions.len, block.instructions.len) catch return error.Capacity;
+        block_squares = std.math.add(u64, block_squares, square) catch return error.Capacity;
+        applications_count += @intFromBool(block.terminator == .apply);
+        for (block.instructions) |op| {
+            cells_count += @intFromBool(op.opcode == .cell_new);
+            constructions += @intFromBool(op.opcode == .computation);
+        }
+    }
+    // Count the domain actually scanned by this pass, not a square of unrelated
+    // schemas, literals and record wrapper fields. Fixed-point/proof work below
+    // is separately capped by its counted allowance.
+    const comparisons: u64 = switch (stage) {
+        .branch => std.math.mul(u64, program.blocks.len, program.blocks.len) catch return error.Capacity,
+        .applications => std.math.mul(u64, try sumWork(&.{ applications_count, 1 }), shape.records) catch return error.Capacity,
+        .aggregates => block_squares,
+        .expressions => 0,
+        .cells => std.math.mul(u64, try sumWork(&.{ cells_count, 1 }), shape.records) catch return error.Capacity,
+        .dead_computation => std.math.mul(u64, try sumWork(&.{ instructions, max_slots, program.blocks.len, 1 }), shape.records) catch return error.Capacity,
+        .dead_arguments => std.math.mul(u64, try sumWork(&.{ program.functions.len, max_inputs, 1 }), shape.records) catch return error.Capacity,
+        .dead_captures, .capture_projection, .capture_summary => std.math.mul(u64, try sumWork(&.{ program.constructors.len, constructions, 1 }), shape.records) catch return error.Capacity,
+        .p01 => 0,
+    };
+    const scans = std.math.mul(u64, std.math.add(u64, comparisons, shape.records) catch return error.Capacity, 64) catch return error.Capacity;
     const byte_work = std.math.mul(u64, shape.bytes, 16) catch return error.Capacity;
     const facts: u64 = switch (stage) {
         .branch, .applications, .aggregates => 22_000_000,
@@ -235,11 +274,17 @@ pub fn run(allocator: std.mem.Allocator, original: ir.Program, options: Options)
     const limit = std.math.add(usize, stats.baseline_bytes, growth(options, stats.baseline_bytes)) catch return error.Capacity;
     const quiet: p01.Options = .{ .work_limit = options.coalescing.work_limit };
     var stable = false;
+    var generation: usize = 0;
+    var no_change_generation: [std.meta.fields(Stage).len]?usize = @splat(null);
     var round: usize = 0;
     while (round < options.round_limit) : (round += 1) {
         const before = try image.identity(allocator, if (current) |owner| owner.program else baseline.program);
         for (schedule) |next_stage| {
             stage = next_stage;
+            if (no_change_generation[@intFromEnum(stage)] == generation) {
+                stats.stages_skipped += 1;
+                continue;
+            }
             const subject = if (current) |*value| value else &baseline;
             if (!try possible(allocator, subject, stage)) {
                 stats.stages_skipped += 1;
@@ -277,7 +322,12 @@ pub fn run(allocator: std.mem.Allocator, original: ir.Program, options: Options)
                 return baseline;
             }
             stats.stages_run += 1;
-            if (!std.mem.eql(u8, &try image.identity(allocator, input), &try image.identity(allocator, next.program))) stats.changed_stages += 1;
+            // An unchanged-stage result is reusable only until another stage
+            // changes actual records. No hash match authorizes skipping work.
+            if (!@import("record_equal.zig").equal(ir.Program, input, next.program)) {
+                stats.changed_stages += 1;
+                generation += 1;
+            } else no_change_generation[@intFromEnum(stage)] = generation;
             if (current) |*owner| owner.deinit();
             current = next;
         }

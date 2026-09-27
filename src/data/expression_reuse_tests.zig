@@ -221,3 +221,55 @@ test "expression reuse does not introduce retention across a capture boundary" {
     candidate.blocks = &changed;
     try std.testing.expectError(error.InvalidExpressionReuse, reuse.validate(a, original, candidate, &.{.{ .source = .{ .block = 0, .instruction = 0 }, .target = .{ .block = 3, .instruction = 0 } }}));
 }
+
+test "unique expressions do not allocate a global availability universe" {
+    const p = @import("program.zig");
+    var bytes: [256][8]u8 = undefined;
+    var constants: [256]p.Literal = undefined;
+    var instructions: [256]ir.Instruction = undefined;
+    for (&bytes, &constants, &instructions, 0..) |*value, *literal, *op, index| {
+        std.mem.writeInt(u64, value, index, .little);
+        literal.* = .{ .schema = 0, .bytes = value };
+        op.* = .{ .destination = 0, .opcode = .constant, .immediate = index };
+    }
+    const original: ir.Program = .{
+        .roots = .{ .entry = 0, .result = 0, .failure = 1 },
+        .schemas = &.{ .u64, .unit },
+        .constants = &constants,
+        .effects = &.{},
+        .functions = &.{.{ .entry = 0, .inputs = &.{}, .layout = .{ .slots = &.{0} }, .result = 0 }},
+        .blocks = &.{.{ .function = 0, .instructions = &instructions, .terminator = .{ .return_value = 0 } }},
+    };
+    var stats: reuse.Statistics = .{};
+    var result = try reuse.run(a, original, &stats, .{});
+    defer result.deinit();
+    try std.testing.expectEqual(@as(usize, 256), stats.eligible_definitions);
+    try std.testing.expectEqual(@as(usize, 0), stats.tracked_definitions);
+    try std.testing.expect(!stats.work_limit);
+    try std.testing.expectEqual(@as(usize, 0), stats.expressions_reused);
+}
+
+test "equal expressions separated by capture boundaries do not share availability storage" {
+    const blocks = try a.alloc(ir.Block, 129);
+    defer a.free(blocks);
+    for (blocks, 0..) |*block, id| block.* = .{
+        .function = 0,
+        .instructions = &.{.{ .destination = 0, .opcode = .constant, .immediate = 0 }},
+        .terminator = if (id == blocks.len - 1) .{ .return_value = 0 } else .{ .yield_value = .{ .block = id + 1 } },
+    };
+    const original: ir.Program = .{
+        .roots = .{ .entry = 0, .result = 0, .failure = 1 },
+        .schemas = &.{ .u64, .unit },
+        .constants = &.{.{ .schema = 0, .bytes = &.{ 7, 0, 0, 0, 0, 0, 0, 0 } }},
+        .effects = &.{},
+        .functions = &.{.{ .entry = 0, .inputs = &.{}, .layout = .{ .slots = &.{0} }, .result = 0 }},
+        .blocks = blocks,
+    };
+    var stats: reuse.Statistics = .{};
+    var result = try reuse.run(a, original, &stats, .{});
+    defer result.deinit();
+    try std.testing.expectEqual(@as(usize, 129), stats.eligible_definitions);
+    try std.testing.expectEqual(@as(usize, 0), stats.tracked_definitions);
+    try std.testing.expectEqual(@as(usize, 0), stats.expressions_reused);
+    try std.testing.expect(!stats.work_limit);
+}

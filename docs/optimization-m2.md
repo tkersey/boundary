@@ -296,10 +296,14 @@ Original-invalid input rejects before a zero optimization budget can defer work.
 Semantic error indices are not misreported as original source-variable locations.
 
 The defaults are four rounds and 100,000,000,000 conservative scan-reservation
-units. Per stage the reservation is `64 * logical_record_count² + 16 * byte_payload`
-plus the bounded analysis/proof allowance where needed. These are reservations,
-not claims of executed comparisons. Logical records are counted directly because
-wire compression is not a work bound. Value propagation additionally counts work
+units. Reservations now follow each pass's actual scan domain: block pairs for
+branch correspondence, applications for specialization, per-block instruction
+pairs for aggregate forwarding, and relevant cell/constructor/input counts for
+the corresponding rewrites. Counted analyses/proofs reserve their existing caps;
+literal bytes remain linear. The former square of all unrelated metadata was
+rejected by the real corpus. These are reservations, not claims of executed
+comparisons. Logical records are counted directly because wire compression is
+not a work bound. Value propagation additionally counts work
 up to 10,000,000 units; backwards proofs count up to 1,000,000 units and retain the
 256-level stack guard. GVN retains its counted bound. No unfinished facts escape.
 P01 keeps its separate exact accounting and rollback rule.
@@ -365,6 +369,24 @@ cases still hit work limits. Agent's recorded ten failures remain the evidence f
 its unchanged pin; the newer probe does not relabel that evidence. Remaining work
 is to finish budget/scan corrections, authenticate the successor pin and rerun the
 whole consumer qualification.
+
+The subsequent correction keeps all shipping limits unchanged. GVN now indexes
+only repeated exact expressions (hashes select buckets, raw records decide),
+partitions availability by transparent control-flow regions, schedules changed
+successors with a worklist, and indexes the independent validator's targets and
+raw predecessor edges. Capture boundaries still prohibit reuse. On inquiry/ReAct,
+the complete GVN check performs 441,678 counted units and checks 381 replacements;
+the previous validator needed over three million units in a diagnostic run.
+No witness, admission or mutation check was removed.
+
+The driver also remembers a stage's proved no-op only while actual program records
+remain unchanged; record equality invalidates that fact after any transformation.
+This avoids reserving and repeating the same completed no-op within one search.
+All 18 existing corpus images now finish under the default limits. The three
+inquiry images reduce 35,591 → 35,257, 35,973 → 35,637 and 49,604 → 41,021 bytes.
+[Input-bound probe evidence](performance/m2-corpus-budget.json) records exact input
+digests, outcomes and work. This is an admitted-record probe, not fresh Agent
+emission or runtime qualification. Repinning and re-emission remain required.
 
 ## Remaining M2 obligations
 

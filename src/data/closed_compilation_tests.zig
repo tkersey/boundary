@@ -140,3 +140,24 @@ test "inapplicable semantic passes are skipped without skipping mandatory P01" {
     try std.testing.expect(stats.stages_skipped > 0);
     try std.testing.expect(structural.outcome != .not_run);
 }
+
+test "a proved no-op stage is not repeated on unchanged records" {
+    const ir = @import("activation.zig");
+    const program: ir.Program = .{
+        .roots = .{ .entry = 0, .result = 0, .failure = 1 },
+        .schemas = &.{ .u64, .unit },
+        .effects = &.{},
+        .constants = &.{.{ .schema = 0, .bytes = &.{ 7, 0, 0, 0, 0, 0, 0, 0 } }},
+        .functions = &.{.{ .entry = 0, .inputs = &.{0}, .layout = .{ .slots = &.{ 0, 0, 0 } }, .result = 0 }},
+        .blocks = &.{
+            .{ .function = 0, .instructions = &.{.{ .destination = 1, .opcode = .constant, .immediate = 0 }}, .terminator = .{ .jump = .{ .block = 1, .assignments = &.{.{ .destination = 2, .source = .{ .slot = 1 } }} } } },
+            .{ .function = 0, .instructions = &.{}, .terminator = .{ .return_value = 0 } },
+        },
+    };
+    var stats: compile.Statistics = .{};
+    var result = try compile.run(a, program, .{ .contract = .semantic, .statistics = &stats });
+    defer result.deinit();
+    try std.testing.expectEqual(compile.Outcome.no_change, stats.outcome);
+    try std.testing.expectEqual(@as(usize, 1), stats.stages_run);
+    try std.testing.expectEqual(@as(usize, 0), stats.changed_stages);
+}
