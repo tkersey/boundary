@@ -1864,3 +1864,36 @@ test "declared function recovery retains names and refuses another context or ra
     const raw_function = try raw.declare(&.{}, try raw.scalar(void), &.{}, &.{});
     try testing.expectError(error.InvalidReference, a.interop.declaredFunction(c, raw_function));
 }
+
+test "typed byte and indexed container queries preserve categories and optional results" {
+    var raw = source.Builder.init(testing.allocator);
+    defer raw.deinit();
+    const c = try a.Context.init(&raw);
+    const unit = try c.scalar(void);
+    const integer = try c.scalar(u64);
+    const byte_id = try raw.scalar(u8);
+    const shapes = [_]@import("boundary_data").program.Schema{
+        .bytes,                                             .text,                                                .{ .bounded_bytes = 16 }, .{ .bounded_text = 16 },
+        .{ .array = .{ .element = byte_id, .length = 2 } }, .{ .vector = .{ .element = byte_id, .maximum = 2 } },
+    };
+    const optional = try c.alternatives(&.{ .{ .name = "none", .schema = unit }, .{ .name = "some", .schema = try c.scalar(u8) } });
+    for (shapes, 0..) |shape, index| {
+        const container = try a.interop.schema(c, try raw.schema(shape));
+        const function = try c.function("query", &.{ .{ .name = "value", .schema = container }, .{ .name = "index", .schema = integer } }, optional, &.{});
+        const body = try c.body(function);
+        const value = try body.parameter("value");
+        const offset = try body.parameter("index");
+        if (index < 4) {
+            try testing.expectError(error.InvalidCategory, body.blobLength(offset));
+            try testing.expectError(error.SchemaMismatch, body.blobByte(value, try body.constant(bool, true)));
+            _ = try body.blobLength(value);
+            try c.define(function, try body.ret(try body.blobByte(value, offset)));
+        } else {
+            try testing.expectError(error.InvalidCategory, body.blobByte(value, offset));
+            _ = try body.sequenceLength(value);
+            try c.define(function, try body.ret(try body.sequenceGet(value, offset)));
+        }
+        var compiled = try c.compile(testing.allocator, function, unit);
+        defer compiled.deinit();
+    }
+}

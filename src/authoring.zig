@@ -1706,7 +1706,7 @@ pub const Body = opaque {
         const value = try self.useValue(sequence);
         const c = bodyData(self).context;
         const shape = contextData(c).raw.schemas.items[@intCast(try c.schemaId(value.schema))];
-        if (shape != .seq) return c.reject(error.InvalidCategory, "length", "requires an unbounded sequence");
+        if (shape != .seq and shape != .vector and shape != .array) return c.reject(error.InvalidCategory, "length", "requires a sequence, vector, or array");
         errdefer |err| c.poison(err);
         const integer = try c.scalar(u64);
         return self.bind(try contextData(c).raw.pure(try contextData(c).raw.primitive(try c.schemaId(integer), .sequence_length, &.{value.id}, 0)), integer);
@@ -1716,12 +1716,38 @@ pub const Body = opaque {
         const offset = try self.useValue(index);
         const c = bodyData(self).context;
         const info = data(SchemaData, value.schema);
-        if (contextData(c).raw.schemas.items[@intCast(info.id)] != .seq)
-            return c.reject(error.InvalidCategory, "sequence get", "requires an unbounded sequence");
+        const shape = contextData(c).raw.schemas.items[@intCast(info.id)];
+        if (shape != .seq and shape != .vector and shape != .array)
+            return c.reject(error.InvalidCategory, "sequence get", "requires a sequence, vector, or array");
         try c.same(try c.scalar(u64), offset.schema);
         errdefer |err| c.poison(err);
         const optional = try c.alternatives(&.{ .{ .name = "none", .schema = try c.scalar(void) }, .{ .name = "some", .schema = info.result orelse return error.InvalidSchema } });
         return self.bind(try contextData(c).raw.pure(try contextData(c).raw.primitive(try c.schemaId(optional), .sequence_get, &.{ value.id, offset.id }, 0)), optional);
+    }
+    pub fn blobLength(self: *Body, blob: *const Value) Error!*const Value {
+        const value = try self.blobValue(blob);
+        const c = bodyData(self).context;
+        errdefer |err| c.poison(err);
+        const integer = try c.scalar(u64);
+        return self.bind(try contextData(c).raw.pure(try contextData(c).raw.primitive(try c.schemaId(integer), .blob_length, &.{value.id}, 0)), integer);
+    }
+    /// Byte indexing, including for UTF-8 text; absence is an explicit case.
+    pub fn blobByte(self: *Body, blob: *const Value, index: *const Value) Error!*const Value {
+        const value = try self.blobValue(blob);
+        const offset = try self.useValue(index);
+        const c = bodyData(self).context;
+        try c.same(try c.scalar(u64), offset.schema);
+        errdefer |err| c.poison(err);
+        const optional = try c.alternatives(&.{ .{ .name = "none", .schema = try c.scalar(void) }, .{ .name = "some", .schema = try c.scalar(u8) } });
+        return self.bind(try contextData(c).raw.pure(try contextData(c).raw.primitive(try c.schemaId(optional), .blob_byte, &.{ value.id, offset.id }, 0)), optional);
+    }
+    fn blobValue(self: *Body, blob: *const Value) Error!*const ValueData {
+        const value = try self.useValue(blob);
+        const c = bodyData(self).context;
+        switch (contextData(c).raw.schemas.items[@intCast(try c.schemaId(value.schema))]) {
+            .bytes, .text, .bounded_bytes, .bounded_text => return value,
+            else => return c.reject(error.InvalidCategory, "blob", "requires bytes or UTF-8 text"),
+        }
     }
     pub fn yieldNow(self: *Body) Error!*const Value {
         try self.ready();
@@ -2226,7 +2252,7 @@ pub const interop = struct {
         errdefer |err| c.poison(err);
         const shape = contextData(c).raw.schemas.items[@intCast(id)];
         switch (shape) {
-            .product, .sum, .seq => {},
+            .product, .sum, .seq, .vector, .array => {},
             .internal => |inner| switch (inner) {
                 .computation, .resumption, .borrowed, .suspension_package, .cell, .abstract_resource => {},
                 else => return c.intern(id, &.{}),
@@ -2246,6 +2272,8 @@ pub const interop = struct {
         info.fields = try positionalFields(c, ids);
         info.result = switch (shape) {
             .seq => |element| try schema(c, element),
+            .vector => |vector| try schema(c, vector.element),
+            .array => |array| try schema(c, array.element),
             .internal => |v| switch (v) {
                 .computation => |signature| try schema(c, signature.result),
                 .resumption => |signature| try schema(c, signature.answer),
