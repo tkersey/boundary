@@ -492,6 +492,30 @@ complete. Seventy focused tests pass, including the exact hidden-capacity-cliff
 counterexample. Fresh source emission/rebinding and execution/checkpoint/timing
 qualification remain required.
 
+## Frozen implementation qualification
+
+At `5f5c11e`, `zig build check -Doptimize=ReleaseSafe -j2 --summary all` finishes
+successfully: **319/319 steps and 526/526 tests** across the repository's current
+authoring, data, component and source-semantics aggregate.
+
+`docs/performance/m2-platform-witnesses.json` binds fourteen existing record cases
+to source-free linking and the unchanged production World kernel. Node/WASM
+completes **56 independent expected-value comparisons**; the existing locked
+Wasmtime embedding agrees on all 56 canonical outcomes. Node also rejects 28
+malformed initial inputs, restores fourteen same-image portable States and rejects
+twelve wrong-image restores (the unknown variant/callable arms have identical
+images). Cases include product-field/branch/direct-call interactions, captured
+calls, private cells, dead captures, XOR summaries, field projection, and known/
+unknown variants. A separate checked P04 diamond case qualifies actual reuse even
+when the full pipeline prefers a cheaper DCE candidate. This is semantic/custody
+evidence, not runtime timing.
+
+Agent's final tuple has been rebound locally to this immutable input. Its browser
+transfer assertions complete in Chromium 153.0.8010.12 and Firefox 155.0, with two
+worker destructions, a real file read and cleanup in each. The enclosing integrated
+aggregate remains running and receives no terminal pass credit yet. The World
+kernel has not been rebuilt.
+
 ## Remaining M2 obligations
 
 This is not complete M2 or canonical pipeline adoption. The specification's
