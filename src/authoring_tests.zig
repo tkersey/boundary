@@ -1683,3 +1683,83 @@ test "handler resumption declarations enforce kind, cardinality and single assig
     try testing.expectEqual(slot.schema(), try c.resumptionSchemaFor(handler, first));
     try testing.expectError(error.SchemaAlreadyDefined, c.handler(first, unit, unit, options));
 }
+
+const HandlerArgumentCase = enum { valid, missing, duplicate, wrong_type };
+fn handlerArguments(allocator: std.mem.Allocator, mode: HandlerArgumentCase) !void {
+    var raw = source.Builder.init(allocator);
+    defer raw.deinit();
+    const c = try a.Context.init(&raw);
+    const integer = try c.scalar(u64);
+    const unit = try c.scalar(void);
+    const operation = try c.local("arguments/read", unit, integer, .linear);
+    const h = try c.handler(operation, integer, integer, .{
+        .mode = .deep,
+        .use = .linear,
+        .residual = &.{},
+        .captures = &.{ integer, try c.capability(operation) },
+        .state = &.{.{ .name = "seed", .schema = integer }},
+        .body_parameters = &.{ .{ .name = "seed", .schema = integer }, .{ .name = "extra", .schema = integer } },
+    });
+    const returns_fn = try c.returnFunction(h);
+    const returns = try c.body(returns_fn);
+    try c.define(returns_fn, try returns.ret(try returns.parameter("result")));
+    const clause_fn = try c.clauseFunction(h);
+    const clause = try c.body(clause_fn);
+    try c.define(clause_fn, try clause.ret(try clause.resumeValue(try clause.parameter("resumption"), try clause.parameter("seed"))));
+    const schema = try c.handledSchema(h);
+    const work_fn = try c.functionFor("parameterized body", schema);
+    const work = try c.body(work_fn);
+    const value = try work.performLocal(operation, try work.parameter("capability"), try work.constant(void, {}));
+    const fault = try c.literalFailure(void, {});
+    const sum = try work.checkedAdd(value, try work.parameter("seed"), fault);
+    try c.define(work_fn, try work.ret(try work.checkedAdd(sum, try work.parameter("extra"), fault)));
+    const main = try c.function("entry", &.{}, integer, &.{});
+    const entry = try c.body(main);
+    const seed = if (mode == .wrong_type) try entry.constant(bool, true) else try entry.constant(u64, 10);
+    const args: []const a.Argument = switch (mode) {
+        .missing => &.{},
+        .duplicate => &.{ .{ .name = "seed", .value = seed }, .{ .name = "seed", .value = seed } },
+        .valid, .wrong_type => &.{ .{ .name = "extra", .value = try entry.constant(u64, 20) }, .{ .name = "seed", .value = seed } },
+    };
+    try c.define(main, try entry.ret(try entry.handleWithArguments(h, try entry.lambda(work_fn, schema), args, &.{.{ .name = "seed", .value = try entry.constant(u64, 3) }})));
+    var compiled = try c.compile(allocator, main, unit);
+    defer compiled.deinit();
+}
+test "handler inputs are named and separate from handler state" {
+    try handlerArguments(testing.allocator, .valid);
+    try testing.expectError(error.SchemaMismatch, handlerArguments(testing.allocator, .missing));
+    try testing.expectError(error.DuplicateName, handlerArguments(testing.allocator, .duplicate));
+    try testing.expectError(error.SchemaMismatch, handlerArguments(testing.allocator, .wrong_type));
+}
+test "handler input construction releases partial allocations" {
+    try testing.checkAllAllocationFailures(testing.allocator, handlerArguments, .{.valid});
+}
+
+fn tailReturn(allocator: std.mem.Allocator, intervening_effect: bool) !void {
+    var raw = source.Builder.init(allocator);
+    defer raw.deinit();
+    const c = try a.Context.init(&raw);
+    const integer = try c.scalar(u64);
+    const unit = try c.scalar(void);
+    const notify = try c.external("tail/notify", unit, unit);
+    const f = try c.function("value", &.{}, integer, &.{});
+    const f_body = try c.body(f);
+    try c.define(f, try f_body.ret(try f_body.constant(u64, 7)));
+    const entry_fn = try c.function("entry", &.{}, integer, if (intervening_effect) &.{notify} else &.{});
+    const entry = try c.body(entry_fn);
+    const value = try entry.call(f, &.{});
+    if (intervening_effect) _ = try entry.perform(notify, try entry.constant(void, {}));
+    try c.define(entry_fn, try entry.ret(value));
+    const id = try a.interop.functionId(c, entry_fn);
+    const term = raw.terms.items[@intCast(raw.functions.items[@intCast(id)].body.?)];
+    try testing.expect(if (intervening_effect) term == .bind else term == .call);
+    var compiled = try c.compile(allocator, entry_fn, unit);
+    defer compiled.deinit();
+}
+test "terminal identity bindings collapse without moving intervening effects" {
+    try tailReturn(testing.allocator, false);
+    try tailReturn(testing.allocator, true);
+}
+test "terminal identity normalization releases partial allocations" {
+    try testing.checkAllAllocationFailures(testing.allocator, tailReturn, .{false});
+}

@@ -64,6 +64,8 @@ capability to a continuation does not give the body access to an older handler.
 `Context.handlerSet` constructs one handler with named capabilities and multiple
 clauses sharing its state and return arm. Select each clause or resumption schema
 by operation with `clauseFunctionFor` or `resumptionSchemaFor`.
+Use `body_parameters` and `handleWithArguments` for named inputs after the supplied
+capabilities; handler state remains a separate named argument group.
 Choice's `all` and `first` use the same typed `Options`, including separate owned
 and borrowed regions. The [State/Choice examples](src/source/state_choice_example.zig)
 exercise local versus shared state and mutually recursive work through that API.
@@ -86,6 +88,9 @@ Owned generators and bidirectional child exchanges share one Boundary constructo
 Its recursive answer, linear package and handler use checked typed declarations.
 Agent's inquiry and child-dialogue consumers use this same mechanism. The remaining
 raw Generator call surface and its consumers are still undergoing typed migration.
+Exchange composition now uses typed matching, package consumption and recursive
+calls. A terminal identity binding is normalized by `Body.ret` without moving
+intervening work.
 
 ## Pure data and components
 

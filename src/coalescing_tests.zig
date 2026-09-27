@@ -336,7 +336,7 @@ test "coalescing concurrent independent compilers preserve deterministic owners 
     var jobs: [4]ConcurrentCompilation = undefined;
     for (&jobs, [_]usize{ 2, 16, 32, 64 }) |*job, count| {
         job.* = .{ .count = count, .expected = undefined };
-        var original = try frozen.closures(testing.allocator, count);
+        var original = try closures(testing.allocator, count, .{ .work_limit = 0 });
         defer original.deinit();
         var compiled = try closures(testing.allocator, count, .{});
         defer compiled.deinit();

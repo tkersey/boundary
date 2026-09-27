@@ -29,39 +29,65 @@ pub fn defineExchange(builder: *source.Builder, identity: []const u8, input: p.I
     return instance.finish(builder, value);
 }
 
+const TypedExchange = struct {
+    input: *const a.Schema,
+    element: *const a.Schema,
+    result: *const a.Schema,
+    effect: *const a.Operation,
+    capability: *const a.Schema,
+    answer: *const a.Schema,
+    yielded: *const a.Schema,
+    package: *const a.Schema,
+    resumption: *const a.Schema,
+    handler: *const a.Handler,
+    fn sourceIds(self: @This(), c: *a.Context) a.Error!Generator {
+        return .{ .input = try a.interop.schemaId(c, self.input), .result = try a.interop.schemaId(c, self.result), .effect = try a.interop.operationId(c, self.effect), .capability = try a.interop.schemaId(c, self.capability), .element = try a.interop.schemaId(c, self.element), .answer = try a.interop.schemaId(c, self.answer), .yielded = try a.interop.schemaId(c, self.yielded), .package = try a.interop.schemaId(c, self.package), .resumption = try a.interop.schemaId(c, self.resumption), .handler = try a.interop.handlerId(c, self.handler) };
+    }
+};
+fn schemas(c: *a.Context, ids: []const p.Id) a.Error![]const *const a.Schema {
+    const values = try a.interop.builder(c).allocator().alloc(*const a.Schema, ids.len);
+    for (ids, values) |id, *value| value.* = try a.interop.schema(c, id);
+    return values;
+}
+fn operations(c: *a.Context, ids: []const p.Id) a.Error![]const *const a.Operation {
+    const values = try a.interop.builder(c).allocator().alloc(*const a.Operation, ids.len);
+    for (ids, values) |id, *value| value.* = try a.interop.operation(c, id);
+    return values;
+}
+fn regionHandles(c: *a.Context, ids: []const p.Id) a.Error![]const *const a.Region {
+    const values = try a.interop.builder(c).allocator().alloc(*const a.Region, ids.len);
+    for (ids, values) |id, *value| value.* = try a.interop.region(c, id);
+    return values;
+}
 fn authoredExchange(b: *source.Builder, identity: []const u8, input: p.Id, element: p.Id, result: p.Id, captures: []const p.Id, owned_regions: []const p.Id, borrowed_regions: []const p.Id, residual: source.Row) a.Error!Generator {
     const c = try a.Context.init(b);
-    const input_schema = try a.interop.schema(c, input);
-    const element_schema = try a.interop.schema(c, element);
-    const result_schema = try a.interop.schema(c, result);
-    const effect = try c.local(identity, element_schema, input_schema, .linear);
+    const value = try makeExchange(c, identity, try a.interop.schema(c, input), try a.interop.schema(c, element), try a.interop.schema(c, result), try schemas(c, captures), try regionHandles(c, owned_regions), try regionHandles(c, borrowed_regions), try operations(c, residual.effects), &.{});
+    return value.sourceIds(c);
+}
+fn makeExchange(c: *a.Context, identity: []const u8, input: *const a.Schema, element: *const a.Schema, result: *const a.Schema, captures: []const *const a.Schema, owned: []const *const a.Region, borrowed: []const *const a.Region, residual: []const *const a.Operation, parameters: []const a.Field) a.Error!TypedExchange {
+    const effect = try c.local(identity, element, input, .linear);
     const capability = try c.capability(effect);
-    const bound = try b.allocator().alloc(*const a.Schema, captures.len + 1);
-    for (captures, bound[0..captures.len]) |id, *schema| schema.* = try a.interop.schema(c, id);
+    const bound = try a.interop.builder(c).allocator().alloc(*const a.Schema, captures.len + 1);
+    @memcpy(bound[0..captures.len], captures);
     bound[captures.len] = capability;
-    const effects = try b.allocator().alloc(*const a.Operation, residual.effects.len);
-    for (residual.effects, effects) |id, *operation| operation.* = try a.interop.operation(c, id);
-    const owned = try b.allocator().alloc(*const a.Region, owned_regions.len);
-    for (owned_regions, owned) |id, *region| region.* = try a.interop.region(c, id);
-    const borrowed = try b.allocator().alloc(*const a.Region, borrowed_regions.len);
-    for (borrowed_regions, borrowed) |id, *region| region.* = try a.interop.region(c, id);
     const answer_declaration = try c.declareSchema(.alternatives);
     const answer = answer_declaration.schema();
-    const handler = try c.handler(effect, result_schema, answer, .{
+    const handler = try c.handler(effect, result, answer, .{
         .mode = .deep,
         .use = .linear,
-        .residual = effects,
+        .residual = residual,
         .return_effects = &.{},
         .clause_effects = &.{},
         .captures = bound,
         .owned_regions = owned,
         .borrowed_regions = borrowed,
         .obligations = true,
+        .body_parameters = parameters,
     });
     const resumption = try c.resumptionSchemaFor(handler, effect);
     const package = try c.suspensionPackage(resumption);
-    const yielded = try c.record(&.{ .{ .name = "value", .schema = element_schema }, .{ .name = "future", .schema = package } });
-    try c.defineAlternatives(answer_declaration, &.{ .{ .name = "done", .schema = result_schema }, .{ .name = "yielded", .schema = yielded } });
+    const yielded = try c.record(&.{ .{ .name = "value", .schema = element }, .{ .name = "future", .schema = package } });
+    try c.defineAlternatives(answer_declaration, &.{ .{ .name = "done", .schema = result }, .{ .name = "yielded", .schema = yielded } });
     const returns_fn = try c.returnFunction(handler);
     const returns = try c.body(returns_fn);
     try c.define(returns_fn, try returns.ret(try returns.variant(answer, "done", try returns.parameter("result"))));
@@ -70,7 +96,7 @@ fn authoredExchange(b: *source.Builder, identity: []const u8, input: p.Id, eleme
     const suspended = try clause.package(try clause.parameter("resumption"));
     const offered = try clause.product(yielded, &.{ .{ .name = "value", .value = try clause.parameter("payload") }, .{ .name = "future", .value = suspended } });
     try c.define(clause_fn, try clause.ret(try clause.variant(answer, "yielded", offered)));
-    return .{ .input = input, .result = result, .effect = try a.interop.operationId(c, effect), .capability = try a.interop.schemaId(c, capability), .element = element, .answer = try a.interop.schemaId(c, answer), .yielded = try a.interop.schemaId(c, yielded), .package = try a.interop.schemaId(c, package), .resumption = try a.interop.schemaId(c, resumption), .handler = try a.interop.handlerId(c, handler) };
+    return .{ .input = input, .result = result, .effect = effect, .capability = capability, .element = element, .answer = answer, .yielded = yielded, .package = package, .resumption = resumption, .handler = handler };
 }
 
 pub fn next(builder: *source.Builder, generator: Generator, package: p.Id) Error!p.Id {
@@ -125,47 +151,48 @@ pub fn compose(builder: *source.Builder, identity: []const u8, left: Generator, 
     // packages; sharing a region descriptor never duplicates their custody.
     const regions = try unionRegions(builder, l.internal.resumption.owned_regions, r.internal.resumption.owned_regions);
     const borrowed = try unionRegions(builder, try borrowedRegions(builder, left), try borrowedRegions(builder, right));
-    const unit = try builder.scalar(void);
-    const g = try defineExchange(builder, identity, left.input, right.element, left.result, &.{ left.package, right.package, left.input, left.element, right.element, left.result, unit }, regions, borrowed, residual);
-    const active = try residual.unionWith(builder.allocator(), .{ .effects = &.{g.effect} });
-    const loop = try builder.declare(&.{ g.capability, left.package, right.package, left.input }, g.result, active.effects, borrowed);
-    const capability = try builder.reference(builder.parameter(loop, 0));
-    const lp = try builder.reference(builder.parameter(loop, 1));
-    const rp = try builder.reference(builder.parameter(loop, 2));
-    const input = try builder.reference(builder.parameter(loop, 3));
-    const la = try builder.variable(left.answer);
-    const ra = try builder.variable(right.answer);
-    const ly = try builder.variable(left.yielded);
-    const ry = try builder.variable(right.yielded);
-    const lv = try builder.variable(left.element);
-    const rv = try builder.variable(right.element);
-    const next_l = try builder.variable(left.package);
-    const next_r = try builder.variable(right.package);
-    const finished_l = try builder.variable(left.result);
-    const finished_r = try builder.variable(right.result);
-    const next_input = try builder.variable(g.input);
-    const transfer = try builder.term(.{ .call = .{ .function = loop, .arguments = &.{ capability, try builder.reference(next_l), try builder.reference(next_r), try builder.reference(next_input) } } });
-    const offered = try builder.bind(next_input, try builder.term(.{ .perform = .{ .effect = g.effect, .capability = capability, .payload = try builder.reference(rv) } }), transfer);
-    const right_yield = try builder.term(.{ .unpack_product = .{ .value = try builder.reference(ry), .variables = &.{ rv, next_r }, .body = offered } });
-    const right_done = try builder.bind(try builder.variable(unit), try close(builder, left, try builder.reference(next_l)), try builder.pure(try builder.reference(finished_r)));
-    const after_right = try builder.term(.{ .match_sum = .{ .value = try builder.reference(ra), .cases = &.{
-        .{ .variable = finished_r, .body = right_done }, .{ .variable = ry, .body = right_yield },
-    } } });
-    const advance_right = try builder.bind(ra, try exchange(builder, right, rp, try builder.reference(lv)), after_right);
-    const left_yield = try builder.term(.{ .unpack_product = .{ .value = try builder.reference(ly), .variables = &.{ lv, next_l }, .body = advance_right } });
-    const left_done = try builder.bind(try builder.variable(unit), try close(builder, right, rp), try builder.pure(try builder.reference(finished_l)));
-    const after_left = try builder.term(.{ .match_sum = .{ .value = try builder.reference(la), .cases = &.{
-        .{ .variable = finished_l, .body = left_done }, .{ .variable = ly, .body = left_yield },
-    } } });
-    try builder.define(loop, try builder.bind(la, try exchange(builder, left, lp, input), after_left));
-    const body_type = try builder.schema(.{ .internal = .{ .computation = .{ .parameters = &.{ g.capability, left.package, right.package, g.input }, .result = g.result, .effects = active.effects, .regions = borrowed } } });
-    const entry = try builder.declare(&.{ left.package, right.package, g.input }, g.answer, residual.effects, borrowed);
-    try builder.define(entry, try builder.term(.{ .handle = .{
-        .handler = g.handler,
-        .body = try builder.lambda(loop, body_type),
-        .arguments = &.{ try builder.reference(builder.parameter(entry, 0)), try builder.reference(builder.parameter(entry, 1)), try builder.reference(builder.parameter(entry, 2)) },
-    } }));
-    return cache.finish(builder, .{ .generator = g, .start = entry });
+    const composed = composeTyped(builder, identity, left, right, residual, regions, borrowed) catch |err| return a.sourceError(err);
+    return cache.finish(builder, composed);
+}
+fn composeTyped(b: *source.Builder, identity: []const u8, left: Generator, right: Generator, residual: source.Row, owned_regions: []const p.Id, borrowed_regions: []const p.Id) a.Error!Composition {
+    const c = try a.Context.init(b);
+    const lp = try a.interop.schema(c, left.package);
+    const rp = try a.interop.schema(c, right.package);
+    const input = try a.interop.schema(c, left.input);
+    const result = try a.interop.schema(c, left.result);
+    const element = try a.interop.schema(c, right.element);
+    const effects = try operations(c, residual.effects);
+    const borrowed = try regionHandles(c, borrowed_regions);
+    const parameters = &[_]a.Field{ .{ .name = "left", .schema = lp }, .{ .name = "right", .schema = rp }, .{ .name = "input", .schema = input } };
+    const g = try makeExchange(c, identity, input, element, result, &.{ lp, rp, input, try a.interop.schema(c, left.element), element, result, try c.scalar(void) }, try regionHandles(c, owned_regions), borrowed, effects, parameters);
+    const loop_schema = try c.handledSchema(g.handler);
+    const loop_fn = try c.functionFor("exchange pipeline", loop_schema);
+    const loop = try c.body(loop_fn);
+    const capability = try loop.parameter("capability");
+    const right_package = try loop.parameter("right");
+    const left_answer = try loop.resumeValue(try loop.unpack(try loop.parameter("left")), try loop.parameter("input"));
+    const left_done = try loop.caseOf(left_answer, "0");
+    _ = try left_done.body().dispose(try left_done.body().unpack(right_package));
+    const left_yield = try loop.caseOf(left_answer, "1");
+    const left_parts = try left_yield.body().destructure(left_yield.payload());
+    const next_left = try left_parts.get("1");
+    const right_answer = try left_yield.body().resumeValue(try left_yield.body().unpack(right_package), try left_parts.get("0"));
+    const right_done = try left_yield.body().caseOf(right_answer, "0");
+    _ = try right_done.body().dispose(try right_done.body().unpack(next_left));
+    const right_yield = try left_yield.body().caseOf(right_answer, "1");
+    const right_parts = try right_yield.body().destructure(right_yield.payload());
+    const next_input = try right_yield.body().performLocal(g.effect, capability, try right_parts.get("0"));
+    const continued = try right_yield.body().call(loop_fn, &.{ .{ .name = "capability", .value = capability }, .{ .name = "left", .value = next_left }, .{ .name = "right", .value = try right_parts.get("1") }, .{ .name = "input", .value = next_input } });
+    const after_right = try left_yield.body().match(right_answer, &.{ try right_done.ret(right_done.payload()), try right_yield.ret(continued) });
+    try c.define(loop_fn, try loop.ret(try loop.match(left_answer, &.{ try left_done.ret(left_done.payload()), try left_yield.ret(after_right) })));
+    const entry_schema = try c.callable(parameters, g.answer, effects, .{ .use = .linear, .captures = &.{}, .regions = borrowed });
+    const entry_fn = try c.functionFor("start exchange pipeline", entry_schema);
+    const entry = try c.body(entry_fn);
+    try c.define(entry_fn, try entry.ret(try entry.handleWithArguments(g.handler, try entry.lambda(loop_fn, loop_schema), &.{
+        .{ .name = "left", .value = try entry.parameter("left") },   .{ .name = "right", .value = try entry.parameter("right") },
+        .{ .name = "input", .value = try entry.parameter("input") },
+    }, &.{})));
+    return .{ .generator = try g.sourceIds(c), .start = try a.interop.functionId(c, entry_fn) };
 }
 
 fn borrowedRegions(b: *source.Builder, g: Generator) Error![]const p.Id {

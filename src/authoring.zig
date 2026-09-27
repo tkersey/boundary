@@ -115,6 +115,8 @@ pub const HandlerOptions = struct {
     captures: []const *const Schema,
     body_use: p.Use = .linear,
     body_captures: []const *const Schema = &.{},
+    /// Explicit inputs following the automatically supplied capabilities.
+    body_parameters: []const Field = &.{},
     owned_regions: []const *const Region = &.{},
     borrowed_regions: []const *const Region = &.{},
     state: []const Field = &.{},
@@ -874,15 +876,16 @@ pub const Context = opaque {
         const allocator = contextData(self).raw.allocator();
         errdefer |err| self.poison(err);
         const handled = try allocator.alloc(p.Id, operations.len);
-        const parameters = try allocator.alloc(Field, operations.len);
+        const parameters = try allocator.alloc(Field, operations.len + options.body_parameters.len);
         const body_effects = try allocator.alloc(*const Operation, options.residual.len + operations.len);
         @memcpy(body_effects[0..options.residual.len], options.residual);
-        for (operations, handled, parameters, 0..) |item, *id, *parameter, index| {
+        for (operations, handled, parameters[0..operations.len], 0..) |item, *id, *parameter, index| {
             const op = data(OperationData, item.operation);
             id.* = op.id;
             parameter.* = .{ .name = item.name, .schema = try self.capability(item.operation) };
             body_effects[options.residual.len + index] = item.operation;
         }
+        @memcpy(parameters[operations.len..], options.body_parameters);
         const body_schema = try self.callable(parameters, input, body_effects, .{
             .use = options.body_use,
             .captures = options.body_captures,
@@ -1543,6 +1546,9 @@ pub const Body = opaque {
         callable_value: *const Value,
         state: []const Argument,
     ) Error!*const Value {
+        return self.handleWithArguments(handler_handle, callable_value, &.{}, state);
+    }
+    pub fn handleWithArguments(self: *Body, handler_handle: *const Handler, callable_value: *const Value, args: []const Argument, state: []const Argument) Error!*const Value {
         const c = bodyData(self).context;
         const h = data(HandlerData, handler_handle);
         try c.origin(h.owner);
@@ -1553,6 +1559,7 @@ pub const Body = opaque {
             .handle = .{
                 .handler = h.id,
                 .body = v.id,
+                .arguments = try self.arguments(data(SchemaData, h.body_schema).fields[h.clauses.len..], args),
                 .state = try self.arguments(h.state, state),
             },
         }), h.answer);
@@ -2018,6 +2025,17 @@ pub const Body = opaque {
         const v = try self.useValue(result);
         const c = bodyData(self).context;
         errdefer |err| c.poison(err);
+        const bindings = &bodyData(self).bindings;
+        const expression = contextData(c).raw.values.items[@intCast(v.id)].expression;
+        if (bindings.items.len != 0 and expression == .variable) {
+            const last = bindings.items[bindings.items.len - 1];
+            if (last == .bind and last.bind.variable == expression.variable) {
+                // bind x = operation; return x is exactly operation in tail position.
+                // Keep all preceding work; no other use or intervening effect moves.
+                bindings.items.len -= 1;
+                return self.finish(last.bind.term, v.schema);
+            }
+        }
         return self.finish(try contextData(c).raw.pure(v.id), v.schema);
     }
     /// Fail with an authored value and close this body. The result schema lets
