@@ -23,6 +23,7 @@ pub const dead_arguments = @import("dead_arguments.zig");
 pub const aggregate_reduction = @import("aggregate_reduction.zig");
 pub const expression_reuse = @import("expression_reuse.zig");
 pub const cell_reduction = @import("cell_reduction.zig");
+pub const capture_reduction = @import("capture_reduction.zig");
 pub const component = @import("component.zig");
 pub const borrow_contract = @import("borrow_contract.zig");
 pub const borrow_flow = @import("borrow_flow.zig");

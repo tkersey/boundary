@@ -19,6 +19,7 @@ test {
     _ = @import("aggregate_reduction_tests.zig");
     _ = @import("expression_reuse_tests.zig");
     _ = @import("cell_reduction_tests.zig");
+    _ = @import("capture_reduction_tests.zig");
     _ = @import("coalescing_recursive_tests.zig");
     _ = @import("coalescing_origins_tests.zig");
     _ = @import("coalescing_mutation_tests.zig");

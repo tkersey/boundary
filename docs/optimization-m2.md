@@ -128,6 +128,32 @@ uses; a reusable computation applied and then used as a handler body retains its
 construction. This repairs the existing specialization guard without expanding
 authoring scope.
 
+`data.capture_reduction` removes dead copy/drop capture fields from a private
+constructor and rewrites its ordered worker inputs, every construction operand
+list and every direct worker call together. Explicit application arguments stay
+unchanged. The original capture descriptor is retained for other constructors;
+the reduced constructor receives a fresh descriptor before P01 removes or shares
+unused structural records. All ownership/use flags and nominal region references
+remain unchanged. The checker verifies original demand and complete raw-record
+field/input/argument correspondence with fresh candidate admission.
+
+The initial privacy domain requires one constructor per worker, no host/handler/
+resource entry role, and each constructed closure slot used only by local applies,
+without aliases. Repeated applications are supported. Opaque uses decline the
+transformation. The existing exact slot-use scanner is now shared by P03 and P07,
+including its scope-body/cleanup reads. Evaluations that produced removed captures
+remain, including arithmetic failures. A known-branch witness keeps its capture
+before pruning and removes it afterwards; the simple reused-closure image shrinks
+115 to 109 bytes.
+
+The source-free retained-state witness captures a 4096-byte array, pauses after
+construction and resumes both versions with their own image identities. Dead
+capture removal changes the closure environment from one value to zero, reachable
+serialized blob payload from 4096 to zero bytes, and checkpoint size from 4207 to
+105 bytes. These are measured logical retention/checkpoint costs, not allocator
+high-water or latency measurements. A second native witness returns both results
+from repeated closure calls with distinct arguments across three input triples.
+
 Focused checks cover swapped equal-type operands, capture reassignment, stale
 facts after constructor mutation, range/known-bit and length/bound distinctions,
 and every allocation-failure point in the small transformation witness.
@@ -155,6 +181,10 @@ The cell suite has seven focused cases (25 with module tests), including a wrong
 stored-value mutation, aliases, suspension, fault observation and allocation
 failures. The scope-census regression expands the specialization suite to 48 tests.
 One additional native linked-cell test covers three input pairs before/after.
+The dead-capture suite adds eight cases (27 with module tests), including direct
+callers, shared descriptors, opaque aliases, forged correspondence, original
+failure evaluation and allocation failures. Two native tests cover retained-state
+measurement/resumption and repeated-call outputs.
 
 ## Remaining M2 obligations
 
@@ -162,12 +192,13 @@ This is not complete M2 or canonical pipeline adoption. Remaining work includes:
 
 - Remaining P02 domains, return summaries and richer recursive/calling contexts
   beyond the current conservative argument fixed point.
-- Context cloning where callers disagree, capture reductions and product forwarding
+- Context cloning where callers disagree, capture projection/summaries and product forwarding
   across control flow; broader cell cases remain conservative.
   Private dead arguments, local product scalar replacement, singleton incoming-callable specialization
   and polymorphic/opaque negatives are implemented.
 - Remaining P04 value numbering across aliases/renaming and cyclic proofs;
-  P07 capture reduction/summaries and the remaining qualification of P05/P08's
+  P07 product-field projection and non-projection XOR summaries (dead captures are
+  implemented), and the remaining qualification of P05/P08's
   implemented private-cell/store subset, with independent certificates.
 - Semantic/structural contract integration into compilation and final linking,
   the owned-consumer policy audit, deterministic semantic work budgets, and
