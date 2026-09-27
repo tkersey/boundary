@@ -607,3 +607,133 @@ test "integer branch proof rejects unknown operands and changed comparison order
     try std.testing.expectEqual(@as(usize, 0), stats.branches_removed);
     try std.testing.expectError(error.InvalidBranchReduction, branch.validate(a, original, candidate, &.{.{ .block = 0, .condition = true }}));
 }
+
+pub fn variantBranch(comptime known: bool) ir.Program {
+    return .{
+        .roots = .{ .entry = 0, .result = 0, .failure = 1 },
+        .schemas = &.{ .u64, .unit, .boolean, .{ .sum = &.{ 0, 0 } } },
+        .effects = &.{},
+        .constants = &.{.{ .schema = 0, .bytes = &.{ 1, 0, 0, 0, 0, 0, 0, 0 } }},
+        .functions = &.{.{ .entry = 0, .inputs = if (known) &.{0} else &.{ 0, 1 }, .layout = .{ .slots = &.{ 0, 3, 0, 0, 2 } }, .result = 0 }},
+        .blocks = &.{
+            .{ .function = 0, .instructions = if (known) &.{
+                .{ .destination = 1, .opcode = .variant, .operands = &.{0}, .immediate = 1 },
+                .{ .destination = 2, .opcode = .variant_tag, .operands = &.{1} },
+                .{ .destination = 3, .opcode = .constant, .immediate = 0 },
+                .{ .destination = 4, .opcode = .equal, .operands = &.{ 2, 3 } },
+            } else &.{
+                .{ .destination = 2, .opcode = .variant_tag, .operands = &.{1} },
+                .{ .destination = 3, .opcode = .constant, .immediate = 0 },
+                .{ .destination = 4, .opcode = .equal, .operands = &.{ 2, 3 } },
+            }, .terminator = .{ .branch = .{ .condition = 4, .when_true = .{ .block = 1 }, .when_false = .{ .block = 2 } } } },
+            .{ .function = 0, .instructions = &.{}, .terminator = .{ .return_value = 0 } },
+            .{ .function = 0, .instructions = &.{}, .terminator = .{ .return_value = 3 } },
+        },
+    };
+}
+
+test "known variant tag feeds independent branch proof while external variants stay unknown" {
+    const branch = @import("branch_reduction.zig");
+    inline for (.{ true, false }) |known| {
+        const original = comptime variantBranch(known);
+        var stats: branch.Statistics = .{};
+        var result = try branch.run(a, original, &stats, .{});
+        defer result.deinit();
+        try std.testing.expectEqual(@as(usize, if (known) 1 else 0), stats.branches_removed);
+        var blocks = original.blocks[0..3].*;
+        blocks[0].terminator = .{ .jump = original.blocks[0].terminator.branch.when_false };
+        var forged = original;
+        forged.blocks = &blocks;
+        try std.testing.expectError(error.InvalidBranchReduction, branch.validate(a, original, forged, &.{.{ .block = 0, .condition = false }}));
+    }
+}
+
+fn joinedVariants(comptime same_tag: bool) ir.Program {
+    const base = comptime variantBranch(false);
+    return .{
+        .roots = base.roots,
+        .schemas = base.schemas,
+        .effects = base.effects,
+        .constants = base.constants,
+        .functions = &.{.{ .entry = 0, .inputs = &.{ 0, 4 }, .layout = base.functions[0].layout, .result = 0 }},
+        .blocks = &.{
+            .{ .function = 0, .instructions = &.{}, .terminator = .{ .branch = .{ .condition = 4, .when_true = .{ .block = 1 }, .when_false = .{ .block = 2 } } } },
+            .{ .function = 0, .instructions = &.{.{ .destination = 1, .opcode = .variant, .operands = &.{0}, .immediate = 1 }}, .terminator = .{ .jump = .{ .block = 3 } } },
+            .{ .function = 0, .instructions = &.{.{ .destination = 1, .opcode = .variant, .operands = &.{0}, .immediate = if (same_tag) 1 else 0 }}, .terminator = .{ .jump = .{ .block = 3 } } },
+            .{ .function = 0, .instructions = base.blocks[0].instructions, .terminator = .{ .branch = .{ .condition = 4, .when_true = .{ .block = 4 }, .when_false = .{ .block = 5 } } } },
+            base.blocks[1],
+            base.blocks[2],
+        },
+    };
+}
+
+test "variant joins preserve alternatives and certify only agreement" {
+    const branch = @import("branch_reduction.zig");
+    inline for (.{ true, false }) |same_tag| {
+        const original = comptime joinedVariants(same_tag);
+        var info = try facts.analyze(a, original);
+        defer info.deinit();
+        const variants = info.blocks[3].definitions[1].value.variants;
+        try std.testing.expect(variants.known);
+        try std.testing.expectEqual(@as(u3, if (same_tag) 1 else 2), variants.count);
+        var stats: branch.Statistics = .{};
+        var result = try branch.run(a, original, &stats, .{});
+        defer result.deinit();
+        try std.testing.expectEqual(@as(usize, if (same_tag) 1 else 0), stats.branches_removed);
+    }
+}
+
+test "known switch tag excludes only impossible cases and never becomes its payload" {
+    const base = comptime variantBranch(true);
+    var original = base;
+    original.blocks = &.{
+        .{ .function = 0, .instructions = base.blocks[0].instructions[0..1], .terminator = .{ .switch_variant = .{ .value = 1, .cases = &.{ .{ .block = 1 }, .{ .block = 2 } } } } },
+        .{ .function = 0, .instructions = &.{}, .terminator = .{ .return_value = 0 } },
+        .{ .function = 0, .instructions = &.{}, .terminator = .{ .return_value = 0 } },
+    };
+    var info = try facts.analyze(a, original);
+    defer info.deinit();
+    try std.testing.expect(!info.blocks[1].reachable);
+    try std.testing.expect(info.blocks[2].reachable);
+    const next: ir.Edge = .{ .block = 1, .assignments = &.{.{ .destination = 2, .source = .returned }} };
+    original.blocks = &.{
+        .{ .function = 0, .instructions = base.blocks[0].instructions[0..1], .terminator = .{ .switch_variant = .{ .value = 1, .cases = &.{ next, next } } } },
+        .{ .function = 0, .instructions = base.blocks[0].instructions[2..4], .terminator = .{ .branch = .{ .condition = 4, .when_true = .{ .block = 2 }, .when_false = .{ .block = 3 } } } },
+        base.blocks[1],
+        base.blocks[2],
+    };
+    var payload_info = try facts.analyze(a, original);
+    defer payload_info.deinit();
+    try std.testing.expectEqual(@as(?u64, null), payload_info.blocks[1].definitions[2].value.unsigned);
+    var stats: @import("branch_reduction.zig").Statistics = .{};
+    var result = try @import("branch_reduction.zig").run(a, original, &stats, .{});
+    defer result.deinit();
+    try std.testing.expectEqual(@as(usize, 0), stats.branches_removed);
+}
+
+test "changing a variant tag invalidates a prior branch certificate" {
+    const branch = @import("branch_reduction.zig");
+    const original = comptime variantBranch(true);
+    var known = try facts.analyze(a, original);
+    defer known.deinit();
+    var instructions = original.blocks[0].instructions[0..4].*;
+    instructions[0].immediate = 0;
+    var blocks = original.blocks[0..3].*;
+    blocks[0].instructions = &instructions;
+    var changed = original;
+    changed.blocks = &blocks;
+    try std.testing.expectError(error.StaleFacts, known.requireEpoch(a, changed));
+    var candidate_blocks = blocks;
+    candidate_blocks[0].terminator = .{ .jump = original.blocks[0].terminator.branch.when_true };
+    var candidate = changed;
+    candidate.blocks = &candidate_blocks;
+    try std.testing.expectError(error.InvalidBranchReduction, branch.validate(a, changed, candidate, &.{.{ .block = 0, .condition = true }}));
+}
+
+fn variantAllocationAttempt(allocator: std.mem.Allocator) !void {
+    var result = try @import("branch_reduction.zig").run(allocator, comptime variantBranch(true), null, .{});
+    defer result.deinit();
+}
+test "variant facts and branch proofs release partial allocation owners" {
+    try std.testing.checkAllAllocationFailures(a, variantAllocationAttempt, .{});
+}

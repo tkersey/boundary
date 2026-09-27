@@ -413,3 +413,72 @@ test "proved integer branch retains an earlier failing computation" {
         try std.testing.expectEqualSlices(u8, &.{}, outcome.record.failed.value);
     }
 }
+
+fn variantBranch(comptime known: bool) ir.Program {
+    return .{
+        .roots = .{ .entry = 0, .result = 0, .failure = 1 },
+        .schemas = &.{ .u64, .unit, .boolean, .{ .sum = &.{ 0, 0 } } },
+        .effects = &.{},
+        .constants = &.{.{ .schema = 0, .bytes = &.{ 1, 0, 0, 0, 0, 0, 0, 0 } }},
+        .functions = &.{.{ .entry = 0, .inputs = if (known) &.{0} else &.{ 0, 1 }, .layout = .{ .slots = &.{ 0, 3, 0, 0, 2 } }, .result = 0 }},
+        .blocks = &.{
+            .{ .function = 0, .instructions = if (known) &.{
+                .{ .destination = 1, .opcode = .variant, .operands = &.{0}, .immediate = 1 },
+                .{ .destination = 2, .opcode = .variant_tag, .operands = &.{1} },
+                .{ .destination = 3, .opcode = .constant, .immediate = 0 },
+                .{ .destination = 4, .opcode = .equal, .operands = &.{ 2, 3 } },
+            } else &.{
+                .{ .destination = 2, .opcode = .variant_tag, .operands = &.{1} },
+                .{ .destination = 3, .opcode = .constant, .immediate = 0 },
+                .{ .destination = 4, .opcode = .equal, .operands = &.{ 2, 3 } },
+            }, .terminator = .{ .branch = .{ .condition = 4, .when_true = .{ .block = 1 }, .when_false = .{ .block = 2 } } } },
+            .{ .function = 0, .instructions = &.{}, .terminator = .{ .return_value = 0 } },
+            .{ .function = 0, .instructions = &.{}, .terminator = .{ .return_value = 3 } },
+        },
+    };
+}
+
+test "source-free variant facts remove a branch without inspecting the runtime payload" {
+    const a = std.testing.allocator;
+    inline for (.{ true, false }) |known| {
+        const original = comptime variantBranch(known);
+        const object: data.component.Object = .{
+            .program = original,
+            .exports = &.{.{ .name = "main", .reference = .{ .kind = .function, .id = 0 } }},
+            .borrows = &.{.{ .function = 0 }},
+        };
+        const encoded = try a.alloc(u8, try data.component.encodedLength(object));
+        defer a.free(encoded);
+        _ = try data.component.encode(a, object, encoded);
+        var p01: data.coalescing.Statistics = .{};
+        var selected = try data.linker.linkWithCompilation(a, &.{.{ .key = "variant", .object = encoded }}, &.{}, .{ .instance = "variant", .symbol = "main" }, .{ .contract = .semantic, .coalescing = .{ .statistics = &p01 } });
+        defer selected.deinit();
+        @memset(encoded, 0xff);
+        try std.testing.expect(p01.outcome != .not_run);
+        var branches: usize = 0;
+        for (selected.program.blocks) |block| {
+            if (block.terminator == .branch) branches += 1;
+        }
+        try std.testing.expectEqual(@as(usize, if (known) 0 else 1), branches);
+        for ([_]u64{ 0, 42, std.math.maxInt(u64) }) |input| {
+            for ([_]u8{ 0, 1 }) |tag| {
+                var args: [17]u8 = undefined;
+                std.mem.writeInt(u64, args[0..8], input, .little);
+                args[8] = tag;
+                std.mem.writeInt(u64, args[9..17], 123, .little);
+                var expected: [8]u8 = undefined;
+                std.mem.writeInt(u64, &expected, if (known or tag == 1) input else 1, .little);
+                for ([_]ir.Program{ original, selected.program }) |program| {
+                    const bytes = try a.alloc(u8, try data.program_image.encodedLength(program));
+                    defer a.free(bytes);
+                    _ = try data.program_image.encode(a, program, bytes);
+                    var outcome = try world.invocation.invoke(a, .{ .image = bytes, .instance = .{ .initial_args = args[0..if (known) 8 else 17] } });
+                    defer outcome.deinit();
+                    try std.testing.expect(outcome.record == .completed);
+                    try std.testing.expectEqualSlices(u8, &expected, outcome.record.completed);
+                }
+            }
+        }
+        if (known) std.debug.print("variant branch source-free: {d} -> {d} bytes\n", .{ try data.program_image.encodedLength(original), try data.program_image.encodedLength(selected.program) });
+    }
+}

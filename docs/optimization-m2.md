@@ -17,6 +17,24 @@ ordered caller argument facts through the same monotone worklist, including
 recursive components. Return values remain conservatively unknown. An incoming
 vector’s maximum is not its actual length.
 
+Variant facts now track up to four possible tags produced by `variant`, preserving
+their stable-slot versions through moves, joins and ordered transfers. A fifth
+possibility or unknown incoming value widens to explicit unknown. Known tags
+restrict feasible `switch_variant` edges and make `variant_tag` constants
+available to branch reduction. The independent backwards checker reconstructs
+the tag from raw definitions and predecessor edges; it does not trust the forward
+set and does not equate tag knowledge with payload knowledge. Returned payloads
+remain unknown unless separately proved.
+
+The source-free semantic-link witness changes **88 → 62 bytes**, eliminates the
+proved branch and its dead tag/construction work, invokes final P01, and preserves
+results for runtime payloads including maximum u64. External variants keep their
+branch and both runtime alternatives. Conflicting joins, changed tags, forged
+branch choices, payload/tag confusion and allocation failures have focused checks.
+Validation: **57 focused tests, 253 data-aggregate tests and ten native link/runtime
+tests passed**. All 18 retained-corpus probes finish default budgets and reproduce
+the previous candidate's exact image hashes; no new real-corpus speedup is claimed.
+
 `data.application_specialization.run` consumes those facts. It replaces a locally
 constructed computation and its single application with the existing function's
 direct call, passing captures before explicit arguments in their original order.
@@ -468,7 +486,7 @@ qualification remain required.
 
 This is not complete M2 or canonical pipeline adoption. Remaining work includes:
 
-- Remaining P02 domains, return summaries and richer recursive/calling contexts
+- Remaining P02 product-field domains, return summaries and richer recursive/calling contexts
   beyond the current conservative argument fixed point.
 - Context cloning where callers disagree and product forwarding
   across control flow; broader cell cases remain conservative.

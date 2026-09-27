@@ -17,6 +17,29 @@ const Work = struct {
     }
 };
 pub const Version = usize;
+pub const VariantSet = struct {
+    known: bool = false,
+    tags: [4]p.Id = @splat(0),
+    count: u3 = 0,
+    fn one(tag: p.Id) VariantSet {
+        return .{ .known = true, .tags = .{ tag, 0, 0, 0 }, .count = 1 };
+    }
+    pub fn singleton(self: VariantSet) ?p.Id {
+        return if (self.known and self.count == 1) self.tags[0] else null;
+    }
+    fn merge(left: VariantSet, right: VariantSet) VariantSet {
+        if (!left.known or !right.known) return .{};
+        var result: VariantSet = .{ .known = true };
+        for ([_]VariantSet{ left, right }) |set| for (set.tags[0..set.count]) |tag| {
+            if (std.mem.indexOfScalar(p.Id, result.tags[0..result.count], tag) != null) continue;
+            if (result.count == result.tags.len) return .{};
+            result.tags[result.count] = tag;
+            result.count += 1;
+        };
+        std.mem.sort(p.Id, result.tags[0..result.count], {}, std.sort.asc(p.Id));
+        return result;
+    }
+};
 pub const Value = struct {
     boolean: ?bool = null,
     unsigned: ?u64 = null,
@@ -24,6 +47,7 @@ pub const Value = struct {
     constructors_known: bool = false,
     constructors: [4]p.Id = @splat(0),
     constructor_count: u3 = 0,
+    variants: VariantSet = .{},
     /// The producing computation instruction, not an opaque environment projection.
     construction: ?usize = null,
     maximum: ?u64 = null,
@@ -161,6 +185,7 @@ fn joined(left: Value, right: Value) Value {
         .known_one = left.known_one & right.known_one,
         .length = if (left.length == right.length) left.length else null,
         .length_bound = maximum(left.length_bound, right.length_bound),
+        .variants = VariantSet.merge(left.variants, right.variants),
     };
     if (left.constructors_known and right.constructors_known) {
         result.constructors_known = true;
@@ -252,7 +277,14 @@ const Propagation = struct {
                 try self.edge(v.when_true, &.{});
                 try self.edge(v.when_false, &.{});
             },
-            .switch_variant => |v| for (v.cases) |next| try self.edge(next, &.{}),
+            .switch_variant => |v| {
+                const variants = self.value(v.value).variants;
+                for (v.cases, 0..) |next, tag| {
+                    try self.budget.take(1);
+                    if (variants.known and std.mem.indexOfScalar(p.Id, variants.tags[0..variants.count], tag) == null) continue;
+                    try self.edge(next, &.{});
+                }
+            },
             .unpack_product => |v| try self.edge(v.next, v.destinations),
             .call => |v| {
                 try self.call(v.function, v.arguments);
@@ -294,6 +326,8 @@ fn transfer(program: ir.Program, schema: p.Id, instruction: ir.Instruction, oper
         },
         .move => left,
         .computation => .{ .constructor = instruction.immediate, .construction = index, .constructors_known = true, .constructors = .{ instruction.immediate, 0, 0, 0 }, .constructor_count = 1 },
+        .variant => .{ .variants = VariantSet.one(instruction.immediate) },
+        .variant_tag => if (left.variants.singleton()) |tag| number(tag) else result,
         .boolean_not => if (left.boolean) |v| .{ .boolean = !v } else result,
         .equal => if (left.unsigned != null and right.unsigned != null) .{ .boolean = left.unsigned.? == right.unsigned.? } else if (left.boolean != null and right.boolean != null) .{ .boolean = left.boolean.? == right.boolean.? } else result,
         .less => if (left.unsigned != null and right.unsigned != null) .{ .boolean = left.unsigned.? < right.unsigned.? } else result,
@@ -318,4 +352,18 @@ test "constructor-set precision cap widens to unknown rather than an empty set" 
     try std.testing.expect(!value.constructors_known);
     try std.testing.expectEqual(@as(?p.Id, null), value.constructor);
     try std.testing.expectEqual(@as(u3, 0), value.constructor_count);
+}
+
+test "variant possibilities widen to explicit unknown without dropping tags" {
+    var value = VariantSet.one(3);
+    value = VariantSet.merge(value, VariantSet.one(1));
+    try std.testing.expectEqualSlices(p.Id, &.{ 1, 3 }, value.tags[0..value.count]);
+    try std.testing.expectEqual(@as(?p.Id, null), value.singleton());
+    value = VariantSet.merge(value, VariantSet.one(0));
+    value = VariantSet.merge(value, VariantSet.one(2));
+    try std.testing.expectEqual(@as(u3, 4), value.count);
+    value = VariantSet.merge(value, VariantSet.one(4));
+    try std.testing.expect(!value.known);
+    try std.testing.expectEqual(@as(u3, 0), value.count);
+    try std.testing.expect(!VariantSet.merge(VariantSet.one(0), .{}).known);
 }

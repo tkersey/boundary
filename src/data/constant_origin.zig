@@ -6,7 +6,7 @@ const std = @import("std");
 const ir = @import("activation.zig");
 const p = @import("program.zig");
 const contexts = @import("call_contexts.zig");
-pub const Constant = union(enum) { boolean: bool, unsigned: u64, constructor: p.Id };
+pub const Constant = union(enum) { boolean: bool, unsigned: u64, constructor: p.Id, variant: p.Id };
 const Query = struct { block: usize, before: usize, slot: p.Id };
 pub const Prover = struct {
     allocator: std.mem.Allocator,
@@ -62,6 +62,12 @@ pub const Prover = struct {
                     };
                 },
                 .computation => .{ .constructor = instruction.immediate },
+                .variant => .{ .variant = instruction.immediate },
+                .variant_tag => blk: {
+                    const value = (try self.resolve(block, index, instruction.operands[0])) orelse break :blk null;
+                    if (value != .variant) break :blk null;
+                    break :blk .{ .unsigned = value.variant };
+                },
                 .move => self.resolve(block, index, instruction.operands[0]),
                 .boolean_not => blk: {
                     const value = (try self.resolve(block, index, instruction.operands[0])) orelse break :blk null;
@@ -124,7 +130,21 @@ pub const Prover = struct {
                         try incoming.edge(id, branch.when_false, &.{});
                     }
                 },
-                .switch_variant => |branch| for (branch.cases) |next| try incoming.edge(id, next, &.{}),
+                .switch_variant => |branch| {
+                    var targets_query = false;
+                    for (branch.cases) |next| {
+                        if (!self.tick()) return null;
+                        if (next.block == block) {
+                            targets_query = true;
+                            break;
+                        }
+                    }
+                    if (!targets_query) continue;
+                    const value = try self.resolve(id, predecessor.instructions.len, branch.value);
+                    if (value != null and value.? == .variant) {
+                        try incoming.edge(id, branch.cases[@intCast(value.?.variant)], &.{});
+                    } else for (branch.cases) |next| try incoming.edge(id, next, &.{});
+                },
                 .unpack_product => |value| try incoming.edge(id, value.next, value.destinations),
                 inline else => |value| try incoming.edge(id, value.next, &.{}),
             }
