@@ -482,3 +482,76 @@ test "source-free variant facts remove a branch without inspecting the runtime p
         if (known) std.debug.print("variant branch source-free: {d} -> {d} bytes\n", .{ try data.program_image.encodedLength(original), try data.program_image.encodedLength(selected.program) });
     }
 }
+
+fn productFieldBranch(comptime field: u64) ir.Program {
+    const base = comptime closedBranchProgram(true);
+    return .{
+        .roots = base.roots,
+        .schemas = &.{ base.schemas[0], base.schemas[1], base.schemas[2], base.schemas[3], base.schemas[4], .{ .product = &.{ 4, 4 } } },
+        .constants = &.{ base.constants[0], base.constants[1], .{ .schema = 4, .bytes = &.{0} } },
+        .effects = base.effects,
+        .functions = &.{
+            .{ .entry = 0, .inputs = &.{ 0, 1 }, .layout = .{ .slots = &.{ 0, 0, 2, 3, 4, 5, 4 } }, .result = 3 },
+            base.functions[1],
+            base.functions[2],
+        },
+        .blocks = &.{
+            .{ .function = 0, .instructions = &.{
+                .{ .destination = 4, .opcode = .constant, .immediate = 0 },
+                .{ .destination = 6, .opcode = .constant, .immediate = 2 },
+                .{ .destination = 5, .opcode = .product, .operands = &.{ 4, 6 } },
+                .{ .destination = 4, .opcode = .field, .operands = &.{5}, .immediate = field },
+            }, .terminator = base.blocks[0].terminator },
+            base.blocks[1],
+            base.blocks[2],
+            base.blocks[3],
+            base.blocks[4],
+            base.blocks[5],
+            base.blocks[6],
+        },
+        .scopes = base.scopes,
+        .constructors = base.constructors,
+    };
+}
+
+test "checked product field feeds facts branch pruning and direct calls through source-free linking" {
+    const a = std.testing.allocator;
+    inline for (.{ @as(u64, 0), @as(u64, 1) }) |field| {
+        const original = comptime productFieldBranch(field);
+        const object: data.component.Object = .{
+            .program = original,
+            .exports = &.{.{ .name = "main", .reference = .{ .kind = .function, .id = 0 } }},
+            .borrows = &.{.{ .function = 0 }},
+        };
+        const encoded = try a.alloc(u8, try data.component.encodedLength(object));
+        defer a.free(encoded);
+        _ = try data.component.encode(a, object, encoded);
+        var stats: data.closed_compilation.Statistics = .{};
+        var p01: data.coalescing.Statistics = .{};
+        var optimized = try data.linker.linkWithCompilation(a, &.{.{ .key = "product", .object = encoded }}, &.{}, .{ .instance = "product", .symbol = "main" }, .{ .contract = .semantic, .statistics = &stats, .coalescing = .{ .statistics = &p01 } });
+        defer optimized.deinit();
+        @memset(encoded, 0xff);
+        try std.testing.expectEqual(data.closed_compilation.Outcome.applied, stats.outcome);
+        try std.testing.expect(stats.rounds >= 2);
+        try std.testing.expect(p01.outcome != .not_run);
+        var calls: usize = 0;
+        for (optimized.program.blocks) |block| {
+            try std.testing.expect(block.terminator != .branch and block.terminator != .apply);
+            if (block.terminator == .call) calls += 1;
+            for (block.instructions) |op| try std.testing.expect(op.opcode != .field and op.opcode != .computation);
+        }
+        try std.testing.expectEqual(@as(usize, 1), calls);
+        const args = [_]u8{ 10, 0, 0, 0, 0, 0, 0, 0, 21, 0, 0, 0, 0, 0, 0, 0 };
+        const expected = [_]u8{ if (field == 0) 21 else 99, 0, 0, 0, 0, 0, 0, 0, 21, 0, 0, 0, 0, 0, 0, 0 };
+        for ([_]ir.Program{ original, optimized.program }) |program| {
+            const bytes = try a.alloc(u8, try data.program_image.encodedLength(program));
+            defer a.free(bytes);
+            _ = try data.program_image.encode(a, program, bytes);
+            var outcome = try world.invocation.invoke(a, .{ .image = bytes, .instance = .{ .initial_args = &args } });
+            defer outcome.deinit();
+            try std.testing.expect(outcome.record == .completed);
+            try std.testing.expectEqualSlices(u8, &expected, outcome.record.completed);
+        }
+        std.debug.print("product-field/branch/direct-call field {d}: {d} -> {d} bytes\n", .{ field, try data.program_image.encodedLength(original), try data.program_image.encodedLength(optimized.program) });
+    }
+}

@@ -35,6 +35,16 @@ Validation: **57 focused tests, 253 data-aggregate tests and ten native link/run
 tests passed**. All 18 retained-corpus probes finish default budgets and reproduce
 the previous candidate's exact image hashes; no new real-corpus speedup is claimed.
 
+Selected product-field facts use the existing checked aggregate recognizer and
+stable operand versions. Forwarding a field into an ordinary move lets fresh P02
+analysis consume its scalar fact on the next pipeline round; no second product
+representation is needed. A source-free interaction witness selects either of
+two same-typed Boolean fields, prunes the corresponding branch, specializes the
+closed callable, and removes the dead construction. It preserves the distinct
+runtime results and changes **184 → 112** / **185 → 118 bytes**. All eleven native
+application/link tests pass. This establishes the selected local-field case;
+general product propagation across control flow remains a precision limitation.
+
 `data.application_specialization.run` consumes those facts. It replaces a locally
 constructed computation and its single application with the existing function's
 direct call, passing captures before explicit arguments in their original order.
@@ -484,23 +494,25 @@ qualification remain required.
 
 ## Remaining M2 obligations
 
-This is not complete M2 or canonical pipeline adoption. Remaining work includes:
+This is not complete M2 or canonical pipeline adoption. The specification's
+M2 is the smallest useful checked semantic slice; M3 explicitly owns broader
+specialization, worker/wrapper/inlining and global control. Section 4.6 permits
+coarse finite facts and requires extensions to have actual consumers. The earlier
+remaining-work list mixed later precision improvements into M2's gate.
 
-- Remaining P02 product-field domains, return summaries and richer recursive/calling contexts
-  beyond the current conservative argument fixed point.
-- Context cloning where callers disagree and product forwarding
-  across control flow; broader cell cases remain conservative.
-  Private dead arguments, local product scalar replacement, singleton incoming-callable specialization
-  and polymorphic/opaque negatives are implemented.
-- Remaining P04 value numbering across aliases/renaming and cyclic proofs;
-  broader P07 context support and the remaining qualification of P05/P08's
-  implemented private-cell/store subset, with independent certificates.
-- Qualification of the shared structural/semantic compiler and final linker,
-  completion of the owned-consumer policy audit and adoption, and calibration of
-  deterministic budgets on the real corpus. The shared entry points and their
-  source-free/typed witnesses are implemented.
-- Cross-package qualification, paired economics against the retained C0 corpus,
-  and all applicable G/T obligations. M2.5's affine synthesis remains subsequent.
+M2 closeout still requires the owned-consumer policy audit and qualification of
+the final source/package/runtime tuple, required serial/browser checks, paired
+economics against C0, and applicable G/T obligations. Shared demand, effect,
+custody and escape obligations use the original admission/trait/liveness owners
+and the conservative scope/use census; no second ownership checker is introduced.
+
+The broader program still owes richer return/call contexts, context cloning when
+callers disagree, product facts across control flow, broader cell/P07 contexts,
+and remaining P04 alias/cyclic cases where required by their named packages.
+These limitations are retained, not marked complete or removed from scope.
+M2.5's production affine synthesis follows the M2 checkpoint, then M3 and the
+remaining dependency-ordered program. No whole-family precision campaign is an
+additional prerequisite for that transition.
 
 Reproduction of the native record witness uses only Boundary data and World:
 
