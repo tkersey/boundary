@@ -82,6 +82,11 @@ module publication. `HandlerOptions.resumption_slots` lets handler construction
 complete declared tokens for mutually retaining clauses. Reader/local uses these
 declarations in the [scoped forwarding example](src/source/scoped_reader_example.zig).
 
+Owned generators and bidirectional child exchanges share one Boundary constructor.
+Its recursive answer, linear package and handler use checked typed declarations.
+Agent's inquiry and child-dialogue consumers use this same mechanism. The remaining
+raw Generator call surface and its consumers are still undergoing typed migration.
+
 ## Pure data and components
 
 Use the separate build module `boundary_data` for schemas, stable Program/State

@@ -1,9 +1,16 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
 //! Owned generators are ordinary deep handlers and recursive source data.
 const source = @import("../source.zig");
+const a = @import("../authoring.zig");
 const p = @import("boundary_data").program;
 const Error = source.Error;
 pub const Generator = struct { input: p.Id, result: p.Id, effect: p.Id, capability: p.Id, element: p.Id, answer: p.Id, yielded: p.Id, package: p.Id, resumption: p.Id, handler: p.Id };
+pub const Scope = struct {
+    captures: []const p.Id = &.{},
+    owned_regions: []const p.Id = &.{},
+    borrowed_regions: []const p.Id = &.{},
+    residual: source.Row = .{ .effects = &.{} },
+};
 
 pub fn define(builder: *source.Builder, identity: []const u8, element: p.Id, captures: []const p.Id, owned_regions: []const p.Id, residual: source.Row) Error!Generator {
     return defineScoped(builder, identity, element, captures, owned_regions, &.{}, residual);
@@ -18,24 +25,52 @@ pub fn defineScoped(builder: *source.Builder, identity: []const u8, element: p.I
 pub fn defineExchange(builder: *source.Builder, identity: []const u8, input: p.Id, element: p.Id, result: p.Id, captures: []const p.Id, owned_regions: []const p.Id, borrowed_regions: []const p.Id, residual: source.Row) Error!Generator {
     const instance = try builder.specialization(Generator, "boundary.library.exchange/v1", .{ identity, input, element, result, captures, owned_regions, borrowed_regions, residual });
     if (instance.cached) |value| return value;
-    const unit = try builder.scalar(void);
-    const effect = try builder.effect(.{ .identity = identity, .payload = element, .result = input, .external = false });
-    const capability = try builder.schema(.{ .internal = .{ .capability = effect } });
-    const capture_bound = try builder.allocator().alloc(p.Id, captures.len + 1);
-    @memcpy(capture_bound[0..captures.len], captures);
-    capture_bound[captures.len] = capability;
-    const answer = try builder.reserveSchema();
-    const resumption = try builder.schema(.{ .internal = .{ .resumption = .{ .effect = effect, .input = input, .answer = answer, .effects = residual.effects, .capture_bound = capture_bound, .handled = &.{effect}, .mode = .deep, .use = .linear, .owned_regions = owned_regions, .obligations = true } } });
-    const package = try builder.schema(.{ .internal = .{ .suspension_package = resumption } });
-    const yielded = try builder.schema(.{ .product = &.{ element, package } });
-    try builder.defineSchema(answer, .{ .sum = &.{ result, yielded } });
-    const returns = try builder.declare(&.{result}, answer, &.{}, borrowed_regions);
-    try builder.define(returns, try builder.pure(try builder.primitive(answer, .variant, &.{if (result == unit) try builder.constant(void, {}) else try builder.reference(builder.parameter(returns, 0))}, 0)));
-    const clause = try builder.declare(&.{ element, resumption }, answer, &.{}, borrowed_regions);
-    const suspended = try builder.primitive(package, .package, &.{try builder.reference(builder.parameter(clause, 1))}, 0);
-    const pair = try builder.primitive(yielded, .product, &.{ try builder.reference(builder.parameter(clause, 0)), suspended }, 0);
-    try builder.define(clause, try builder.pure(try builder.primitive(answer, .variant, &.{pair}, 1)));
-    return instance.finish(builder, .{ .input = input, .result = result, .effect = effect, .capability = capability, .element = element, .answer = answer, .yielded = yielded, .package = package, .resumption = resumption, .handler = try builder.handler(.{ .mode = .deep, .input = result, .answer = answer, .return_function = returns, .clauses = &.{.{ .effect = effect, .function = clause, .resumption = resumption }}, .effects = residual.effects }) });
+    const value = authoredExchange(builder, identity, input, element, result, captures, owned_regions, borrowed_regions, residual) catch |err| return a.sourceError(err);
+    return instance.finish(builder, value);
+}
+
+fn authoredExchange(b: *source.Builder, identity: []const u8, input: p.Id, element: p.Id, result: p.Id, captures: []const p.Id, owned_regions: []const p.Id, borrowed_regions: []const p.Id, residual: source.Row) a.Error!Generator {
+    const c = try a.Context.init(b);
+    const input_schema = try a.interop.schema(c, input);
+    const element_schema = try a.interop.schema(c, element);
+    const result_schema = try a.interop.schema(c, result);
+    const effect = try c.local(identity, element_schema, input_schema, .linear);
+    const capability = try c.capability(effect);
+    const bound = try b.allocator().alloc(*const a.Schema, captures.len + 1);
+    for (captures, bound[0..captures.len]) |id, *schema| schema.* = try a.interop.schema(c, id);
+    bound[captures.len] = capability;
+    const effects = try b.allocator().alloc(*const a.Operation, residual.effects.len);
+    for (residual.effects, effects) |id, *operation| operation.* = try a.interop.operation(c, id);
+    const owned = try b.allocator().alloc(*const a.Region, owned_regions.len);
+    for (owned_regions, owned) |id, *region| region.* = try a.interop.region(c, id);
+    const borrowed = try b.allocator().alloc(*const a.Region, borrowed_regions.len);
+    for (borrowed_regions, borrowed) |id, *region| region.* = try a.interop.region(c, id);
+    const answer_declaration = try c.declareSchema(.alternatives);
+    const answer = answer_declaration.schema();
+    const handler = try c.handler(effect, result_schema, answer, .{
+        .mode = .deep,
+        .use = .linear,
+        .residual = effects,
+        .return_effects = &.{},
+        .clause_effects = &.{},
+        .captures = bound,
+        .owned_regions = owned,
+        .borrowed_regions = borrowed,
+        .obligations = true,
+    });
+    const resumption = try c.resumptionSchemaFor(handler, effect);
+    const package = try c.suspensionPackage(resumption);
+    const yielded = try c.record(&.{ .{ .name = "value", .schema = element_schema }, .{ .name = "future", .schema = package } });
+    try c.defineAlternatives(answer_declaration, &.{ .{ .name = "done", .schema = result_schema }, .{ .name = "yielded", .schema = yielded } });
+    const returns_fn = try c.returnFunction(handler);
+    const returns = try c.body(returns_fn);
+    try c.define(returns_fn, try returns.ret(try returns.variant(answer, "done", try returns.parameter("result"))));
+    const clause_fn = try c.clauseFunction(handler);
+    const clause = try c.body(clause_fn);
+    const suspended = try clause.package(try clause.parameter("resumption"));
+    const offered = try clause.product(yielded, &.{ .{ .name = "value", .value = try clause.parameter("payload") }, .{ .name = "future", .value = suspended } });
+    try c.define(clause_fn, try clause.ret(try clause.variant(answer, "yielded", offered)));
+    return .{ .input = input, .result = result, .effect = try a.interop.operationId(c, effect), .capability = try a.interop.schemaId(c, capability), .element = element, .answer = try a.interop.schemaId(c, answer), .yielded = try a.interop.schemaId(c, yielded), .package = try a.interop.schemaId(c, package), .resumption = try a.interop.schemaId(c, resumption), .handler = try a.interop.handlerId(c, handler) };
 }
 
 pub fn next(builder: *source.Builder, generator: Generator, package: p.Id) Error!p.Id {
@@ -47,7 +82,15 @@ pub fn close(builder: *source.Builder, generator: Generator, package: p.Id) Erro
 
 /// Begin a fresh owned body with its first input. Body parameters are capability, input.
 pub fn begin(builder: *source.Builder, definition: Generator, body: p.Id, input: p.Id) Error!p.Id {
-    return builder.term(.{ .handle = .{ .handler = definition.handler, .body = body, .arguments = &.{input} } });
+    return start(builder, definition, body, &.{input});
+}
+
+pub fn start(builder: *source.Builder, definition: Generator, body: p.Id, arguments: []const p.Id) Error!p.Id {
+    return builder.term(.{ .handle = .{ .handler = definition.handler, .body = body, .arguments = arguments } });
+}
+
+pub fn offer(builder: *source.Builder, definition: Generator, capability: p.Id, outgoing: p.Id) Error!p.Id {
+    return builder.term(.{ .perform = .{ .effect = definition.effect, .capability = capability, .payload = outgoing } });
 }
 
 /// Consume the old endpoint package and return its successor or completion.
@@ -116,13 +159,13 @@ pub fn compose(builder: *source.Builder, identity: []const u8, left: Generator, 
     } } });
     try builder.define(loop, try builder.bind(la, try exchange(builder, left, lp, input), after_left));
     const body_type = try builder.schema(.{ .internal = .{ .computation = .{ .parameters = &.{ g.capability, left.package, right.package, g.input }, .result = g.result, .effects = active.effects, .regions = borrowed } } });
-    const start = try builder.declare(&.{ left.package, right.package, g.input }, g.answer, residual.effects, borrowed);
-    try builder.define(start, try builder.term(.{ .handle = .{
+    const entry = try builder.declare(&.{ left.package, right.package, g.input }, g.answer, residual.effects, borrowed);
+    try builder.define(entry, try builder.term(.{ .handle = .{
         .handler = g.handler,
         .body = try builder.lambda(loop, body_type),
-        .arguments = &.{ try builder.reference(builder.parameter(start, 0)), try builder.reference(builder.parameter(start, 1)), try builder.reference(builder.parameter(start, 2)) },
+        .arguments = &.{ try builder.reference(builder.parameter(entry, 0)), try builder.reference(builder.parameter(entry, 1)), try builder.reference(builder.parameter(entry, 2)) },
     } }));
-    return cache.finish(builder, .{ .generator = g, .start = start });
+    return cache.finish(builder, .{ .generator = g, .start = entry });
 }
 
 fn borrowedRegions(b: *source.Builder, g: Generator) Error![]const p.Id {
