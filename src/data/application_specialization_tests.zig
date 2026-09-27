@@ -240,3 +240,78 @@ fn branchAllocationAttempt(allocator: std.mem.Allocator) !void {
 test "branch proof and candidate owners release on every allocation failure" {
     try std.testing.checkAllAllocationFailures(a, branchAllocationAttempt, .{});
 }
+
+test "dead computation removes the closed constructor left by direct specialization" {
+    const dead = @import("dead_computation.zig");
+    var reduced = try @import("branch_reduction.zig").run(a, comptime closedBranchProgram(true), null, .{});
+    defer reduced.deinit();
+    var specialized = try specialize.run(a, reduced.program, null, .{});
+    defer specialized.deinit();
+    var stats: dead.Statistics = .{};
+    var result = try dead.run(a, specialized.program, &stats, .{});
+    defer result.deinit();
+    try std.testing.expectEqual(@as(usize, 1), stats.constructions_removed);
+    try std.testing.expect(stats.instructions_removed >= 2);
+    for (result.program.blocks) |block| for (block.instructions) |instruction| {
+        try std.testing.expect(instruction.opcode != .computation);
+    };
+    std.debug.print("dead computation after specialization: {d} -> {d} bytes\n", .{ try @import("program_image.zig").encodedLength(specialized.program), try @import("program_image.zig").encodedLength(result.program) });
+}
+
+const dead_fixture: ir.Program = .{
+    .roots = .{ .entry = 0, .result = 0, .failure = 1 },
+    .schemas = &.{ .u64, .unit },
+    .constants = &.{.{ .schema = 0, .bytes = &.{ 7, 0, 0, 0, 0, 0, 0, 0 } }},
+    .effects = &.{},
+    .functions = &.{.{ .entry = 0, .inputs = &.{0}, .layout = .{ .slots = &.{ 0, 0, 0 } }, .result = 0 }},
+    .blocks = &.{.{ .function = 0, .instructions = &.{
+        .{ .destination = 1, .opcode = .constant, .immediate = 0 },
+        .{ .destination = 2, .opcode = .move, .operands = &.{1} },
+    }, .terminator = .{ .return_value = 0 } }},
+};
+
+test "dead computation removes a total dependency chain and rolls back on work limit" {
+    const dead = @import("dead_computation.zig");
+    var stats: dead.Statistics = .{};
+    var result = try dead.run(a, dead_fixture, &stats, .{});
+    defer result.deinit();
+    try std.testing.expectEqual(@as(usize, 2), stats.instructions_removed);
+    var p01: coalescing.Statistics = .{};
+    var rollback = try dead.run(a, dead_fixture, &stats, .{ .work_limit = 0, .coalescing = .{ .statistics = &p01 } });
+    defer rollback.deinit();
+    try std.testing.expect(stats.work_limit);
+    try std.testing.expectEqual(@as(usize, 0), stats.instructions_removed);
+    try std.testing.expect(p01.outcome != .not_run);
+    try std.testing.expectEqual(@as(usize, 2), rollback.program.blocks[0].instructions.len);
+}
+
+fn deadAllocationAttempt(allocator: std.mem.Allocator) !void {
+    var result = try @import("dead_computation.zig").run(allocator, dead_fixture, null, .{});
+    defer result.deinit();
+}
+test "dead computation releases all partial owners on allocation failure" {
+    try std.testing.checkAllAllocationFailures(a, deadAllocationAttempt, .{});
+}
+
+test "independent dead checker rejects erasing a live overwrite despite valid candidate admission" {
+    const dead = @import("dead_computation.zig");
+    var original = dead_fixture;
+    original.blocks = &.{.{ .function = 0, .instructions = &.{.{ .destination = 0, .opcode = .constant, .immediate = 0 }}, .terminator = .{ .return_value = 0 } }};
+    var candidate = original;
+    candidate.blocks = &.{.{ .function = 0, .instructions = &.{}, .terminator = .{ .return_value = 0 } }};
+    try std.testing.expectError(error.InvalidDeadComputation, dead.validate(a, original, candidate, &.{.{ .block = 0, .removed = &.{0} }}));
+}
+
+test "unused division and its failure remain observable" {
+    const dead = @import("dead_computation.zig");
+    var original = dead_fixture;
+    original.constants = &.{ dead_fixture.constants[0], .{ .schema = 1, .bytes = &.{} } };
+    original.blocks = &.{.{ .function = 0, .instructions = &.{.{ .destination = 1, .opcode = .integer_div, .operands = &.{ 0, 0 }, .failures = &.{ .{ .kind = .arithmetic_overflow, .value = 1 }, .{ .kind = .division_by_zero, .value = 1 } } }}, .terminator = .{ .return_value = 0 } }};
+    var stats: dead.Statistics = .{};
+    var result = try dead.run(a, original, &stats, .{});
+    defer result.deinit();
+    try std.testing.expectEqual(@as(usize, 0), stats.instructions_removed);
+    var candidate = original;
+    candidate.blocks = &.{.{ .function = 0, .instructions = &.{}, .terminator = .{ .return_value = 0 } }};
+    try std.testing.expectError(error.InvalidDeadComputation, dead.validate(a, original, candidate, &.{.{ .block = 0, .removed = &.{0} }}));
+}

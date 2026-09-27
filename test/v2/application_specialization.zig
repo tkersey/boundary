@@ -96,7 +96,9 @@ test "World preserves the known-branch direct-call result and unknown alternativ
     var expected: [16]u8 = undefined;
     std.mem.writeInt(u64, expected[0..8], 21, .little);
     std.mem.writeInt(u64, expected[8..16], 21, .little);
-    for ([_]ir.Program{ original, optimized.program }) |program| {
+    var eliminated = try data.dead_computation.run(a, optimized.program, null, .{});
+    defer eliminated.deinit();
+    for ([_]ir.Program{ original, optimized.program, eliminated.program }) |program| {
         const bytes = try a.alloc(u8, try data.program_image.encodedLength(program));
         defer a.free(bytes);
         _ = try data.program_image.encode(a, program, bytes);
@@ -131,5 +133,28 @@ test "both externally selected constructor alternatives execute without speciali
             try std.testing.expect(outcome.record == .completed);
             try std.testing.expectEqualSlices(u8, &expected, outcome.record.completed);
         }
+    }
+}
+
+test "World still observes unused division failure after dead computation reduction" {
+    const a = std.testing.allocator;
+    const original: ir.Program = .{
+        .roots = .{ .entry = 0, .result = 0, .failure = 1 },
+        .schemas = &.{ .u64, .unit },
+        .constants = &.{.{ .schema = 1, .bytes = &.{} }},
+        .effects = &.{},
+        .functions = &.{.{ .entry = 0, .inputs = &.{0}, .layout = .{ .slots = &.{ 0, 0 } }, .result = 0 }},
+        .blocks = &.{.{ .function = 0, .instructions = &.{.{ .destination = 1, .opcode = .integer_div, .operands = &.{ 0, 0 }, .failures = &.{ .{ .kind = .arithmetic_overflow, .value = 0 }, .{ .kind = .division_by_zero, .value = 0 } } }}, .terminator = .{ .return_value = 0 } }},
+    };
+    var result = try data.dead_computation.run(a, original, null, .{});
+    defer result.deinit();
+    for ([_]ir.Program{ original, result.program }) |program| {
+        const bytes = try a.alloc(u8, try data.program_image.encodedLength(program));
+        defer a.free(bytes);
+        _ = try data.program_image.encode(a, program, bytes);
+        var outcome = try world.invocation.invoke(a, .{ .image = bytes, .instance = .{ .initial_args = &.{ 0, 0, 0, 0, 0, 0, 0, 0 } } });
+        defer outcome.deinit();
+        try std.testing.expect(outcome.record == .failed);
+        try std.testing.expectEqualSlices(u8, &.{}, outcome.record.failed.value);
     }
 }

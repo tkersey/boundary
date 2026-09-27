@@ -72,6 +72,7 @@ src/data/component.zig
 src/data/component_tests.zig
 src/data/constant_origin.zig
 src/data/contracts.zig
+src/data/dead_computation.zig
 src/data/diagnostic.zig
 src/data/effect_scope.zig
 src/data/function_inputs.zig

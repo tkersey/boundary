@@ -31,6 +31,18 @@ A proven branch removes an alternative constructor path, enabling a closed
 constructor application to become a direct call across blocks. That witness
 shrinks from 163 to 121 bytes. An unknown external condition retains both targets.
 
+`data.dead_computation` now consumes that specialized candidate. Backwards demand
+removes unused total instructions only when their results and operands permit both
+copy and drop. It excludes calls, mutable operations, faulting instructions and
+resource/cleanup operations. Zero-capture constructions additionally require no
+owned or borrowed regions. The independent checker compares the retained raw
+subsequence and candidate liveness, with original and fresh candidate admission.
+A deterministic instruction-work limit rolls back to the original before final
+P01. This removes the remaining unused constructor and condition in the branch
+witness, reducing 121 to 106 bytes (163 bytes before the combined transformations).
+Native World preserves its output; unused division by zero still produces failure.
+This is the dead-computation subset of P05, not dead-argument/store completion.
+
 The first witness removes one `computation` instruction and one `apply`, retains
 one direct call, and reduces BPI3 from 108 to 97 bytes. Unchanged native World
 returns the same ordered pair for three distinct runtime capture/argument pairs.
@@ -39,6 +51,11 @@ This is synthetic capability evidence, not a real-Agent speed claim.
 Focused checks cover swapped equal-type operands, capture reassignment, stale
 facts after constructor mutation, range/known-bit and length/bound distinctions,
 and every allocation-failure point in the small transformation witness.
+The dead-computation slice adds live-overwrite and fault-deletion mutations,
+work-limit rollback, and allocation-failure coverage. Its focused suite has 36
+passing tests, and the native record suite has four. The initial division fixture
+was rejected because its fault table used the wrong wire order; correcting the
+fixture to the admitted overflow/zero order left production admission unchanged.
 
 ## Remaining M2 obligations
 
