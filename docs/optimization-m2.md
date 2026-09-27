@@ -411,11 +411,11 @@ at `8321156`: expression reuse enlarged the immutable analysis-set pool, crossin
 geometric allocation capacities. Reordering DCE before reuse did not fix them;
 declining literal reuse fixed only one. Neither experiment was retained.
 
-The shared driver now keeps a third, independently validated candidate: dead
+At `95277a2`, the shared driver added a third, independently validated candidate: dead
 computation removal from the ordinary baseline. The full pipeline still runs.
-Final selection considers a deterministic admission-set score alongside the
+That initial selection considered an admission-set score alongside the
 existing image, operation and capture estimates: 24 times node capacity plus
-12 times interning-table capacity. It rejects score growth above
+12 times interning-table capacity. It rejected score growth above
 `max(1024, floor(baseline_score / 100))`, without using addresses, allocator-resize
 outcomes or clock measurements. This is an economic heuristic, **not** a bound
 on World memory; actual runtime qualification remains required. Public contracts,
@@ -441,6 +441,28 @@ semantic-link selection that still executes one
 XOR on each diamond path. This probe uses existing images; Agent source emission,
 new package binding and final economic qualification are still required. Agent's
 ongoing aggregate remains bound to `8321156` and is not relabeled by this result.
+
+Production WASM admission then exposed a flaw in that initial heuristic: its
+native capacity concealed a 536 → 553 node growth crossing WASM's 542 → 816
+allocation threshold. The two review-mode images grew by about 13.6 KiB peak
+and 6.7 KiB retained memory under the unchanged authenticated kernel.
+
+The corrected score derives geometric capacities from **node count**, using
+explicit growth starts 2, 4, 5 and 8 (Zig 0.16, 64/128-byte cache lines and
+16/24-byte nodes). Each profile must satisfy the same score-growth guard. No
+compiler-host capacity or allocator behavior chooses the output. These fixed
+profiles remain an economic heuristic; a toolchain or node-layout change requires
+fresh qualification, and no runtime-memory bound is claimed.
+
+`docs/performance/m2-candidate-profiles.json` records the corrected 18-image
+native/production-WASM probe. Both review modes select shrinking and have only
+38/44-byte WASM peak/retention increases, below the supplied memory threshold;
+their native costs decrease. No other workload introduces an admission-memory
+increase. ReAct retains peak reductions of 159,702 bytes native and 481,834 bytes
+WASM, with 129,662/360,632 fewer retained bytes respectively. All work budgets
+complete. Seventy focused tests pass, including the exact hidden-capacity-cliff
+counterexample. Fresh source emission/rebinding and execution/checkpoint/timing
+qualification remain required.
 
 ## Remaining M2 obligations
 

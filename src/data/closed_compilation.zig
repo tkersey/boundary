@@ -136,7 +136,26 @@ fn reservation(program: ir.Program, stage: Stage) Error!u64 {
     };
     return std.math.add(u64, std.math.add(u64, scans, byte_work) catch return error.Capacity, facts) catch return error.Capacity;
 }
-const Cost = struct { bytes: usize, work: u64, retention: u64, admission_sets: u64 };
+const Cost = struct { bytes: usize, work: u64, retention: u64, admission_sets: [4]u64 };
+// Zig 0.16's geometric growth starts with cache_line / node_size. Cover
+// 64/128-byte cache lines and 16/24-byte nodes without querying the build host.
+const node_growth_starts = [_]u64{ 2, 4, 5, 8 };
+fn nodeCapacityEstimate(count: usize, start: u64) Error!u64 {
+    var capacity: u64 = 0;
+    while (capacity < count) {
+        const minimum = std.math.add(u64, capacity, 1) catch return error.Capacity;
+        capacity = try sumWork(&.{ minimum, minimum / 2, start });
+    }
+    return capacity;
+}
+fn admissionSetCost(nodes: usize, table_capacity: usize) Error![4]u64 {
+    var result: [4]u64 = undefined;
+    for (node_growth_starts, &result) |start, *score| score.* = try sumWork(&.{
+        std.math.mul(u64, try nodeCapacityEstimate(nodes, start), 24) catch return error.Capacity,
+        std.math.mul(u64, table_capacity, 12) catch return error.Capacity,
+    });
+    return result;
+}
 fn payloadEstimate(program: ir.Program, schema: u64, depth: usize, memo: []?u64, active: []bool) u64 {
     if (depth == 32) return 8;
     const id: usize = @intCast(schema);
@@ -172,10 +191,7 @@ fn cost(allocator: std.mem.Allocator, owned: *const p01.Owned) Error!Cost {
     // Fixed logical weights avoid making selection depend on host pointers,
     // allocator resize success, or native versus wasm node representation.
     // This models the retained analysis containers, not World runtime memory.
-    const admission_sets = try sumWork(&.{
-        std.math.mul(u64, owned.flow.pool.nodeCapacity(), 24) catch return error.Capacity,
-        std.math.mul(u64, owned.flow.pool.interned.capacity(), 12) catch return error.Capacity,
-    });
+    const admission_sets = try admissionSetCost(owned.flow.pool.nodeCount(), owned.flow.pool.interned.capacity());
     var result: Cost = .{ .bytes = try image.encodedLength(program), .work = 0, .retention = 0, .admission_sets = admission_sets };
     for (program.blocks) |block| {
         result.work +|= if (block.terminator == .apply) 4 else 1;
@@ -195,9 +211,11 @@ fn cost(allocator: std.mem.Allocator, owned: *const p01.Owned) Error!Cost {
     return result;
 }
 fn admissionGrowthAllowed(candidate: Cost, baseline: Cost) bool {
-    const allowance = @max(1024, baseline.admission_sets / 100);
-    return candidate.admission_sets <= baseline.admission_sets or
-        candidate.admission_sets - baseline.admission_sets <= allowance;
+    for (candidate.admission_sets, baseline.admission_sets) |after, before| {
+        const allowance = @max(1024, before / 100);
+        if (after > before and after - before > allowance) return false;
+    }
+    return true;
 }
 fn allowBaseline(options: Options, bytes: usize) Error!void {
     if (options.max_image_bytes) |limit| if (bytes > limit) return error.Capacity;
@@ -451,18 +469,28 @@ fn apply(a: std.mem.Allocator, program: ir.Program, stage: Stage, options: p01.O
 }
 
 test "admission-set cost guard bounds growth without host allocator capacities" {
-    const baseline: Cost = .{ .bytes = 100, .work = 20, .retention = 0, .admission_sets = 10_000 };
+    const baseline: Cost = .{ .bytes = 100, .work = 20, .retention = 0, .admission_sets = @splat(10_000) };
     var candidate = baseline;
-    candidate.admission_sets += 1024;
+    candidate.admission_sets[0] += 1024;
     try std.testing.expect(admissionGrowthAllowed(candidate, baseline));
-    candidate.admission_sets += 1;
+    candidate.admission_sets[0] += 1;
     try std.testing.expect(!admissionGrowthAllowed(candidate, baseline));
     // A smaller image or less estimated work cannot erase this dimension.
     candidate.bytes = 1;
     candidate.work = 0;
     try std.testing.expect(!admissionGrowthAllowed(candidate, baseline));
-    candidate.admission_sets = 0;
+    candidate.admission_sets = @splat(0);
     try std.testing.expect(admissionGrowthAllowed(candidate, baseline));
-    const largest: Cost = .{ .bytes = 100, .work = 20, .retention = 0, .admission_sets = std.math.maxInt(u64) };
+    const largest: Cost = .{ .bytes = 100, .work = 20, .retention = 0, .admission_sets = @splat(std.math.maxInt(u64)) };
     try std.testing.expect(admissionGrowthAllowed(largest, largest));
+}
+
+test "candidate admission cost accounts for a wasm growth cliff hidden by native capacity" {
+    try std.testing.expectEqual(@as(u64, 692), try nodeCapacityEstimate(536, 8));
+    try std.testing.expectEqual(@as(u64, 692), try nodeCapacityEstimate(553, 8));
+    try std.testing.expectEqual(@as(u64, 542), try nodeCapacityEstimate(536, 2));
+    try std.testing.expectEqual(@as(u64, 816), try nodeCapacityEstimate(553, 2));
+    const before: Cost = .{ .bytes = 3064, .work = 200, .retention = 0, .admission_sets = try admissionSetCost(536, 1024) };
+    const after: Cost = .{ .bytes = 3047, .work = 190, .retention = 0, .admission_sets = try admissionSetCost(553, 1024) };
+    try std.testing.expect(!admissionGrowthAllowed(after, before));
 }
