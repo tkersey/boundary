@@ -109,6 +109,8 @@ pub const HandlerOptions = struct {
     state: []const Field = &.{},
 };
 pub const Field = struct { name: []const u8, schema: *const Schema };
+pub const CaptureBounds = struct { continuation: []const *const Schema, body: []const *const Schema = &.{} };
+pub const HandledOperation = struct { name: []const u8, operation: *const Operation };
 pub const Argument = struct { name: []const u8, value: *const Value };
 pub const Arithmetic = enum { add, subtract, multiply, divide, remainder };
 pub const ArithmeticFailures = struct {
@@ -192,15 +194,14 @@ const ComputationData = struct {
 const HandlerData = struct {
     owner: *Context,
     id: p.Id,
-    operation: *const Operation,
+    clauses: []const HandlerClauseData,
     input: *const Schema,
     answer: *const Schema,
-    resumption: *const Schema,
     body_schema: *const Schema,
     returns: *const Function,
-    clause: *const Function,
     state: []const Field,
 };
+const HandlerClauseData = struct { operation: *const Operation, resumption: *const Schema, function: *const Function };
 const CaseData = struct {
     body: *Body,
     payload: *const Value,
@@ -733,117 +734,106 @@ pub const Context = opaque {
         );
         return function_handle;
     }
-    const HandlerFunctions = struct { returns: *const Function, clause: *const Function };
-    fn handlerFunctions(
-        self: *Context,
-        op: *const OperationData,
-        input: *const Schema,
-        answer: *const Schema,
-        resumption: *const Schema,
-        options: HandlerOptions,
-    ) Error!HandlerFunctions {
-        const borrowed_ids = try self.regionIds(options.borrowed_regions);
-        const returns_fields = try contextData(self).raw.allocator().alloc(Field, 1 + options.state.len);
-        @memcpy(returns_fields[0..options.state.len], options.state);
-        returns_fields[options.state.len] = .{ .name = "result", .schema = input };
-        const clause_fields = try contextData(self).raw.allocator().alloc(Field, 2 + options.state.len + op.bodies.len);
-        @memcpy(clause_fields[0..options.state.len], options.state);
-        clause_fields[options.state.len] = .{ .name = "payload", .schema = op.payload };
-        @memcpy(clause_fields[options.state.len + 1 .. clause_fields.len - 1], op.bodies);
-        clause_fields[clause_fields.len - 1] = .{ .name = "resumption", .schema = resumption };
-        const returns = try self.function(
-            "handler return",
-            returns_fields,
-            answer,
-            options.return_effects orelse options.residual,
-        );
-        const clause = try self.function(
-            "operation clause",
-            clause_fields,
-            answer,
-            options.clause_effects orelse options.residual,
-        );
-        const rf = data(FunctionData, returns).id;
-        const cf = data(FunctionData, clause).id;
-        contextData(self).raw.functions.items[@intCast(rf)].regions = borrowed_ids;
-        contextData(self).raw.functions.items[@intCast(cf)].regions = borrowed_ids;
-        return .{ .returns = returns, .clause = clause };
+    fn handlerReturn(self: *Context, input: *const Schema, answer: *const Schema, options: HandlerOptions) Error!*const Function {
+        const parameter_fields = try contextData(self).raw.allocator().alloc(Field, 1 + options.state.len);
+        @memcpy(parameter_fields[0..options.state.len], options.state);
+        parameter_fields[options.state.len] = .{ .name = "result", .schema = input };
+        const function_handle = try self.function("handler return", parameter_fields, answer, options.return_effects orelse options.residual);
+        contextData(self).raw.functions.items[@intCast(data(FunctionData, function_handle).id)].regions = try self.regionIds(options.borrowed_regions);
+        return function_handle;
     }
-    fn handlerBodySchema(
-        self: *Context,
-        operation_handle: *const Operation,
-        input: *const Schema,
-        options: HandlerOptions,
-    ) Error!*const Schema {
-        const body_effects = try contextData(self).raw.allocator().alloc(*const Operation, options.residual.len + 1);
+    fn handlerClause(self: *Context, op: *const OperationData, answer: *const Schema, resumption: *const Schema, options: HandlerOptions) Error!*const Function {
+        const parameter_fields = try contextData(self).raw.allocator().alloc(Field, 2 + options.state.len + op.bodies.len);
+        @memcpy(parameter_fields[0..options.state.len], options.state);
+        parameter_fields[options.state.len] = .{ .name = "payload", .schema = op.payload };
+        @memcpy(parameter_fields[options.state.len + 1 .. parameter_fields.len - 1], op.bodies);
+        parameter_fields[parameter_fields.len - 1] = .{ .name = "resumption", .schema = resumption };
+        const function_handle = try self.function("operation clause", parameter_fields, answer, options.clause_effects orelse options.residual);
+        contextData(self).raw.functions.items[@intCast(data(FunctionData, function_handle).id)].regions = try self.regionIds(options.borrowed_regions);
+        return function_handle;
+    }
+    pub fn handler(self: *Context, operation_handle: *const Operation, input: *const Schema, answer: *const Schema, options: HandlerOptions) Error!*const Handler {
+        return self.handlerSet(&.{.{ .name = "capability", .operation = operation_handle }}, input, answer, options);
+    }
+    /// One return arm and state vector, with a named capability and clause for each operation.
+    pub fn handlerSet(self: *Context, operations: []const HandledOperation, input: *const Schema, answer: *const Schema, options: HandlerOptions) Error!*const Handler {
+        try self.ready();
+        if (operations.len == 0) return self.reject(error.InvalidCategory, "handler", "requires at least one local operation");
+        for (operations, 0..) |item, index| {
+            const op = data(OperationData, item.operation);
+            try self.origin(op.owner);
+            if (op.external) return self.reject(error.InvalidCategory, op.name, "handler requires local operation");
+            for (operations[0..index]) |previous| {
+                if (data(OperationData, previous.operation).id == op.id)
+                    return self.reject(error.InvalidEffect, op.name, "operation occurs twice in handler");
+                if (std.mem.eql(u8, previous.name, item.name))
+                    return self.reject(error.DuplicateName, item.name, "handler capability name occurs twice");
+            }
+        }
+        const allocator = contextData(self).raw.allocator();
+        errdefer |err| self.poison(err);
+        const handled = try allocator.alloc(p.Id, operations.len);
+        const parameters = try allocator.alloc(Field, operations.len);
+        const body_effects = try allocator.alloc(*const Operation, options.residual.len + operations.len);
         @memcpy(body_effects[0..options.residual.len], options.residual);
-        body_effects[options.residual.len] = operation_handle;
-        return self.callable(&.{
-            .{
-                .name = "capability",
-                .schema = try self.capability(operation_handle),
-            },
-        }, input, body_effects, .{
+        for (operations, handled, parameters, 0..) |item, *id, *parameter, index| {
+            const op = data(OperationData, item.operation);
+            id.* = op.id;
+            parameter.* = .{ .name = item.name, .schema = try self.capability(item.operation) };
+            body_effects[options.residual.len + index] = item.operation;
+        }
+        const body_schema = try self.callable(parameters, input, body_effects, .{
             .use = options.body_use,
             .captures = options.body_captures,
             .regions = options.borrowed_regions,
         });
-    }
-    pub fn handler(
-        self: *Context,
-        operation_handle: *const Operation,
-        input: *const Schema,
-        answer: *const Schema,
-        options: HandlerOptions,
-    ) Error!*const Handler {
-        const op = data(OperationData, operation_handle);
-        try self.origin(op.owner);
-        if (op.external) return self.reject(error.InvalidCategory, op.name, "handler requires local operation");
-        errdefer |err| self.poison(err);
         const residual = try self.row(options.residual);
         const answer_id = try self.schemaId(answer);
         const resume_answer = if (options.mode == .deep) answer else input;
-        const resume_id = try contextData(self).raw.schema(.{ .internal = .{ .resumption = .{
-            .effect = op.id,
-            .input = try self.schemaId(op.result),
-            .answer = try self.schemaId(resume_answer),
-            .effects = residual,
-            .escaping = try self.row(options.escaping),
-            .capture_bound = try self.schemaIds(options.captures),
-            .handled = &.{op.id},
-            .mode = options.mode,
-            .use = options.use,
-            .owned_regions = try self.regionIds(options.owned_regions),
-            .obligations = options.obligations,
-        } } });
-        const resumption = try self.internComplete(resume_id, &.{.{ .name = "reply", .schema = op.result }}, resume_answer, options.captures);
-        const functions = try self.handlerFunctions(op, input, answer, resumption, options);
-        const rf = data(FunctionData, functions.returns).id;
-        const cf = data(FunctionData, functions.clause).id;
-        const state_ids = try contextData(self).raw.allocator().alloc(p.Id, options.state.len);
+        const returns = try self.handlerReturn(input, answer, options);
+        const clauses = try allocator.alloc(p.Clause, operations.len);
+        const metadata = try allocator.alloc(HandlerClauseData, operations.len);
+        for (operations, clauses, metadata) |item, *clause, *meta| {
+            const op = data(OperationData, item.operation);
+            const resume_id = try contextData(self).raw.schema(.{ .internal = .{ .resumption = .{
+                .effect = op.id,
+                .input = try self.schemaId(op.result),
+                .answer = try self.schemaId(resume_answer),
+                .effects = residual,
+                .escaping = try self.row(options.escaping),
+                .capture_bound = try self.schemaIds(options.captures),
+                .handled = handled,
+                .mode = options.mode,
+                .use = options.use,
+                .owned_regions = try self.regionIds(options.owned_regions),
+                .obligations = options.obligations,
+            } } });
+            const resumption = try self.internComplete(resume_id, &.{.{ .name = "reply", .schema = op.result }}, resume_answer, options.captures);
+            const function_handle = try self.handlerClause(op, answer, resumption, options);
+            clause.* = .{ .effect = op.id, .function = data(FunctionData, function_handle).id, .resumption = resume_id };
+            meta.* = .{ .operation = item.operation, .function = function_handle, .resumption = resumption };
+        }
+        const state_ids = try allocator.alloc(p.Id, options.state.len);
         for (options.state, state_ids) |item, *id| id.* = try self.schemaId(item.schema);
-        const body_schema = try self.handlerBodySchema(operation_handle, input, options);
         const result = handle(Handler, try self.save(HandlerData, .{
             .owner = self,
             .id = try contextData(self).raw.handler(.{
                 .mode = options.mode,
                 .input = try self.schemaId(input),
                 .answer = answer_id,
-                .return_function = rf,
-                .clauses = &.{.{ .effect = op.id, .function = cf, .resumption = resume_id }},
+                .return_function = data(FunctionData, returns).id,
+                .clauses = clauses,
                 .state = state_ids,
                 .effects = residual,
             }),
-            .operation = operation_handle,
+            .clauses = metadata,
             .input = input,
             .answer = answer,
-            .resumption = resumption,
             .body_schema = body_schema,
-            .returns = functions.returns,
-            .clause = functions.clause,
+            .returns = returns,
             .state = try self.fields(options.state),
         }));
-        try contextData(self).handlers.append(contextData(self).raw.allocator(), result);
+        try contextData(self).handlers.append(allocator, result);
         return result;
     }
     /// Derive the resumption clause from a responder with an explicit residual contract.
@@ -866,7 +856,7 @@ pub const Context = opaque {
         const hd = data(HandlerData, h);
         const returns = try self.body(hd.returns);
         try self.define(hd.returns, try returns.ret(try returns.parameter("result")));
-        const clause = try self.body(hd.clause);
+        const clause = try self.body(hd.clauses[0].function);
         const reply = try clause.call(responder_function, &.{
             .{
                 .name = f.parameters[0].name,
@@ -874,7 +864,7 @@ pub const Context = opaque {
             },
         });
         const resumed = try clause.resumeValue(try clause.parameter("resumption"), reply);
-        try self.define(hd.clause, try clause.ret(resumed));
+        try self.define(hd.clauses[0].function, try clause.ret(resumed));
         return h;
     }
     pub fn returnFunction(self: *Context, handler_handle: *const Handler) Error!*const Function {
@@ -885,7 +875,21 @@ pub const Context = opaque {
     pub fn clauseFunction(self: *Context, handler_handle: *const Handler) Error!*const Function {
         const h = data(HandlerData, handler_handle);
         try self.origin(h.owner);
-        return h.clause;
+        if (h.clauses.len != 1) return self.reject(error.InvalidCategory, "clause", "select an operation for a multi-clause handler");
+        return h.clauses[0].function;
+    }
+    pub fn clauseFunctionFor(self: *Context, handler_handle: *const Handler, operation_handle: *const Operation) Error!*const Function {
+        return (try self.clauseFor(handler_handle, operation_handle)).function;
+    }
+    pub fn resumptionSchemaFor(self: *Context, handler_handle: *const Handler, operation_handle: *const Operation) Error!*const Schema {
+        return (try self.clauseFor(handler_handle, operation_handle)).resumption;
+    }
+    fn clauseFor(self: *Context, handler_handle: *const Handler, operation_handle: *const Operation) Error!*const HandlerClauseData {
+        const h = data(HandlerData, handler_handle);
+        try self.origin(h.owner);
+        try self.origin(data(OperationData, operation_handle).owner);
+        for (h.clauses) |*clause| if (data(OperationData, clause.operation).id == data(OperationData, operation_handle).id) return clause;
+        return self.reject(error.InvalidEffect, "clause", "operation is not handled here");
     }
     pub fn handledSchema(self: *Context, handler_handle: *const Handler) Error!*const Schema {
         const h = data(HandlerData, handler_handle);
@@ -1072,11 +1076,13 @@ pub const Context = opaque {
         if (contextData(self).capture_failure != null) return;
         for (contextData(self).handlers.items) |handler_handle| {
             const h = data(HandlerData, handler_handle);
-            if (data(OperationData, h.operation).id != effect) continue;
-            self.checkCapture(data(SchemaData, h.resumption).captures, variable) catch |err| {
-                contextData(self).capture_failure = err;
-                return;
-            };
+            for (h.clauses) |clause| {
+                if (data(OperationData, clause.operation).id != effect) continue;
+                self.checkCapture(data(SchemaData, clause.resumption).captures, variable) catch |err| {
+                    contextData(self).capture_failure = err;
+                    return;
+                };
+            }
         }
     }
     fn observeClosure(pointer: *anyopaque, value_id: p.Id, variable: p.Id) void {
@@ -2058,7 +2064,8 @@ pub const interop = struct {
     pub fn resumptionSchema(c: *Context, value: *const Handler) Error!*const Schema {
         const item = data(HandlerData, value);
         try c.origin(item.owner);
-        return item.resumption;
+        if (item.clauses.len != 1) return c.reject(error.InvalidCategory, "resumption", "select a clause through its function parameter");
+        return item.clauses[0].resumption;
     }
     pub fn resultSchema(c: *Context, value: *const Schema) Error!*const Schema {
         _ = try c.schemaId(value);

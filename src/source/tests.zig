@@ -487,7 +487,6 @@ test "tail clauses reject well-typed authored failure and hidden effects at pure
 
 test "library specializations share declarations at one eight and sixty-four installations" {
     const choice = @import("../library/choice.zig");
-    const state = @import("../library/state.zig");
     const generator = @import("../library/generator.zig");
     const reader = @import("../library/reader.zig");
     const search = @import("../library/search.zig");
@@ -498,14 +497,12 @@ test "library specializations share declarations at one eight and sixty-four ins
     const unit = try b.scalar(void);
     const region = b.region();
     const choices = try choice.family(&b, "sharing/choice");
-    const states = try state.family(&b, "sharing/state", integer);
     const joined = try scheduler.joinType(&b, integer, region);
     var declarations: ?usize = null;
     var handlers: ?usize = null;
     var first_handler: data.program.Id = 0;
     for (0..64) |index| {
         const interpreted = try choice.all(&b, choices, integer, &.{}, .{ .effects = &.{} });
-        _ = try state.interpret(&b, states, integer, region, &.{}, .{ .effects = &.{} }, .value);
         const tasks = try generator.define(&b, "sharing/generator", unit, &.{}, &.{}, .{ .effects = &.{} });
         _ = try reader.define(&b, "sharing/reader", integer, integer, integer, .{ .continuation = &.{} }, .{ .effects = &.{} }, &.{});
         _ = try search.define(&b, "sharing/search", integer, &.{}, .{ .effects = &.{} }, &.{}, &.{}, .depth_first);

@@ -50,12 +50,20 @@ FIFO cooperative scheduling. Ownership, borrowing, nominal identities, failure
 order and cleanup remain checked. Stable slots retain earlier bindings without
 copying them into every intermediate continuation interface.
 
-Writer and Raise families accept an `authoring.Context` and typed schemas.
-Their opaque family handles expose `effect()` and `capability()`; interpretations
-return typed handler and answer handles. Repeated interpretations share definitions
+State, Writer and Raise families accept an `authoring.Context` and typed schemas.
+Writer/Raise expose `effect()` and `capability()`; State exposes `get()`, `put()`
+and their capability schemas. Interpretations return typed handler and answer
+handles. Repeated interpretations share definitions
 without merging distinct named schemas. The
 [Writer/Raise example](src/source/writer_raise_example.zig) includes typed cell
 allocation, logging, abortive catch and protected cleanup.
+
+`CaptureBounds` separates retained continuation values from the callable body's
+captures. These bounds have different effect-scope meanings; admitting a captured
+capability to a continuation does not give the body access to an older handler.
+`Context.handlerSet` constructs one handler with named capabilities and multiple
+clauses sharing its state and return arm. Select each clause or resumption schema
+by operation with `clauseFunctionFor` or `resumptionSchemaFor`.
 
 ## Pure data and components
 

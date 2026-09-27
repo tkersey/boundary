@@ -26,7 +26,7 @@ fn authored(b: *source.Builder) a.Error!source.ast.Module {
     const capture_ids = [_]p.Id{ unit, integer, join.cell, tasks.capability, tasks.package, tasks.answer, tasks.yielded, fifo.queue };
     var captures: [capture_ids.len]*const a.Schema = undefined;
     for (capture_ids, &captures) |id, *schema| schema.* = try a.interop.schema(c, id);
-    const logging_handler = try writer.interpret(c, logging_family, try c.scalar(u64), try a.interop.region(c, r), &captures, &.{});
+    const logging_handler = try writer.interpret(c, logging_family, try c.scalar(u64), try a.interop.region(c, r), .{ .continuation = &captures, .body = &.{try a.interop.schema(c, region)} }, &.{});
     const written = .{ .answer = try a.interop.schemaId(c, logging_handler.answer), .cell = try a.interop.schemaId(c, logging_handler.cell), .sequence = try a.interop.schemaId(c, logging_handler.sequence), .handler = try a.interop.handlerId(c, logging_handler.handler) };
     const main = try b.declare(&.{}, written.answer, &.{}, &.{});
     const inside = try b.declare(&.{region}, written.answer, &.{}, &.{r});

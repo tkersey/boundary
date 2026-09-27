@@ -1,5 +1,7 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
 const source = @import("../source.zig");
+const a = @import("../authoring.zig");
+const StateOperations = struct { get: p.Id, put: p.Id, get_capability: p.Id, put_capability: p.Id };
 const state = @import("../library/state.zig");
 const choice = @import("../library/choice.zig");
 const p = @import("boundary_data").program;
@@ -18,6 +20,10 @@ pub fn recursiveShared(b: *source.Builder) Error!source.ast.Module {
 }
 
 fn build(b: *source.Builder, comptime choice_outside: bool, comptime recursive: bool) Error!source.ast.Module {
+    return authored(b, choice_outside, recursive) catch |err| return a.sourceError(err);
+}
+fn authored(b: *source.Builder, comptime choice_outside: bool, comptime recursive: bool) a.Error!source.ast.Module {
+    const author = try a.Context.init(b);
     const unit = try b.scalar(void);
     const boolean = try b.scalar(bool);
     const integer = try b.scalar(u64);
@@ -25,10 +31,15 @@ fn build(b: *source.Builder, comptime choice_outside: bool, comptime recursive: 
     const r = b.region();
     const region = try b.schema(.{ .internal = .{ .region = r } });
     const cell = try b.schema(.{ .internal = .{ .cell = .{ .element = integer, .region = r } } });
-    const s = try state.family(b, "example/counter", integer);
+    const family = try state.family(author, "example/counter", try author.scalar(u64));
+    const s: StateOperations = .{ .get = try a.interop.operationId(author, family.get()), .put = try a.interop.operationId(author, family.put()), .get_capability = try a.interop.schemaId(author, family.getCapability()), .put_capability = try a.interop.schemaId(author, family.putCapability()) };
     const c = try choice.family(b, "example/branch");
     const all = try choice.allScoped(b, c, integer, &.{ unit, boolean, integer, sequence, cell, s.get_capability, s.put_capability, c.capability }, .{ .effects = if (choice_outside) &.{} else &.{ s.get, s.put } }, if (choice_outside) &.{r} else &.{}, if (choice_outside) &.{} else &.{r});
-    const interpretation = try state.interpret(b, s, if (choice_outside) integer else sequence, r, &.{ unit, boolean, integer, sequence, cell, s.get_capability, s.put_capability, c.capability, all.resumption }, .{ .effects = if (choice_outside) &.{c.effect} else &.{} }, .value);
+    const capture_ids = [_]p.Id{ unit, boolean, integer, sequence, cell, s.get_capability, s.put_capability, c.capability, all.resumption };
+    var captures: [capture_ids.len]*const a.Schema = undefined;
+    for (capture_ids, &captures) |id, *schema| schema.* = try a.interop.schema(author, id);
+    const typed_state = try state.interpret(author, family, try a.interop.schema(author, if (choice_outside) integer else sequence), try a.interop.region(author, r), .{ .continuation = &captures, .body = if (choice_outside) &.{try a.interop.schema(author, c.capability)} else &.{} }, if (choice_outside) &.{try a.interop.operation(author, c.effect)} else &.{}, .value);
+    const interpretation = .{ .handler = try a.interop.handlerId(author, typed_state.handler) };
     const main = try b.declare(&.{}, sequence, &.{}, &.{});
     const scope_body = try b.declare(&.{region}, if (choice_outside) integer else sequence, if (choice_outside) &.{c.effect} else &.{}, &.{r});
     const state_body = try b.declare(&.{ s.get_capability, s.put_capability }, if (choice_outside) integer else sequence, if (choice_outside) &.{ s.get, s.put, c.effect } else &.{ s.get, s.put }, &.{r});
@@ -72,7 +83,7 @@ fn build(b: *source.Builder, comptime choice_outside: bool, comptime recursive: 
     return b.module(main, unit);
 }
 
-fn recursiveWork(b: *source.Builder, s: state.Family, c: choice.Family, region: p.Id, caps: [3]p.Id, integer: p.Id, boolean: p.Id, unit: p.Id) Error!p.Id {
+fn recursiveWork(b: *source.Builder, s: StateOperations, c: choice.Family, region: p.Id, caps: [3]p.Id, integer: p.Id, boolean: p.Id, unit: p.Id) Error!p.Id {
     const functions = [_]p.Id{
         try b.declare(&.{integer}, integer, &.{ s.get, s.put, c.effect }, &.{region}),
         try b.declare(&.{integer}, integer, &.{ s.get, s.put, c.effect }, &.{region}),

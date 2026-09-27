@@ -178,7 +178,7 @@ const CleanupDisposal = struct {
         const capture_ids = [_]boundary.data.program.Id{ unit, integer, g.capability, g.answer, g.resumption, g.package, g.yielded };
         var captures: [capture_ids.len]*const a.Schema = undefined;
         for (capture_ids, &captures) |id, *schema| schema.* = try a.interop.schema(c, id);
-        const logging_handler = try writer.interpret(c, logging_family, try c.scalar(u64), try a.interop.region(c, region), &captures, &.{});
+        const logging_handler = try writer.interpret(c, logging_family, try c.scalar(u64), try a.interop.region(c, region), .{ .continuation = &captures }, &.{});
         const written = .{ .answer = try a.interop.schemaId(c, logging_handler.answer), .cell = try a.interop.schemaId(c, logging_handler.cell), .sequence = try a.interop.schemaId(c, logging_handler.sequence), .handler = try a.interop.handlerId(c, logging_handler.handler) };
         const fixture_entry = try b.declare(&.{}, written.answer, &.{}, &.{});
         const inside = try b.declare(&.{region_type}, written.answer, &.{}, &.{region});

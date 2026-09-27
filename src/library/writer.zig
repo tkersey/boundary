@@ -25,6 +25,7 @@ const Cached = struct {
     result: *const a.Schema,
     region: *const a.Region,
     captures: []const *const a.Schema,
+    body_captures: []const *const a.Schema,
     residual: []const *const a.Operation,
     value: Writer,
 };
@@ -36,28 +37,28 @@ pub fn family(c: *a.Context, identity: []const u8, message: *const a.Schema) a.E
     saved.* = .{ .effect = effect, .capability = try c.capability(effect), .message = message, .owner = c, .interpretations = entries };
     return @ptrCast(saved);
 }
-pub fn interpret(c: *a.Context, writer: *const Family, result: *const a.Schema, region: *const a.Region, captures: []const *const a.Schema, residual: []const *const a.Operation) a.Error!Writer {
+pub fn interpret(c: *a.Context, writer: *const Family, result: *const a.Schema, region: *const a.Region, captures: a.CaptureBounds, residual: []const *const a.Operation) a.Error!Writer {
     const f = familyData(writer);
     _ = try c.capability(f.effect);
     if (c != f.owner) return error.ForeignHandle;
     for (f.interpretations.items) |entry| {
-        if (entry.result == result and entry.region == region and std.mem.eql(*const a.Schema, entry.captures, captures) and
+        if (entry.result == result and entry.region == region and std.mem.eql(*const a.Schema, entry.captures, captures.continuation) and std.mem.eql(*const a.Schema, entry.body_captures, captures.body) and
             std.mem.eql(*const a.Operation, entry.residual, residual)) return entry.value;
     }
     const allocator = a.interop.builder(c).allocator();
     const sequence = try c.sequence(f.message);
     const cell = try c.cell(region, sequence);
     const answer = try c.record(&.{ .{ .name = "value", .schema = result }, .{ .name = "log", .schema = sequence } });
-    const bound = try allocator.alloc(*const a.Schema, captures.len + 3);
-    @memcpy(bound[0..captures.len], captures);
-    @memcpy(bound[captures.len..], &[_]*const a.Schema{ f.capability, cell, sequence });
+    const bound = try allocator.alloc(*const a.Schema, captures.continuation.len + 3);
+    @memcpy(bound[0..captures.continuation.len], captures.continuation);
+    @memcpy(bound[captures.continuation.len..], &[_]*const a.Schema{ f.capability, cell, sequence });
     const handler = try c.handler(f.effect, result, answer, .{
         .mode = .deep,
         .use = .linear,
         .residual = residual,
         .return_effects = &.{},
         .captures = bound,
-        .body_captures = captures,
+        .body_captures = captures.body,
         .borrowed_regions = &.{region},
         .state = &.{.{ .name = "log", .schema = cell }},
         .obligations = true,
@@ -75,6 +76,6 @@ pub fn interpret(c: *a.Context, writer: *const Family, result: *const a.Schema, 
     _ = try clause.writeCell(target, after);
     try c.define(clause_fn, try clause.ret(try clause.resumeValue(try clause.parameter("resumption"), try clause.constant(void, {}))));
     const value: Writer = .{ .answer = answer, .cell = cell, .sequence = sequence, .handler = handler, .resumption = try a.interop.resumptionSchema(c, handler) };
-    try f.interpretations.append(allocator, .{ .result = result, .region = region, .captures = try allocator.dupe(*const a.Schema, captures), .residual = try allocator.dupe(*const a.Operation, residual), .value = value });
+    try f.interpretations.append(allocator, .{ .result = result, .region = region, .captures = try allocator.dupe(*const a.Schema, captures.continuation), .body_captures = try allocator.dupe(*const a.Schema, captures.body), .residual = try allocator.dupe(*const a.Operation, residual), .value = value });
     return value;
 }

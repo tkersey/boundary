@@ -14,8 +14,8 @@ fn authored(b: *source.Builder) a.Error!source.Module {
     const region = try c.region();
     const w = try writer.family(c, "example/writer", integer);
     const r = try raise.family(c, "example/raise", integer);
-    const caught = try raise.catching(c, r, integer, &.{ unit, integer, w.capability() }, &.{w.effect()}, &.{region});
-    const written = try writer.interpret(c, w, caught.answer, region, &.{ unit, integer, caught.answer, r.capability() }, &.{});
+    const caught = try raise.catching(c, r, integer, .{ .continuation = &.{ unit, integer, w.capability() }, .body = &.{w.capability()} }, &.{w.effect()}, &.{region});
+    const written = try writer.interpret(c, w, caught.answer, region, .{ .continuation = &.{ unit, integer, caught.answer, r.capability() } }, &.{});
     const main = try c.function("entry", &.{}, written.answer, &.{});
     const entry = try c.body(main);
     const inside_type = try c.regionBodySchema(region, &.{}, written.answer, &.{}, .{ .use = .linear, .captures = &.{} });

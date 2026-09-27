@@ -1337,25 +1337,113 @@ fn librarySharing(allocator: std.mem.Allocator) !void {
     const region = try c.region();
     const logs = try writer.family(c, "sharing/log", integer);
     const failures = try raise.family(c, "sharing/raise", integer);
-    const first_writer = try writer.interpret(c, logs, left, region, &.{}, &.{});
-    const second_writer = try writer.interpret(c, logs, right, region, &.{}, &.{});
-    const first_raise = try raise.catching(c, failures, left, &.{}, &.{}, &.{});
-    const second_raise = try raise.catching(c, failures, right, &.{}, &.{}, &.{});
+    const first_writer = try writer.interpret(c, logs, left, region, .{ .continuation = &.{} }, &.{});
+    const second_writer = try writer.interpret(c, logs, right, region, .{ .continuation = &.{} }, &.{});
+    const first_raise = try raise.catching(c, failures, left, .{ .continuation = &.{} }, &.{}, &.{});
+    const second_raise = try raise.catching(c, failures, right, .{ .continuation = &.{} }, &.{}, &.{});
     try testing.expect(first_writer.handler != second_writer.handler);
     try testing.expect(first_raise.handler != second_raise.handler);
     const count = raw.functions.items.len;
     for (0..64) |_| {
-        try testing.expectEqual(first_writer.handler, (try writer.interpret(c, logs, left, region, &.{}, &.{})).handler);
-        try testing.expectEqual(first_raise.handler, (try raise.catching(c, failures, left, &.{}, &.{}, &.{})).handler);
+        try testing.expectEqual(first_writer.handler, (try writer.interpret(c, logs, left, region, .{ .continuation = &.{} }, &.{})).handler);
+        try testing.expectEqual(first_raise.handler, (try raise.catching(c, failures, left, .{ .continuation = &.{} }, &.{}, &.{})).handler);
     }
     try testing.expectEqual(count, raw.functions.items.len);
     const other = try a.Context.init(&raw);
-    try testing.expectError(error.ForeignHandle, writer.interpret(other, logs, left, region, &.{}, &.{}));
-    try testing.expectError(error.ForeignHandle, raise.catching(other, failures, left, &.{}, &.{}, &.{}));
+    try testing.expectError(error.ForeignHandle, writer.interpret(other, logs, left, region, .{ .continuation = &.{} }, &.{}));
+    try testing.expectError(error.ForeignHandle, raise.catching(other, failures, left, .{ .continuation = &.{} }, &.{}, &.{}));
 }
 test "typed Writer and Raise preserve named contracts and share 64 installations" {
     try librarySharing(testing.allocator);
 }
 test "typed Writer and Raise release partial construction allocations" {
     try testing.checkAllAllocationFailures(testing.allocator, librarySharing, .{});
+}
+
+fn groupedHandler(allocator: std.mem.Allocator, negative: bool, older_capture: bool) !void {
+    var raw = source.Builder.init(allocator);
+    defer raw.deinit();
+    const c = try a.Context.init(&raw);
+    const integer = try c.scalar(u64);
+    const unit = try c.scalar(void);
+    const first = try c.local("group/first", integer, integer, .linear);
+    const second = try c.local("group/second", integer, integer, .linear);
+    const alias = try a.interop.operation(c, try a.interop.operationId(c, first));
+    const captures = &.{ integer, try c.capability(first), try c.capability(second) };
+    const options: a.HandlerOptions = .{ .mode = .deep, .use = .linear, .residual = &.{}, .captures = captures, .body_captures = if (older_capture) &.{try c.capability(first)} else &.{} };
+    if (negative) {
+        try testing.expectError(error.InvalidEffect, c.handlerSet(&.{ .{ .name = "one", .operation = first }, .{ .name = "alias", .operation = alias } }, integer, integer, options));
+        try testing.expectError(error.DuplicateName, c.handlerSet(&.{ .{ .name = "same", .operation = first }, .{ .name = "same", .operation = second } }, integer, integer, options));
+        try testing.expectError(error.InvalidCategory, c.handlerSet(&.{}, integer, integer, options));
+    }
+    // Reverse nominal-ID order: the body parameters and continuation evidence
+    // retain caller order, independently of canonical sorted effect rows.
+    const h = try c.handlerSet(&.{ .{ .name = "second", .operation = second }, .{ .name = "first", .operation = first } }, integer, integer, options);
+    if (negative) {
+        try testing.expectError(error.InvalidCategory, c.clauseFunction(h));
+        try testing.expectError(error.InvalidCategory, a.interop.resumptionSchema(c, h));
+        const foreign = try a.Context.init(&raw);
+        try testing.expectError(error.ForeignHandle, foreign.clauseFunctionFor(h, first));
+    }
+    try testing.expectEqual(try c.clauseFunctionFor(h, first), try c.clauseFunctionFor(h, alias));
+    try testing.expectEqual(try c.resumptionSchemaFor(h, first), try c.resumptionSchemaFor(h, alias));
+    try testing.expect(try c.resumptionSchemaFor(h, first) != try c.resumptionSchemaFor(h, second));
+    const returns_fn = try c.returnFunction(h);
+    const returns = try c.body(returns_fn);
+    try c.define(returns_fn, try returns.ret(try returns.parameter("result")));
+    for ([_]*const a.Operation{ first, second }) |op| {
+        const f = try c.clauseFunctionFor(h, op);
+        const clause = try c.body(f);
+        try c.define(f, try clause.ret(try clause.resumeValue(try clause.parameter("resumption"), try clause.parameter("payload"))));
+    }
+    const schema = try c.handledSchema(h);
+    const f = try c.functionFor("grouped work", schema);
+    const work = try c.body(f);
+    const x = try work.performLocal(first, try work.parameter("first"), try work.constant(u64, 11));
+    try c.define(f, try work.ret(try work.performLocal(second, try work.parameter("second"), x)));
+    const entry_fn = try c.function("entry", &.{}, integer, &.{});
+    const entry = try c.body(entry_fn);
+    try c.define(entry_fn, try entry.ret(try entry.handleWith(h, try entry.lambda(f, schema), &.{})));
+    var compiled = try c.compile(allocator, entry_fn, unit);
+    defer compiled.deinit();
+}
+
+test "handler sets preserve positional capabilities and reject ambiguous selection" {
+    try groupedHandler(testing.allocator, true, false);
+    try testing.expectError(error.InvalidEffect, groupedHandler(testing.allocator, false, true));
+}
+test "handler sets release partial allocations" {
+    try testing.checkAllAllocationFailures(testing.allocator, groupedHandler, .{ false, false });
+}
+
+fn stateSharing(allocator: std.mem.Allocator) !void {
+    const state = @import("library/state.zig");
+    var raw = source.Builder.init(allocator);
+    defer raw.deinit();
+    const c = try a.Context.init(&raw);
+    const integer = try c.scalar(u64);
+    const region = try c.region();
+    const family = try state.family(c, "sharing/state", integer);
+    const bound: a.CaptureBounds = .{ .continuation = &.{ integer, family.getCapability(), family.putCapability() } };
+    const value = try state.interpret(c, family, integer, region, bound, &.{}, .value);
+    const optional = try state.interpret(c, family, integer, region, bound, &.{}, .optional);
+    const paired = try state.interpret(c, family, integer, region, bound, &.{}, .with_state);
+    try testing.expect(value.handler != optional.handler and optional.handler != paired.handler);
+    const body_schema = raw.schemas.items[@intCast(try a.interop.schemaId(c, try c.handledSchema(value.handler)))].internal.computation;
+    try testing.expectEqual(@as(usize, 0), body_schema.capture_bound.len);
+    const count = raw.functions.items.len;
+    for (0..64) |_| {
+        try testing.expectEqual(value.handler, (try state.interpret(c, family, integer, region, bound, &.{}, .value)).handler);
+        try testing.expectEqual(optional.handler, (try state.interpret(c, family, integer, region, bound, &.{}, .optional)).handler);
+        try testing.expectEqual(paired.handler, (try state.interpret(c, family, integer, region, bound, &.{}, .with_state)).handler);
+    }
+    try testing.expectEqual(count, raw.functions.items.len);
+    const other = try a.Context.init(&raw);
+    try testing.expectError(error.ForeignHandle, state.interpret(other, family, integer, region, bound, &.{}, .value));
+}
+test "typed State shares each answer policy through 64 installations" {
+    try stateSharing(testing.allocator);
+}
+test "typed State releases partial allocations" {
+    try testing.checkAllAllocationFailures(testing.allocator, stateSharing, .{});
 }

@@ -24,6 +24,7 @@ const FamilyData = struct {
 const Cached = struct {
     result: *const a.Schema,
     captures: []const *const a.Schema,
+    body_captures: []const *const a.Schema,
     residual: []const *const a.Operation,
     regions: []const *const a.Region,
     value: Raise,
@@ -36,26 +37,26 @@ pub fn family(c: *a.Context, identity: []const u8, failure: *const a.Schema) a.E
     saved.* = .{ .effect = effect, .capability = try c.capability(effect), .failure = failure, .owner = c, .interpretations = entries };
     return @ptrCast(saved);
 }
-pub fn catching(c: *a.Context, raised: *const Family, result: *const a.Schema, captures: []const *const a.Schema, residual: []const *const a.Operation, regions: []const *const a.Region) a.Error!Raise {
+pub fn catching(c: *a.Context, raised: *const Family, result: *const a.Schema, captures: a.CaptureBounds, residual: []const *const a.Operation, regions: []const *const a.Region) a.Error!Raise {
     const f = familyData(raised);
     _ = try c.capability(f.effect);
     if (c != f.owner) return error.ForeignHandle;
     for (f.interpretations.items) |entry| {
-        if (entry.result == result and std.mem.eql(*const a.Schema, entry.captures, captures) and
+        if (entry.result == result and std.mem.eql(*const a.Schema, entry.captures, captures.continuation) and std.mem.eql(*const a.Schema, entry.body_captures, captures.body) and
             std.mem.eql(*const a.Operation, entry.residual, residual) and std.mem.eql(*const a.Region, entry.regions, regions)) return entry.value;
     }
     const allocator = a.interop.builder(c).allocator();
     const answer = try c.alternatives(&.{ .{ .name = "failure", .schema = f.failure }, .{ .name = "value", .schema = result } });
-    const bound = try allocator.alloc(*const a.Schema, captures.len + 1);
-    @memcpy(bound[0..captures.len], captures);
-    bound[captures.len] = f.capability;
+    const bound = try allocator.alloc(*const a.Schema, captures.continuation.len + 1);
+    @memcpy(bound[0..captures.continuation.len], captures.continuation);
+    bound[captures.continuation.len] = f.capability;
     const handler = try c.handler(f.effect, result, answer, .{
         .mode = .deep,
         .use = .linear,
         .residual = residual,
         .return_effects = &.{},
         .captures = bound,
-        .body_captures = captures,
+        .body_captures = captures.body,
         .borrowed_regions = regions,
         .obligations = true,
     });
@@ -67,6 +68,6 @@ pub fn catching(c: *a.Context, raised: *const Family, result: *const a.Schema, c
     _ = try clause.dispose(try clause.parameter("resumption"));
     try c.define(clause_fn, try clause.ret(try clause.variant(answer, "failure", try clause.parameter("payload"))));
     const value: Raise = .{ .answer = answer, .resumption = try a.interop.resumptionSchema(c, handler), .handler = handler };
-    try f.interpretations.append(allocator, .{ .result = result, .captures = try allocator.dupe(*const a.Schema, captures), .residual = try allocator.dupe(*const a.Operation, residual), .regions = try allocator.dupe(*const a.Region, regions), .value = value });
+    try f.interpretations.append(allocator, .{ .result = result, .captures = try allocator.dupe(*const a.Schema, captures.continuation), .body_captures = try allocator.dupe(*const a.Schema, captures.body), .residual = try allocator.dupe(*const a.Operation, residual), .regions = try allocator.dupe(*const a.Region, regions), .value = value });
     return value;
 }

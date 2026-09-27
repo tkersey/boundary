@@ -1,47 +1,95 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
-//! State policy is authored code; a cell is explicit handler-owned state.
-const source = @import("../source.zig");
-const p = @import("boundary_data").program;
-const Error = source.Error;
-pub const Family = struct { get: p.Id, put: p.Id, get_capability: p.Id, put_capability: p.Id, element: p.Id };
+//! One get/put interpretation owns explicit cell state and one answer policy.
+const std = @import("std");
+const a = @import("../authoring.zig");
 pub const Answer = enum { value, with_state, optional };
-pub const Interpretation = struct { handler: p.Id, answer: p.Id, cell: p.Id };
-
-pub fn family(b: *source.Builder, identity: []const u8, element: p.Id) Error!Family {
-    const unit = try b.scalar(void);
-    const get = try b.effect(.{ .identity = try @import("std").fmt.allocPrint(b.allocator(), "{s}/get", .{identity}), .payload = unit, .result = element, .external = false });
-    const put = try b.effect(.{ .identity = try @import("std").fmt.allocPrint(b.allocator(), "{s}/put", .{identity}), .payload = element, .result = unit, .external = false });
-    return .{ .get = get, .put = put, .get_capability = try b.schema(.{ .internal = .{ .capability = get } }), .put_capability = try b.schema(.{ .internal = .{ .capability = put } }), .element = element };
+pub const Interpretation = struct { handler: *const a.Handler, answer: *const a.Schema, cell: *const a.Schema };
+pub const Family = opaque {
+    pub fn get(self: *const Family) *const a.Operation {
+        return familyData(self).get;
+    }
+    pub fn put(self: *const Family) *const a.Operation {
+        return familyData(self).put;
+    }
+    pub fn getCapability(self: *const Family) *const a.Schema {
+        return familyData(self).get_capability;
+    }
+    pub fn putCapability(self: *const Family) *const a.Schema {
+        return familyData(self).put_capability;
+    }
+};
+const FamilyData = struct {
+    get: *const a.Operation,
+    put: *const a.Operation,
+    get_capability: *const a.Schema,
+    put_capability: *const a.Schema,
+    element: *const a.Schema,
+    interpretations: std.ArrayList(Cached) = .empty,
+};
+const Cached = struct {
+    result: *const a.Schema,
+    region: *const a.Region,
+    captures: []const *const a.Schema,
+    body_captures: []const *const a.Schema,
+    residual: []const *const a.Operation,
+    disposition: Answer,
+    value: Interpretation,
+};
+fn familyData(f: *const Family) *FamilyData {
+    return @ptrCast(@alignCast(@constCast(f)));
 }
-
-pub fn interpret(b: *source.Builder, state: Family, result: p.Id, region: p.Id, captures: []const p.Id, residual: source.Row, disposition: Answer) Error!Interpretation {
-    const instance = try b.specialization(Interpretation, "boundary.library.state/v2", .{ state, result, region, captures, residual, disposition });
-    if (instance.cached) |value| return value;
-    const unit = try b.scalar(void);
-    const cell = try b.schema(.{ .internal = .{ .cell = .{ .element = state.element, .region = region } } });
+pub fn family(c: *a.Context, identity: []const u8, element: *const a.Schema) a.Error!*const Family {
+    const allocator = a.interop.builder(c).allocator();
+    const unit = try c.scalar(void);
+    const get = try c.local(try std.fmt.allocPrint(allocator, "{s}/get", .{identity}), unit, element, .linear);
+    const put = try c.local(try std.fmt.allocPrint(allocator, "{s}/put", .{identity}), element, unit, .linear);
+    const saved = try allocator.create(FamilyData);
+    saved.* = .{ .get = get, .put = put, .get_capability = try c.capability(get), .put_capability = try c.capability(put), .element = element };
+    return @ptrCast(saved);
+}
+pub fn interpret(c: *a.Context, state: *const Family, result: *const a.Schema, region: *const a.Region, captures: a.CaptureBounds, residual: []const *const a.Operation, disposition: Answer) a.Error!Interpretation {
+    const f = familyData(state);
+    _ = try c.capability(f.get);
+    for (f.interpretations.items) |entry| {
+        if (entry.result == result and entry.region == region and entry.disposition == disposition and
+            std.mem.eql(*const a.Schema, entry.captures, captures.continuation) and std.mem.eql(*const a.Schema, entry.body_captures, captures.body) and std.mem.eql(*const a.Operation, entry.residual, residual)) return entry.value;
+    }
+    const allocator = a.interop.builder(c).allocator();
+    const cell = try c.cell(region, f.element);
     const answer = switch (disposition) {
         .value => result,
-        .with_state => try b.schema(.{ .product = &.{ result, state.element } }),
-        .optional => try b.schema(.{ .sum = &.{ unit, result } }),
+        .with_state => try c.record(&.{ .{ .name = "value", .schema = result }, .{ .name = "state", .schema = f.element } }),
+        .optional => try c.alternatives(&.{ .{ .name = "none", .schema = try c.scalar(void) }, .{ .name = "some", .schema = result } }),
     };
-    const returns = try b.declare(&.{ cell, result }, answer, &.{}, &.{region});
-    const returned = try b.reference(b.parameter(returns, 1));
-    try b.define(returns, try b.pure(switch (disposition) {
+    const handler = try c.handlerSet(&.{ .{ .name = "get", .operation = f.get }, .{ .name = "put", .operation = f.put } }, result, answer, .{
+        .mode = .deep,
+        .use = .linear,
+        .residual = residual,
+        .return_effects = &.{},
+        .captures = captures.continuation,
+        .body_captures = captures.body,
+        .borrowed_regions = &.{region},
+        .state = &.{.{ .name = "state", .schema = cell }},
+    });
+    const returns_fn = try c.returnFunction(handler);
+    const returns = try c.body(returns_fn);
+    const returned = try returns.parameter("result");
+    try c.define(returns_fn, try returns.ret(switch (disposition) {
         .value => returned,
-        .with_state => try b.primitive(answer, .product, &.{ returned, try b.primitive(state.element, .cell_get, &.{try b.reference(b.parameter(returns, 0))}, 0) }, 0),
-        .optional => try b.primitive(answer, .variant, &.{returned}, 1),
+        .with_state => try returns.product(answer, &.{ .{ .name = "value", .value = returned }, .{ .name = "state", .value = try returns.readCell(try returns.parameter("state")) } }),
+        .optional => try returns.variant(answer, "some", returned),
     }));
-    var clauses: [2]p.Clause = undefined;
-    for ([_]p.Id{ state.get, state.put }, 0..) |effect, index| {
-        const input = if (index == 0) state.element else unit;
-        const payload = if (index == 0) unit else state.element;
-        const token = try b.schema(.{ .internal = .{ .resumption = .{ .effect = effect, .input = input, .answer = answer, .effects = residual.effects, .capture_bound = captures, .handled = &.{ state.get, state.put }, .mode = .deep, .use = .linear } } });
-        const clause = try b.declare(&.{ cell, payload, token }, answer, residual.effects, &.{region});
-        const state_cell = try b.reference(b.parameter(clause, 0));
-        const resumed = try b.term(.{ .resume_value = .{ .resumption = try b.reference(b.parameter(clause, 2)), .argument = if (index == 0) try b.primitive(state.element, .cell_get, &.{state_cell}, 0) else try b.constant(void, {}) } });
-        const body = if (index == 0) resumed else try b.bind(try b.variable(unit), try b.pure(try b.primitive(unit, .cell_set, &.{ state_cell, try b.reference(b.parameter(clause, 1)) }, 0)), resumed);
-        try b.define(clause, body);
-        clauses[index] = .{ .effect = effect, .function = clause, .resumption = token };
+    for ([_]*const a.Operation{ f.get, f.put }, 0..) |operation, index| {
+        const clause_fn = try c.clauseFunctionFor(handler, operation);
+        const clause = try c.body(clause_fn);
+        const target = try clause.parameter("state");
+        const reply = if (index == 0) try clause.readCell(target) else blk: {
+            _ = try clause.writeCell(target, try clause.parameter("payload"));
+            break :blk try clause.constant(void, {});
+        };
+        try c.define(clause_fn, try clause.ret(try clause.resumeValue(try clause.parameter("resumption"), reply)));
     }
-    return instance.finish(b, .{ .handler = try b.handler(.{ .mode = .deep, .input = result, .answer = answer, .return_function = returns, .clauses = &clauses, .state = &.{cell}, .effects = residual.effects }), .answer = answer, .cell = cell });
+    const value: Interpretation = .{ .handler = handler, .answer = answer, .cell = cell };
+    try f.interpretations.append(allocator, .{ .result = result, .region = region, .captures = try allocator.dupe(*const a.Schema, captures.continuation), .body_captures = try allocator.dupe(*const a.Schema, captures.body), .residual = try allocator.dupe(*const a.Operation, residual), .disposition = disposition, .value = value });
+    return value;
 }
