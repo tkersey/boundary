@@ -90,6 +90,8 @@ pub const HandlerOptions = struct {
     residual: []const *const Operation,
     /// Null preserves the handler's residual row; an empty row declares a pure return arm.
     return_effects: ?[]const *const Operation = null,
+    /// Null preserves the residual row; a packaging-only clause can be pure.
+    clause_effects: ?[]const *const Operation = null,
     escaping: []const *const Operation = &.{},
     captures: []const *const Schema,
     body_use: p.Use = .linear,
@@ -604,6 +606,17 @@ pub const Context = opaque {
         const id = try contextData(self).raw.schema(.{ .seq = try self.schemaId(element) });
         return self.internResult(id, &.{}, element);
     }
+    pub fn suspensionPackage(self: *Context, resumption: *const Schema) Error!*const Schema {
+        const id = try self.schemaId(resumption);
+        const shape = contextData(self).raw.schemas.items[@intCast(id)];
+        if (shape != .internal or shape.internal != .resumption)
+            return self.reject(error.InvalidCategory, "package", "requires a resumption schema");
+        errdefer |err| self.poison(err);
+        const package_id = try contextData(self).raw.schema(.{
+            .internal = .{ .suspension_package = id },
+        });
+        return self.internResult(package_id, &.{}, resumption);
+    }
     pub fn alternatives(self: *Context, cases: []const Field) Error!*const Schema {
         try self.ready();
         errdefer |err| self.poison(err);
@@ -722,7 +735,12 @@ pub const Context = opaque {
             answer,
             options.return_effects orelse options.residual,
         );
-        const clause = try self.function("operation clause", clause_fields, answer, options.residual);
+        const clause = try self.function(
+            "operation clause",
+            clause_fields,
+            answer,
+            options.clause_effects orelse options.residual,
+        );
         const rf = data(FunctionData, returns).id;
         const cf = data(FunctionData, clause).id;
         contextData(self).raw.functions.items[@intCast(rf)].regions = borrowed_ids;
@@ -1332,6 +1350,36 @@ pub const Body = opaque {
             },
         }), op.result);
     }
+    pub fn package(self: *Body, resumption: *const Value) Error!*const Value {
+        const token = try self.useValue(resumption);
+        const c = bodyData(self).context;
+        const schema = try c.suspensionPackage(token.schema);
+        errdefer |err| c.poison(err);
+        const value = try contextData(c).raw.primitive(
+            try c.schemaId(schema),
+            .package,
+            &.{token.id},
+            0,
+        );
+        return self.bind(try contextData(c).raw.pure(value), schema);
+    }
+    pub fn unpack(self: *Body, package_value: *const Value) Error!*const Value {
+        const packaged = try self.useValue(package_value);
+        const c = bodyData(self).context;
+        const info = data(SchemaData, packaged.schema);
+        const shape = contextData(c).raw.schemas.items[@intCast(info.id)];
+        if (shape != .internal or shape.internal != .suspension_package)
+            return c.reject(error.InvalidCategory, "unpack", "requires a suspension package");
+        const result = info.result orelse return error.InvalidSchema;
+        errdefer |err| c.poison(err);
+        const value = try contextData(c).raw.primitive(
+            try c.schemaId(result),
+            .unpack,
+            &.{packaged.id},
+            0,
+        );
+        return self.bind(try contextData(c).raw.pure(value), result);
+    }
     pub fn resumeValue(
         self: *Body,
         resumption: *const Value,
@@ -1758,7 +1806,7 @@ pub const interop = struct {
         switch (shape) {
             .product, .sum, .seq => {},
             .internal => |inner| switch (inner) {
-                .computation, .resumption, .borrowed => {},
+                .computation, .resumption, .borrowed, .suspension_package => {},
                 else => return c.intern(id, &.{}),
             },
             else => return c.intern(id, &.{}),
@@ -1780,6 +1828,7 @@ pub const interop = struct {
                 .computation => |signature| try schema(c, signature.result),
                 .resumption => |signature| try schema(c, signature.answer),
                 .borrowed => |borrow| try schema(c, borrow.value),
+                .suspension_package => |token| try schema(c, token),
                 else => null,
             },
             else => null,

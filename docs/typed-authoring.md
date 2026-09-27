@@ -8,6 +8,14 @@ Handlers may declare `return_effects` separately from their residual row. Omit i
 to retain the full residual allowance, or use `&.{}` for a pure return arm while
 the operation clause still performs residual effects. Authoritative source
 admission rejects a return body that exceeds its declared row.
+`clause_effects` similarly narrows the operation clause's row, without changing
+the effects of its captured resumption. A clause that only packages a suspension
+can therefore be pure while later resumption performs residual effects.
+
+Use `Context.suspensionPackage` for its typed schema and `Body.package` /
+`Body.unpack` to move a resumption into or out of an owned suspension package.
+These emit the existing source operations. Their named schema metadata is retained;
+ordinary source admission still rejects repeated consumption and invalid custody.
 
 Construct handlers and regions through `authoring.Context.handler` and
 `authoring.Context.region`. The former top-level `boundary.handler` and

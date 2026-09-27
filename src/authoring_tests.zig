@@ -639,7 +639,7 @@ fn twiceSharing(allocator: std.mem.Allocator) !void {
 }
 
 const FailureCase = enum { matching, mismatch, discarded };
-fn handlerReturnEffects(allocator: std.mem.Allocator, pure: bool, performs: bool) !void {
+fn handlerReturnEffects(allocator: std.mem.Allocator, pure: bool, performs: bool, pure_clause: bool) !void {
     var raw = source.Builder.init(allocator);
     defer raw.deinit();
     const c = try a.Context.init(&raw);
@@ -651,6 +651,7 @@ fn handlerReturnEffects(allocator: std.mem.Allocator, pure: bool, performs: bool
         .use = .linear,
         .residual = &.{read},
         .return_effects = if (pure) &.{} else null,
+        .clause_effects = if (pure_clause) &.{} else null,
         .captures = &.{ unit, try c.capability(ask) },
     });
     const returns = try c.returnFunction(handler);
@@ -690,9 +691,68 @@ fn handlerReturnEffects(allocator: std.mem.Allocator, pure: bool, performs: bool
 }
 
 test "handler return effects can be pure while the clause retains residual I/O" {
-    try handlerReturnEffects(testing.allocator, true, false);
-    try handlerReturnEffects(testing.allocator, false, true);
-    try testing.expectError(error.InvalidEffect, handlerReturnEffects(testing.allocator, true, true));
+    try handlerReturnEffects(testing.allocator, true, false, false);
+    try handlerReturnEffects(testing.allocator, false, true, false);
+    try testing.expectError(error.InvalidEffect, handlerReturnEffects(testing.allocator, true, true, false));
+    try testing.expectError(error.InvalidEffect, handlerReturnEffects(testing.allocator, false, false, true));
+}
+
+fn suspensionRoundtrip(allocator: std.mem.Allocator, duplicate: bool) !void {
+    var raw = source.Builder.init(allocator);
+    defer raw.deinit();
+    const c = try a.Context.init(&raw);
+    const unit = try c.scalar(void);
+    try testing.expectError(error.InvalidCategory, c.suspensionPackage(unit));
+    const ask = try c.local("package/ask", unit, unit, .linear);
+    const handler = try c.handler(ask, unit, unit, .{
+        .mode = .deep,
+        .use = .linear,
+        .residual = &.{},
+        .return_effects = &.{},
+        .clause_effects = &.{},
+        .captures = &.{ unit, try c.capability(ask) },
+    });
+    const returns = try c.returnFunction(handler);
+    const returned = try c.body(returns);
+    try c.define(returns, try returned.ret(try returned.parameter("result")));
+    const clause = try c.clauseFunction(handler);
+    const body = try c.body(clause);
+    const ordinary = try body.constant(void, {});
+    try testing.expectError(error.InvalidCategory, body.package(ordinary));
+    try testing.expectError(error.InvalidCategory, body.unpack(ordinary));
+    const packaged = try body.package(try body.parameter("resumption"));
+    var token = try body.unpack(packaged);
+    if (duplicate) {
+        _ = try body.dispose(token);
+        token = try body.unpack(packaged);
+    }
+    try c.define(clause, try body.ret(try body.resumeValue(token, try body.parameter("payload"))));
+    const work_schema = try c.handledSchema(handler);
+    const work = try c.functionFor("work", work_schema);
+    const working = try c.body(work);
+    try c.define(work, try working.ret(try working.performLocal(
+        ask,
+        try working.parameter("capability"),
+        try working.constant(void, {}),
+    )));
+    const entry = try c.function("entry", &.{}, unit, &.{});
+    const root = try c.body(entry);
+    try c.define(entry, try root.ret(try root.handleWith(
+        handler,
+        try root.lambda(work, work_schema),
+        &.{},
+    )));
+    var compiled = try c.compile(allocator, entry, unit);
+    defer compiled.deinit();
+}
+
+test "typed suspension packaging preserves resumption custody" {
+    try suspensionRoundtrip(testing.allocator, false);
+    if (suspensionRoundtrip(testing.allocator, true)) {
+        return error.DuplicatePackageAdmitted;
+    } else |err| {
+        try testing.expect(err == error.UnavailableSlot or err == error.InvalidOwnership);
+    }
 }
 
 fn explicitFailure(allocator: std.mem.Allocator, mode: FailureCase) !void {
