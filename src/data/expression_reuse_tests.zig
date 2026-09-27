@@ -205,3 +205,19 @@ test "equal-looking cell reads separated by mutation are excluded" {
     forged.blocks = &blocks;
     try std.testing.expectError(error.InvalidExpressionReuse, reuse.validate(a, private_cell, forged, &.{.{ .source = .{ .block = 2, .instruction = 1 }, .target = .{ .block = 2, .instruction = 3 } }}));
 }
+
+test "expression reuse does not introduce retention across a capture boundary" {
+    var blocks = diamond.blocks[0..4].*;
+    blocks[1].terminator = .{ .yield_value = .{ .block = 3 } };
+    var original = diamond;
+    original.blocks = &blocks;
+    var stats: reuse.Statistics = .{};
+    var result = try reuse.run(a, original, &stats, .{});
+    defer result.deinit();
+    try std.testing.expectEqual(@as(usize, 0), stats.expressions_reused);
+    var changed = blocks;
+    changed[3].instructions = &.{.{ .destination = 4, .opcode = .move, .operands = &.{3} }};
+    var candidate = original;
+    candidate.blocks = &changed;
+    try std.testing.expectError(error.InvalidExpressionReuse, reuse.validate(a, original, candidate, &.{.{ .source = .{ .block = 0, .instruction = 0 }, .target = .{ .block = 3, .instruction = 0 } }}));
+}

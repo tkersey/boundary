@@ -522,3 +522,21 @@ test "a computation reused as a handler body retains its construction" {
     try std.testing.expectEqual(@as(usize, 0), stats.eliminated_constructions);
     try std.testing.expectEqual(@as(usize, 0), stats.direct_applications);
 }
+
+test "dead computation retains the source of an explicit dead edge assignment" {
+    const original: ir.Program = .{
+        .roots = .{ .entry = 0, .result = 0, .failure = 1 },
+        .schemas = &.{ .u64, .unit },
+        .constants = &.{.{ .schema = 0, .bytes = &.{ 7, 0, 0, 0, 0, 0, 0, 0 } }},
+        .effects = &.{},
+        .functions = &.{.{ .entry = 0, .inputs = &.{0}, .layout = .{ .slots = &.{ 0, 0, 0 } }, .result = 0 }},
+        .blocks = &.{
+            .{ .function = 0, .instructions = &.{.{ .destination = 1, .opcode = .constant, .immediate = 0 }}, .terminator = .{ .jump = .{ .block = 1, .assignments = &.{.{ .destination = 2, .source = .{ .slot = 1 } }} } } },
+            .{ .function = 0, .instructions = &.{}, .terminator = .{ .return_value = 0 } },
+        },
+    };
+    var stats: @import("dead_computation.zig").Statistics = .{};
+    var result = try @import("dead_computation.zig").run(a, original, &stats, .{});
+    defer result.deinit();
+    try std.testing.expectEqual(@as(usize, 0), stats.instructions_removed);
+}

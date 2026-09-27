@@ -343,6 +343,29 @@ Agent source inspected at `c181ef58623cd0260a0bee7ad44dafdf099fdc20`:
 This is not a completed consumer migration. Agent's emitter policy, compiled-tool
 forwarding, source/package/runtime rebinding and corresponding tests remain open.
 
+### Real-corpus follow-up
+
+Agent draft #40 now binds the authenticated `517cfb1` source/package and forwards
+the complete policy through compiled tools. Its first 18-workload emission has ten
+work-limit outcomes; that pin is not qualified for semantic adoption. These are
+required-fixture failures, not optimizer successes or a reason to waive budgets.
+
+The follow-up scopes GVN definition sets to their owning function and pre-indexes
+actual predecessor edges, avoiding scans of unrelated definitions/blocks. Reuse
+also requires original availability and declines capture/control boundaries that
+would widen retention obligations. Candidate admission exposed those obligations
+on real review/document records; it was not bypassed. Separately, DCE now preserves
+every explicit control-edge source read until a checked edge rewrite removes the
+assignment, even when the destination is semantically dead.
+
+The corrected code passes 239 data tests, including new edge-demand and retention
+boundary regressions. A probe of the original failing images now completes the
+three review cases with optimizations and sharing-64 as a real no-op. Six larger
+cases still hit work limits. Agent's recorded ten failures remain the evidence for
+its unchanged pin; the newer probe does not relabel that evidence. Remaining work
+is to finish budget/scan corrections, authenticate the successor pin and rerun the
+whole consumer qualification.
+
 ## Remaining M2 obligations
 
 This is not complete M2 or canonical pipeline adoption. Remaining work includes:

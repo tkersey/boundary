@@ -37,6 +37,13 @@ pub fn run(allocator: std.mem.Allocator, original: ir.Program, statistics: ?*Sta
             @memset(remove, false);
             if (flow.live[id].len != 0) {
                 var demand = flow.live[id][block.instructions.len];
+                // Liveness may omit a source assigned to a dead successor slot.
+                // The explicit assignment still executes and must remain valid
+                // until a separate checked edge rewrite removes it.
+                for (current.functions[@intCast(block.function)].layout.slots, 0..) |_, slot| {
+                    if (@import("slot_access.zig").terminator(block.terminator, slot).reads != 0)
+                        demand = try flow.pool.insert(demand, slot);
+                }
                 var index = block.instructions.len;
                 while (index != 0) {
                     if (stats.work == options.work_limit) {

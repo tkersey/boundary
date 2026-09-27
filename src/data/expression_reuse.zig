@@ -63,15 +63,17 @@ fn edgePreserves(definition: Definition, edge: ir.Edge, overwritten: []const p.I
 const Incoming = struct {
     edge: ir.Edge,
     overwritten: []const p.Id = &.{},
+    capture_boundary: bool = false,
 };
 fn successor(term: ir.Terminator, index: usize) ?Incoming {
     return switch (term) {
         .return_value, .fail => null,
         .branch => |v| if (index == 0) .{ .edge = v.when_true } else if (index == 1) .{ .edge = v.when_false } else null,
         .switch_variant => |v| if (index < v.cases.len) .{ .edge = v.cases[index] } else null,
-        .jump, .yield_value => |v| if (index == 0) .{ .edge = v } else null,
+        .jump => |v| if (index == 0) .{ .edge = v } else null,
+        .yield_value => |v| if (index == 0) .{ .edge = v, .capture_boundary = true } else null,
         .unpack_product => |v| if (index == 0) .{ .edge = v.next, .overwritten = v.destinations } else null,
-        inline else => |v| if (index == 0) .{ .edge = v.next } else null,
+        inline else => |v| if (index == 0) .{ .edge = v.next, .capture_boundary = true } else null,
     };
 }
 
@@ -94,10 +96,23 @@ pub fn run(allocator: std.mem.Allocator, original: ir.Program, statistics: ?*Sta
         if (!eligible(original, block, op, permissions)) continue;
         try definitions.append(a, .{ .location = .{ .block = bid, .instruction = index }, .function = block.function, .instruction = op, .schema = original.functions[@intCast(block.function)].layout.slots[@intCast(op.destination)] });
     };
-    const defs = definitions.items;
+    const all_defs = definitions.items;
+    const function_defs = try a.alloc(std.ArrayList(Definition), original.functions.len);
+    const predecessors = try a.alloc(std.ArrayList(struct { block: usize, transfer: Incoming }), original.blocks.len);
+    for (function_defs) |*items| items.* = .empty;
+    for (predecessors) |*items| items.* = .empty;
+    for (all_defs) |definition| try function_defs[@intCast(definition.function)].append(a, definition);
+    for (original.blocks, 0..) |block, id| {
+        var edge_index: usize = 0;
+        while (successor(block.terminator, edge_index)) |transfer| : (edge_index += 1) {
+            if (!budget.tick()) return rollback(allocator, original, &stats, options);
+            try predecessors[@intCast(transfer.edge.block)].append(a, .{ .block = id, .transfer = transfer });
+        }
+    }
     const entries = try a.alloc([]bool, original.blocks.len);
     const exits = try a.alloc([]bool, original.blocks.len);
     for (original.blocks, entries, exits, 0..) |block, *entry, *out, bid| {
+        const defs = function_defs[@intCast(block.function)].items;
         entry.* = try a.alloc(bool, defs.len);
         out.* = try a.alloc(bool, defs.len);
         for (defs, entry.*, out.*) |definition, *inside, *outside| {
@@ -106,26 +121,25 @@ pub fn run(allocator: std.mem.Allocator, original: ir.Program, statistics: ?*Sta
             outside.* = inside.*;
         }
     }
-    const state = try a.alloc(bool, defs.len);
+    const scratch_state = try a.alloc(bool, all_defs.len);
     var changed = true;
     while (changed) {
         changed = false;
         for (original.blocks, 0..) |block, bid| {
+            const defs = function_defs[@intCast(block.function)].items;
+            const state = scratch_state[0..defs.len];
             if (flow.positions[bid].len == 0) continue;
             const entry_block = original.functions[@intCast(block.function)].entry == bid;
             for (defs, 0..) |definition, d| {
                 var available = !entry_block and definition.function == block.function;
                 var count: usize = 0;
-                for (original.blocks, 0..) |predecessor, pred| {
+                for (predecessors[bid].items) |predecessor| {
                     if (!budget.tick()) return rollback(allocator, original, &stats, options);
-                    if (predecessor.function != block.function or flow.positions[pred].len == 0) continue;
-                    var index: usize = 0;
-                    while (successor(predecessor.terminator, index)) |incoming| : (index += 1) {
-                        if (!budget.tick()) return rollback(allocator, original, &stats, options);
-                        if (incoming.edge.block != bid) continue;
-                        count += 1;
-                        available = available and exits[pred][d] and edgePreserves(definition, incoming.edge, incoming.overwritten);
-                    }
+                    const pred = predecessor.block;
+                    if (flow.positions[pred].len == 0) continue;
+                    const incoming = predecessor.transfer;
+                    count += 1;
+                    available = available and !incoming.capture_boundary and exits[pred][d] and edgePreserves(definition, incoming.edge, incoming.overwritten);
                 }
                 entries[bid][d] = available and count != 0;
             }
@@ -144,6 +158,8 @@ pub fn run(allocator: std.mem.Allocator, original: ir.Program, statistics: ?*Sta
     const blocks = try a.dupe(ir.Block, original.blocks);
     var witnesses: std.ArrayList(Witness) = .empty;
     for (original.blocks, blocks, 0..) |block, *out, bid| {
+        const defs = function_defs[@intCast(block.function)].items;
+        const state = scratch_state[0..defs.len];
         const instructions = try a.dupe(ir.Instruction, block.instructions);
         out.instructions = instructions;
         @memcpy(state, entries[bid]);
@@ -152,6 +168,7 @@ pub fn run(allocator: std.mem.Allocator, original: ir.Program, statistics: ?*Sta
                 for (defs, state) |definition, available| {
                     if (!budget.tick()) return rollback(allocator, original, &stats, options);
                     if (!available or definition.function != block.function or definition.schema != original.functions[@intCast(block.function)].layout.slots[@intCast(op.destination)] or !sameExpression(definition.instruction, op)) continue;
+                    if (!flow.pool.contains(flow.positions[bid][index].available, definition.instruction.destination)) continue;
                     const witness: Witness = .{ .target = .{ .block = bid, .instruction = index }, .source = definition.location };
                     if (!try proves(allocator, original, witness, &budget)) {
                         if (budget.exhausted) return rollback(allocator, original, &stats, options);
@@ -229,7 +246,7 @@ const Proof = struct {
                 if (!self.budget.tick()) return false;
                 if (incoming.edge.block != block_id) continue;
                 count += 1;
-                if (!edgePreserves(self.definition, incoming.edge, incoming.overwritten) or !self.resolve(pred, predecessor.instructions.len, depth + 1)) return false;
+                if (incoming.capture_boundary or !edgePreserves(self.definition, incoming.edge, incoming.overwritten) or !self.resolve(pred, predecessor.instructions.len, depth + 1)) return false;
             }
         }
         success = count != 0;
@@ -287,6 +304,7 @@ fn validateWithBudget(allocator: std.mem.Allocator, original: ir.Program, candid
                 if (budget.exhausted) return error.ExpressionWorkLimit;
                 if (!proved) return error.InvalidExpressionReuse;
                 const source = original.blocks[item.source.block].instructions[item.source.instruction];
+                if (flow.positions[bid].len == 0 or !flow.pool.contains(flow.positions[bid][index].available, source.destination)) return error.InvalidExpressionReuse;
                 if (!eligible(original, original.blocks[item.source.block], source, permissions)) return error.InvalidExpressionReuse;
                 const source_schema = original.functions[@intCast(before.function)].layout.slots[@intCast(source.destination)];
                 if (source_schema != original.functions[@intCast(before.function)].layout.slots[@intCast(op.destination)]) return error.InvalidExpressionReuse;
