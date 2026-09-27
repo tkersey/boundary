@@ -510,11 +510,21 @@ unknown variants. A separate checked P04 diamond case qualifies actual reuse eve
 when the full pipeline prefers a cheaper DCE candidate. This is semantic/custody
 evidence, not runtime timing.
 
-Agent's final tuple has been rebound locally to this immutable input. Its browser
+Agent's final tuple is bound to this immutable input. Its browser
 transfer assertions complete in Chromium 153.0.8010.12 and Firefox 155.0, with two
-worker destructions, a real file read and cleanup in each. The enclosing integrated
-aggregate remains running and receives no terminal pass credit yet. The World
-kernel has not been rebuilt.
+worker destructions, a real file read and cleanup in each. The enclosing Agent
+aggregate completes with exit zero: **418/418 steps and 205/205 Zig tests** across
+authoring/native/integration/economy/browser targets, plus **95/95** in its serial
+Node batch. The World kernel has not been rebuilt.
+
+The real inquiry/ReAct comparison records thirteen scenarios and 128 semantic
+boundaries per arm. C0, the uninstalled C1 control and C2 agree on every canonical
+request payload/schema, nominal effect identity, result, approval, write and
+cleanup. Native and production-WASM fresh-invocation peak memory decrease against
+both controls, and checkpoint maxima do not grow. The exact local/cumulative
+observations are in Agent's `conformance/agent4/m2-runtime-comparison.json`.
+Paired timing measurements and review closure remain pending; memory savings do
+not establish latency improvements.
 
 ## Remaining M2 obligations
 
