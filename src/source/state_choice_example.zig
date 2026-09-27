@@ -1,121 +1,113 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
 const source = @import("../source.zig");
 const a = @import("../authoring.zig");
-const StateOperations = struct { get: p.Id, put: p.Id, get_capability: p.Id, put_capability: p.Id };
 const state = @import("../library/state.zig");
 const choice = @import("../library/choice.zig");
-const p = @import("boundary_data").program;
-const Error = source.Error;
-pub fn local(b: *source.Builder) Error!source.ast.Module {
+pub fn local(b: *source.Builder) source.Error!source.Module {
     return build(b, true, false);
 }
-pub fn shared(b: *source.Builder) Error!source.ast.Module {
+pub fn shared(b: *source.Builder) source.Error!source.Module {
     return build(b, false, false);
 }
-pub fn recursiveLocal(b: *source.Builder) Error!source.ast.Module {
+pub fn recursiveLocal(b: *source.Builder) source.Error!source.Module {
     return build(b, true, true);
 }
-pub fn recursiveShared(b: *source.Builder) Error!source.ast.Module {
+pub fn recursiveShared(b: *source.Builder) source.Error!source.Module {
     return build(b, false, true);
 }
-
-fn build(b: *source.Builder, comptime choice_outside: bool, comptime recursive: bool) Error!source.ast.Module {
+fn build(b: *source.Builder, comptime choice_outside: bool, comptime recursive: bool) source.Error!source.Module {
     return authored(b, choice_outside, recursive) catch |err| return a.sourceError(err);
 }
-fn authored(b: *source.Builder, comptime choice_outside: bool, comptime recursive: bool) a.Error!source.ast.Module {
-    const author = try a.Context.init(b);
-    const unit = try b.scalar(void);
-    const boolean = try b.scalar(bool);
-    const integer = try b.scalar(u64);
-    const sequence = try b.schema(.{ .seq = integer });
-    const r = b.region();
-    const region = try b.schema(.{ .internal = .{ .region = r } });
-    const cell = try b.schema(.{ .internal = .{ .cell = .{ .element = integer, .region = r } } });
-    const family = try state.family(author, "example/counter", try author.scalar(u64));
-    const s: StateOperations = .{ .get = try a.interop.operationId(author, family.get()), .put = try a.interop.operationId(author, family.put()), .get_capability = try a.interop.schemaId(author, family.getCapability()), .put_capability = try a.interop.schemaId(author, family.putCapability()) };
-    const c = try choice.family(b, "example/branch");
-    const all = try choice.allScoped(b, c, integer, &.{ unit, boolean, integer, sequence, cell, s.get_capability, s.put_capability, c.capability }, .{ .effects = if (choice_outside) &.{} else &.{ s.get, s.put } }, if (choice_outside) &.{r} else &.{}, if (choice_outside) &.{} else &.{r});
-    const capture_ids = [_]p.Id{ unit, boolean, integer, sequence, cell, s.get_capability, s.put_capability, c.capability, all.resumption };
-    var captures: [capture_ids.len]*const a.Schema = undefined;
-    for (capture_ids, &captures) |id, *schema| schema.* = try a.interop.schema(author, id);
-    const typed_state = try state.interpret(author, family, try a.interop.schema(author, if (choice_outside) integer else sequence), try a.interop.region(author, r), .{ .continuation = &captures, .body = if (choice_outside) &.{try a.interop.schema(author, c.capability)} else &.{} }, if (choice_outside) &.{try a.interop.operation(author, c.effect)} else &.{}, .value);
-    const interpretation = .{ .handler = try a.interop.handlerId(author, typed_state.handler) };
-    const main = try b.declare(&.{}, sequence, &.{}, &.{});
-    const scope_body = try b.declare(&.{region}, if (choice_outside) integer else sequence, if (choice_outside) &.{c.effect} else &.{}, &.{r});
-    const state_body = try b.declare(&.{ s.get_capability, s.put_capability }, if (choice_outside) integer else sequence, if (choice_outside) &.{ s.get, s.put, c.effect } else &.{ s.get, s.put }, &.{r});
-    const choice_body = try b.declare(&.{c.capability}, integer, if (choice_outside) &.{c.effect} else &.{ s.get, s.put, c.effect }, if (choice_outside) &.{} else &.{r});
-    const get_cap = try b.reference(b.parameter(state_body, 0));
-    const put_cap = try b.reference(b.parameter(state_body, 1));
-    const choose_cap = try b.reference(b.parameter(choice_body, 0));
-    const common = if (recursive)
-        try recursiveWork(b, s, c, r, .{ get_cap, put_cap, choose_cap }, integer, boolean, unit)
-    else blk: {
-        const chosen = try b.variable(boolean);
-        const before = try b.variable(integer);
-        const after = try b.variable(integer);
-        const updated = try b.variable(unit);
-        const inc = try b.value(.{ .schema = integer, .expression = .{ .primitive = .{ .opcode = .integer_add, .operands = &.{ try b.reference(before), try b.constant(u64, 1) }, .failures = &.{.{ .kind = .arithmetic_overflow, .value = try b.failureLiteral(try b.constant(void, {})) }} } } });
-        const get = try b.term(.{ .perform = .{ .effect = s.get, .capability = get_cap, .payload = try b.constant(void, {}) } });
-        const put = try b.term(.{ .perform = .{ .effect = s.put, .capability = put_cap, .payload = try b.reference(after) } });
-        const choose = try b.term(.{ .perform = .{ .effect = c.effect, .capability = choose_cap, .payload = try b.constant(void, {}) } });
-        break :blk try b.bind(chosen, choose, try b.bind(before, get, try b.bind(after, try b.pure(inc), try b.bind(updated, put, try b.pure(try b.reference(after))))));
+fn authored(b: *source.Builder, comptime choice_outside: bool, comptime recursive: bool) a.Error!source.Module {
+    const c = try a.Context.init(b);
+    const unit = try c.scalar(void);
+    const boolean = try c.scalar(bool);
+    const integer = try c.scalar(u64);
+    const sequence = try c.sequence(integer);
+    const region = try c.region();
+    const cell_schema = try c.cell(region, integer);
+    const counter = try state.family(c, "example/counter", integer);
+    const branch = try choice.family(c, "example/branch");
+    const all = try choice.all(c, branch, integer, .{
+        .captures = .{ .continuation = &.{ unit, boolean, integer, sequence, cell_schema, counter.getCapability(), counter.putCapability(), branch.capability() }, .body = if (choice_outside) &.{} else &.{ counter.getCapability(), counter.putCapability() } },
+        .residual = if (choice_outside) &.{} else &.{ counter.get(), counter.put() },
+        .owned_regions = if (choice_outside) &.{region} else &.{},
+        .borrowed_regions = if (choice_outside) &.{} else &.{region},
+    });
+    const interpreted = try state.interpret(c, counter, if (choice_outside) integer else sequence, region, .{
+        .continuation = &.{ unit, boolean, integer, sequence, cell_schema, counter.getCapability(), counter.putCapability(), branch.capability(), all.resumption },
+        .body = if (choice_outside) &.{branch.capability()} else &.{},
+    }, if (choice_outside) &.{branch.effect()} else &.{}, .value);
+    const scope_schema = try c.regionBodySchema(region, &.{}, if (choice_outside) integer else sequence, if (choice_outside) &.{branch.effect()} else &.{}, .{
+        .use = .linear,
+        .captures = if (choice_outside) &.{branch.capability()} else &.{},
+    });
+    const scope_fn = try c.functionFor("state region", scope_schema);
+    const state_schema = try c.handledSchema(interpreted.handler);
+    const state_fn = try c.functionFor("state work", state_schema);
+    const choice_schema = try c.handledSchema(all.handler);
+    const choice_fn = try c.functionFor("choice work", choice_schema);
+    var scope_body: *a.Body = undefined;
+    var state_body: *a.Body = undefined;
+    var choice_body: *a.Body = undefined;
+    if (choice_outside) {
+        choice_body = try c.body(choice_fn);
+        scope_body = try choice_body.closureBody(scope_fn);
+        state_body = try scope_body.closureBody(state_fn);
+    } else {
+        scope_body = try c.body(scope_fn);
+        state_body = try scope_body.closureBody(state_fn);
+        choice_body = try state_body.closureBody(choice_fn);
+    }
+    const work = if (choice_outside) state_body else choice_body;
+    const caps: [3]*const a.Value = .{ try state_body.parameter("get"), try state_body.parameter("put"), try choice_body.parameter("capability") };
+    const value = if (recursive) try recursiveWork(c, work, counter, branch, region, caps) else blk: {
+        _ = try work.performLocal(branch.effect(), caps[2], try work.constant(void, {}));
+        const before = try work.performLocal(counter.get(), caps[0], try work.constant(void, {}));
+        const after = try work.checkedAdd(before, try work.constant(u64, 1), try c.literalFailure(void, {}));
+        _ = try work.performLocal(counter.put(), caps[1], after);
+        break :blk after;
     };
     if (choice_outside) {
-        try b.define(state_body, common);
-        const private_type = try b.schema(.{ .internal = .{ .computation = .{ .parameters = &.{region}, .result = integer, .effects = &.{c.effect}, .capture_bound = &.{c.capability}, .regions = &.{r} } } });
-        try b.define(choice_body, try b.term(.{ .with_region = .{ .region = r, .body = try b.lambda(scope_body, private_type) } }));
+        try c.define(state_fn, try state_body.ret(value));
     } else {
-        try b.define(choice_body, common);
-        const body_type = try b.schema(.{ .internal = .{ .computation = .{ .parameters = &.{c.capability}, .result = integer, .effects = &.{ s.get, s.put, c.effect }, .capture_bound = &.{ s.get_capability, s.put_capability }, .regions = &.{r} } } });
-        try b.define(state_body, try b.term(.{ .handle = .{ .handler = all.handler, .body = try b.lambda(choice_body, body_type) } }));
+        try c.define(choice_fn, try choice_body.ret(value));
+        try c.define(state_fn, try state_body.ret(try state_body.handleWith(all.handler, try state_body.lambda(choice_fn, choice_schema), &.{})));
     }
-    const state_type = try b.schema(.{ .internal = .{ .computation = .{ .parameters = &.{ s.get_capability, s.put_capability }, .result = if (choice_outside) integer else sequence, .effects = if (choice_outside) &.{ s.get, s.put, c.effect } else &.{ s.get, s.put }, .capture_bound = if (choice_outside) &.{c.capability} else &.{}, .regions = &.{r} } } });
-    const allocated = try b.variable(cell);
-    const handle_state = try b.term(.{ .handle = .{ .handler = interpretation.handler, .body = try b.lambda(state_body, state_type), .state = &.{try b.reference(allocated)} } });
-    try b.define(scope_body, try b.bind(allocated, try b.pure(try b.primitive(cell, .cell_new, &.{ try b.reference(b.parameter(scope_body, 0)), try b.constant(u64, 0) }, 0)), handle_state));
-    if (choice_outside) {
-        const body_type = try b.schema(.{ .internal = .{ .computation = .{ .parameters = &.{c.capability}, .result = integer, .effects = &.{c.effect} } } });
-        try b.define(main, try b.term(.{ .handle = .{ .handler = all.handler, .body = try b.lambda(choice_body, body_type) } }));
-    } else {
-        const body_type = try b.schema(.{ .internal = .{ .computation = .{ .parameters = &.{region}, .result = sequence, .regions = &.{r} } } });
-        try b.define(main, try b.term(.{ .with_region = .{ .region = r, .body = try b.lambda(scope_body, body_type) } }));
-    }
-    return b.module(main, unit);
+    const cell = try scope_body.newCell(cell_schema, try scope_body.parameter("region"), try scope_body.constant(u64, 0));
+    try c.define(scope_fn, try scope_body.ret(try scope_body.handleWith(interpreted.handler, try scope_body.lambda(state_fn, state_schema), &.{.{ .name = "state", .value = cell }})));
+    if (choice_outside) try c.define(choice_fn, try choice_body.ret(try choice_body.withRegion(region, try choice_body.lambda(scope_fn, scope_schema), &.{})));
+    const main = try c.function("entry", &.{}, sequence, &.{});
+    const entry = try c.body(main);
+    const result = if (choice_outside)
+        try entry.handleWith(all.handler, try entry.lambda(choice_fn, choice_schema), &.{})
+    else
+        try entry.withRegion(region, try entry.lambda(scope_fn, scope_schema), &.{});
+    try c.define(main, try entry.ret(result));
+    return c.module(main, unit);
 }
-
-fn recursiveWork(b: *source.Builder, s: StateOperations, c: choice.Family, region: p.Id, caps: [3]p.Id, integer: p.Id, boolean: p.Id, unit: p.Id) Error!p.Id {
-    const functions = [_]p.Id{
-        try b.declare(&.{integer}, integer, &.{ s.get, s.put, c.effect }, &.{region}),
-        try b.declare(&.{integer}, integer, &.{ s.get, s.put, c.effect }, &.{region}),
-    };
+fn recursiveWork(c: *a.Context, parent: *a.Body, counter: *const state.Family, branch: *const choice.Family, region: *const a.Region, caps: [3]*const a.Value) a.Error!*const a.Value {
+    const integer = try c.scalar(u64);
+    const signature = try c.callable(&.{.{ .name = "remaining", .schema = integer }}, integer, &.{ counter.get(), counter.put(), branch.effect() }, .{
+        .use = .reusable,
+        .captures = &.{ counter.getCapability(), counter.putCapability(), branch.capability() },
+        .regions = &.{region},
+    });
+    const functions = [_]*const a.Function{ try c.functionFor("even", signature), try c.functionFor("odd", signature) };
+    const fault = try c.literalFailure(void, {});
     for (functions, 0..) |function, index| {
-        const count = try b.reference(b.parameter(function, 0));
-        const chosen = try b.variable(boolean);
-        const before = try b.variable(integer);
-        const after = try b.variable(integer);
-        const updated = try b.variable(unit);
-        const fault = try b.failureLiteral(try b.constant(void, {}));
-        const inc = try b.value(.{ .schema = integer, .expression = .{ .primitive = .{
-            .opcode = .integer_add,
-            .operands = &.{ try b.reference(before), try b.constant(u64, 1) },
-            .failures = &.{.{ .kind = .arithmetic_overflow, .value = fault }},
-        } } });
-        const decrement = try b.value(.{ .schema = integer, .expression = .{ .primitive = .{
-            .opcode = .integer_sub,
-            .operands = &.{ count, try b.constant(u64, 1) },
-            .failures = &.{.{ .kind = .arithmetic_overflow, .value = fault }},
-        } } });
-        const get = try b.term(.{ .perform = .{ .effect = s.get, .capability = caps[0], .payload = try b.constant(void, {}) } });
-        const put = try b.term(.{ .perform = .{ .effect = s.put, .capability = caps[1], .payload = try b.reference(after) } });
-        const choose = try b.term(.{ .perform = .{ .effect = c.effect, .capability = caps[2], .payload = try b.constant(void, {}) } });
-        const next = try b.term(.{ .call = .{ .function = functions[1 - index], .arguments = &.{decrement} } });
-        const step = try b.bind(chosen, choose, try b.bind(before, get, try b.bind(after, try b.pure(inc), try b.bind(updated, put, next))));
-        const done = try b.primitive(boolean, .equal, &.{ count, try b.constant(u64, 0) }, 0);
-        try b.define(function, try b.term(.{ .conditional = .{
-            .condition = done,
-            .when_true = get,
-            .when_false = step,
-        } }));
+        const body = try parent.closureBody(function);
+        const count = try body.parameter("remaining");
+        const done = try body.branch();
+        const step = try body.branch();
+        const final = try done.performLocal(counter.get(), caps[0], try done.constant(void, {}));
+        _ = try step.performLocal(branch.effect(), caps[2], try step.constant(void, {}));
+        const before = try step.performLocal(counter.get(), caps[0], try step.constant(void, {}));
+        const after = try step.checkedAdd(before, try step.constant(u64, 1), fault);
+        _ = try step.performLocal(counter.put(), caps[1], after);
+        const remaining = try step.checked(.subtract, count, try step.constant(u64, 1), .{ .overflow = fault });
+        const next = try step.call(functions[1 - index], &.{.{ .name = "remaining", .value = remaining }});
+        try c.define(function, try body.ret(try body.conditional(try body.equal(count, try body.constant(u64, 0)), try done.ret(final), try step.ret(next))));
     }
-    return b.term(.{ .call = .{ .function = functions[0], .arguments = &.{try b.constant(u64, 2)} } });
+    return parent.call(functions[0], &.{.{ .name = "remaining", .value = try parent.constant(u64, 2) }});
 }

@@ -22,11 +22,13 @@ fn buildTypedDeclarations(b: *source.Builder) a.Error!source.Module {
         try a.interop.operationId(c, try c.external("example/indexed/number", payload, try a.interop.schema(c, integer))),
         try a.interop.operationId(c, try c.external("example/indexed/flag", payload, try a.interop.schema(c, boolean))),
     };
-    const choose = try choice.family(b, "example/row-polymorphic-choice");
+    const choice_family = try choice.family(c, "example/row-polymorphic-choice");
+    const choose = .{ .effect = try a.interop.operationId(c, choice_family.effect()), .capability = try a.interop.schemaId(c, choice_family.capability()) };
     var terms: [2]p.Id = undefined;
     var answers: [2]p.Id = undefined;
     for (family, [_]p.Id{ integer, boolean }, 0..) |effect, result, index| {
-        const interpretation = try choice.first(b, choose, result, &.{}, .{ .effects = &.{effect} });
+        const interpreted = try choice.first(c, choice_family, try a.interop.schema(c, result), .{ .captures = .{ .continuation = &.{} }, .residual = &.{try a.interop.operation(c, effect)} });
+        const interpretation = .{ .answer = try a.interop.schemaId(c, interpreted.answer), .handler = try a.interop.handlerId(c, interpreted.handler) };
         answers[index] = interpretation.answer;
         const body = try b.declare(&.{choose.capability}, result, &.{ effect, choose.effect }, &.{});
         const picked = try b.term(.{ .perform = .{ .effect = choose.effect, .capability = try b.reference(b.parameter(body, 0)), .payload = try b.constant(void, {}) } });

@@ -1447,3 +1447,45 @@ test "typed State shares each answer policy through 64 installations" {
 test "typed State releases partial allocations" {
     try testing.checkAllAllocationFailures(testing.allocator, stateSharing, .{});
 }
+
+fn choiceSharing(allocator: std.mem.Allocator) !void {
+    const choice = @import("library/choice.zig");
+    var raw = source.Builder.init(allocator);
+    defer raw.deinit();
+    const c = try a.Context.init(&raw);
+    const integer = try c.scalar(u64);
+    const left = try c.record(&.{.{ .name = "left", .schema = integer }});
+    const right = try c.record(&.{.{ .name = "right", .schema = integer }});
+    const family = try choice.family(c, "sharing/typed-choice");
+    const options: choice.Options = .{ .captures = .{ .continuation = &.{family.capability()} }, .residual = &.{} };
+    const all = try choice.all(c, family, left, options);
+    const first = try choice.first(c, family, left, options);
+    const other_names = try choice.all(c, family, right, options);
+    try testing.expect(all.handler != first.handler and all.handler != other_names.handler);
+    const count = raw.functions.items.len;
+    for (0..64) |_| {
+        try testing.expectEqual(all.handler, (try choice.all(c, family, left, options)).handler);
+        try testing.expectEqual(first.handler, (try choice.first(c, family, left, options)).handler);
+    }
+    try testing.expectEqual(count, raw.functions.items.len);
+    var changed = options;
+    changed.captures.body = &.{integer};
+    try testing.expect((try choice.all(c, family, left, changed)).handler != all.handler);
+    const region = try c.region();
+    changed = options;
+    changed.owned_regions = &.{region};
+    const owned = try choice.all(c, family, left, changed);
+    changed = options;
+    changed.borrowed_regions = &.{region};
+    const borrowed = try choice.all(c, family, left, changed);
+    try testing.expect(owned.handler != borrowed.handler and owned.handler != all.handler);
+    const foreign = try a.Context.init(&raw);
+    try testing.expectError(error.ForeignHandle, choice.all(foreign, family, left, options));
+}
+test "typed Choice shares definitions and preserves names, policy and region custody" {
+    try testing.expect(!@hasDecl(@import("library/choice.zig"), "allScoped"));
+    try choiceSharing(testing.allocator);
+}
+test "typed Choice releases partial construction allocations" {
+    try testing.checkAllAllocationFailures(testing.allocator, choiceSharing, .{});
+}

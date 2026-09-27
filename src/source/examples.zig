@@ -213,25 +213,28 @@ pub fn choicesFirst(builder: *source.Builder) Error!source.ast.Module {
 }
 
 fn choices(builder: *source.Builder, comptime every: bool) Error!source.ast.Module {
-    const choice_library = @import("../library/choice.zig");
-    const unit = try builder.scalar(void);
-    const boolean = try builder.scalar(bool);
-    const pair = try builder.schema(.{ .product = &.{ boolean, boolean } });
-    const choice = try choice_library.family(builder, "example/boolean-choice");
-    const answer = if (every) try choice_library.all(builder, choice, pair, &.{ boolean, choice.capability }, .{ .effects = &.{} }) else try choice_library.first(builder, choice, pair, &.{ boolean, choice.capability }, .{ .effects = &.{} });
-    const main = try builder.declare(&.{}, answer.answer, &.{}, &.{});
-    const body = try builder.declare(&.{choice.capability}, pair, &.{choice.effect}, &.{});
-    const capability = try builder.reference(builder.parameter(body, 0));
-    const payload = try builder.constant(void, {});
-    const first_result = try builder.variable(boolean);
-    const second_result = try builder.variable(boolean);
-    const first = try builder.term(.{ .perform = .{ .effect = choice.effect, .capability = capability, .payload = payload } });
-    const second = try builder.term(.{ .perform = .{ .effect = choice.effect, .capability = capability, .payload = payload } });
-    const result = try builder.pure(try builder.value(.{ .schema = pair, .expression = .{ .primitive = .{ .opcode = .product, .operands = &.{ try builder.reference(first_result), try builder.reference(second_result) } } } }));
-    try builder.define(body, try builder.bind(first_result, first, try builder.bind(second_result, second, result)));
-    const body_schema = try builder.schema(.{ .internal = .{ .computation = .{ .parameters = &.{choice.capability}, .result = pair, .effects = &.{choice.effect} } } });
-    try builder.define(main, try builder.term(.{ .handle = .{ .handler = answer.handler, .body = try builder.lambda(body, body_schema) } }));
-    return builder.module(main, unit);
+    return typedChoices(builder, every) catch |err| return @import("../authoring.zig").sourceError(err);
+}
+fn typedChoices(builder: *source.Builder, comptime every: bool) @import("../authoring.zig").Error!source.Module {
+    const typed = @import("../authoring.zig");
+    const library = @import("../library/choice.zig");
+    const c = try typed.Context.init(builder);
+    const boolean = try c.scalar(bool);
+    const pair = try c.record(&.{ .{ .name = "first", .schema = boolean }, .{ .name = "second", .schema = boolean } });
+    const family = try library.family(c, "example/boolean-choice");
+    const options: library.Options = .{ .captures = .{ .continuation = &.{ boolean, family.capability() } }, .residual = &.{} };
+    const answer = if (every) try library.all(c, family, pair, options) else try library.first(c, family, pair, options);
+    const schema = try c.handledSchema(answer.handler);
+    const body_fn = try c.functionFor("two choices", schema);
+    const body = try c.body(body_fn);
+    const capability = try body.parameter("capability");
+    const first = try body.performLocal(family.effect(), capability, try body.constant(void, {}));
+    const second = try body.performLocal(family.effect(), capability, try body.constant(void, {}));
+    try c.define(body_fn, try body.ret(try body.product(pair, &.{ .{ .name = "first", .value = first }, .{ .name = "second", .value = second } })));
+    const main = try c.function("entry", &.{}, answer.answer, &.{});
+    const entry = try c.body(main);
+    try c.define(main, try entry.ret(try entry.handleWith(answer.handler, try entry.lambda(body_fn, schema), &.{})));
+    return c.module(main, try c.scalar(void));
 }
 pub const queensDfs = @import("queens_example.zig").dfs;
 pub const queensBfs = @import("queens_example.zig").bfs;

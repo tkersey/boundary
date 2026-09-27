@@ -50,8 +50,8 @@ FIFO cooperative scheduling. Ownership, borrowing, nominal identities, failure
 order and cleanup remain checked. Stable slots retain earlier bindings without
 copying them into every intermediate continuation interface.
 
-State, Writer and Raise families accept an `authoring.Context` and typed schemas.
-Writer/Raise expose `effect()` and `capability()`; State exposes `get()`, `put()`
+Choice, State, Writer and Raise families use an `authoring.Context` and typed handles.
+Choice/Writer/Raise expose `effect()` and `capability()`; State exposes `get()`, `put()`
 and their capability schemas. Interpretations return typed handler and answer
 handles. Repeated interpretations share definitions
 without merging distinct named schemas. The
@@ -64,6 +64,9 @@ capability to a continuation does not give the body access to an older handler.
 `Context.handlerSet` constructs one handler with named capabilities and multiple
 clauses sharing its state and return arm. Select each clause or resumption schema
 by operation with `clauseFunctionFor` or `resumptionSchemaFor`.
+Choice's `all` and `first` use the same typed `Options`, including separate owned
+and borrowed regions. The [State/Choice examples](src/source/state_choice_example.zig)
+exercise local versus shared state and mutually recursive work through that API.
 
 ## Pure data and components
 

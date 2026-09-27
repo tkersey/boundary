@@ -4,6 +4,7 @@ const boundary = @import("boundary");
 const source = boundary.computation;
 const hyper = boundary.library.hyper;
 const choice = boundary.library.choice;
+const typed = boundary.authoring;
 const Id = source.Id;
 fn add(b: *source.Builder, x: Id, y: Id) !Id {
     return b.value(.{ .schema = try b.scalar(u64), .expression = .{ .primitive = .{ .opcode = .integer_add, .operands = &.{ x, y }, .failures = &.{.{ .kind = .arithmetic_overflow, .value = try b.failureLiteral(try b.constant(void, {})) }} } } });
@@ -27,8 +28,14 @@ const Application = struct {
         const lc = try b.schema(.{ .internal = .{ .cell = .{ .element = integer, .region = local } } });
         const pair = try hyper.pair(b, integer, integer);
         const observe = try b.effect(.{ .identity = "hyper/clone-observe", .payload = row, .result = unit });
-        const branch = try choice.family(b, "hyper/clone-branch");
-        const all = try choice.allScoped(b, branch, row, &.{ unit, boolean, integer, row, sr, lr, sc, lc, branch.capability, pair.forward, pair.backward, pair.peer_forward, pair.peer_backward, pair.answer_forward, pair.answer_backward }, .{ .effects = &.{observe} }, &.{local}, &.{shared});
+        const author = try typed.Context.init(b);
+        const family = try choice.family(author, "hyper/clone-branch");
+        const branch = .{ .effect = try typed.interop.operationId(author, family.effect()), .capability = try typed.interop.schemaId(author, family.capability()) };
+        const capture_ids = [_]Id{ unit, boolean, integer, row, sr, lr, sc, lc, branch.capability, pair.forward, pair.backward, pair.peer_forward, pair.peer_backward, pair.answer_forward, pair.answer_backward };
+        var captures: [capture_ids.len]*const typed.Schema = undefined;
+        for (capture_ids, &captures) |id, *schema| schema.* = try typed.interop.schema(author, id);
+        const interpreted = try choice.all(author, family, try typed.interop.schema(author, row), .{ .captures = .{ .continuation = &captures }, .residual = &.{try typed.interop.operation(author, observe)}, .owned_regions = &.{try typed.interop.region(author, local)}, .borrowed_regions = &.{try typed.interop.region(author, shared)} });
+        const all = .{ .handler = try typed.interop.handlerId(author, interpreted.handler), .answer = try typed.interop.schemaId(author, interpreted.answer), .resumption = try typed.interop.schemaId(author, interpreted.resumption) };
         const outer = try b.declare(&.{sr}, all.answer, &.{observe}, &.{shared});
         const shared_cell = try b.variable(sc);
         const body = try b.declare(&.{branch.capability}, row, &.{ observe, branch.effect }, &.{shared});

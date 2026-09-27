@@ -496,13 +496,15 @@ test "library specializations share declarations at one eight and sixty-four ins
     const integer = try b.scalar(u64);
     const unit = try b.scalar(void);
     const region = b.region();
-    const choices = try choice.family(&b, "sharing/choice");
+    const typed = @import("../authoring.zig");
+    const author = try typed.Context.init(&b);
+    const choices = try choice.family(author, "sharing/choice");
     const joined = try scheduler.joinType(&b, integer, region);
     var declarations: ?usize = null;
     var handlers: ?usize = null;
-    var first_handler: data.program.Id = 0;
+    var first_handler: *const typed.Handler = undefined;
     for (0..64) |index| {
-        const interpreted = try choice.all(&b, choices, integer, &.{}, .{ .effects = &.{} });
+        const interpreted = try choice.all(author, choices, try author.scalar(u64), .{ .captures = .{ .continuation = &.{} }, .residual = &.{} });
         const tasks = try generator.define(&b, "sharing/generator", unit, &.{}, &.{}, .{ .effects = &.{} });
         _ = try reader.define(&b, "sharing/reader", integer, integer, integer, .{ .continuation = &.{} }, .{ .effects = &.{} }, &.{});
         _ = try search.define(&b, "sharing/search", integer, &.{}, .{ .effects = &.{} }, &.{}, &.{}, .depth_first);
@@ -520,7 +522,7 @@ test "library specializations share declarations at one eight and sixty-four ins
         }
     }
     const residual = try b.effect(.{ .identity = "sharing/residual", .payload = unit, .result = unit });
-    const changed = try choice.all(&b, choices, integer, &.{}, .{ .effects = &.{residual} });
+    const changed = try choice.all(author, choices, try author.scalar(u64), .{ .captures = .{ .continuation = &.{} }, .residual = &.{try typed.interop.operation(author, residual)} });
     try std.testing.expect(changed.handler != first_handler);
     try std.testing.expectEqual(declarations.? + 2, b.functions.items.len);
     try std.testing.expectEqual(handlers.? + 1, b.handlers.items.len);
@@ -855,8 +857,15 @@ test "choice returns borrowed cells to a caller inside their live region" {
     const region = try b.schema(.{ .internal = .{ .region = r } });
     const cell = try b.schema(.{ .internal = .{ .cell = .{ .element = integer, .region = r } } });
     const sequence = try b.schema(.{ .seq = cell });
-    const c = try choice.family(&b, "borrowed-choice");
-    const all = try choice.allScoped(&b, c, cell, &.{ unit, boolean, cell, sequence, c.capability }, .{ .effects = &.{} }, &.{}, &.{r});
+    const typed = @import("../authoring.zig");
+    const author = try typed.Context.init(&b);
+    const family = try choice.family(author, "borrowed-choice");
+    const c = .{ .effect = try typed.interop.operationId(author, family.effect()), .capability = try typed.interop.schemaId(author, family.capability()) };
+    const capture_ids = [_]data.program.Id{ unit, boolean, cell, sequence, c.capability };
+    var captures: [capture_ids.len]*const typed.Schema = undefined;
+    for (capture_ids, &captures) |id, *schema| schema.* = try typed.interop.schema(author, id);
+    const interpreted = try choice.all(author, family, try typed.interop.schema(author, cell), .{ .captures = .{ .continuation = &captures }, .residual = &.{}, .owned_regions = &.{}, .borrowed_regions = &.{try typed.interop.region(author, r)} });
+    const all = .{ .handler = try typed.interop.handlerId(author, interpreted.handler), .answer = try typed.interop.schemaId(author, interpreted.answer) };
     const body = try b.declare(&.{ c.capability, cell }, cell, &.{c.effect}, &.{r});
     const choose = try b.term(.{ .perform = .{ .effect = c.effect, .capability = try b.reference(b.parameter(body, 0)), .payload = try b.constant(void, {}) } });
     try b.define(body, try b.bind(try b.variable(boolean), choose, try b.pure(try b.reference(b.parameter(body, 1)))));
@@ -885,8 +894,15 @@ test "escaping choice captures own even a region with no live cells" {
         const boolean = try b.scalar(bool);
         const r = b.region();
         const region = try b.schema(.{ .internal = .{ .region = r } });
-        const c = try choice.family(&b, "empty-region-choice");
-        const all = try choice.allScoped(&b, c, boolean, &.{ boolean, c.capability }, .{ .effects = &.{} }, if (bounded) &.{r} else &.{}, &.{});
+        const typed = @import("../authoring.zig");
+        const author = try typed.Context.init(&b);
+        const family = try choice.family(author, "empty-region-choice");
+        const c = .{ .effect = try typed.interop.operationId(author, family.effect()), .capability = try typed.interop.schemaId(author, family.capability()) };
+        const capture_ids = [_]data.program.Id{ boolean, c.capability };
+        var captures: [capture_ids.len]*const typed.Schema = undefined;
+        for (capture_ids, &captures) |id, *schema| schema.* = try typed.interop.schema(author, id);
+        const interpreted = try choice.all(author, family, try typed.interop.schema(author, boolean), .{ .captures = .{ .continuation = &captures }, .residual = &.{}, .owned_regions = if (bounded) &.{try typed.interop.region(author, r)} else &.{}, .borrowed_regions = &.{} });
+        const all = .{ .handler = try typed.interop.handlerId(author, interpreted.handler), .answer = try typed.interop.schemaId(author, interpreted.answer) };
         const body = try b.declare(&.{c.capability}, boolean, &.{c.effect}, &.{});
         const inside = try b.declare(&.{region}, boolean, &.{c.effect}, &.{r});
         try b.define(inside, try b.term(.{ .perform = .{ .effect = c.effect, .capability = try b.reference(b.parameter(body, 0)), .payload = try b.constant(void, {}) } }));
