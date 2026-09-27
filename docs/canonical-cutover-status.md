@@ -54,7 +54,23 @@ construction. Removing equality’s adapter exposed typed errors at that callbac
 Translate them at this existing callback boundary, preserving its prior
 `UnsupportedEqualitySchema -> TypeMismatch` behavior; do not widen hyper’s API.
 
-This is the remaining deletion list, not a new repository-wide inventory. No
+Final integration also exposed a retained fixture defect: parser consumer-swap
+tests asserted historical producer hash `672efdd6…` against the newly emitted
+producer `5d687522…` after earlier frontend normalization. Preserve the actual
+historical 2,094-byte producer as a frozen input and link both current consumers
+against it; keep normal current-producer images separately. Do not regenerate the
+expected hash from the candidate. Deciding check: `check-parser-consumers` and
+final parser/source-free integration. This repairs the existing witness, not an
+additional authoring family.
+
+**Closed in Agent `6e43faf`:** all listed comparison sites migrated, the three
+source-ID adapters and their specialization key are deleted, and the callback
+error contract and frozen-producer witness are repaired. No additional authoring
+retirement remains. The initial aggregate exposed the callback error-set mismatch;
+the corrected `check-agent4 check-native agent4-images` aggregate passed. The
+corrected `check-parser-consumers` lane passed with the preserved producer bytes.
+
+This was the remaining deletion list, not a new repository-wide inventory. No
 additional authoring family is admitted. A later dependency must identify this
 specific deletion or a concrete retained defect it blocks.
 
@@ -81,6 +97,21 @@ accepted requirement. Code reviews are separate from executed qualification.
 The user waived code review before optimization; no Stage A review campaign will be started.
 
 ## Remaining Stage A acceptance
+
+Boundary `zig build check -Doptimize=ReleaseSafe` passed at `7a1c18a`; later
+Boundary changes are task documentation only. World’s full check passed all
+non-browser lanes; the missing local locked browser dependency was installed and
+`check-browser` then passed on Chromium and Firefox. No new kernel was published.
+
+Agent’s broader integration campaign is still being reconciled after the fixed
+producer witness repair. Cumulative native admission measured six memory
+regressions beyond the specified threshold against the actual `dd336f0` /
+`6313768` corpus; these are **not accepted**. See Agent’s
+`conformance/agent4/canonical-cutover-admission.json`. An explicit owner decision
+is pending; timing and execution qualification are separate obligations.
+
+A Boundary M2 worktree/branch was prepared from `aea29fc`, with no optimizer
+implementation claimed yet. It does not certify the remaining cutover costs.
 
 F01 scope correction is published. F02 product/diff inspection found no introduced
 persistence subsystem; recheck if production inputs change. F03–F12 still require
