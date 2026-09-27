@@ -61,7 +61,13 @@ historical 2,094-byte producer as a frozen input and link both current consumers
 against it; keep normal current-producer images separately. Do not regenerate the
 expected hash from the candidate. Deciding check: `check-parser-consumers` and
 final parser/source-free integration. This repairs the existing witness, not an
-additional authoring family.
+additional authoring family. The source-denial harness transports that same frozen
+producer and the matching linked image names. Two other existing qualification
+fixtures also need alignment: the authentication-only synthetic Boundary stub
+must expose `source.Compiled` (not the removed `computation` facade), and component
+comparison tests must retain their four actual frozen BMO1 inputs while separately
+exercising current emitter outputs. No historical hash or expected behavior is
+regenerated from the candidate.
 
 **Closed in Agent `6e43faf`:** all listed comparison sites migrated, the three
 source-ID adapters and their specialization key are deleted, and the callback
@@ -103,15 +109,24 @@ Boundary changes are task documentation only. World’s full check passed all
 non-browser lanes; the missing local locked browser dependency was installed and
 `check-browser` then passed on Chromium and Firefox. No new kernel was published.
 
-Agent’s broader integration campaign is still being reconciled after the fixed
-producer witness repair. Cumulative native admission measured six memory
-regressions beyond the specified threshold against the actual `dd336f0` /
-`6313768` corpus; these are **not accepted**. See Agent’s
-`conformance/agent4/canonical-cutover-admission.json`. An explicit owner decision
-is pending; timing and execution qualification are separate obligations.
+Agent’s initial integration campaign ended with five fixture-alignment failures.
+All affected lanes then passed after repair: parser consumers, source-denied
+link/execution, component comparisons on frozen and current inputs, and the
+source-override authentication test. The corrected authoring/native/images
+aggregate passed; the original failed aggregate is not relabeled a pass.
+
+The user explicitly accepted the measured cutover tradeoffs: six native
+admission-memory increases, ReAct execution-memory growth of about 22.7 KiB
+(1.21–1.26%), native admission slowdowns of 6.3–19.7%, and WASM review-model
+admission slowdown of 17.2%. See Agent’s
+`conformance/agent4/canonical-cutover-admission.json`. These accepted costs are
+part of the cutover checkpoint, not new defects to reopen during M2. Unmeasured
+execution/checkpoint timing is not reported as passing; preserve it in the
+optimizer baseline account.
 
 A Boundary M2 worktree/branch was prepared from `aea29fc`, with no optimizer
-implementation claimed yet. It does not certify the remaining cutover costs.
+implementation claimed yet. Proceed to M2 from this qualified Boundary input without another authoring or
+code-review prerequisite. The user accepted the reported cutover costs.
 
 F01 scope correction is published. F02 product/diff inspection found no introduced
 persistence subsystem; recheck if production inputs change. F03–F12 still require
