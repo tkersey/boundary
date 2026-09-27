@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
 //! Two tasks, an actual pending join, and FIFO execution are authored source.
 const source = @import("../source.zig");
+const a = @import("../authoring.zig");
 const generator = @import("../library/generator.zig");
 const scheduler = @import("../library/scheduler.zig");
 const writer = @import("../library/writer.zig");
@@ -8,16 +9,25 @@ const p = @import("boundary_data").program;
 const Error = source.Error;
 
 pub fn build(b: *source.Builder) Error!source.ast.Module {
+    return authored(b) catch |err| return a.sourceError(err);
+}
+fn authored(b: *source.Builder) a.Error!source.ast.Module {
+    const c = try a.Context.init(b);
     const unit = try b.scalar(void);
     const integer = try b.scalar(u64);
     const r = b.region();
     const region = try b.schema(.{ .internal = .{ .region = r } });
     const join = try scheduler.joinType(b, integer, r);
-    const w = try writer.family(b, "example/task-log", integer);
+    const logging_family = try writer.family(c, "example/task-log", try c.scalar(u64));
+    const w = .{ .effect = try a.interop.operationId(c, logging_family.effect()), .capability = try a.interop.schemaId(c, logging_family.capability()) };
     const tasks = try generator.defineScoped(b, "example/task-yield", unit, &.{ unit, integer, join.cell, w.capability }, &.{}, &.{r}, .{ .effects = &.{w.effect} });
     const fifo = try scheduler.fifo(b, tasks, .{ .effects = &.{w.effect} }, &.{r});
     const await_join = try scheduler.awaiting(b, tasks, join, integer, &.{r});
-    const written = try writer.interpret(b, w, integer, r, &.{ unit, integer, join.cell, tasks.capability, tasks.package, tasks.answer, tasks.yielded, fifo.queue }, .{ .effects = &.{} });
+    const capture_ids = [_]p.Id{ unit, integer, join.cell, tasks.capability, tasks.package, tasks.answer, tasks.yielded, fifo.queue };
+    var captures: [capture_ids.len]*const a.Schema = undefined;
+    for (capture_ids, &captures) |id, *schema| schema.* = try a.interop.schema(c, id);
+    const logging_handler = try writer.interpret(c, logging_family, try c.scalar(u64), try a.interop.region(c, r), &captures, &.{});
+    const written = .{ .answer = try a.interop.schemaId(c, logging_handler.answer), .cell = try a.interop.schemaId(c, logging_handler.cell), .sequence = try a.interop.schemaId(c, logging_handler.sequence), .handler = try a.interop.handlerId(c, logging_handler.handler) };
     const main = try b.declare(&.{}, written.answer, &.{}, &.{});
     const inside = try b.declare(&.{region}, written.answer, &.{}, &.{r});
     const body = try b.declare(&.{w.capability}, integer, &.{w.effect}, &.{r});
@@ -52,10 +62,10 @@ pub fn build(b: *source.Builder) Error!source.ast.Module {
     const missing = try b.variable(unit);
     const present = try b.variable(integer);
     try b.define(read_join, try b.term(.{ .match_sum = .{ .value = try b.primitive(join.result, .cell_get, &.{try b.reference(b.parameter(read_join, 0))}, 0), .cases = &.{ .{ .variable = missing, .body = try b.term(.{ .fail = try b.constant(void, {}) }) }, .{ .variable = present, .body = try b.pure(try b.reference(present)) } } } }));
-    const a = try b.variable(integer);
-    const c = try b.variable(integer);
-    const sum = try b.value(.{ .schema = integer, .expression = .{ .primitive = .{ .opcode = .integer_add, .operands = &.{ try b.reference(a), try b.reference(c) }, .failures = &.{.{ .kind = .arithmetic_overflow, .value = try b.failureLiteral(try b.constant(void, {})) }} } } });
-    const results = try b.bind(a, try b.term(.{ .call = .{ .function = read_join, .arguments = &.{try b.reference(join1)} } }), try b.bind(c, try b.term(.{ .call = .{ .function = read_join, .arguments = &.{try b.reference(join2)} } }), try b.pure(sum)));
+    const first_value = try b.variable(integer);
+    const second_value = try b.variable(integer);
+    const sum = try b.value(.{ .schema = integer, .expression = .{ .primitive = .{ .opcode = .integer_add, .operands = &.{ try b.reference(first_value), try b.reference(second_value) }, .failures = &.{.{ .kind = .arithmetic_overflow, .value = try b.failureLiteral(try b.constant(void, {})) }} } } });
+    const results = try b.bind(first_value, try b.term(.{ .call = .{ .function = read_join, .arguments = &.{try b.reference(join1)} } }), try b.bind(second_value, try b.term(.{ .call = .{ .function = read_join, .arguments = &.{try b.reference(join2)} } }), try b.pure(sum)));
     const drained = try b.bind(try b.variable(unit), try b.term(.{ .call = .{ .function = fifo.drain, .arguments = &.{try b.reference(queue2)} } }), results);
     const queue_ready = try b.bind(first, started1, try b.bind(queue1, pushed1, try b.bind(second, started2, try b.bind(queue2, pushed2, try b.term(.{ .yield_then = drained })))));
     const empty_join = try b.primitive(join.result, .variant, &.{try b.constant(void, {})}, 0);

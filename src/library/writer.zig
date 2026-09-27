@@ -1,41 +1,80 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
-//! Dynamic log accumulation through an explicit cell outside the body capture.
-const source = @import("../source.zig");
-const p = @import("boundary_data").program;
-pub const Writer = struct { effect: p.Id, capability: p.Id, answer: p.Id, cell: p.Id, sequence: p.Id, handler: p.Id, resumption: p.Id };
-pub const Family = struct { effect: p.Id, capability: p.Id, message: p.Id };
-
-pub fn family(b: *source.Builder, identity: []const u8, message: p.Id) source.Error!Family {
-    const effect = try b.effect(.{ .identity = identity, .payload = message, .result = try b.scalar(void), .external = false });
-    return .{ .effect = effect, .capability = try b.schema(.{ .internal = .{ .capability = effect } }), .message = message };
+//! Dynamic log accumulation through explicit handler-owned state.
+const std = @import("std");
+const a = @import("../authoring.zig");
+pub const Writer = struct { answer: *const a.Schema, cell: *const a.Schema, sequence: *const a.Schema, handler: *const a.Handler, resumption: *const a.Schema };
+pub const Family = opaque {
+    pub fn effect(self: *const Family) *const a.Operation {
+        return familyData(self).effect;
+    }
+    pub fn capability(self: *const Family) *const a.Schema {
+        return familyData(self).capability;
+    }
+};
+fn familyData(self: *const Family) *const FamilyData {
+    return @ptrCast(@alignCast(self));
 }
-
-pub fn define(b: *source.Builder, identity: []const u8, message: p.Id, result: p.Id, region: p.Id, captures: []const p.Id, residual: source.Row) source.Error!Writer {
-    return interpret(b, try family(b, identity, message), result, region, captures, residual);
+const FamilyData = struct {
+    effect: *const a.Operation,
+    capability: *const a.Schema,
+    message: *const a.Schema,
+    owner: *a.Context,
+    interpretations: *std.ArrayList(Cached),
+};
+const Cached = struct {
+    result: *const a.Schema,
+    region: *const a.Region,
+    captures: []const *const a.Schema,
+    residual: []const *const a.Operation,
+    value: Writer,
+};
+pub fn family(c: *a.Context, identity: []const u8, message: *const a.Schema) a.Error!*const Family {
+    const effect = try c.local(identity, message, try c.scalar(void), .linear);
+    const entries = try a.interop.builder(c).allocator().create(std.ArrayList(Cached));
+    entries.* = .empty;
+    const saved = try a.interop.builder(c).allocator().create(FamilyData);
+    saved.* = .{ .effect = effect, .capability = try c.capability(effect), .message = message, .owner = c, .interpretations = entries };
+    return @ptrCast(saved);
 }
-pub fn interpret(b: *source.Builder, writer: Family, result: p.Id, region: p.Id, captures: []const p.Id, residual: source.Row) source.Error!Writer {
-    const instance = try b.specialization(Writer, "boundary.library.writer/v2", .{ writer, result, region, captures, residual });
-    if (instance.cached) |value| return value;
-    const message = writer.message;
-    const unit = try b.scalar(void);
-    const sequence = try b.schema(.{ .seq = message });
-    const cell = try b.schema(.{ .internal = .{ .cell = .{ .element = sequence, .region = region } } });
-    const answer = try b.schema(.{ .product = &.{ result, sequence } });
-    const effect = writer.effect;
-    const capability = writer.capability;
-    const bound = try b.allocator().alloc(p.Id, captures.len + 3);
+pub fn interpret(c: *a.Context, writer: *const Family, result: *const a.Schema, region: *const a.Region, captures: []const *const a.Schema, residual: []const *const a.Operation) a.Error!Writer {
+    const f = familyData(writer);
+    _ = try c.capability(f.effect);
+    if (c != f.owner) return error.ForeignHandle;
+    for (f.interpretations.items) |entry| {
+        if (entry.result == result and entry.region == region and std.mem.eql(*const a.Schema, entry.captures, captures) and
+            std.mem.eql(*const a.Operation, entry.residual, residual)) return entry.value;
+    }
+    const allocator = a.interop.builder(c).allocator();
+    const sequence = try c.sequence(f.message);
+    const cell = try c.cell(region, sequence);
+    const answer = try c.record(&.{ .{ .name = "value", .schema = result }, .{ .name = "log", .schema = sequence } });
+    const bound = try allocator.alloc(*const a.Schema, captures.len + 3);
     @memcpy(bound[0..captures.len], captures);
-    @memcpy(bound[captures.len..], &[_]p.Id{ capability, cell, sequence });
-    const token = try b.schema(.{ .internal = .{ .resumption = .{ .effect = effect, .input = unit, .answer = answer, .effects = residual.effects, .capture_bound = bound, .handled = &.{effect}, .mode = .deep, .use = .linear, .obligations = true } } });
-    const returns = try b.declare(&.{ cell, result }, answer, &.{}, &.{region});
-    const logs = try b.primitive(sequence, .cell_get, &.{try b.reference(b.parameter(returns, 0))}, 0);
-    try b.define(returns, try b.pure(try b.primitive(answer, .product, &.{ try b.reference(b.parameter(returns, 1)), logs }, 0)));
-    const clause = try b.declare(&.{ cell, message, token }, answer, residual.effects, &.{region});
-    const target = try b.reference(b.parameter(clause, 0));
-    const before = try b.primitive(sequence, .cell_get, &.{target}, 0);
-    const after = try b.primitive(sequence, .sequence_append, &.{ before, try b.reference(b.parameter(clause, 1)) }, 0);
-    const changed = try b.pure(try b.primitive(unit, .cell_set, &.{ target, after }, 0));
-    const resumed = try b.term(.{ .resume_value = .{ .resumption = try b.reference(b.parameter(clause, 2)), .argument = try b.constant(void, {}) } });
-    try b.define(clause, try b.bind(try b.variable(unit), changed, resumed));
-    return instance.finish(b, .{ .effect = effect, .capability = capability, .answer = answer, .cell = cell, .sequence = sequence, .resumption = token, .handler = try b.handler(.{ .mode = .deep, .input = result, .answer = answer, .return_function = returns, .state = &.{cell}, .effects = residual.effects, .clauses = &.{.{ .effect = effect, .function = clause, .resumption = token }} }) });
+    @memcpy(bound[captures.len..], &[_]*const a.Schema{ f.capability, cell, sequence });
+    const handler = try c.handler(f.effect, result, answer, .{
+        .mode = .deep,
+        .use = .linear,
+        .residual = residual,
+        .return_effects = &.{},
+        .captures = bound,
+        .body_captures = captures,
+        .borrowed_regions = &.{region},
+        .state = &.{.{ .name = "log", .schema = cell }},
+        .obligations = true,
+    });
+    const returns_fn = try c.returnFunction(handler);
+    const returns = try c.body(returns_fn);
+    const logs = try returns.readCell(try returns.parameter("log"));
+    try c.define(returns_fn, try returns.ret(try returns.product(answer, &.{
+        .{ .name = "value", .value = try returns.parameter("result") }, .{ .name = "log", .value = logs },
+    })));
+    const clause_fn = try c.clauseFunction(handler);
+    const clause = try c.body(clause_fn);
+    const target = try clause.parameter("log");
+    const after = try clause.append(try clause.readCell(target), try clause.parameter("payload"));
+    _ = try clause.writeCell(target, after);
+    try c.define(clause_fn, try clause.ret(try clause.resumeValue(try clause.parameter("resumption"), try clause.constant(void, {}))));
+    const value: Writer = .{ .answer = answer, .cell = cell, .sequence = sequence, .handler = handler, .resumption = try a.interop.resumptionSchema(c, handler) };
+    try f.interpretations.append(allocator, .{ .result = result, .region = region, .captures = try allocator.dupe(*const a.Schema, captures), .residual = try allocator.dupe(*const a.Operation, residual), .value = value });
+    return value;
 }

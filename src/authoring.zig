@@ -553,6 +553,16 @@ pub const Context = opaque {
         try self.ready();
         return handle(Region, try self.save(RegionData, .{ .owner = self, .id = contextData(self).raw.region() }));
     }
+    pub fn cell(self: *Context, region_handle: *const Region, element: *const Schema) Error!*const Schema {
+        const r = data(RegionData, region_handle);
+        try self.origin(r.owner);
+        errdefer |err| self.poison(err);
+        const id = try contextData(self).raw.schema(.{ .internal = .{ .cell = .{
+            .region = r.id,
+            .element = try self.schemaId(element),
+        } } });
+        return self.internResult(id, &.{}, element);
+    }
     /// The first parameter is supplied by withRegion, not by the caller's arguments.
     pub fn regionBodySchema(
         self: *Context,
@@ -1520,6 +1530,46 @@ pub const Body = opaque {
             0,
         )), boolean);
     }
+    pub fn newCell(self: *Body, schema: *const Schema, region: *const Value, initial: *const Value) Error!*const Value {
+        try self.ready();
+        const c = bodyData(self).context;
+        const id = try c.schemaId(schema);
+        const shape = contextData(c).raw.schemas.items[@intCast(id)];
+        if (shape != .internal or shape.internal != .cell)
+            return c.reject(error.InvalidCategory, "cell", "requires a cell schema");
+        const token = try self.useValue(region);
+        const token_shape = contextData(c).raw.schemas.items[@intCast(try c.schemaId(token.schema))];
+        if (token_shape != .internal or token_shape.internal != .region or token_shape.internal.region != shape.internal.cell.region)
+            return c.reject(error.SchemaMismatch, "cell", "allocation requires its region token");
+        const value = try self.useValue(initial);
+        try c.same(data(SchemaData, schema).result orelse return error.InvalidSchema, value.schema);
+        errdefer |err| c.poison(err);
+        return self.bind(try contextData(c).raw.pure(try contextData(c).raw.primitive(id, .cell_new, &.{ token.id, value.id }, 0)), schema);
+    }
+    pub fn readCell(self: *Body, cell_value: *const Value) Error!*const Value {
+        const value = try self.useValue(cell_value);
+        const c = bodyData(self).context;
+        const info = data(SchemaData, value.schema);
+        const shape = contextData(c).raw.schemas.items[@intCast(info.id)];
+        if (shape != .internal or shape.internal != .cell)
+            return c.reject(error.InvalidCategory, "cell", "read requires a cell");
+        const element = info.result orelse return error.InvalidSchema;
+        errdefer |err| c.poison(err);
+        return self.bind(try contextData(c).raw.pure(try contextData(c).raw.primitive(try c.schemaId(element), .cell_get, &.{value.id}, 0)), element);
+    }
+    pub fn writeCell(self: *Body, cell_value: *const Value, new_value: *const Value) Error!*const Value {
+        const target = try self.useValue(cell_value);
+        const value = try self.useValue(new_value);
+        const c = bodyData(self).context;
+        const info = data(SchemaData, target.schema);
+        const shape = contextData(c).raw.schemas.items[@intCast(info.id)];
+        if (shape != .internal or shape.internal != .cell)
+            return c.reject(error.InvalidCategory, "cell", "write requires a cell");
+        try c.same(info.result orelse return error.InvalidSchema, value.schema);
+        errdefer |err| c.poison(err);
+        const unit = try c.scalar(void);
+        return self.bind(try contextData(c).raw.pure(try contextData(c).raw.primitive(try c.schemaId(unit), .cell_set, &.{ target.id, value.id }, 0)), unit);
+    }
     pub fn append(self: *Body, sequence: *const Value, element: *const Value) Error!*const Value {
         const seq = try self.useValue(sequence);
         const item = try self.useValue(element);
@@ -1906,7 +1956,7 @@ pub const interop = struct {
         switch (shape) {
             .product, .sum, .seq => {},
             .internal => |inner| switch (inner) {
-                .computation, .resumption, .borrowed, .suspension_package => {},
+                .computation, .resumption, .borrowed, .suspension_package, .cell => {},
                 else => return c.intern(id, &.{}),
             },
             else => return c.intern(id, &.{}),
@@ -1929,6 +1979,7 @@ pub const interop = struct {
                 .resumption => |signature| try schema(c, signature.answer),
                 .borrowed => |borrow| try schema(c, borrow.value),
                 .suspension_package => |token| try schema(c, token),
+                .cell => |cell_shape| try schema(c, cell_shape.element),
                 else => null,
             },
             else => null,

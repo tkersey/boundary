@@ -50,6 +50,13 @@ FIFO cooperative scheduling. Ownership, borrowing, nominal identities, failure
 order and cleanup remain checked. Stable slots retain earlier bindings without
 copying them into every intermediate continuation interface.
 
+Writer and Raise families accept an `authoring.Context` and typed schemas.
+Their opaque family handles expose `effect()` and `capability()`; interpretations
+return typed handler and answer handles. Repeated interpretations share definitions
+without merging distinct named schemas. The
+[Writer/Raise example](src/source/writer_raise_example.zig) includes typed cell
+allocation, logging, abortive catch and protected cleanup.
+
 ## Pure data and components
 
 Use the separate build module `boundary_data` for schemas, stable Program/State

@@ -490,8 +490,6 @@ test "library specializations share declarations at one eight and sixty-four ins
     const state = @import("../library/state.zig");
     const generator = @import("../library/generator.zig");
     const reader = @import("../library/reader.zig");
-    const writer = @import("../library/writer.zig");
-    const raise = @import("../library/raise.zig");
     const search = @import("../library/search.zig");
     const scheduler = @import("../library/scheduler.zig");
     var b = source.Builder.init(std.testing.allocator);
@@ -501,8 +499,6 @@ test "library specializations share declarations at one eight and sixty-four ins
     const region = b.region();
     const choices = try choice.family(&b, "sharing/choice");
     const states = try state.family(&b, "sharing/state", integer);
-    const logs = try writer.family(&b, "sharing/log", integer);
-    const raises = try raise.family(&b, "sharing/raise", integer);
     const joined = try scheduler.joinType(&b, integer, region);
     var declarations: ?usize = null;
     var handlers: ?usize = null;
@@ -512,8 +508,6 @@ test "library specializations share declarations at one eight and sixty-four ins
         _ = try state.interpret(&b, states, integer, region, &.{}, .{ .effects = &.{} }, .value);
         const tasks = try generator.define(&b, "sharing/generator", unit, &.{}, &.{}, .{ .effects = &.{} });
         _ = try reader.define(&b, "sharing/reader", integer, integer, integer, .{ .continuation = &.{} }, .{ .effects = &.{} }, &.{});
-        _ = try writer.interpret(&b, logs, integer, region, &.{}, .{ .effects = &.{} });
-        _ = try raise.catching(&b, raises, integer, &.{}, .{ .effects = &.{} }, &.{});
         _ = try search.define(&b, "sharing/search", integer, &.{}, .{ .effects = &.{} }, &.{}, &.{}, .depth_first);
         _ = try scheduler.fifo(&b, tasks, .{ .effects = &.{} }, &.{});
         _ = try scheduler.awaiting(&b, tasks, joined, integer, &.{region});

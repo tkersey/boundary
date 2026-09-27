@@ -1,36 +1,72 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
-//! Catch is an abortive interpretation that explicitly discharges the abandoned
-//! continuation before returning its authored error value.
-const source = @import("../source.zig");
-const p = @import("boundary_data").program;
-pub const Raise = struct { effect: p.Id, capability: p.Id, answer: p.Id, resumption: p.Id, handler: p.Id };
-pub const Family = struct { effect: p.Id, capability: p.Id, failure: p.Id };
-
-pub fn family(b: *source.Builder, identity: []const u8, failure: p.Id) source.Error!Family {
-    const effect = try b.effect(.{ .identity = identity, .payload = failure, .result = try b.scalar(void), .external = false });
-    return .{ .effect = effect, .capability = try b.schema(.{ .internal = .{ .capability = effect } }), .failure = failure };
+//! Catch explicitly discharges the abandoned continuation before returning failure.
+const std = @import("std");
+const a = @import("../authoring.zig");
+pub const Raise = struct { answer: *const a.Schema, resumption: *const a.Schema, handler: *const a.Handler };
+pub const Family = opaque {
+    pub fn effect(self: *const Family) *const a.Operation {
+        return familyData(self).effect;
+    }
+    pub fn capability(self: *const Family) *const a.Schema {
+        return familyData(self).capability;
+    }
+};
+fn familyData(self: *const Family) *const FamilyData {
+    return @ptrCast(@alignCast(self));
 }
-
-pub fn define(b: *source.Builder, identity: []const u8, failure: p.Id, result: p.Id, captures: []const p.Id, residual: source.Row, regions: []const p.Id) source.Error!Raise {
-    return catching(b, try family(b, identity, failure), result, captures, residual, regions);
+const FamilyData = struct {
+    effect: *const a.Operation,
+    capability: *const a.Schema,
+    failure: *const a.Schema,
+    owner: *a.Context,
+    interpretations: *std.ArrayList(Cached),
+};
+const Cached = struct {
+    result: *const a.Schema,
+    captures: []const *const a.Schema,
+    residual: []const *const a.Operation,
+    regions: []const *const a.Region,
+    value: Raise,
+};
+pub fn family(c: *a.Context, identity: []const u8, failure: *const a.Schema) a.Error!*const Family {
+    const effect = try c.local(identity, failure, try c.scalar(void), .linear);
+    const entries = try a.interop.builder(c).allocator().create(std.ArrayList(Cached));
+    entries.* = .empty;
+    const saved = try a.interop.builder(c).allocator().create(FamilyData);
+    saved.* = .{ .effect = effect, .capability = try c.capability(effect), .failure = failure, .owner = c, .interpretations = entries };
+    return @ptrCast(saved);
 }
-pub fn catching(b: *source.Builder, raised: Family, result: p.Id, captures: []const p.Id, residual: source.Row, regions: []const p.Id) source.Error!Raise {
-    const instance = try b.specialization(Raise, "boundary.library.raise/v2", .{ raised, result, captures, residual, regions });
-    if (instance.cached) |value| return value;
-    const failure = raised.failure;
-    const unit = try b.scalar(void);
-    const answer = try b.schema(.{ .sum = &.{ failure, result } });
-    const effect = raised.effect;
-    const capability = raised.capability;
-    const bound = try b.allocator().alloc(p.Id, captures.len + 1);
+pub fn catching(c: *a.Context, raised: *const Family, result: *const a.Schema, captures: []const *const a.Schema, residual: []const *const a.Operation, regions: []const *const a.Region) a.Error!Raise {
+    const f = familyData(raised);
+    _ = try c.capability(f.effect);
+    if (c != f.owner) return error.ForeignHandle;
+    for (f.interpretations.items) |entry| {
+        if (entry.result == result and std.mem.eql(*const a.Schema, entry.captures, captures) and
+            std.mem.eql(*const a.Operation, entry.residual, residual) and std.mem.eql(*const a.Region, entry.regions, regions)) return entry.value;
+    }
+    const allocator = a.interop.builder(c).allocator();
+    const answer = try c.alternatives(&.{ .{ .name = "failure", .schema = f.failure }, .{ .name = "value", .schema = result } });
+    const bound = try allocator.alloc(*const a.Schema, captures.len + 1);
     @memcpy(bound[0..captures.len], captures);
-    bound[captures.len] = capability;
-    const token = try b.schema(.{ .internal = .{ .resumption = .{ .effect = effect, .input = unit, .answer = answer, .effects = residual.effects, .capture_bound = bound, .handled = &.{effect}, .mode = .deep, .use = .linear, .obligations = true } } });
-    const returns = try b.declare(&.{result}, answer, &.{}, regions);
-    try b.define(returns, try b.pure(try b.primitive(answer, .variant, &.{try b.reference(b.parameter(returns, 0))}, 1)));
-    const clause = try b.declare(&.{ failure, token }, answer, residual.effects, regions);
-    const disposed = try b.term(.{ .dispose = try b.reference(b.parameter(clause, 1)) });
-    const caught = try b.pure(try b.primitive(answer, .variant, &.{try b.reference(b.parameter(clause, 0))}, 0));
-    try b.define(clause, try b.bind(try b.variable(unit), disposed, caught));
-    return instance.finish(b, .{ .effect = effect, .capability = capability, .answer = answer, .resumption = token, .handler = try b.handler(.{ .mode = .deep, .input = result, .answer = answer, .return_function = returns, .effects = residual.effects, .clauses = &.{.{ .effect = effect, .function = clause, .resumption = token }} }) });
+    bound[captures.len] = f.capability;
+    const handler = try c.handler(f.effect, result, answer, .{
+        .mode = .deep,
+        .use = .linear,
+        .residual = residual,
+        .return_effects = &.{},
+        .captures = bound,
+        .body_captures = captures,
+        .borrowed_regions = regions,
+        .obligations = true,
+    });
+    const returns_fn = try c.returnFunction(handler);
+    const returns = try c.body(returns_fn);
+    try c.define(returns_fn, try returns.ret(try returns.variant(answer, "value", try returns.parameter("result"))));
+    const clause_fn = try c.clauseFunction(handler);
+    const clause = try c.body(clause_fn);
+    _ = try clause.dispose(try clause.parameter("resumption"));
+    try c.define(clause_fn, try clause.ret(try clause.variant(answer, "failure", try clause.parameter("payload"))));
+    const value: Raise = .{ .answer = answer, .resumption = try a.interop.resumptionSchema(c, handler), .handler = handler };
+    try f.interpretations.append(allocator, .{ .result = result, .captures = try allocator.dupe(*const a.Schema, captures), .residual = try allocator.dupe(*const a.Operation, residual), .regions = try allocator.dupe(*const a.Region, regions), .value = value });
+    return value;
 }

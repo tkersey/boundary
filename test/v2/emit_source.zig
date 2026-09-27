@@ -94,11 +94,31 @@ const CleanupDisposal = struct {
         return b.pure(try b.primitive(try b.scalar(void), .cell_set, &.{ cell, after }, 0));
     }
 
+    fn lambdaFunction(b: *source.Builder, initial: p.Id) source.Error!p.Id {
+        var value = initial;
+        for (0..b.terms.items.len + 1) |_| {
+            const expression = b.values.items[@intCast(value)].expression;
+            if (expression == .lambda) return expression.lambda;
+            if (expression != .variable) return error.InvalidSource;
+            var found = false;
+            for (b.terms.items) |term| {
+                if (term == .bind and term.bind.variable == expression.variable) {
+                    const bound = b.terms.items[@intCast(term.bind.value)];
+                    if (bound != .value) return error.InvalidSource;
+                    value = bound.value;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) return error.InvalidSource;
+        }
+        return error.InvalidSource;
+    }
+
     pub fn build(b: *source.Builder, mode: Mode) source.Error!source.ast.Module {
         const original = try source.examples.writerRaise(b);
         const handler = try handlerFor(b, "example/writer");
         const clause = handler.clauses[0].function;
-        const body = b.terms.items[@intCast(b.functions.items[@intCast(clause)].body.?)].bind;
         const unit = try b.scalar(void);
         const cell = try b.reference(b.parameter(clause, 0));
         const message = try b.reference(b.parameter(clause, 1));
@@ -115,10 +135,10 @@ const CleanupDisposal = struct {
             break :selected try b.term(.{ .conditional = .{
                 .condition = condition,
                 .when_true = disposed,
-                .when_false = body.next,
+                .when_false = try b.term(.{ .resume_value = .{ .resumption = token, .argument = try b.constant(void, {}) } }),
             } });
         };
-        b.functions.items[@intCast(clause)].body = try b.bind(try b.variable(unit), body.value, selected);
+        b.functions.items[@intCast(clause)].body = try b.bind(try b.variable(unit), try appendLog(b, cell, message), selected);
         if (mode == .failure) {
             const raised = try handlerFor(b, "example/raise");
             const failure = try b.constant(void, {});
@@ -128,7 +148,7 @@ const CleanupDisposal = struct {
             }
             for (b.terms.items) |term| {
                 if (term != .protect) continue;
-                const finalizer = b.values.items[@intCast(term.protect.cleanup)].expression.lambda;
+                const finalizer = try lambdaFunction(b, term.protect.cleanup);
                 const previous = b.functions.items[@intCast(finalizer)].body.?;
                 b.functions.items[@intCast(finalizer)].body = try b.term(.{ .yield_then = previous });
                 break;
@@ -140,6 +160,11 @@ const CleanupDisposal = struct {
     /// The protected body returns an owned generator. Abandoning its cleanup must
     /// close that generator and execute its pending finalizer before the clause ends.
     pub fn ownedResult(b: *source.Builder) source.Error!source.ast.Module {
+        return ownedResultTyped(b) catch |err| return boundary.authoring.sourceError(err);
+    }
+    fn ownedResultTyped(b: *source.Builder) boundary.authoring.Error!source.ast.Module {
+        const a = boundary.authoring;
+        const c = try a.Context.init(b);
         const writer = boundary.library.writer;
         const generator = boundary.library.generator;
         const cleanup = boundary.library.cleanup;
@@ -147,9 +172,14 @@ const CleanupDisposal = struct {
         const integer = try b.scalar(u64);
         const region = b.region();
         const region_type = try b.schema(.{ .internal = .{ .region = region } });
-        const w = try writer.family(b, "example/cleanup-owner-writer", integer);
+        const logging_family = try writer.family(c, "example/cleanup-owner-writer", try c.scalar(u64));
+        const w = .{ .effect = try a.interop.operationId(c, logging_family.effect()), .capability = try a.interop.schemaId(c, logging_family.capability()) };
         const g = try generator.defineScoped(b, "example/cleanup-owned-yield", integer, &.{ unit, integer, w.capability }, &.{}, &.{region}, .{ .effects = &.{w.effect} });
-        const written = try writer.interpret(b, w, integer, region, &.{ unit, integer, g.capability, g.answer, g.resumption, g.package, g.yielded }, .{ .effects = &.{} });
+        const capture_ids = [_]boundary.data.program.Id{ unit, integer, g.capability, g.answer, g.resumption, g.package, g.yielded };
+        var captures: [capture_ids.len]*const a.Schema = undefined;
+        for (capture_ids, &captures) |id, *schema| schema.* = try a.interop.schema(c, id);
+        const logging_handler = try writer.interpret(c, logging_family, try c.scalar(u64), try a.interop.region(c, region), &captures, &.{});
+        const written = .{ .answer = try a.interop.schemaId(c, logging_handler.answer), .cell = try a.interop.schemaId(c, logging_handler.cell), .sequence = try a.interop.schemaId(c, logging_handler.sequence), .handler = try a.interop.handlerId(c, logging_handler.handler) };
         const fixture_entry = try b.declare(&.{}, written.answer, &.{}, &.{});
         const inside = try b.declare(&.{region_type}, written.answer, &.{}, &.{region});
         const written_body = try b.declare(&.{w.capability}, integer, &.{w.effect}, &.{region});
@@ -241,7 +271,6 @@ const CleanupDisposal = struct {
         try b.define(fixture_entry, try b.term(.{ .with_region = .{ .region = region, .body = try b.lambda(inside, inside_type) } }));
         const handler = b.handlers.items[@intCast(written.handler)];
         const clause = handler.clauses[0].function;
-        const prior = b.terms.items[@intCast(b.functions.items[@intCast(clause)].body.?)].bind;
         const log = try b.reference(b.parameter(clause, 0));
         const message = try b.reference(b.parameter(clause, 1));
         const token = try b.reference(b.parameter(clause, 2));
@@ -249,7 +278,8 @@ const CleanupDisposal = struct {
         const marked = try b.bind(try b.variable(unit), try appendLog(b, log, try b.constant(u64, 99)), returned);
         const disposed = try b.bind(try b.variable(unit), try b.term(.{ .dispose = token }), marked);
         const condition = try b.primitive(try b.scalar(bool), .equal, &.{ message, try b.constant(u64, 3) }, 0);
-        b.functions.items[@intCast(clause)].body = try b.bind(try b.variable(unit), prior.value, try b.term(.{ .conditional = .{ .condition = condition, .when_true = disposed, .when_false = prior.next } }));
+        const resumed = try b.term(.{ .resume_value = .{ .resumption = token, .argument = try b.constant(void, {}) } });
+        b.functions.items[@intCast(clause)].body = try b.bind(try b.variable(unit), try appendLog(b, log, message), try b.term(.{ .conditional = .{ .condition = condition, .when_true = disposed, .when_false = resumed } }));
         return b.module(fixture_entry, unit);
     }
 };

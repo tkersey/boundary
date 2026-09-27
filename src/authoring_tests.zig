@@ -1281,3 +1281,81 @@ test "handler cleanup obligations require explicit opt-in" {
 test "obligation-bearing handler publication tolerates allocation failures" {
     try testing.checkAllAllocationFailures(testing.allocator, obligationAllocation, .{});
 }
+
+fn cellConstruction(allocator: std.mem.Allocator, negatives: bool) !void {
+    var raw = source.Builder.init(allocator);
+    defer raw.deinit();
+    const c = try a.Context.init(&raw);
+    const unit = try c.scalar(void);
+    const integer = try c.scalar(u64);
+    const record = try c.record(&.{.{ .name = "count", .schema = integer }});
+    const different = try c.record(&.{.{ .name = "other", .schema = integer }});
+    const region = try c.region();
+    const other_region = try c.region();
+    const cell = try c.cell(region, record);
+    const wrong_region_cell = try c.cell(other_region, record);
+    const inside_type = try c.regionBodySchema(region, &.{}, integer, &.{}, .{ .use = .linear, .captures = &.{} });
+    const inside_fn = try c.functionFor("cell work", inside_type);
+    const inside = try c.body(inside_fn);
+    const token = try inside.parameter("region");
+    const one = try inside.product(record, &.{.{ .name = "count", .value = try inside.constant(u64, 1) }});
+    const wrong = try inside.product(different, &.{.{ .name = "other", .value = try inside.constant(u64, 2) }});
+    if (negatives) try testing.expectError(error.SchemaMismatch, inside.newCell(wrong_region_cell, token, one));
+    if (negatives) try testing.expectError(error.SchemaMismatch, inside.newCell(cell, token, wrong));
+    const allocated = try inside.newCell(cell, token, one);
+    if (negatives) try testing.expectError(error.SchemaMismatch, inside.writeCell(allocated, wrong));
+    if (negatives) try testing.expectError(error.InvalidCategory, inside.readCell(one));
+    _ = try inside.writeCell(allocated, one);
+    const read = try inside.readCell(allocated);
+    try c.define(inside_fn, try inside.ret(try inside.field(read, "count")));
+    const main = try c.function("entry", &.{}, integer, &.{});
+    const entry = try c.body(main);
+    try c.define(main, try entry.ret(try entry.withRegion(region, try entry.lambda(inside_fn, inside_type), &.{})));
+    const module = try c.module(main, unit);
+    _ = try @import("source/check.zig").analyze(raw.allocator(), module);
+    const other = try a.Context.init(&raw);
+    if (negatives) try testing.expectError(error.ForeignHandle, other.cell(region, record));
+    if (negatives) try testing.expectError(error.ClosedBody, inside.readCell(allocated));
+}
+
+test "typed cells preserve named elements, nominal regions and body lifetime" {
+    try cellConstruction(testing.allocator, true);
+}
+test "typed cells release partial construction allocations" {
+    try testing.checkAllAllocationFailures(testing.allocator, cellConstruction, .{false});
+}
+
+fn librarySharing(allocator: std.mem.Allocator) !void {
+    const writer = @import("library/writer.zig");
+    const raise = @import("library/raise.zig");
+    var raw = source.Builder.init(allocator);
+    defer raw.deinit();
+    const c = try a.Context.init(&raw);
+    const integer = try c.scalar(u64);
+    const left = try c.record(&.{.{ .name = "left", .schema = integer }});
+    const right = try c.record(&.{.{ .name = "right", .schema = integer }});
+    const region = try c.region();
+    const logs = try writer.family(c, "sharing/log", integer);
+    const failures = try raise.family(c, "sharing/raise", integer);
+    const first_writer = try writer.interpret(c, logs, left, region, &.{}, &.{});
+    const second_writer = try writer.interpret(c, logs, right, region, &.{}, &.{});
+    const first_raise = try raise.catching(c, failures, left, &.{}, &.{}, &.{});
+    const second_raise = try raise.catching(c, failures, right, &.{}, &.{}, &.{});
+    try testing.expect(first_writer.handler != second_writer.handler);
+    try testing.expect(first_raise.handler != second_raise.handler);
+    const count = raw.functions.items.len;
+    for (0..64) |_| {
+        try testing.expectEqual(first_writer.handler, (try writer.interpret(c, logs, left, region, &.{}, &.{})).handler);
+        try testing.expectEqual(first_raise.handler, (try raise.catching(c, failures, left, &.{}, &.{}, &.{})).handler);
+    }
+    try testing.expectEqual(count, raw.functions.items.len);
+    const other = try a.Context.init(&raw);
+    try testing.expectError(error.ForeignHandle, writer.interpret(other, logs, left, region, &.{}, &.{}));
+    try testing.expectError(error.ForeignHandle, raise.catching(other, failures, left, &.{}, &.{}, &.{}));
+}
+test "typed Writer and Raise preserve named contracts and share 64 installations" {
+    try librarySharing(testing.allocator);
+}
+test "typed Writer and Raise release partial construction allocations" {
+    try testing.checkAllAllocationFailures(testing.allocator, librarySharing, .{});
+}
