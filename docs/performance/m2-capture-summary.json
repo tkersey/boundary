@@ -1,0 +1,996 @@
+{
+  "scope": "Synthetic XOR-capture witness only; not an Agent or browser performance claim",
+  "environment": {
+    "cpu": "Apple M2 Pro",
+    "memory_bytes": 34359738368,
+    "os": "macOS 27.2 (26B5091g)",
+    "architecture": "arm64",
+    "zig": "0.16.0",
+    "optimize": "ReleaseSafe"
+  },
+  "boundary_base": "f76b87ed7b0fb465dd7d5447bcb5b8fc9b335b95",
+  "world_head": "0ba21202353a24b5ba88bd6a2ce810863916138b",
+  "world_src_clean": true,
+  "candidate_source_sha256": {
+    "src/data/capture_summary.zig": "b672859a4fc27d53b27151acff030d13c69c636a052181f8b3fe8b12b0d7e53c",
+    "src/data/capture_reduction.zig": "7f102630b1967c05057b6d5e35b52386b73a3b8c185bcdfb9037922f562be1e7",
+    "test/v2/capture_summary.zig": "606710e62fe3b9ce40ba2246830edc4f7ecc721c76d4ae8b389417deae003513"
+  },
+  "runtime_method": {
+    "tool": "World test/v2/replay_bench.zig",
+    "clock": "awake",
+    "warmups_per_process": 3,
+    "samples_per_process": 9,
+    "paired_process_batches": 7,
+    "order": "alternating baseline/candidate per batch",
+    "memory": "separate replay; Workspace peak payload, not RSS",
+    "oracle": "independent completed-outcome digest"
+  },
+  "runtime_observations": [
+    {
+      "inputBytes": 193,
+      "inputSha256": "ac1cda2d0eca6e0c7cc162528c230b2762659e66c986644166477cb2db77d10e",
+      "outputBytes": 38,
+      "outputSha256": "5ecba027c4307ce54d37d52d6dbc52186c393994ff6a268be668ebe2c3bea61b",
+      "samplesNs": [
+        8959,
+        8459,
+        8167,
+        8250,
+        8042,
+        7875,
+        7958,
+        8042,
+        7917
+      ],
+      "peakWorkingBytes": 10661,
+      "allocationCalls": 56,
+      "allocatedBytes": 17560,
+      "calls": 2,
+      "variant": "baseline-fresh",
+      "batch": 0
+    },
+    {
+      "inputBytes": 193,
+      "inputSha256": "2ab21b0daf13dafec25f1d20532349387c3ea65b1fc344edc234b7c721077300",
+      "outputBytes": 38,
+      "outputSha256": "5ecba027c4307ce54d37d52d6dbc52186c393994ff6a268be668ebe2c3bea61b",
+      "samplesNs": [
+        8208,
+        7792,
+        7709,
+        7542,
+        7500,
+        7417,
+        7459,
+        7542,
+        7584
+      ],
+      "peakWorkingBytes": 10442,
+      "allocationCalls": 56,
+      "allocatedBytes": 17512,
+      "calls": 2,
+      "variant": "candidate-fresh",
+      "batch": 0
+    },
+    {
+      "inputBytes": 193,
+      "inputSha256": "2ab21b0daf13dafec25f1d20532349387c3ea65b1fc344edc234b7c721077300",
+      "outputBytes": 38,
+      "outputSha256": "5ecba027c4307ce54d37d52d6dbc52186c393994ff6a268be668ebe2c3bea61b",
+      "samplesNs": [
+        8167,
+        7833,
+        7708,
+        7500,
+        7625,
+        7542,
+        7584,
+        7416,
+        7500
+      ],
+      "peakWorkingBytes": 10442,
+      "allocationCalls": 56,
+      "allocatedBytes": 17512,
+      "calls": 2,
+      "variant": "candidate-fresh",
+      "batch": 1
+    },
+    {
+      "inputBytes": 193,
+      "inputSha256": "ac1cda2d0eca6e0c7cc162528c230b2762659e66c986644166477cb2db77d10e",
+      "outputBytes": 38,
+      "outputSha256": "5ecba027c4307ce54d37d52d6dbc52186c393994ff6a268be668ebe2c3bea61b",
+      "samplesNs": [
+        8042,
+        7750,
+        7583,
+        7542,
+        7625,
+        7417,
+        7417,
+        7542,
+        7334
+      ],
+      "peakWorkingBytes": 10661,
+      "allocationCalls": 56,
+      "allocatedBytes": 17560,
+      "calls": 2,
+      "variant": "baseline-fresh",
+      "batch": 1
+    },
+    {
+      "inputBytes": 193,
+      "inputSha256": "ac1cda2d0eca6e0c7cc162528c230b2762659e66c986644166477cb2db77d10e",
+      "outputBytes": 38,
+      "outputSha256": "5ecba027c4307ce54d37d52d6dbc52186c393994ff6a268be668ebe2c3bea61b",
+      "samplesNs": [
+        8417,
+        8167,
+        7958,
+        7917,
+        7834,
+        7875,
+        8291,
+        9417,
+        9708
+      ],
+      "peakWorkingBytes": 10661,
+      "allocationCalls": 56,
+      "allocatedBytes": 17560,
+      "calls": 2,
+      "variant": "baseline-fresh",
+      "batch": 2
+    },
+    {
+      "inputBytes": 193,
+      "inputSha256": "2ab21b0daf13dafec25f1d20532349387c3ea65b1fc344edc234b7c721077300",
+      "outputBytes": 38,
+      "outputSha256": "5ecba027c4307ce54d37d52d6dbc52186c393994ff6a268be668ebe2c3bea61b",
+      "samplesNs": [
+        8167,
+        8084,
+        7750,
+        7667,
+        7584,
+        7500,
+        7708,
+        7666,
+        7583
+      ],
+      "peakWorkingBytes": 10442,
+      "allocationCalls": 56,
+      "allocatedBytes": 17512,
+      "calls": 2,
+      "variant": "candidate-fresh",
+      "batch": 2
+    },
+    {
+      "inputBytes": 193,
+      "inputSha256": "2ab21b0daf13dafec25f1d20532349387c3ea65b1fc344edc234b7c721077300",
+      "outputBytes": 38,
+      "outputSha256": "5ecba027c4307ce54d37d52d6dbc52186c393994ff6a268be668ebe2c3bea61b",
+      "samplesNs": [
+        9125,
+        8458,
+        8375,
+        8167,
+        8083,
+        8041,
+        8083,
+        7917,
+        8042
+      ],
+      "peakWorkingBytes": 10442,
+      "allocationCalls": 56,
+      "allocatedBytes": 17512,
+      "calls": 2,
+      "variant": "candidate-fresh",
+      "batch": 3
+    },
+    {
+      "inputBytes": 193,
+      "inputSha256": "ac1cda2d0eca6e0c7cc162528c230b2762659e66c986644166477cb2db77d10e",
+      "outputBytes": 38,
+      "outputSha256": "5ecba027c4307ce54d37d52d6dbc52186c393994ff6a268be668ebe2c3bea61b",
+      "samplesNs": [
+        8458,
+        8208,
+        8041,
+        7791,
+        7833,
+        7792,
+        7792,
+        7917,
+        7791
+      ],
+      "peakWorkingBytes": 10661,
+      "allocationCalls": 56,
+      "allocatedBytes": 17560,
+      "calls": 2,
+      "variant": "baseline-fresh",
+      "batch": 3
+    },
+    {
+      "inputBytes": 193,
+      "inputSha256": "ac1cda2d0eca6e0c7cc162528c230b2762659e66c986644166477cb2db77d10e",
+      "outputBytes": 38,
+      "outputSha256": "5ecba027c4307ce54d37d52d6dbc52186c393994ff6a268be668ebe2c3bea61b",
+      "samplesNs": [
+        8250,
+        7708,
+        7708,
+        7625,
+        7542,
+        7541,
+        7583,
+        7625,
+        7583
+      ],
+      "peakWorkingBytes": 10661,
+      "allocationCalls": 56,
+      "allocatedBytes": 17560,
+      "calls": 2,
+      "variant": "baseline-fresh",
+      "batch": 4
+    },
+    {
+      "inputBytes": 193,
+      "inputSha256": "2ab21b0daf13dafec25f1d20532349387c3ea65b1fc344edc234b7c721077300",
+      "outputBytes": 38,
+      "outputSha256": "5ecba027c4307ce54d37d52d6dbc52186c393994ff6a268be668ebe2c3bea61b",
+      "samplesNs": [
+        8042,
+        7708,
+        7583,
+        7666,
+        7500,
+        7458,
+        7500,
+        7417,
+        7292
+      ],
+      "peakWorkingBytes": 10442,
+      "allocationCalls": 56,
+      "allocatedBytes": 17512,
+      "calls": 2,
+      "variant": "candidate-fresh",
+      "batch": 4
+    },
+    {
+      "inputBytes": 193,
+      "inputSha256": "2ab21b0daf13dafec25f1d20532349387c3ea65b1fc344edc234b7c721077300",
+      "outputBytes": 38,
+      "outputSha256": "5ecba027c4307ce54d37d52d6dbc52186c393994ff6a268be668ebe2c3bea61b",
+      "samplesNs": [
+        8500,
+        8125,
+        7917,
+        7833,
+        8209,
+        9417,
+        9417,
+        8500,
+        7750
+      ],
+      "peakWorkingBytes": 10442,
+      "allocationCalls": 56,
+      "allocatedBytes": 17512,
+      "calls": 2,
+      "variant": "candidate-fresh",
+      "batch": 5
+    },
+    {
+      "inputBytes": 193,
+      "inputSha256": "ac1cda2d0eca6e0c7cc162528c230b2762659e66c986644166477cb2db77d10e",
+      "outputBytes": 38,
+      "outputSha256": "5ecba027c4307ce54d37d52d6dbc52186c393994ff6a268be668ebe2c3bea61b",
+      "samplesNs": [
+        8458,
+        8209,
+        8084,
+        8083,
+        9541,
+        9625,
+        8167,
+        8125,
+        8125
+      ],
+      "peakWorkingBytes": 10661,
+      "allocationCalls": 56,
+      "allocatedBytes": 17560,
+      "calls": 2,
+      "variant": "baseline-fresh",
+      "batch": 5
+    },
+    {
+      "inputBytes": 193,
+      "inputSha256": "ac1cda2d0eca6e0c7cc162528c230b2762659e66c986644166477cb2db77d10e",
+      "outputBytes": 38,
+      "outputSha256": "5ecba027c4307ce54d37d52d6dbc52186c393994ff6a268be668ebe2c3bea61b",
+      "samplesNs": [
+        8459,
+        8167,
+        8083,
+        7875,
+        9583,
+        10125,
+        8208,
+        7750,
+        7750
+      ],
+      "peakWorkingBytes": 10661,
+      "allocationCalls": 56,
+      "allocatedBytes": 17560,
+      "calls": 2,
+      "variant": "baseline-fresh",
+      "batch": 6
+    },
+    {
+      "inputBytes": 193,
+      "inputSha256": "2ab21b0daf13dafec25f1d20532349387c3ea65b1fc344edc234b7c721077300",
+      "outputBytes": 38,
+      "outputSha256": "5ecba027c4307ce54d37d52d6dbc52186c393994ff6a268be668ebe2c3bea61b",
+      "samplesNs": [
+        8334,
+        8250,
+        8417,
+        9500,
+        9500,
+        8250,
+        8167,
+        7792,
+        7750
+      ],
+      "peakWorkingBytes": 10442,
+      "allocationCalls": 56,
+      "allocatedBytes": 17512,
+      "calls": 2,
+      "variant": "candidate-fresh",
+      "batch": 6
+    },
+    {
+      "inputBytes": 463,
+      "inputSha256": "942477b850820411db0c4d3aeeaa1331036835b11e779a4f6c2142164cd14fec",
+      "outputBytes": 38,
+      "outputSha256": "5ecba027c4307ce54d37d52d6dbc52186c393994ff6a268be668ebe2c3bea61b",
+      "samplesNs": [
+        40958,
+        40500,
+        40583,
+        40583,
+        39958,
+        40042,
+        40084,
+        39917,
+        40292
+      ],
+      "peakWorkingBytes": 28849,
+      "allocationCalls": 180,
+      "allocatedBytes": 67398,
+      "calls": 32,
+      "variant": "baseline-fresh",
+      "batch": 0
+    },
+    {
+      "inputBytes": 463,
+      "inputSha256": "35b179d0e560c1f40fb332c8bb0a4f718abf06b07fdf21958bf58f4b6190b5a8",
+      "outputBytes": 38,
+      "outputSha256": "5ecba027c4307ce54d37d52d6dbc52186c393994ff6a268be668ebe2c3bea61b",
+      "samplesNs": [
+        40958,
+        37083,
+        40958,
+        37708,
+        40541,
+        37667,
+        37000,
+        40833,
+        37375
+      ],
+      "peakWorkingBytes": 28849,
+      "allocationCalls": 180,
+      "allocatedBytes": 66630,
+      "calls": 32,
+      "variant": "candidate-fresh",
+      "batch": 0
+    },
+    {
+      "inputBytes": 463,
+      "inputSha256": "35b179d0e560c1f40fb332c8bb0a4f718abf06b07fdf21958bf58f4b6190b5a8",
+      "outputBytes": 38,
+      "outputSha256": "5ecba027c4307ce54d37d52d6dbc52186c393994ff6a268be668ebe2c3bea61b",
+      "samplesNs": [
+        41250,
+        37667,
+        39416,
+        39208,
+        36750,
+        41250,
+        36917,
+        36917,
+        41166
+      ],
+      "peakWorkingBytes": 28849,
+      "allocationCalls": 180,
+      "allocatedBytes": 66630,
+      "calls": 32,
+      "variant": "candidate-fresh",
+      "batch": 1
+    },
+    {
+      "inputBytes": 463,
+      "inputSha256": "942477b850820411db0c4d3aeeaa1331036835b11e779a4f6c2142164cd14fec",
+      "outputBytes": 38,
+      "outputSha256": "5ecba027c4307ce54d37d52d6dbc52186c393994ff6a268be668ebe2c3bea61b",
+      "samplesNs": [
+        39375,
+        43167,
+        40042,
+        38708,
+        39084,
+        42458,
+        39666,
+        39000,
+        42500
+      ],
+      "peakWorkingBytes": 28849,
+      "allocationCalls": 180,
+      "allocatedBytes": 67398,
+      "calls": 32,
+      "variant": "baseline-fresh",
+      "batch": 1
+    },
+    {
+      "inputBytes": 463,
+      "inputSha256": "942477b850820411db0c4d3aeeaa1331036835b11e779a4f6c2142164cd14fec",
+      "outputBytes": 38,
+      "outputSha256": "5ecba027c4307ce54d37d52d6dbc52186c393994ff6a268be668ebe2c3bea61b",
+      "samplesNs": [
+        37958,
+        42667,
+        40292,
+        37584,
+        45417,
+        37292,
+        37375,
+        42209,
+        37542
+      ],
+      "peakWorkingBytes": 28849,
+      "allocationCalls": 180,
+      "allocatedBytes": 67398,
+      "calls": 32,
+      "variant": "baseline-fresh",
+      "batch": 2
+    },
+    {
+      "inputBytes": 463,
+      "inputSha256": "35b179d0e560c1f40fb332c8bb0a4f718abf06b07fdf21958bf58f4b6190b5a8",
+      "outputBytes": 38,
+      "outputSha256": "5ecba027c4307ce54d37d52d6dbc52186c393994ff6a268be668ebe2c3bea61b",
+      "samplesNs": [
+        41584,
+        40708,
+        37167,
+        39500,
+        35583,
+        35667,
+        40417,
+        36208,
+        35625
+      ],
+      "peakWorkingBytes": 28849,
+      "allocationCalls": 180,
+      "allocatedBytes": 66630,
+      "calls": 32,
+      "variant": "candidate-fresh",
+      "batch": 2
+    },
+    {
+      "inputBytes": 463,
+      "inputSha256": "35b179d0e560c1f40fb332c8bb0a4f718abf06b07fdf21958bf58f4b6190b5a8",
+      "outputBytes": 38,
+      "outputSha256": "5ecba027c4307ce54d37d52d6dbc52186c393994ff6a268be668ebe2c3bea61b",
+      "samplesNs": [
+        41417,
+        37000,
+        35750,
+        35292,
+        41042,
+        36375,
+        35833,
+        40666,
+        36708
+      ],
+      "peakWorkingBytes": 28849,
+      "allocationCalls": 180,
+      "allocatedBytes": 66630,
+      "calls": 32,
+      "variant": "candidate-fresh",
+      "batch": 3
+    },
+    {
+      "inputBytes": 463,
+      "inputSha256": "942477b850820411db0c4d3aeeaa1331036835b11e779a4f6c2142164cd14fec",
+      "outputBytes": 38,
+      "outputSha256": "5ecba027c4307ce54d37d52d6dbc52186c393994ff6a268be668ebe2c3bea61b",
+      "samplesNs": [
+        38375,
+        42417,
+        38500,
+        42250,
+        38459,
+        37375,
+        38292,
+        41583,
+        37875
+      ],
+      "peakWorkingBytes": 28849,
+      "allocationCalls": 180,
+      "allocatedBytes": 67398,
+      "calls": 32,
+      "variant": "baseline-fresh",
+      "batch": 3
+    },
+    {
+      "inputBytes": 463,
+      "inputSha256": "942477b850820411db0c4d3aeeaa1331036835b11e779a4f6c2142164cd14fec",
+      "outputBytes": 38,
+      "outputSha256": "5ecba027c4307ce54d37d52d6dbc52186c393994ff6a268be668ebe2c3bea61b",
+      "samplesNs": [
+        40000,
+        46000,
+        40041,
+        38916,
+        39166,
+        39208,
+        38875,
+        38917,
+        38917
+      ],
+      "peakWorkingBytes": 28849,
+      "allocationCalls": 180,
+      "allocatedBytes": 67398,
+      "calls": 32,
+      "variant": "baseline-fresh",
+      "batch": 4
+    },
+    {
+      "inputBytes": 463,
+      "inputSha256": "35b179d0e560c1f40fb332c8bb0a4f718abf06b07fdf21958bf58f4b6190b5a8",
+      "outputBytes": 38,
+      "outputSha256": "5ecba027c4307ce54d37d52d6dbc52186c393994ff6a268be668ebe2c3bea61b",
+      "samplesNs": [
+        35791,
+        35792,
+        35709,
+        35667,
+        35417,
+        35541,
+        35250,
+        35167,
+        35167
+      ],
+      "peakWorkingBytes": 28849,
+      "allocationCalls": 180,
+      "allocatedBytes": 66630,
+      "calls": 32,
+      "variant": "candidate-fresh",
+      "batch": 4
+    },
+    {
+      "inputBytes": 463,
+      "inputSha256": "35b179d0e560c1f40fb332c8bb0a4f718abf06b07fdf21958bf58f4b6190b5a8",
+      "outputBytes": 38,
+      "outputSha256": "5ecba027c4307ce54d37d52d6dbc52186c393994ff6a268be668ebe2c3bea61b",
+      "samplesNs": [
+        36208,
+        35833,
+        35292,
+        35541,
+        35250,
+        42084,
+        35542,
+        35167,
+        35209
+      ],
+      "peakWorkingBytes": 28849,
+      "allocationCalls": 180,
+      "allocatedBytes": 66630,
+      "calls": 32,
+      "variant": "candidate-fresh",
+      "batch": 5
+    },
+    {
+      "inputBytes": 463,
+      "inputSha256": "942477b850820411db0c4d3aeeaa1331036835b11e779a4f6c2142164cd14fec",
+      "outputBytes": 38,
+      "outputSha256": "5ecba027c4307ce54d37d52d6dbc52186c393994ff6a268be668ebe2c3bea61b",
+      "samplesNs": [
+        37875,
+        37916,
+        37625,
+        37334,
+        37459,
+        37542,
+        37500,
+        37292,
+        37458
+      ],
+      "peakWorkingBytes": 28849,
+      "allocationCalls": 180,
+      "allocatedBytes": 67398,
+      "calls": 32,
+      "variant": "baseline-fresh",
+      "batch": 5
+    },
+    {
+      "inputBytes": 463,
+      "inputSha256": "942477b850820411db0c4d3aeeaa1331036835b11e779a4f6c2142164cd14fec",
+      "outputBytes": 38,
+      "outputSha256": "5ecba027c4307ce54d37d52d6dbc52186c393994ff6a268be668ebe2c3bea61b",
+      "samplesNs": [
+        40958,
+        37917,
+        37459,
+        37292,
+        37291,
+        37083,
+        37459,
+        37375,
+        40875
+      ],
+      "peakWorkingBytes": 28849,
+      "allocationCalls": 180,
+      "allocatedBytes": 67398,
+      "calls": 32,
+      "variant": "baseline-fresh",
+      "batch": 6
+    },
+    {
+      "inputBytes": 463,
+      "inputSha256": "35b179d0e560c1f40fb332c8bb0a4f718abf06b07fdf21958bf58f4b6190b5a8",
+      "outputBytes": 38,
+      "outputSha256": "5ecba027c4307ce54d37d52d6dbc52186c393994ff6a268be668ebe2c3bea61b",
+      "samplesNs": [
+        36083,
+        35417,
+        35709,
+        35375,
+        35125,
+        35417,
+        35250,
+        35333,
+        35125
+      ],
+      "peakWorkingBytes": 28849,
+      "allocationCalls": 180,
+      "allocatedBytes": 66630,
+      "calls": 32,
+      "variant": "candidate-fresh",
+      "batch": 6
+    }
+  ],
+  "construction_method": {
+    "baseline": "P01 only",
+    "candidate": "XOR capture summary plus final P01",
+    "warmups": 3,
+    "paired_samples": 9,
+    "order": "alternating",
+    "allocation_counts": "separately owned FailingAllocator; result freed and byte balance checked",
+    "includes": "original admission, independent validation and final P01; not full source compilation"
+  },
+  "construction_observations": [
+    {
+      "calls": 2,
+      "samples": [
+        {
+          "candidate": true,
+          "ns": 73959,
+          "allocations": 100,
+          "allocated_bytes": 39840,
+          "retained_bytes": 3866,
+          "image_bytes": 135
+        },
+        {
+          "candidate": false,
+          "ns": 39208,
+          "allocations": 44,
+          "allocated_bytes": 20836,
+          "retained_bytes": 3518,
+          "image_bytes": 135
+        },
+        {
+          "candidate": false,
+          "ns": 38084,
+          "allocations": 44,
+          "allocated_bytes": 20836,
+          "retained_bytes": 3518,
+          "image_bytes": 135
+        },
+        {
+          "candidate": true,
+          "ns": 69541,
+          "allocations": 100,
+          "allocated_bytes": 39840,
+          "retained_bytes": 3866,
+          "image_bytes": 135
+        },
+        {
+          "candidate": true,
+          "ns": 72542,
+          "allocations": 100,
+          "allocated_bytes": 39840,
+          "retained_bytes": 3866,
+          "image_bytes": 135
+        },
+        {
+          "candidate": false,
+          "ns": 38625,
+          "allocations": 44,
+          "allocated_bytes": 20836,
+          "retained_bytes": 3518,
+          "image_bytes": 135
+        },
+        {
+          "candidate": false,
+          "ns": 37750,
+          "allocations": 44,
+          "allocated_bytes": 20836,
+          "retained_bytes": 3518,
+          "image_bytes": 135
+        },
+        {
+          "candidate": true,
+          "ns": 64833,
+          "allocations": 100,
+          "allocated_bytes": 39840,
+          "retained_bytes": 3866,
+          "image_bytes": 135
+        },
+        {
+          "candidate": true,
+          "ns": 64458,
+          "allocations": 100,
+          "allocated_bytes": 39840,
+          "retained_bytes": 3866,
+          "image_bytes": 135
+        },
+        {
+          "candidate": false,
+          "ns": 38208,
+          "allocations": 44,
+          "allocated_bytes": 20836,
+          "retained_bytes": 3518,
+          "image_bytes": 135
+        },
+        {
+          "candidate": false,
+          "ns": 37541,
+          "allocations": 44,
+          "allocated_bytes": 20836,
+          "retained_bytes": 3518,
+          "image_bytes": 135
+        },
+        {
+          "candidate": true,
+          "ns": 64417,
+          "allocations": 100,
+          "allocated_bytes": 39840,
+          "retained_bytes": 3866,
+          "image_bytes": 135
+        },
+        {
+          "candidate": true,
+          "ns": 64042,
+          "allocations": 100,
+          "allocated_bytes": 39840,
+          "retained_bytes": 3866,
+          "image_bytes": 135
+        },
+        {
+          "candidate": false,
+          "ns": 38042,
+          "allocations": 44,
+          "allocated_bytes": 20836,
+          "retained_bytes": 3518,
+          "image_bytes": 135
+        },
+        {
+          "candidate": false,
+          "ns": 37625,
+          "allocations": 44,
+          "allocated_bytes": 20836,
+          "retained_bytes": 3518,
+          "image_bytes": 135
+        },
+        {
+          "candidate": true,
+          "ns": 64333,
+          "allocations": 100,
+          "allocated_bytes": 39840,
+          "retained_bytes": 3866,
+          "image_bytes": 135
+        },
+        {
+          "candidate": true,
+          "ns": 64375,
+          "allocations": 100,
+          "allocated_bytes": 39840,
+          "retained_bytes": 3866,
+          "image_bytes": 135
+        },
+        {
+          "candidate": false,
+          "ns": 37792,
+          "allocations": 44,
+          "allocated_bytes": 20836,
+          "retained_bytes": 3518,
+          "image_bytes": 135
+        }
+      ]
+    },
+    {
+      "calls": 32,
+      "samples": [
+        {
+          "candidate": true,
+          "ns": 145208,
+          "allocations": 118,
+          "allocated_bytes": 174704,
+          "retained_bytes": 15310,
+          "image_bytes": 405
+        },
+        {
+          "candidate": false,
+          "ns": 71333,
+          "allocations": 52,
+          "allocated_bytes": 79406,
+          "retained_bytes": 14944,
+          "image_bytes": 405
+        },
+        {
+          "candidate": false,
+          "ns": 69333,
+          "allocations": 52,
+          "allocated_bytes": 79406,
+          "retained_bytes": 14944,
+          "image_bytes": 405
+        },
+        {
+          "candidate": true,
+          "ns": 148041,
+          "allocations": 118,
+          "allocated_bytes": 174704,
+          "retained_bytes": 15310,
+          "image_bytes": 405
+        },
+        {
+          "candidate": true,
+          "ns": 136292,
+          "allocations": 118,
+          "allocated_bytes": 174704,
+          "retained_bytes": 15310,
+          "image_bytes": 405
+        },
+        {
+          "candidate": false,
+          "ns": 69458,
+          "allocations": 52,
+          "allocated_bytes": 79406,
+          "retained_bytes": 14944,
+          "image_bytes": 405
+        },
+        {
+          "candidate": false,
+          "ns": 69625,
+          "allocations": 52,
+          "allocated_bytes": 79406,
+          "retained_bytes": 14944,
+          "image_bytes": 405
+        },
+        {
+          "candidate": true,
+          "ns": 135125,
+          "allocations": 118,
+          "allocated_bytes": 174704,
+          "retained_bytes": 15310,
+          "image_bytes": 405
+        },
+        {
+          "candidate": true,
+          "ns": 132542,
+          "allocations": 118,
+          "allocated_bytes": 174704,
+          "retained_bytes": 15310,
+          "image_bytes": 405
+        },
+        {
+          "candidate": false,
+          "ns": 72833,
+          "allocations": 52,
+          "allocated_bytes": 79406,
+          "retained_bytes": 14944,
+          "image_bytes": 405
+        },
+        {
+          "candidate": false,
+          "ns": 73750,
+          "allocations": 52,
+          "allocated_bytes": 79406,
+          "retained_bytes": 14944,
+          "image_bytes": 405
+        },
+        {
+          "candidate": true,
+          "ns": 286083,
+          "allocations": 118,
+          "allocated_bytes": 174704,
+          "retained_bytes": 15310,
+          "image_bytes": 405
+        },
+        {
+          "candidate": true,
+          "ns": 181833,
+          "allocations": 118,
+          "allocated_bytes": 174704,
+          "retained_bytes": 15310,
+          "image_bytes": 405
+        },
+        {
+          "candidate": false,
+          "ns": 73375,
+          "allocations": 52,
+          "allocated_bytes": 79406,
+          "retained_bytes": 14944,
+          "image_bytes": 405
+        },
+        {
+          "candidate": false,
+          "ns": 69459,
+          "allocations": 52,
+          "allocated_bytes": 79406,
+          "retained_bytes": 14944,
+          "image_bytes": 405
+        },
+        {
+          "candidate": true,
+          "ns": 135375,
+          "allocations": 118,
+          "allocated_bytes": 174704,
+          "retained_bytes": 15310,
+          "image_bytes": 405
+        },
+        {
+          "candidate": true,
+          "ns": 134083,
+          "allocations": 118,
+          "allocated_bytes": 174704,
+          "retained_bytes": 15310,
+          "image_bytes": 405
+        },
+        {
+          "candidate": false,
+          "ns": 69458,
+          "allocations": 52,
+          "allocated_bytes": 79406,
+          "retained_bytes": 14944,
+          "image_bytes": 405
+        }
+      ]
+    }
+  ],
+  "retention": {
+    "captured_scalar_payload_bytes": [
+      16,
+      8
+    ],
+    "checkpoint_bytes": [
+      125,
+      115
+    ],
+    "same_image_resumption": "each state resumed against its own matching image"
+  },
+  "disposition": "Retain for demonstrated environment/checkpoint reduction. Two-call runtime timing is inconclusive; 32-call paired medians improve. Construction overhead is reported under the accepted Boundary construction-cost policy. Full consumer qualification remains."
+}

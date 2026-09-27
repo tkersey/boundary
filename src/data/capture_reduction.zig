@@ -13,7 +13,7 @@ pub const Error = coalescing.Error || error{InvalidCaptureReduction};
 pub const Witness = struct { constructor: usize, removed: []const usize };
 pub const Statistics = struct { constructors_reduced: usize = 0, fields_removed: usize = 0, construction_operands_removed: usize = 0, direct_arguments_removed: usize = 0, opaque_constructors: usize = 0 };
 
-fn privateWorker(program: ir.Program, constructor_id: usize) bool {
+pub fn privateWorker(program: ir.Program, constructor_id: usize) bool {
     const worker = program.constructors[constructor_id].function;
     if (program.roots.entry == worker) return false;
     for (program.constructors, 0..) |other, id| if (id != constructor_id and other.function == worker) return false;
@@ -30,7 +30,7 @@ fn privateWorker(program: ir.Program, constructor_id: usize) bool {
 
 /// Every construction's slot has one definition, no aliases and only apply uses.
 /// This permits repeated applications while keeping opaque environments intact.
-fn privateConstructions(program: ir.Program, constructor_id: usize) bool {
+pub fn privateConstructions(program: ir.Program, constructor_id: usize) bool {
     var constructions: usize = 0;
     for (program.blocks) |block| for (block.instructions) |op| {
         if (op.opcode != .computation or op.immediate != constructor_id) continue;

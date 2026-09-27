@@ -154,6 +154,57 @@ serialized blob payload from 4096 to zero bytes, and checkpoint size from 4207 t
 high-water or latency measurements. A second native witness returns both results
 from repeated closure calls with distinct arguments across three input triples.
 
+`data.capture_summary` implements the non-projection XOR family: two immutable
+`u64` captures observed only through their ordered bitwise XOR become one captured
+XOR. Every original operand evaluation remains before the inserted combination.
+All constructors and direct worker callers receive that combination; every worker
+observer becomes a move from the summary input. Original slot layouts remain a
+prefix, and inserted computations use fresh caller slots. Individual field reads,
+field writes, non-`u64` captures, captured regions and opaque closure uses decline.
+
+The representation decision is a native checked record rewrite owned by Boundary.
+The law is `s = x XOR y`: because the two fields are immutable and every observer
+computes precisely that total 64-bit operation, replacing each observer by `s`
+preserves every subsequent result/effect. New construction work is one finite
+total instruction, so it introduces no divergent unmatched execution. Original
+admission, an independent complete observer/caller correspondence check, fresh
+admission and final P01 remain owners of their existing obligations. A correctly
+typed OR substitution and an independent field observer are deciding falsifiers.
+The operator is bytewise in `data.scalar`; tests exhaust byte pairs and exercise
+all 64 bit positions, alongside runtime repeated-call witnesses.
+
+The source-free native witness preserves both repeated-call outputs and resumes
+each checkpoint with its own image. Actual captured scalar payload is 16 to 8
+bytes and checkpoint size is 125 to 115 bytes; BPI3 size stays 135 bytes. No size
+change is used as a speed proxy.
+
+### XOR-summary cost observation
+
+Tune reused World's `test/v2/replay_bench.zig` on paired immutable PKI3 inputs.
+Apple M2 Pro, macOS 27.2, Zig 0.16.0 ReleaseSafe; seven alternating paired process
+batches, three warmups and nine fresh invocations per process. Every outcome is
+checked against an independently encoded digest. Fresh-invocation time includes
+admission, execution and output encoding; it is not phase-separated admission or
+steady-state timing. [Raw observations](performance/m2-capture-summary.json)
+include exact input/source digests and construction samples.
+
+| Reused calls | Median paired candidate/baseline time | Paired range | Peak working payload, bytes |
+| --- | --- | --- | --- |
+| 2 | 1.005 | 0.938–1.032 | 10,661 → 10,442 |
+| 32 | 0.948 | 0.907–0.988 | 28,849 → 28,849 |
+
+The two-call timing is inconclusive; the 32-call synthetic case improves about
+5.2% by paired medians. Allocation counts remain 56 and 180, respectively. These
+measurements establish neither an Agent improvement nor browser/WASM performance.
+The original C0 corpus remains the cumulative qualification baseline.
+
+Boundary construction (P01 alone versus summary plus final P01) costs 38.0 → 64.5
+µs for two calls and 69.6 → 136.3 µs for 32 calls; allocation counts increase
+44 → 100 and 52 → 118. This isolated construction overhead includes the new
+analysis and independent validation and is retained under the corrected Boundary
+construction-cost policy. It is not silently charged to World, nor does it waive
+later phase-separated World or whole-consumer cost gates.
+
 Focused checks cover swapped equal-type operands, capture reassignment, stale
 facts after constructor mutation, range/known-bit and length/bound distinctions,
 and every allocation-failure point in the small transformation witness.
@@ -185,6 +236,11 @@ The dead-capture suite adds eight cases (27 with module tests), including direct
 callers, shared descriptors, opaque aliases, forged correspondence, original
 failure evaluation and allocation failures. Two native tests cover retained-state
 measurement/resumption and repeated-call outputs.
+The XOR-summary suite adds nine focused cases (27 with module tests), including
+forged OR, individual observation, mutation, direct callers, opaque aliases,
+preserved faulting evaluation, allocation failures and primitive-law checks.
+Native/source-free checkpoint and repeated-call tests pass, and the replay
+benchmark verifies all paired outcomes.
 
 ## Remaining M2 obligations
 
@@ -192,13 +248,13 @@ This is not complete M2 or canonical pipeline adoption. Remaining work includes:
 
 - Remaining P02 domains, return summaries and richer recursive/calling contexts
   beyond the current conservative argument fixed point.
-- Context cloning where callers disagree, capture projection/summaries and product forwarding
+- Context cloning where callers disagree, capture projection and product forwarding
   across control flow; broader cell cases remain conservative.
   Private dead arguments, local product scalar replacement, singleton incoming-callable specialization
   and polymorphic/opaque negatives are implemented.
 - Remaining P04 value numbering across aliases/renaming and cyclic proofs;
-  P07 product-field projection and non-projection XOR summaries (dead captures are
-  implemented), and the remaining qualification of P05/P08's
+  P07 product-field projection (dead captures and the XOR summary are implemented),
+  and the remaining qualification of P05/P08's
   implemented private-cell/store subset, with independent certificates.
 - Semantic/structural contract integration into compilation and final linking,
   the owned-consumer policy audit, deterministic semantic work budgets, and
