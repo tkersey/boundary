@@ -17,6 +17,13 @@ Use `Context.suspensionPackage` for its typed schema and `Body.package` /
 These emit the existing source operations. Their named schema metadata is retained;
 ordinary source admission still rejects repeated consumption and invalid custody.
 
+`Body.destructure(product)` consumes a product and returns named parts accessed
+with `parts.get(name)`. It is distinct from borrowing field projections: owned
+suspensions can move through the parts, and source admission rejects consuming
+the original product or an owned part twice. Parts retain their lexical scope.
+`Body.pop(sequence)` returns `empty` or `item`, whose product has `head` and `tail`;
+`append` and `equal` complete ordinary forward sequence-search construction.
+
 Construct handlers and regions through `authoring.Context.handler` and
 `authoring.Context.region`. The former top-level `boundary.handler` and
 `boundary.region` aliases are removed. Expert record inspection uses

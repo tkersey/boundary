@@ -697,7 +697,7 @@ test "handler return effects can be pure while the clause retains residual I/O" 
     try testing.expectError(error.InvalidEffect, handlerReturnEffects(testing.allocator, false, false, true));
 }
 
-fn suspensionRoundtrip(allocator: std.mem.Allocator, duplicate: bool) !void {
+fn suspensionRoundtrip(allocator: std.mem.Allocator, duplicate: bool, duplicate_product: bool) !void {
     var raw = source.Builder.init(allocator);
     defer raw.deinit();
     const c = try a.Context.init(&raw);
@@ -721,10 +721,22 @@ fn suspensionRoundtrip(allocator: std.mem.Allocator, duplicate: bool) !void {
     try testing.expectError(error.InvalidCategory, body.package(ordinary));
     try testing.expectError(error.InvalidCategory, body.unpack(ordinary));
     const packaged = try body.package(try body.parameter("resumption"));
-    var token = try body.unpack(packaged);
+    const box_schema = try c.record(&.{.{
+        .name = "future",
+        .schema = try c.suspensionPackage(try a.interop.resumptionSchema(c, handler)),
+    }});
+    const box = try body.product(box_schema, &.{.{ .name = "future", .value = packaged }});
+    const parts = try body.destructure(box);
+    const future = try parts.get("future");
+    var token = try body.unpack(future);
     if (duplicate) {
         _ = try body.dispose(token);
-        token = try body.unpack(packaged);
+        token = try body.unpack(future);
+    }
+    if (duplicate_product) {
+        _ = try body.dispose(token);
+        const again = try body.destructure(box);
+        token = try body.unpack(try again.get("future"));
     }
     try c.define(clause, try body.ret(try body.resumeValue(token, try body.parameter("payload"))));
     const work_schema = try c.handledSchema(handler);
@@ -747,12 +759,44 @@ fn suspensionRoundtrip(allocator: std.mem.Allocator, duplicate: bool) !void {
 }
 
 test "typed suspension packaging preserves resumption custody" {
-    try suspensionRoundtrip(testing.allocator, false);
-    if (suspensionRoundtrip(testing.allocator, true)) {
-        return error.DuplicatePackageAdmitted;
-    } else |err| {
-        try testing.expect(err == error.UnavailableSlot or err == error.InvalidOwnership);
+    try suspensionRoundtrip(testing.allocator, false, false);
+    for ([_]bool{ false, true }) |product| {
+        if (suspensionRoundtrip(testing.allocator, !product, product)) {
+            return error.DuplicatePackageAdmitted;
+        } else |err| {
+            try testing.expect(err == error.UnavailableSlot or err == error.InvalidOwnership);
+        }
     }
+}
+
+fn sequenceConstruction(allocator: std.mem.Allocator) !void {
+    var raw = source.Builder.init(allocator);
+    defer raw.deinit();
+    const c = try a.Context.init(&raw);
+    const integer = try c.scalar(u64);
+    const boolean = try c.scalar(bool);
+    const seq = try c.sequence(integer);
+    const entry = try c.function("sequence", &.{.{ .name = "values", .schema = seq }}, boolean, &.{});
+    const body = try c.body(entry);
+    const value = try body.constant(u64, 3);
+    const appended = try body.append(try body.parameter("values"), value);
+    const popped = try body.pop(appended);
+    const empty = try body.caseOf(popped, "empty");
+    const item = try body.caseOf(popped, "item");
+    const parts = try item.body().destructure(item.payload());
+    try testing.expectError(error.UnknownName, parts.get("missing"));
+    const equal = try item.body().equal(try parts.get("head"), value);
+    const result = try body.match(popped, &.{
+        try empty.ret(try empty.body().constant(bool, false)), try item.ret(equal),
+    });
+    try testing.expectError(error.ClosedBody, parts.get("head"));
+    try c.define(entry, try body.ret(result));
+    _ = try c.module(entry, try c.scalar(void));
+}
+
+test "typed sequence pop and consuming destructure preserve names and scope" {
+    try sequenceConstruction(testing.allocator);
+    try testing.checkAllAllocationFailures(testing.allocator, sequenceConstruction, .{});
 }
 
 fn explicitFailure(allocator: std.mem.Allocator, mode: FailureCase) !void {

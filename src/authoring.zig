@@ -77,6 +77,14 @@ pub const Case = opaque {
     }
 };
 pub const FinishedCase = opaque {};
+pub const ProductParts = opaque {
+    pub fn get(self: *const ProductParts, name: []const u8) Error!*const Value {
+        const parts = data(ProductPartsData, self);
+        try parts.body.ready();
+        for (parts.fields) |field| if (std.mem.eql(u8, field.name, name)) return field.value;
+        return bodyData(parts.body).context.reject(error.UnknownName, "product", "unknown field");
+    }
+};
 pub const CallableOptions = struct {
     use: p.Use,
     captures: []const *const Schema,
@@ -211,7 +219,11 @@ const PublicationUse = struct {
         function_scope: struct { declaration: *const Function, scope: *Scope },
     },
 };
-const Binding = struct { variable: p.Id, term: p.Id };
+const ProductPartsData = struct { body: *Body, fields: []const Argument };
+const Binding = union(enum) {
+    bind: struct { variable: p.Id, term: p.Id },
+    unpack: struct { value: p.Id, variables: []const p.Id },
+};
 fn data(comptime T: type, pointer: anytype) *const T {
     return @ptrCast(@alignCast(pointer));
 }
@@ -1144,7 +1156,9 @@ pub const Body = opaque {
         errdefer |err| c.poison(err);
         const variable = try contextData(c).raw.variable(try c.schemaId(schema));
         const result = try self.makeValue(try contextData(c).raw.reference(variable), schema);
-        try bodyData(self).bindings.append(contextData(c).raw.allocator(), .{ .variable = variable, .term = term });
+        try bodyData(self).bindings.append(contextData(c).raw.allocator(), .{
+            .bind = .{ .variable = variable, .term = term },
+        });
         return result;
     }
     pub fn parameter(self: *Body, name: []const u8) Error!*const Value {
@@ -1465,6 +1479,85 @@ pub const Body = opaque {
         if (division) try c.notePublication(.{ .anchor = .{ .value = value_id }, .contract = .{ .failure = data(ValueData, data(FailureLiteralData, failures.division_by_zero.?).value).schema } });
         return self.bind(try contextData(c).raw.pure(value_id), a.schema);
     }
+    /// Consume one product and bind its fields in the current lexical body.
+    pub fn destructure(self: *Body, product_value: *const Value) Error!*const ProductParts {
+        const tuple = try self.useValue(product_value);
+        const c = bodyData(self).context;
+        const info = data(SchemaData, tuple.schema);
+        if (contextData(c).raw.schemas.items[@intCast(info.id)] != .product)
+            return c.reject(error.InvalidCategory, "destructure", "requires a product value");
+        errdefer |err| c.poison(err);
+        const allocator = contextData(c).raw.allocator();
+        const variables = try allocator.alloc(p.Id, info.fields.len);
+        const fields = try allocator.alloc(Argument, info.fields.len);
+        for (info.fields, variables, fields) |named, *variable, *out| {
+            variable.* = try contextData(c).raw.variable(try c.schemaId(named.schema));
+            out.* = .{ .name = named.name, .value = try self.makeValue(
+                try contextData(c).raw.reference(variable.*),
+                named.schema,
+            ) };
+        }
+        const result = handle(ProductParts, try c.save(ProductPartsData, .{
+            .body = self,
+            .fields = fields,
+        }));
+        try bodyData(self).bindings.append(allocator, .{
+            .unpack = .{ .value = tuple.id, .variables = variables },
+        });
+        return result;
+    }
+    pub fn equal(self: *Body, left: *const Value, right: *const Value) Error!*const Value {
+        const a = try self.useValue(left);
+        const b = try self.useValue(right);
+        const c = bodyData(self).context;
+        try c.same(a.schema, b.schema);
+        errdefer |err| c.poison(err);
+        const boolean = try c.scalar(bool);
+        return self.bind(try contextData(c).raw.pure(try contextData(c).raw.primitive(
+            try c.schemaId(boolean),
+            .equal,
+            &.{ a.id, b.id },
+            0,
+        )), boolean);
+    }
+    pub fn append(self: *Body, sequence: *const Value, element: *const Value) Error!*const Value {
+        const seq = try self.useValue(sequence);
+        const item = try self.useValue(element);
+        const c = bodyData(self).context;
+        const info = data(SchemaData, seq.schema);
+        if (contextData(c).raw.schemas.items[@intCast(info.id)] != .seq)
+            return c.reject(error.InvalidCategory, "append", "requires an unbounded sequence");
+        try c.same(info.result orelse return error.InvalidSchema, item.schema);
+        errdefer |err| c.poison(err);
+        return self.bind(try contextData(c).raw.pure(try contextData(c).raw.primitive(
+            info.id,
+            .sequence_append,
+            &.{ seq.id, item.id },
+            0,
+        )), seq.schema);
+    }
+    pub fn pop(self: *Body, sequence: *const Value) Error!*const Value {
+        const seq = try self.useValue(sequence);
+        const c = bodyData(self).context;
+        const info = data(SchemaData, seq.schema);
+        if (contextData(c).raw.schemas.items[@intCast(info.id)] != .seq)
+            return c.reject(error.InvalidCategory, "pop", "requires an unbounded sequence");
+        errdefer |err| c.poison(err);
+        const item = try c.record(&.{
+            .{ .name = "head", .schema = info.result orelse return error.InvalidSchema },
+            .{ .name = "tail", .schema = seq.schema },
+        });
+        const result = try c.alternatives(&.{
+            .{ .name = "empty", .schema = try c.scalar(void) },
+            .{ .name = "item", .schema = item },
+        });
+        return self.bind(try contextData(c).raw.pure(try contextData(c).raw.primitive(
+            try c.schemaId(result),
+            .sequence_pop,
+            &.{seq.id},
+            0,
+        )), result);
+    }
     pub fn sequenceValue(
         self: *Body,
         schema: *const Schema,
@@ -1728,7 +1821,14 @@ pub const Body = opaque {
         while (index != 0) {
             index -= 1;
             const binding = bodyData(self).bindings.items[index];
-            term = try contextData(c).raw.bind(binding.variable, binding.term, term);
+            term = switch (binding) {
+                .bind => |value| try contextData(c).raw.bind(value.variable, value.term, term),
+                .unpack => |value| try contextData(c).raw.term(.{ .unpack_product = .{
+                    .value = value.value,
+                    .variables = value.variables,
+                    .body = term,
+                } }),
+            };
         }
         const computation = handle(Computation, try c.save(ComputationData, .{
             .owner = c,
