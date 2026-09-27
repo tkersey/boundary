@@ -1,5 +1,7 @@
 # Boundary — Correct the In-flight Cutover, Then Execute the Optimization Program
 
+> Latest user instruction: **No code review is needed before moving onto the optimization phase.** Stage A requires the exact removals and execution/package/economic qualification below, but no CAS/code-review campaign. Do not delay M2 for review or change installed skills/global configuration. This overrides pre-optimization review requirements in this document.
+
 **Complete executable handoff · September 27, 2026**  
 **Workflow:** `$actuating serial-reviews`  
 **Existing correction PRs:** `tkersey/boundary#161`, `tkersey/world#59`, `tkersey/agent#39`  
@@ -44,9 +46,9 @@ expand the task into storage, a second evaluator, or another framework.
 Use this session's externally selected model/reasoning; do not switch models,
 launch a comparison, or change global instructions/configuration.
 
-Keep the three correction drafts current and assigned to tkersey. Complete the
-normal serial reviews on their frozen corrected scope. Preserve that reviewed
-cutover as a distinct checkpoint. Then continue the complete Part II programme,
+Keep the three correction drafts current and assigned to tkersey. Complete the required execution qualification on their corrected scope. Code
+review before optimization is waived by the latest user instruction. Preserve
+that qualified cutover as a distinct checkpoint. Then continue the complete Part II programme,
 using focused, unique successor branches/early draft PRs for the optimization
 work rather than burying all P02–P31 in the existing cutover diffs. Qualified
 unmerged input commits may be used as exact development dependencies; do not
@@ -249,15 +251,15 @@ A genuine unresolved World economic issue is reported with measured cause and re
 2. Keep and verify mandatory coalescing; remove actual remaining bypasses, not legal optimizer outcomes.
 3. Close only the exact predecessor deletions and caller dependencies in the task account; preserve independent semantic and source-free evidence.
 4. Keep World verification fixes and Agent's canonical acquisition; qualify the coherent source/dependency/runtime tuple and correction acceptance in I.10.
-5. Publish updated drafts and complete their existing serial-review contract on the corrected scope. Distinguish source reviews from separately executed suites. Do not retain old review credit for materially changed code without the workflow's permitted adjudication.
+5. Publish updated drafts with exact qualification evidence. The user waived code review before the optimization phase; do not start a Stage A review campaign or delay M2 for review.
 
 Stage A is a real deliverable. It does **not** include implementing a durable host or all 31 optimization packages. Do not make these three PRs unmergeable until the entire later research programme finishes.
 
-Stage A ends once mandatory P01 and meaningful witnesses pass, the exact deletion dependencies close, retained behavior and actual package/runtime bindings are qualified, cumulative costs have their required disposition, and the installed serial-review contract is satisfied. Stop adding Stage A scope at that point.
+Stage A ends once mandatory P01 and meaningful witnesses pass, the exact deletion dependencies close, retained behavior and actual package/runtime bindings are qualified, cumulative costs have their required disposition, and required execution qualification is satisfied. The user waived code review before optimization. Stop adding Stage A scope at that point.
 
 ### Stage B — Continue Part II without recreating Phase 0
 
-Once Stage A has a coherent validated/reviewed checkpoint, continue the full Part II programme. Preserve the corrected drafts as that independently reviewable checkpoint. Create unique, focused successor optimization branches and draft PRs in repositories that actually change; use the existing corrected commits as exact development dependencies when they are not yet merged. Use appropriate stacked bases/cross-links to avoid presenting inherited changes as new work. No automatic merges or another operator prompt are necessary.
+Once Stage A has a coherent validated checkpoint, continue the full Part II programme. Preserve the corrected drafts as that independently reviewable checkpoint. Create unique, focused successor optimization branches and draft PRs in repositories that actually change; use the existing corrected commits as exact development dependencies when they are not yet merged. Use appropriate stacked bases/cross-links to avoid presenting inherited changes as new work. No automatic merges or another operator prompt are necessary.
 
 When Stage A lands, update successor ancestry and authenticated pins using actual landed commits/package bytes. Prefer rebase where collaboration constraints permit it; never overwrite another writer. Maintain the distinction between source identity, package identity and an existing runtime artifact.
 
@@ -285,7 +287,7 @@ Use the current repository suites and a small extension of their existing tests.
 | F08 | World verified-byte/source-identity fixes and their regressions remain; native/WASM/source-agreement obligations are preserved. No current build imports the full compiler into the runtime by accident. |
 | F09 | Final source/package/runtime bindings authenticate actual bytes through one existing acquisition path. Fresh outside-tree/package consumers pass the relevant checks; no historical launcher or fictitious artifact is needed. |
 | F10 | Cumulative and local costs are distinguished; accepted Boundary construction costs do not block canonical adoption; new material World costs have evidence and an honest disposition. |
-| F11 | Required semantic/ownership/custody/cleanup/cancellation/transfer and negative tests pass on the coherent candidate; failures/unavailable checks remain accurately reported. Normal serial reviews cover the frozen corrected scope. |
+| F11 | Required semantic/ownership/custody/cleanup/cancellation/transfer and negative tests pass on the coherent candidate; failures/unavailable checks remain accurately reported. Code review before optimization is waived; execution qualification remains required. |
 | F12 | The three drafts are independently reviewable cutover fixes, with exact heads and unresolved items. The subsequent optimization uses Part II's complete P/T/G/L requirements without restoring retired modes, persistence goals or another implementation path. |
 
 A “no SQLite” grep alone does not satisfy F02; check the actual import/export/dependency/execution graph and the active requirements. A `.safe` default assertion alone does not satisfy F03/F04. An updated title alone does not complete the cutover.

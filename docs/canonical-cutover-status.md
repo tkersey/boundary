@@ -1,5 +1,7 @@
 # Canonical cutover and optimization status
 
+> Latest user instruction: **No code review is needed before moving onto the optimization phase.** Stage A requires the exact removals and execution/package/economic qualification below, but no CAS/code-review campaign. Do not delay M2 for review or change installed skills/global configuration. This overrides pre-optimization review requirements in this document.
+
 Authority: [complete September 27 specification](canonical-cutover-and-optimization-spec.md).
 
 ## Current scope
@@ -8,7 +10,7 @@ Stage A finishes the existing canonical authoring/P01/runtime-delivery cutover i
 [Boundary #161](https://github.com/tkersey/boundary/pull/161),
 [World #59](https://github.com/tkersey/world/pull/59), and
 [Agent #39](https://github.com/tkersey/agent/pull/39).
-Stage B follows the validated/reviewed checkpoint on focused successor drafts and
+Stage B follows the validated checkpoint on focused successor drafts and
 implements all of Part II, starting with M2 and M2.5. Neither stage is complete.
 
 SQLite, replacement databases/journals, new durable application sessions and
@@ -46,6 +48,12 @@ its already-running aggregate subsequently exited successfully. Preserve that ed
 | --- | --- | --- | --- |
 | Agent `src/value_equality.zig:define`, private `adapted`, and `compare` source-ID migration adapters | `test/consumers/inquiry/live.zig` (policy and three evidence comparisons); `document/consequence_live.zig` (policy/evidence); `repository/completion.zig` (membership and final digest); `repository/replacement.zig` (policy/path/digest); `incremental-parser/main.zig` (candidate revalidation); equality module's own adapter tests. `inquiry/main.zig:admitTask` is already edited in flight. | Migrate only these comparison/control sites to the existing typed equality constructor, keeping their domain algorithms, protected owners and source/component responsibilities. Delete the three adapters and their source-adapter specialization. Keep the no-code recursive portability admission check. Do not create relocated generic source-ID comparison adapters. | Typed equality/schema/foreign-context tests and native independent equality oracle; affected Inquiry, document, repository and parser runtime/negative checks. Then integrated qualification at the coherent tuple. |
 
+The deletion exposed one necessary integration dependency: incremental-parser’s
+`experimentAndContinue` is a Source-error callback consumed by Boundary hyper
+construction. Removing equality’s adapter exposed typed errors at that callback.
+Translate them at this existing callback boundary, preserving its prior
+`UnsupportedEqualitySchema -> TypeMismatch` behavior; do not widen hyper’s API.
+
 This is the remaining deletion list, not a new repository-wide inventory. No
 additional authoring family is admitted. A later dependency must identify this
 specific deletion or a concrete retained defect it blocks.
@@ -70,7 +78,7 @@ verification and authenticated acquisition, the exact removal above, retained
 semantic/authority behavior, and final cumulative economics. Do not turn raw IDs,
 source construction or frontend uniformity into findings without a violated
 accepted requirement. Code reviews are separate from executed qualification.
-The installed serial-review contract applies unchanged; no reviews have begun.
+The user waived code review before optimization; no Stage A review campaign will be started.
 
 ## Remaining Stage A acceptance
 
@@ -79,8 +87,8 @@ persistence subsystem; recheck if production inputs change. F03–F12 still requ
 a coherent final qualification: P01 entrypoint and independent sharing evidence,
 validation/cost/rollback obligations, the exact adapter deletion above, existing Agent
 behavior, World source-free/runtime checks, authenticated final tuple, cumulative
-and local costs, semantic/custody/cleanup tests and frozen serial reviews.
-No corrected-scope serial review campaign has completed.
+and local costs, semantic/custody/cleanup tests and final execution qualification.
+Code review before optimization is waived by the user.
 
 Agent's runtime is World production `f8a1597d4ff62ae691dfca12f7ce3a2b4e6c0727`,
 built with Boundary `511fe388587b36ae37307d277e04c22b0bb6f6d9`, distinct from
