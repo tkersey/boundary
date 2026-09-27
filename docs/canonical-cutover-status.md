@@ -34,33 +34,50 @@ Their checks apply only to the recorded inputs, not fresh corrected-scope review
 Agent's ReleaseSafe `check-agent4 check-native agent4-images` aggregate terminated
 successfully at the correction-entry head.
 
-## Finite selected caller closure
+## Exact closeout list
 
-Inspect actual contracts and migrate ordinary callers of Generator/exchange,
-Inquiry, structural equality and broker/policy/controller. Retain genuine expert
-IR, admission, component and invalid-IR test boundaries. Do not rewrite every
-source-IR use. The initial affected consumer inventory is:
+The latest user correction removes the previous family-wide Generator/Inquiry/
+broker authoring gate. It does not reverse completed migrations. The refresh found
+Boundary at `9d7dba2`, World at `0ba2120`, Agent at `4d96815`, all open drafts
+assigned to tkersey. The only uncommitted product edit was Inquiry task admission;
+its already-running aggregate subsequently exited successfully. Preserve that edit.
 
-- Agent production: `src/inquiry_broker.zig`, `src/parser_delivery.zig`,
-  `src/clarification.zig`, `src/inquiry.zig`, `src/approval.zig`; `src/agent4.zig`
-  contains the relevant public re-exports.
-- Agent agent4 tests: `recursive_participant`, `approval_equality`, `text_link`,
-  `approval_build`, `dialogue_probe`, `multi_probe`, `inquiry_probe`,
-  `inquiry_broker_probe`.
-- Agent consumer tests: repository `completion`/`replacement`; document
-  `consequence_live`/`critic`; incremental-parser `main`; inquiry
-  `react`/`intent`/`investigator`/`main`/`policy`/`live`.
-- Boundary Generator implementation and its direct library tests.
+| Exact predecessor | Actual remaining callers | Minimum closure | Deciding validation |
+| --- | --- | --- | --- |
+| Agent `src/value_equality.zig:define`, private `adapted`, and `compare` source-ID migration adapters | `test/consumers/inquiry/live.zig` (policy and three evidence comparisons); `document/consequence_live.zig` (policy/evidence); `repository/completion.zig` (membership and final digest); `repository/replacement.zig` (policy/path/digest); `incremental-parser/main.zig` (candidate revalidation); equality module's own adapter tests. `inquiry/main.zig:admitTask` is already edited in flight. | Migrate only these comparison/control sites to the existing typed equality constructor, keeping their domain algorithms, protected owners and source/component responsibilities. Delete the three adapters and their source-adapter specialization. Keep the no-code recursive portability admission check. Do not create relocated generic source-ID comparison adapters. | Typed equality/schema/foreign-context tests and native independent equality oracle; affected Inquiry, document, repository and parser runtime/negative checks. Then integrated qualification at the coherent tuple. |
 
-This is a call-site disposition inventory, not an instruction to rewrite every
-listed file. Expand only for a demonstrated dependency of selected closure.
+This is the remaining deletion list, not a new repository-wide inventory. No
+additional authoring family is admitted. A later dependency must identify this
+specific deletion or a concrete retained defect it blocks.
+
+Already retired product predecessors remain retired: public P01 mode selection,
+standalone coalescing manifest selection, Agent's duplicate dialogue implementation,
+and replaced Generator composition/convenience entrypoints. Final qualification
+must verify their absence and meaningful canonical-path witnesses.
+
+The remaining Generator/Inquiry source construction interfaces and broker source
+callback boundary are **not** new deletion targets: their callers still construct
+or admit the authoritative source graph, and their implementation already uses
+the retained canonical emitters. No second generator, custody algorithm or evaluator
+has been identified there. This does not rename any listed migration adapter or
+certify every existing interface; a concrete defect still requires repair. Further
+uniform conversion of these callers is **removed from Stage A scope**, not complete.
+
+## Review brief
+
+Review the actual base-to-head cutover, mandatory P01, preserved runtime/source
+verification and authenticated acquisition, the exact removal above, retained
+semantic/authority behavior, and final cumulative economics. Do not turn raw IDs,
+source construction or frontend uniformity into findings without a violated
+accepted requirement. Code reviews are separate from executed qualification.
+The installed serial-review contract applies unchanged; no reviews have begun.
 
 ## Remaining Stage A acceptance
 
 F01 scope correction is published. F02 product/diff inspection found no introduced
 persistence subsystem; recheck if production inputs change. F03–F12 still require
 a coherent final qualification: P01 entrypoint and independent sharing evidence,
-validation/cost/rollback obligations, selected adapter retirement, existing Agent
+validation/cost/rollback obligations, the exact adapter deletion above, existing Agent
 behavior, World source-free/runtime checks, authenticated final tuple, cumulative
 and local costs, semantic/custody/cleanup tests and frozen serial reviews.
 No corrected-scope serial review campaign has completed.
@@ -86,7 +103,7 @@ The added cases cover mismatched/failed read evidence, zero-principal authority
 and wrong approval challenge. Local image size is 2,582 → 2,577 bytes; maximum
 observed parked-State sizes are unchanged (569 or 1,958 bytes across the original
 seven scenarios). This is a local comparison, not the cumulative pre-cutover
-baseline or timing/private-memory acceptance. Other selected adapters remain.
+baseline or timing/private-memory acceptance. The exact closeout list above controls remaining authoring work.
 
 ## Stage B
 

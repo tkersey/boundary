@@ -178,19 +178,34 @@ Retain T01–T42 obligations with original semantic meaning. Compare current raw
 
 One-pass experimental ablation may exist in an **uninstalled** narrow harness or immutable reference checkout. It must not be reachable from normal public exports, installed test directories, shipped executables or runtime configuration. Existing independently stored test inputs are not a second compiler. No new benchmark framework or permanent storage service is needed.
 
-## I.6 Finish the selected authoring cutover, not an unlimited rewrite
+## I.6 Exact cutover dependencies (latest user correction)
 
-Keep sound completed successor work; migrate remaining owned callers of the specific APIs being displaced; then delete the transition adapters and old implementations for those responsibilities. Do not let correction become a reason to restore both paths.
+The later instruction **CLOSE THE CUTOVER; THEN DELIVER OPTIMIZATIONS** supersedes
+broader interpretations of this section, I.9 and F06. Mandatory checked P01 and
+the complete Part II programme are the objective. Uniform typed syntax throughout
+Agent is not a prerequisite for optimizing admitted executable records.
 
-The immediate finite closure includes the opened Generator/exchange, Inquiry, structural-equality and broker/policy/controller boundaries and their affected supported callers. Inspect actual uses of remaining raw Generator interfaces, `inquiry.define`/source adapters, `value_equality` source adapters and `inquiry_broker.callSource` before deleting or replacing them. These names identify observed work, not immutable API requirements. Carry foreign-context, named-schema, arity, scope, residual-effect, use, custody, failure and specialization checks into the retained typed implementation.
+The one concrete closeout list is in [the existing task account](canonical-cutover-status.md#exact-closeout-list).
+Each item names a predecessor to delete, its actual callers, the minimum change,
+and deciding validation. Finish that list, including the coherent task-admission
+edit already in flight. Do not add another authoring family or cleanup target.
+A new dependency must name the listed deletion or concrete defect it blocks and
+the minimum necessary change in the same account; transitive reachability does
+not authorize rewriting unaffected callers. A prerequisite of a later optimizer
+belongs to that named optimization slice.
 
-A boundary still needed for concrete expert source inspection, domain admission, component import/export or independent invalid-IR tests is not a compatibility facade merely because it exposes numeric IDs. Retain one authoritative IR and pipeline for those responsibilities. Conversely, an adapter described as temporary solely for unmigrated ordinary callers must not acquire permanence by being renamed “expert”. Demonstrate its actual consumers and current contract.
+Retirement is mandatory for listed predecessors and their migration-only adapters,
+redundant implementations and obsolete wiring. Do not preserve them under a new
+“expert interop” name. Equally, source inspection, domain admission, component
+construction and independent invalid-IR fixtures remain legitimate uses of the
+authoritative IR. Numeric IDs, old spelling, possible convenience APIs and a
+“temporary” comment alone do not establish a displaced responsibility.
 
-Do not redescribe broker policy's application-level observation reuse/coalescing as compiler P01. Preserve its existing semantics, including any real strategy option; do not delete it based on a text search for `coalesce`. Keep independently authored strategies different while consolidating duplicated construction.
-
-Finish missing typed functionality only where necessary for this selected caller closure. Do not rewrite all business logic, every explicit test IR, every parser strategy, or every library module as a prerequisite to moving on. At correction entry, record a short finite caller list in the existing task account; expand it only for a demonstrated dependency of this closure, not a new aspirational authoring campaign.
-
-Retain current staging optimizations that have independent evidence. In particular, straight-line copyable bindings and administrative terminal normalization must still preserve eager evaluation, failure order, expression-cache invalidation, alias/name provenance and owned custody boundaries. Do not label a change in authored graph shape a P01 transformation. Any regression or semantic defect is handled in the canonical implementation, not by restoring an old frontend branch.
+Preserve completed useful migrations, existing staging optimizations and semantic
+checks. Preserve broker observation reuse as application strategy, distinct from
+compiler P01, and retain the independently authored ReAct/Inquiry/parser strategies.
+No new persistence or universal authoring migration gate is authorized. Excluded
+uniformity work is removed from Stage A scope, not declared complete.
 
 ## I.7 Preserve World fixes and one real delivery route
 
@@ -232,11 +247,13 @@ A genuine unresolved World economic issue is reported with measured cause and re
 
 1. Rebind the active task to this file, withdraw the persistence goals, inspect/preserve local work and refresh the three drafts' scopes.
 2. Keep and verify mandatory coalescing; remove actual remaining bypasses, not legal optimizer outcomes.
-3. Complete the finite selected typed caller/adapter closure and any necessary narrow API completion; preserve independent semantic and source-free evidence.
+3. Close only the exact predecessor deletions and caller dependencies in the task account; preserve independent semantic and source-free evidence.
 4. Keep World verification fixes and Agent's canonical acquisition; qualify the coherent source/dependency/runtime tuple and correction acceptance in I.10.
 5. Publish updated drafts and complete their existing serial-review contract on the corrected scope. Distinguish source reviews from separately executed suites. Do not retain old review credit for materially changed code without the workflow's permitted adjudication.
 
 Stage A is a real deliverable. It does **not** include implementing a durable host or all 31 optimization packages. Do not make these three PRs unmergeable until the entire later research programme finishes.
+
+Stage A ends once mandatory P01 and meaningful witnesses pass, the exact deletion dependencies close, retained behavior and actual package/runtime bindings are qualified, cumulative costs have their required disposition, and the installed serial-review contract is satisfied. Stop adding Stage A scope at that point.
 
 ### Stage B — Continue Part II without recreating Phase 0
 
@@ -263,7 +280,7 @@ Use the current repository suites and a small extension of their existing tests.
 | F03 | All production closed compile/final-link entrypoints invoke P01; removed public/compiler/CLI/manifest bypasses remain absent and obsolete inputs reject. |
 | F04 | Real independent duplicate, recursive/reference-induced and source-free component fixtures demonstrate selected code/constructor sharing, with retained dynamic instances and independent expected behavior. |
 | F05 | P01's validator, original checks, named-capture publication, nominal pins, fresh admission, no-growth selection, no-op, deterministic budget rollback and ownership/error behavior retain their actual obligations. |
-| F06 | The selected typed migration's owned callers use the successor and its temporary compatibility adapters are removed. Genuine expert IR/data/admission boundaries remain explicit and nonduplicative. |
+| F06 | The exact closeout list is satisfied: listed predecessor implementations/interfaces, migration-only adapters and obsolete wiring are deleted after their actual callers migrate. Genuine source/IR/data/admission boundaries remain. Uniform frontend syntax and entire-family migrations are not completion gates. |
 | F07 | Existing Agent foreground/model/person/tool and domain-policy behavior remains usable without a database; no working driver is deleted in anticipation of a cancelled replacement. |
 | F08 | World verified-byte/source-identity fixes and their regressions remain; native/WASM/source-agreement obligations are preserved. No current build imports the full compiler into the runtime by accident. |
 | F09 | Final source/package/runtime bindings authenticate actual bytes through one existing acquisition path. Fresh outside-tree/package consumers pass the relevant checks; no historical launcher or fictitious artifact is needed. |
