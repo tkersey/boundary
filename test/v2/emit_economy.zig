@@ -3,7 +3,7 @@ const boundary = @import("boundary");
 const options = @import("economy_options");
 
 pub fn main(init: std.process.Init) !void {
-    var builder = boundary.computation.Builder.init(init.gpa);
+    var builder = boundary.source.Builder.init(init.gpa);
     defer builder.deinit();
     const module = if (options.installations == 0) try boundary.source.examples.blobCapture(&builder) else try boundary.source.examples.installations(&builder, options.installations);
     var compiled = try boundary.program.compile(init.gpa, module);

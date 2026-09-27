@@ -4,7 +4,7 @@ const boundary = @import("boundary");
 const a = boundary.authoring;
 
 pub const Application = struct {
-    pub fn emit(raw: *boundary.computation.Builder) !boundary.computation.Module {
+    pub fn emit(raw: *boundary.source.Builder) !boundary.source.Module {
         const c = try a.Context.init(raw);
         const integer = try c.scalar(u64);
         const boolean = try c.scalar(bool);

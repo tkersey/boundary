@@ -3,10 +3,10 @@ const std = @import("std");
 const boundary = @import("boundary");
 const workload = @import("workload");
 fn construct(allocator: std.mem.Allocator) !void {
-    var builder = boundary.computation.Builder.init(allocator);
+    var builder = boundary.source.Builder.init(allocator);
     defer builder.deinit();
     const module = try workload.emitWorkload(&builder, .hyper);
-    var compiled = try boundary.computation.lower(allocator, module);
+    var compiled = try boundary.source.lower(allocator, module);
     defer compiled.deinit();
     const bytes = try allocator.alloc(u8, try boundary.data.program_image.encodedLength(compiled.program));
     defer allocator.free(bytes);

@@ -2,7 +2,7 @@
 const std = @import("std");
 const boundary = @import("boundary");
 const Application = struct {
-    pub fn emit(b: *boundary.computation.Builder) !boundary.computation.Module {
+    pub fn emit(b: *boundary.source.Builder) !boundary.source.Module {
         const bytes = try b.schema(.bytes);
         const unit = try b.scalar(void);
         const effect = try b.effect(.{ .identity = "capacity.bytes.v2", .payload = bytes, .result = unit });

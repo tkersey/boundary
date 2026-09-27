@@ -1,7 +1,7 @@
 //! Clone-safe hyperfunction descriptions, private branch mutation and shared state.
 const std = @import("std");
 const boundary = @import("boundary");
-const source = boundary.computation;
+const source = boundary.source;
 const hyper = boundary.library.hyper;
 const choice = boundary.library.choice;
 const typed = boundary.authoring;

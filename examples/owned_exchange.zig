@@ -1,7 +1,7 @@
 //! Local disposal returns to its caller while an unrelated endpoint remains live.
 const std = @import("std");
 const boundary = @import("boundary");
-const source = boundary.computation;
+const source = boundary.source;
 const generator = boundary.library.generator;
 const Id = source.Id;
 const Build = struct {

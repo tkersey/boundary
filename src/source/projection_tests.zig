@@ -1,6 +1,6 @@
 const std = @import("std");
 const boundary = @import("../root.zig");
-const source = boundary.computation;
+const source = boundary.source;
 const Mode = enum { same, distinct, bound, borrowed };
 
 fn program(b: *source.Builder, mode: Mode) !source.Module {

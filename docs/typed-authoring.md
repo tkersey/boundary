@@ -2,7 +2,10 @@
 
 Import `boundary.authoring`. It stages ordinary Boundary source; the existing
 source checker, lowering, target admission and unchanged World interpreter remain
-authoritative. The low-level `boundary.computation` API remains available.
+authoritative. `boundary.source` is the single low-level IR interface for source
+inspection, negative fixtures, component construction and internal generation.
+The duplicate `boundary.computation` export is removed. Ordinary construction
+uses the typed frontend; IR access does not select another compiler or checker.
 
 Handlers may declare `return_effects` separately from their residual row. Omit it
 to retain the full residual allowance, or use `&.{}` for a pure return arm while

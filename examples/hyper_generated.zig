@@ -1,7 +1,7 @@
 //! Bounded test-only authoring generator; World sees only ordinary compiled code.
 const std = @import("std");
 const boundary = @import("boundary");
-const source = boundary.computation;
+const source = boundary.source;
 const hyper = boundary.library.hyper;
 const Id = source.Id;
 

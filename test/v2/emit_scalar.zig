@@ -2,7 +2,7 @@ const boundary = @import("boundary");
 const std = @import("std");
 const options = @import("example_options");
 const Application = struct {
-    pub fn emit(builder: *boundary.computation.Builder) !boundary.computation.Module {
+    pub fn emit(builder: *boundary.source.Builder) !boundary.source.Module {
         const integer = try builder.scalar(u64);
         const unit = try builder.scalar(void);
         const entry = try builder.declare(&.{}, integer, &.{}, &.{});

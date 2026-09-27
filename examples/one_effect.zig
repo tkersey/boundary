@@ -3,7 +3,7 @@ const std = @import("std");
 const boundary = @import("boundary");
 
 pub const Application = struct {
-    pub fn emit(b: *boundary.computation.Builder) !boundary.computation.Module {
+    pub fn emit(b: *boundary.source.Builder) !boundary.source.Module {
         const c = try boundary.authoring.Context.init(b);
         const integer = try c.scalar(u32);
         const lookup = try c.external("example.lookup.v2", integer, integer);

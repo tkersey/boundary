@@ -1,8 +1,7 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
 pub const package_version = "3.0.0-dev.0";
 pub const authoring = @import("authoring.zig");
-pub const computation = @import("source.zig");
-pub const source = computation;
+pub const source = @import("source.zig");
 pub const library = struct {
     pub const hyper = @import("library/hyper.zig");
     pub const hyper_authoring = @import("library/hyper_authoring.zig");
@@ -17,7 +16,7 @@ pub const library = struct {
     pub const search = @import("library/search.zig");
 };
 pub const program = struct {
-    pub const lower = computation.emit;
+    pub const lower = source.emit;
     pub const compile = source.lower;
     pub const compileObserved = source.lowerObserved;
     pub const Diagnostic = source.Diagnostic;
@@ -26,7 +25,7 @@ pub const program = struct {
 pub const data = @import("boundary_data");
 
 test {
-    _ = computation;
+    _ = source;
     _ = library.hyper;
     _ = library.hyper.demand;
     _ = library.generator;

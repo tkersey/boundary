@@ -1,6 +1,6 @@
 const std = @import("std");
 const boundary = @import("../root.zig");
-const source = boundary.computation;
+const source = boundary.source;
 const choice = boundary.library.choice;
 const typed = boundary.authoring;
 const ChoiceOperation = struct { effect: Id, capability: Id };

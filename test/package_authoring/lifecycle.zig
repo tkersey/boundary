@@ -1,7 +1,7 @@
 const std = @import("std");
 const boundary = @import("boundary");
 pub fn main(init: std.process.Init) !void {
-    var raw = boundary.computation.Builder.init(init.gpa);
+    var raw = boundary.source.Builder.init(init.gpa);
     defer raw.deinit();
     const c = try boundary.authoring.Context.init(&raw);
     const unit = try c.scalar(void);

@@ -1,7 +1,7 @@
 //! Three owned exchanges compose through the same input/output/package interface.
 const std = @import("std");
 const boundary = @import("boundary");
-const source = boundary.computation;
+const source = boundary.source;
 const generator = boundary.library.generator;
 const Id = source.Id;
 const E = struct {
