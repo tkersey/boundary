@@ -1897,3 +1897,36 @@ test "typed byte and indexed container queries preserve categories and optional 
         defer compiled.deinit();
     }
 }
+
+test "typed equality primitives retain category origin and fault contracts" {
+    var raw = source.Builder.init(testing.allocator);
+    defer raw.deinit();
+    const c = try a.Context.init(&raw);
+    const unit = try c.scalar(void);
+    const integer = try c.scalar(u64);
+    const choice = try c.alternatives(&.{ .{ .name = "empty", .schema = unit }, .{ .name = "number", .schema = integer } });
+    const enumeration = try a.interop.schema(c, try raw.schema(.{ .enumeration = &.{ 5, 12 } }));
+    const bytes = try a.interop.schema(c, try raw.schema(.{ .bounded_bytes = 8 }));
+    const output = try c.record(&.{ .{ .name = "enum", .schema = try c.scalar(u32) }, .{ .name = "tag", .schema = integer }, .{ .name = "payload", .schema = integer }, .{ .name = "order", .schema = try c.scalar(i8) } });
+    const f = try c.function("inspect portable values", &.{ .{ .name = "choice", .schema = choice }, .{ .name = "enum", .schema = enumeration }, .{ .name = "left", .schema = bytes }, .{ .name = "right", .schema = bytes } }, output, &.{});
+    const body = try c.body(f);
+    const selected = try body.parameter("choice");
+    const tag = try body.parameter("enum");
+    const left = try body.parameter("left");
+    const fault = try c.literalFailure(void, {});
+    try testing.expectError(error.InvalidCategory, body.enumTag(selected));
+    try testing.expectError(error.InvalidCategory, body.variantTag(tag));
+    try testing.expectError(error.UnknownName, body.variantPayload(selected, "missing", fault));
+    try testing.expectError(error.InvalidCategory, body.blobCompare(left, tag));
+    const foreign = try a.Context.init(&raw);
+    const foreign_fault = try foreign.literalFailure(void, {});
+    try testing.expectError(error.ForeignHandle, body.variantPayload(selected, "number", foreign_fault));
+    try testing.expectError(error.ForeignHandle, a.interop.failureLiteralId(c, foreign_fault));
+    try testing.expectEqual(try a.interop.failureLiteralId(c, fault), try a.interop.failureLiteralId(c, try c.literalFailure(void, {})));
+    try c.define(f, try body.ret(try body.product(output, &.{
+        .{ .name = "enum", .value = try body.enumTag(tag) },                                 .{ .name = "tag", .value = try body.variantTag(selected) },
+        .{ .name = "payload", .value = try body.variantPayload(selected, "number", fault) }, .{ .name = "order", .value = try body.blobCompare(left, try body.parameter("right")) },
+    })));
+    var compiled = try c.compile(testing.allocator, f, unit);
+    defer compiled.deinit();
+}

@@ -1702,6 +1702,43 @@ pub const Body = opaque {
         const boolean = try c.scalar(bool);
         return self.bind(try contextData(c).raw.pure(try contextData(c).raw.primitive(try c.schemaId(boolean), .less, &.{ lhs.id, rhs.id }, 0)), boolean);
     }
+    pub fn enumTag(self: *Body, value: *const Value) Error!*const Value {
+        return self.tagValue(value, .enumeration, .enum_tag, u32);
+    }
+    pub fn variantTag(self: *Body, value: *const Value) Error!*const Value {
+        return self.tagValue(value, .sum, .variant_tag, u64);
+    }
+    fn tagValue(self: *Body, value: *const Value, comptime kind: p.SchemaTag, comptime opcode: p.Opcode, comptime T: type) Error!*const Value {
+        const item = try self.useValue(value);
+        const c = bodyData(self).context;
+        if (std.meta.activeTag(contextData(c).raw.schemas.items[@intCast(try c.schemaId(item.schema))]) != kind)
+            return c.reject(error.InvalidCategory, "tag", "value has the wrong category for this tag operation");
+        errdefer |err| c.poison(err);
+        const result = try c.scalar(T);
+        return self.bind(try contextData(c).raw.pure(try contextData(c).raw.primitive(try c.schemaId(result), opcode, &.{item.id}, 0)), result);
+    }
+    /// Checked projection of a named alternative with an explicit authored fault.
+    pub fn variantPayload(self: *Body, value: *const Value, name: []const u8, failure: *const FailureLiteral) Error!*const Value {
+        const item = try self.useValue(value);
+        const c = bodyData(self).context;
+        const info = data(SchemaData, item.schema);
+        if (contextData(c).raw.schemas.items[@intCast(info.id)] != .sum)
+            return c.reject(error.InvalidCategory, "variant payload", "requires an alternative value");
+        const fault = data(FailureLiteralData, failure);
+        try c.origin(fault.owner);
+        for (info.fields, 0..) |alternative, index| if (std.mem.eql(u8, alternative.name, name)) {
+            errdefer |err| c.poison(err);
+            const id = try contextData(c).raw.value(.{ .schema = try c.schemaId(alternative.schema), .expression = .{ .primitive = .{
+                .opcode = .variant_payload,
+                .operands = &.{item.id},
+                .immediate = index,
+                .failures = &.{.{ .kind = .invalid_variant, .value = fault.literal }},
+            } } });
+            try c.notePublication(.{ .anchor = .{ .value = id }, .contract = .{ .failure = data(ValueData, fault.value).schema } });
+            return self.bind(try contextData(c).raw.pure(id), alternative.schema);
+        };
+        return c.reject(error.UnknownName, "variant payload", "unknown alternative");
+    }
     pub fn sequenceLength(self: *Body, sequence: *const Value) Error!*const Value {
         const value = try self.useValue(sequence);
         const c = bodyData(self).context;
@@ -1740,6 +1777,15 @@ pub const Body = opaque {
         errdefer |err| c.poison(err);
         const optional = try c.alternatives(&.{ .{ .name = "none", .schema = try c.scalar(void) }, .{ .name = "some", .schema = try c.scalar(u8) } });
         return self.bind(try contextData(c).raw.pure(try contextData(c).raw.primitive(try c.schemaId(optional), .blob_byte, &.{ value.id, offset.id }, 0)), optional);
+    }
+    pub fn blobCompare(self: *Body, left: *const Value, right: *const Value) Error!*const Value {
+        const lhs = try self.blobValue(left);
+        const rhs = try self.blobValue(right);
+        const c = bodyData(self).context;
+        try c.same(lhs.schema, rhs.schema);
+        errdefer |err| c.poison(err);
+        const result = try c.scalar(i8);
+        return self.bind(try contextData(c).raw.pure(try contextData(c).raw.primitive(try c.schemaId(result), .blob_compare, &.{ lhs.id, rhs.id }, 0)), result);
     }
     fn blobValue(self: *Body, blob: *const Value) Error!*const ValueData {
         const value = try self.useValue(blob);
@@ -2343,6 +2389,11 @@ pub const interop = struct {
     }
     pub fn schemaId(c: *Context, value: *const Schema) Error!p.Id {
         return c.schemaId(value);
+    }
+    pub fn failureLiteralId(c: *Context, value: *const FailureLiteral) Error!p.Id {
+        const item = data(FailureLiteralData, value);
+        try c.origin(item.owner);
+        return item.literal;
     }
     pub fn regionId(c: *Context, value: *const Region) Error!p.Id {
         const item = data(RegionData, value);
