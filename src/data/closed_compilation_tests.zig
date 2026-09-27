@@ -116,9 +116,10 @@ test "work accounting uses logical records rather than compressed literal wire l
     var limited = try compile.run(a, program, .{ .contract = .semantic, .work_limit = 0, .statistics = &stats });
     defer limited.deinit();
     try std.testing.expectEqual(compile.Outcome.work_limit, stats.outcome);
-    var result = try compile.run(a, program, .{ .contract = .semantic });
+    var result = try compile.run(a, program, .{ .contract = .semantic, .statistics = &stats });
     defer result.deinit();
     try std.testing.expectEqual(@as(usize, 1), result.program.blocks[0].instructions.len);
+    try std.testing.expect(stats.selected_candidate == .shrinking);
 }
 
 test "inapplicable semantic passes are skipped without skipping mandatory P01" {
@@ -160,4 +161,31 @@ test "a proved no-op stage is not repeated on unchanged records" {
     try std.testing.expectEqual(compile.Outcome.no_change, stats.outcome);
     try std.testing.expectEqual(@as(usize, 1), stats.stages_run);
     try std.testing.expectEqual(@as(usize, 0), stats.changed_stages);
+}
+
+const shrinking_fixture: @import("activation.zig").Program = .{
+    .roots = .{ .entry = 0, .result = 0, .failure = 1 },
+    .schemas = &.{ .u64, .unit },
+    .effects = &.{},
+    .constants = &.{.{ .schema = 0, .bytes = &.{ 7, 0, 0, 0, 0, 0, 0, 0 } }},
+    .functions = &.{.{ .entry = 0, .inputs = &.{}, .layout = .{ .slots = &.{ 0, 0 } }, .result = 0 }},
+    .blocks = &.{.{ .function = 0, .instructions = &.{
+        .{ .destination = 0, .opcode = .constant, .immediate = 0 },
+        .{ .destination = 1, .opcode = .constant, .immediate = 0 },
+    }, .terminator = .{ .return_value = 1 } }},
+};
+fn shrinkingAllocationAttempt(allocator: std.mem.Allocator) !void {
+    var result = try compile.run(allocator, shrinking_fixture, .{ .contract = .semantic });
+    defer result.deinit();
+}
+test "independent shrinking candidate releases every partial owner and charges its work" {
+    try std.testing.checkAllAllocationFailures(a, shrinkingAllocationAttempt, .{});
+    var stats: compile.Statistics = .{};
+    var limited = try compile.run(a, shrinking_fixture, .{ .contract = .semantic, .work_limit = 1, .statistics = &stats });
+    defer limited.deinit();
+    var baseline = try compile.run(a, shrinking_fixture, .{});
+    defer baseline.deinit();
+    try std.testing.expectEqual(compile.Outcome.work_limit, stats.outcome);
+    try std.testing.expectEqual(compile.Stage.dead_computation, stats.stopped_stage.?);
+    try std.testing.expectEqual(try image.identity(a, baseline.program), try image.identity(a, limited.program));
 }

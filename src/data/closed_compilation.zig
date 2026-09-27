@@ -33,6 +33,8 @@ pub const Statistics = struct {
     work_reserved: u64 = 0,
     stopped_stage: ?Stage = null,
     failed_stage: ?Stage = null,
+    selected_candidate: enum { baseline, shrinking, full } = .baseline,
+    admission_guard_rejections: usize = 0,
 };
 pub const Observer = struct { context: *anyopaque, enter: *const fn (*anyopaque, Stage) void };
 pub const Options = struct {
@@ -134,7 +136,7 @@ fn reservation(program: ir.Program, stage: Stage) Error!u64 {
     };
     return std.math.add(u64, std.math.add(u64, scans, byte_work) catch return error.Capacity, facts) catch return error.Capacity;
 }
-const Cost = struct { bytes: usize, work: u64, retention: u64 };
+const Cost = struct { bytes: usize, work: u64, retention: u64, admission_sets: u64 };
 fn payloadEstimate(program: ir.Program, schema: u64, depth: usize, memo: []?u64, active: []bool) u64 {
     if (depth == 32) return 8;
     const id: usize = @intCast(schema);
@@ -159,14 +161,22 @@ fn payloadEstimate(program: ir.Program, schema: u64, depth: usize, memo: []?u64,
     memo[id] = result;
     return result;
 }
-fn cost(allocator: std.mem.Allocator, program: ir.Program) Error!Cost {
+fn cost(allocator: std.mem.Allocator, owned: *const p01.Owned) Error!Cost {
+    const program = owned.program;
     const memo = try allocator.alloc(?u64, program.schemas.len);
     defer allocator.free(memo);
     const active = try allocator.alloc(bool, program.schemas.len);
     defer allocator.free(active);
     @memset(memo, null);
     @memset(active, false);
-    var result: Cost = .{ .bytes = try image.encodedLength(program), .work = 0, .retention = 0 };
+    // Fixed logical weights avoid making selection depend on host pointers,
+    // allocator resize success, or native versus wasm node representation.
+    // This models the retained analysis containers, not World runtime memory.
+    const admission_sets = try sumWork(&.{
+        std.math.mul(u64, owned.flow.pool.nodeCapacity(), 24) catch return error.Capacity,
+        std.math.mul(u64, owned.flow.pool.interned.capacity(), 12) catch return error.Capacity,
+    });
+    var result: Cost = .{ .bytes = try image.encodedLength(program), .work = 0, .retention = 0, .admission_sets = admission_sets };
     for (program.blocks) |block| {
         result.work +|= if (block.terminator == .apply) 4 else 1;
         for (block.instructions) |op| {
@@ -183,6 +193,11 @@ fn cost(allocator: std.mem.Allocator, program: ir.Program) Error!Cost {
         }
     }
     return result;
+}
+fn admissionGrowthAllowed(candidate: Cost, baseline: Cost) bool {
+    const allowance = @max(1024, baseline.admission_sets / 100);
+    return candidate.admission_sets <= baseline.admission_sets or
+        candidate.admission_sets - baseline.admission_sets <= allowance;
 }
 fn allowBaseline(options: Options, bytes: usize) Error!void {
     if (options.max_image_bytes) |limit| if (bytes > limit) return error.Capacity;
@@ -270,12 +285,37 @@ pub fn run(allocator: std.mem.Allocator, original: ir.Program, options: Options)
     }
     var current: ?p01.Owned = null;
     defer if (current) |*owner| owner.deinit();
-    const baseline_cost = try cost(allocator, baseline.program);
+    const baseline_cost = try cost(allocator, &baseline);
     const limit = std.math.add(usize, stats.baseline_bytes, growth(options, stats.baseline_bytes)) catch return error.Capacity;
     const quiet: p01.Options = .{ .work_limit = options.coalescing.work_limit };
+    // A small independent shrinking candidate keeps useful dead-work removal
+    // available when a later reuse combination is uneconomical. It is an
+    // internal candidate, never an alternative production compilation route.
+    var shrinking: ?p01.Owned = null;
+    defer if (shrinking) |*owner| owner.deinit();
+    if (try possible(allocator, &baseline, .dead_computation)) {
+        const charge = try reservation(baseline.program, .dead_computation);
+        if (charge > options.work_limit - stats.work_reserved) {
+            try allowBaseline(options, stats.baseline_bytes);
+            stats.outcome = .work_limit;
+            stats.stopped_stage = .dead_computation;
+            keep_baseline = true;
+            return baseline;
+        }
+        stats.work_reserved += charge;
+        stage = .dead_computation;
+        notify(options, stage);
+        var exhausted = false;
+        shrinking = try apply(allocator, baseline.program, stage, quiet, &exhausted);
+        stats.stages_run += 1;
+    }
     var stable = false;
     var generation: usize = 0;
     var no_change_generation: [std.meta.fields(Stage).len]?usize = @splat(null);
+    if (shrinking) |owner| {
+        if (@import("record_equal.zig").equal(ir.Program, baseline.program, owner.program))
+            no_change_generation[@intFromEnum(Stage.dead_computation)] = generation;
+    }
     var round: usize = 0;
     while (round < options.round_limit) : (round += 1) {
         const before = try image.identity(allocator, if (current) |owner| owner.program else baseline.program);
@@ -343,17 +383,37 @@ pub fn run(allocator: std.mem.Allocator, original: ir.Program, options: Options)
         keep_baseline = true;
         return baseline;
     }
-    const candidate_cost = try cost(allocator, if (current) |owner| owner.program else baseline.program);
+    var selected: *const p01.Owned = &baseline;
+    var selected_cost = baseline_cost;
     const hard_limit = options.max_image_bytes orelse std.math.maxInt(usize);
-    if (candidate_cost.bytes > limit or candidate_cost.bytes > hard_limit or !better(candidate_cost, baseline_cost, options.objective)) {
+    var size_rejected = false;
+    const candidates = [_]?*const p01.Owned{ if (shrinking) |*owner| owner else null, if (current) |*owner| owner else null };
+    for (candidates, 0..) |candidate, index| {
+        const owner = candidate orelse continue;
+        const candidate_cost = try cost(allocator, owner);
+        if (candidate_cost.bytes > limit or candidate_cost.bytes > hard_limit) {
+            size_rejected = true;
+            continue;
+        }
+        if (!admissionGrowthAllowed(candidate_cost, baseline_cost)) {
+            stats.admission_guard_rejections += 1;
+            continue;
+        }
+        if (better(candidate_cost, selected_cost, options.objective)) {
+            selected = owner;
+            selected_cost = candidate_cost;
+            stats.selected_candidate = if (index == 0) .shrinking else .full;
+        }
+    }
+    if (stats.selected_candidate == .baseline) {
         if (stats.baseline_bytes > hard_limit) return error.Capacity;
-        stats.outcome = if (candidate_cost.bytes > limit or candidate_cost.bytes > hard_limit) .size_guard else .no_change;
+        stats.outcome = if (size_rejected) .size_guard else .no_change;
         keep_baseline = true;
         return baseline;
     }
     stage = .p01;
     notify(options, .p01);
-    var result = try p01.run(allocator, current.?.program, options.coalescing);
+    var result = try p01.run(allocator, selected.program, options.coalescing);
     errdefer result.deinit();
     stats.final_bytes = try image.encodedLength(result.program);
     stats.outcome = .applied;
@@ -388,4 +448,21 @@ fn apply(a: std.mem.Allocator, program: ir.Program, stage: Stage, options: p01.O
         .capture_projection => projections.run(a, program, null, options),
         .capture_summary => summaries.run(a, program, null, options),
     };
+}
+
+test "admission-set cost guard bounds growth without host allocator capacities" {
+    const baseline: Cost = .{ .bytes = 100, .work = 20, .retention = 0, .admission_sets = 10_000 };
+    var candidate = baseline;
+    candidate.admission_sets += 1024;
+    try std.testing.expect(admissionGrowthAllowed(candidate, baseline));
+    candidate.admission_sets += 1;
+    try std.testing.expect(!admissionGrowthAllowed(candidate, baseline));
+    // A smaller image or less estimated work cannot erase this dimension.
+    candidate.bytes = 1;
+    candidate.work = 0;
+    try std.testing.expect(!admissionGrowthAllowed(candidate, baseline));
+    candidate.admission_sets = 0;
+    try std.testing.expect(admissionGrowthAllowed(candidate, baseline));
+    const largest: Cost = .{ .bytes = 100, .work = 20, .retention = 0, .admission_sets = std.math.maxInt(u64) };
+    try std.testing.expect(admissionGrowthAllowed(largest, largest));
 }

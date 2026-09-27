@@ -45,6 +45,15 @@ test "World preserves both diamond paths after source-free expression reuse" {
     _ = try data.component.encode(a, object, bytes);
     var linked = try data.linker.link(a, &.{.{ .key = "diamond", .object = bytes }}, &.{}, .{ .instance = "diamond", .symbol = "main" });
     defer linked.deinit();
+    var selected: data.closed_compilation.Statistics = .{};
+    var integrated = try data.linker.linkWithCompilation(a, &.{.{ .key = "diamond", .object = bytes }}, &.{}, .{ .instance = "diamond", .symbol = "main" }, .{ .contract = .semantic, .statistics = &selected });
+    defer integrated.deinit();
+    try std.testing.expectEqual(data.closed_compilation.Outcome.applied, selected.outcome);
+    var xors: usize = 0;
+    for (integrated.program.blocks) |block| for (block.instructions) |op| {
+        if (op.opcode == .integer_bit_xor) xors += 1;
+    };
+    try std.testing.expectEqual(@as(usize, 1), xors);
     @memset(bytes, 0xff);
     var stats: data.expression_reuse.Statistics = .{};
     var result = try data.expression_reuse.run(a, linked.program, &stats, .{});
@@ -55,6 +64,7 @@ test "World preserves both diamond paths after source-free expression reuse" {
         for ([_]bool{ false, true }) |condition| {
             try execute(linked.program, pair[0], pair[1], condition, pair[0] ^ pair[1]);
             try execute(result.program, pair[0], pair[1], condition, pair[0] ^ pair[1]);
+            try execute(integrated.program, pair[0], pair[1], condition, pair[0] ^ pair[1]);
         }
     }
     std.debug.print("cross-CFG expression reuse: {d} -> {d} bytes; XOR evaluations 2 -> 1 on both paths\n", .{ try data.program_image.encodedLength(linked.program), try data.program_image.encodedLength(result.program) });

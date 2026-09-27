@@ -404,6 +404,44 @@ inquiry images reduce 35,591 → 35,257, 35,973 → 35,637 and 49,604 → 41,021
 digests, outcomes and work. This is an admitted-record probe, not fresh Agent
 emission or runtime qualification. Repinning and re-emission remain required.
 
+## Candidate selection and admission-set costs
+
+The 18-image Agent qualification exposed two new native admission-memory costs
+at `8321156`: expression reuse enlarged the immutable analysis-set pool, crossing
+geometric allocation capacities. Reordering DCE before reuse did not fix them;
+declining literal reuse fixed only one. Neither experiment was retained.
+
+The shared driver now keeps a third, independently validated candidate: dead
+computation removal from the ordinary baseline. The full pipeline still runs.
+Final selection considers a deterministic admission-set score alongside the
+existing image, operation and capture estimates: 24 times node capacity plus
+12 times interning-table capacity. It rejects score growth above
+`max(1024, floor(baseline_score / 100))`, without using addresses, allocator-resize
+outcomes or clock measurements. This is an economic heuristic, **not** a bound
+on World memory; actual runtime qualification remains required. Public contracts,
+exact image-growth limits, work limits, independent validators and P01 are intact.
+
+The shrinking candidate consumes the existing work budget and reports its
+selection explicitly. A proved no-op is reused only for unchanged records.
+All candidate owners are released on failure; incomplete full search keeps the
+existing exact-baseline rollback contract.
+
+The source-bound record probe in `docs/performance/m2-candidate-selection.json`
+completes all 18 retained cutover images under defaults. No image increases native
+Prepared peak or retained memory versus cutover. Review-model chooses shrinking:
+2,356 → 2,331 image bytes and 136 fewer peak/retained bytes; clarify-first chooses
+shrinking: 9,453 → 9,428 image bytes and 182 fewer peak/retained bytes. ReAct keeps
+the full candidate, reducing peak admission by 159,702 bytes and retained storage
+by 129,662 bytes. C0 comparisons remain alongside local ones.
+
+The data/authoring aggregate passes (245 + 218 tests). The final focused run
+passes 69 tests, including the added shrinking-candidate allocation-failure and
+budget-rollback case. Three native GVN tests pass, including a source-free
+semantic-link selection that still executes one
+XOR on each diamond path. This probe uses existing images; Agent source emission,
+new package binding and final economic qualification are still required. Agent's
+ongoing aggregate remains bound to `8321156` and is not relabeled by this result.
+
 ## Remaining M2 obligations
 
 This is not complete M2 or canonical pipeline adoption. Remaining work includes:
