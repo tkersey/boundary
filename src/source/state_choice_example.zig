@@ -5,13 +5,19 @@ const choice = @import("../library/choice.zig");
 const p = @import("boundary_data").program;
 const Error = source.Error;
 pub fn local(b: *source.Builder) Error!source.ast.Module {
-    return build(b, true);
+    return build(b, true, false);
 }
 pub fn shared(b: *source.Builder) Error!source.ast.Module {
-    return build(b, false);
+    return build(b, false, false);
+}
+pub fn recursiveLocal(b: *source.Builder) Error!source.ast.Module {
+    return build(b, true, true);
+}
+pub fn recursiveShared(b: *source.Builder) Error!source.ast.Module {
+    return build(b, false, true);
 }
 
-fn build(b: *source.Builder, comptime choice_outside: bool) Error!source.ast.Module {
+fn build(b: *source.Builder, comptime choice_outside: bool, comptime recursive: bool) Error!source.ast.Module {
     const unit = try b.scalar(void);
     const boolean = try b.scalar(bool);
     const integer = try b.scalar(u64);
@@ -30,15 +36,19 @@ fn build(b: *source.Builder, comptime choice_outside: bool) Error!source.ast.Mod
     const get_cap = try b.reference(b.parameter(state_body, 0));
     const put_cap = try b.reference(b.parameter(state_body, 1));
     const choose_cap = try b.reference(b.parameter(choice_body, 0));
-    const chosen = try b.variable(boolean);
-    const before = try b.variable(integer);
-    const after = try b.variable(integer);
-    const updated = try b.variable(unit);
-    const inc = try b.value(.{ .schema = integer, .expression = .{ .primitive = .{ .opcode = .integer_add, .operands = &.{ try b.reference(before), try b.constant(u64, 1) }, .failures = &.{.{ .kind = .arithmetic_overflow, .value = try b.failureLiteral(try b.constant(void, {})) }} } } });
-    const get = try b.term(.{ .perform = .{ .effect = s.get, .capability = get_cap, .payload = try b.constant(void, {}) } });
-    const put = try b.term(.{ .perform = .{ .effect = s.put, .capability = put_cap, .payload = try b.reference(after) } });
-    const choose = try b.term(.{ .perform = .{ .effect = c.effect, .capability = choose_cap, .payload = try b.constant(void, {}) } });
-    const common = try b.bind(chosen, choose, try b.bind(before, get, try b.bind(after, try b.pure(inc), try b.bind(updated, put, try b.pure(try b.reference(after))))));
+    const common = if (recursive)
+        try recursiveWork(b, s, c, r, .{ get_cap, put_cap, choose_cap }, integer, boolean, unit)
+    else blk: {
+        const chosen = try b.variable(boolean);
+        const before = try b.variable(integer);
+        const after = try b.variable(integer);
+        const updated = try b.variable(unit);
+        const inc = try b.value(.{ .schema = integer, .expression = .{ .primitive = .{ .opcode = .integer_add, .operands = &.{ try b.reference(before), try b.constant(u64, 1) }, .failures = &.{.{ .kind = .arithmetic_overflow, .value = try b.failureLiteral(try b.constant(void, {})) }} } } });
+        const get = try b.term(.{ .perform = .{ .effect = s.get, .capability = get_cap, .payload = try b.constant(void, {}) } });
+        const put = try b.term(.{ .perform = .{ .effect = s.put, .capability = put_cap, .payload = try b.reference(after) } });
+        const choose = try b.term(.{ .perform = .{ .effect = c.effect, .capability = choose_cap, .payload = try b.constant(void, {}) } });
+        break :blk try b.bind(chosen, choose, try b.bind(before, get, try b.bind(after, try b.pure(inc), try b.bind(updated, put, try b.pure(try b.reference(after))))));
+    };
     if (choice_outside) {
         try b.define(state_body, common);
         const private_type = try b.schema(.{ .internal = .{ .computation = .{ .parameters = &.{region}, .result = integer, .effects = &.{c.effect}, .capture_bound = &.{c.capability}, .regions = &.{r} } } });
@@ -60,4 +70,41 @@ fn build(b: *source.Builder, comptime choice_outside: bool) Error!source.ast.Mod
         try b.define(main, try b.term(.{ .with_region = .{ .region = r, .body = try b.lambda(scope_body, body_type) } }));
     }
     return b.module(main, unit);
+}
+
+fn recursiveWork(b: *source.Builder, s: state.Family, c: choice.Family, region: p.Id, caps: [3]p.Id, integer: p.Id, boolean: p.Id, unit: p.Id) Error!p.Id {
+    const functions = [_]p.Id{
+        try b.declare(&.{integer}, integer, &.{ s.get, s.put, c.effect }, &.{region}),
+        try b.declare(&.{integer}, integer, &.{ s.get, s.put, c.effect }, &.{region}),
+    };
+    for (functions, 0..) |function, index| {
+        const count = try b.reference(b.parameter(function, 0));
+        const chosen = try b.variable(boolean);
+        const before = try b.variable(integer);
+        const after = try b.variable(integer);
+        const updated = try b.variable(unit);
+        const fault = try b.failureLiteral(try b.constant(void, {}));
+        const inc = try b.value(.{ .schema = integer, .expression = .{ .primitive = .{
+            .opcode = .integer_add,
+            .operands = &.{ try b.reference(before), try b.constant(u64, 1) },
+            .failures = &.{.{ .kind = .arithmetic_overflow, .value = fault }},
+        } } });
+        const decrement = try b.value(.{ .schema = integer, .expression = .{ .primitive = .{
+            .opcode = .integer_sub,
+            .operands = &.{ count, try b.constant(u64, 1) },
+            .failures = &.{.{ .kind = .arithmetic_overflow, .value = fault }},
+        } } });
+        const get = try b.term(.{ .perform = .{ .effect = s.get, .capability = caps[0], .payload = try b.constant(void, {}) } });
+        const put = try b.term(.{ .perform = .{ .effect = s.put, .capability = caps[1], .payload = try b.reference(after) } });
+        const choose = try b.term(.{ .perform = .{ .effect = c.effect, .capability = caps[2], .payload = try b.constant(void, {}) } });
+        const next = try b.term(.{ .call = .{ .function = functions[1 - index], .arguments = &.{decrement} } });
+        const step = try b.bind(chosen, choose, try b.bind(before, get, try b.bind(after, try b.pure(inc), try b.bind(updated, put, next))));
+        const done = try b.primitive(boolean, .equal, &.{ count, try b.constant(u64, 0) }, 0);
+        try b.define(function, try b.term(.{ .conditional = .{
+            .condition = done,
+            .when_true = get,
+            .when_false = step,
+        } }));
+    }
+    return b.term(.{ .call = .{ .function = functions[0], .arguments = &.{try b.constant(u64, 2)} } });
 }

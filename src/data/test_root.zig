@@ -10,6 +10,14 @@ test {
     _ = @import("program_image_tests.zig");
     _ = @import("component_tests.zig");
     _ = @import("relocation_tests.zig");
+    _ = @import("coalescing_graph_tests.zig");
+    _ = @import("coalescing_witness_tests.zig");
+    _ = @import("coalescing_view_tests.zig");
+    _ = @import("coalescing_candidate_tests.zig");
+    _ = @import("coalescing_tests.zig");
+    _ = @import("coalescing_recursive_tests.zig");
+    _ = @import("coalescing_origins_tests.zig");
+    _ = @import("coalescing_mutation_tests.zig");
     _ = @import("state_image_tests.zig");
     _ = @import("invocation_tests.zig");
 }

@@ -15,3 +15,25 @@ pub const Diagnostic = struct {
     slot: ?p.Id = null,
     effect: ?p.Id = null,
 };
+
+/// Bounded, caller-owned presentation; no compiler-arena slices survive failure.
+pub const Origins = struct {
+    functions: [8]p.Id = @splat(0),
+    count: usize = 0,
+    ambiguous: bool = false,
+    truncated: bool = false,
+
+    pub fn items(self: *const Origins) []const p.Id {
+        return self.functions[0..self.count];
+    }
+    pub fn add(self: *Origins, function: p.Id) void {
+        if (self.count != 0 and self.functions[0] != function) self.ambiguous = true;
+        for (self.items()) |prior| if (prior == function) return;
+        if (self.count == self.functions.len) {
+            self.truncated = true;
+            return;
+        }
+        self.functions[self.count] = function;
+        self.count += 1;
+    }
+};

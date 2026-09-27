@@ -10,6 +10,20 @@ pub const missing = std.math.maxInt(p.Id);
 pub const Error = @import("admission.zig").Error;
 pub const Maps = [kind_count][]const p.Id;
 
+/// Caller owns each returned slice. No partial allocation escapes on failure.
+pub fn identityMaps(a: std.mem.Allocator, counts: [kind_count]usize) Error!Maps {
+    var result: Maps = undefined;
+    var initialized: usize = 0;
+    errdefer for (result[0..initialized]) |map| a.free(map);
+    for (&result, counts) |*map, count| {
+        const values = try a.alloc(p.Id, count);
+        for (values, 0..) |*value, index| value.* = index;
+        map.* = values;
+        initialized += 1;
+    }
+    return result;
+}
+
 const RegionNames = struct {
     allocator: std.mem.Allocator,
     declared: p.Id,
@@ -165,9 +179,22 @@ pub const Mapper = struct {
     }
 };
 
-/// Program fields own output storage. Function origins borrow scratch and are
-/// used only while translating compiler diagnostics. Neither field grants admission.
-pub const Projection = struct { program: ir.Program, function_origins: []const p.Id };
+/// Program fields own output storage. Origins and correspondence borrow scratch;
+/// they grant no admission and must not escape the compiler/linker call.
+pub const Projection = struct {
+    program: ir.Program,
+    function_origins: []const p.Id,
+    maps: ?Maps = null,
+    regions: std.AutoHashMapUnmanaged(p.Id, p.Id) = .empty,
+
+    pub fn mapped(self: Projection, kind: Kind, old: p.Id) Error!p.Id {
+        if (kind == .region) return self.regions.get(old) orelse error.InvalidReference;
+        const maps = self.maps orelse return error.InvalidReference;
+        const map = maps[@intFromEnum(kind)];
+        if (old >= map.len or map[@intCast(old)] == missing) return error.InvalidReference;
+        return map[@intCast(old)];
+    }
+};
 
 /// Project an already checked closed Program onto its typed reference closure.
 /// All catalog declarations retain their relative order and nominal distinction.
@@ -190,6 +217,35 @@ pub fn ownReachable(output: std.mem.Allocator, scratch: std.mem.Allocator, input
         }
     }
     const mapper: Mapper = .{ .allocator = output, .maps = selection.maps, .region_names = &selection.regions };
+    const result = try copySelected(mapper, input, orders, selection.regions.ids.count());
+    return .{ .program = result, .function_origins = orders[@intFromEnum(Kind.function)], .maps = selection.maps, .regions = selection.regions.ids };
+}
+
+/// Materialize selected whole records using the same typed field rewriter as
+/// reachability. Representatives/final maps require independent validation.
+pub fn ownQuotient(output: std.mem.Allocator, scratch: std.mem.Allocator, input: ir.Program, representatives: Maps, final: Maps) Error!ir.Program {
+    var orders: [kind_count][]p.Id = undefined;
+    for (representatives, &orders, try sizes(input)) |map, *order, size| {
+        if (map.len != size) return error.InvalidReference;
+        var count: usize = 0;
+        for (map, 0..) |representative, id| {
+            if (representative >= size or map[@intCast(representative)] != representative)
+                return error.InvalidReference;
+            count += @intFromBool(representative == id);
+        }
+        order.* = try scratch.alloc(p.Id, count);
+        count = 0;
+        for (map, 0..) |representative, id| if (representative == id) {
+            order.*[count] = id;
+            count += 1;
+        };
+    }
+    const mapper: Mapper = .{ .allocator = output, .maps = final };
+    return copySelected(mapper, input, orders, orders[@intFromEnum(Kind.region)].len);
+}
+
+fn copySelected(mapper: Mapper, input: ir.Program, orders: [kind_count][]p.Id, regions: p.Id) Error!ir.Program {
+    const output = mapper.allocator;
     var result = input;
     result.roots = .{ .entry = try mapper.id(.function, input.roots.entry), .result = try mapper.id(.schema, input.roots.result), .failure = try mapper.id(.schema, input.roots.failure) };
     inline for (.{ .{ Kind.schema, "schemas", Mapper.schema }, .{ Kind.constant, "constants", Mapper.literal }, .{ Kind.effect, "effects", Mapper.effect }, .{ Kind.function, "functions", Mapper.function }, .{ Kind.block, "blocks", Mapper.block }, .{ Kind.handler, "handlers", Mapper.handler }, .{ Kind.constructor, "constructors", Mapper.constructor } }) |item| {
@@ -205,8 +261,8 @@ pub fn ownReachable(output: std.mem.Allocator, scratch: std.mem.Allocator, input
     const resources = try output.alloc(p.Resource, orders[@intFromEnum(Kind.resource)].len);
     for (resources, orders[@intFromEnum(Kind.resource)]) |*target, old|
         target.* = try mapper.resource(input.scopes.resources[@intCast(old)]);
-    result.scopes = .{ .captures = captures, .resources = resources, .region_count = selection.regions.ids.count() };
-    return .{ .program = result, .function_origins = orders[@intFromEnum(Kind.function)] };
+    result.scopes = .{ .captures = captures, .resources = resources, .region_count = regions };
+    return result;
 }
 
 const Selection = struct {

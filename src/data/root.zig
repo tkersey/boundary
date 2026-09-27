@@ -14,6 +14,7 @@ pub const process_state = @import("process_state.zig");
 pub const state_image = @import("state_image.zig");
 pub const invocation = @import("invocation.zig");
 pub const relocation = @import("relocation.zig");
+pub const coalescing = @import("coalescing.zig");
 pub const component = @import("component.zig");
 pub const borrow_contract = @import("borrow_contract.zig");
 pub const borrow_flow = @import("borrow_flow.zig");

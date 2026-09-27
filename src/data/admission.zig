@@ -3,6 +3,7 @@ const std = @import("std");
 const p = @import("program.zig");
 const wire = @import("wire.zig");
 pub const Diagnostic = @import("diagnostic.zig").Diagnostic;
+pub const Origins = @import("diagnostic.zig").Origins;
 
 pub const Error = wire.Error || std.mem.Allocator.Error || error{
     InvalidSchema,

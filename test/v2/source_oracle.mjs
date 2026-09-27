@@ -184,15 +184,22 @@ export function execute(source, initial, responses = [], cancellations = []) {
     if (owned[schema]) frame.owners.push(own(schema, value));
     return value;
   }
-  let memory = new Map();
-  const cellStorage = (cell) => memory.get(cell) ?? cell;
+  let memory = { parent: null, cells: new Map() };
+  const cellStorage = (cell, view = memory) => view.cells.get(cell) ?? cell;
   function inMemory(computation, view) {
     return delay(() => {
       const previous = memory;
+      // An older continuation wrapper must not overwrite a newer snapshot
+      // entered beneath it. Sibling resumptions still select their own view.
+      let ancestor = previous;
+      while (ancestor !== null && ancestor !== view) ancestor = ancestor.parent;
+      const current = ancestor === view ? previous : view;
       let node;
-      try { memory = view; node = normalize(computation); } finally { memory = previous; }
+      try { memory = current; node = normalize(computation); } finally { memory = previous; }
       if (node.kind !== "request" && node.kind !== "yield") return node;
-      return { ...node, reenter: (replacement) => inMemory(node.reenter(replacement), view), abandon: node.abandon ? (exit) => inMemory(node.abandon(exit), view) : undefined };
+      return { ...node, memory: node.memory ?? current,
+        reenter: (replacement) => inMemory(node.reenter(replacement), current),
+        abandon: node.abandon ? (exit) => inMemory(node.abandon(exit), current) : undefined };
     });
   }
   function inRegion(computation, region) {
@@ -433,8 +440,8 @@ export function execute(source, initial, responses = [], cancellations = []) {
       const clause = definition.clauses.find((clause) => clause.effect === node.effect);
       if (!clause) throw new Error("unknown oracle operation clause");
       const signature = source.schemas[clause.resumption].internal.resumption;
-      const capturedMemory = new Map(memory);
-      const frozen = new Map((node.regions ?? []).flatMap((region) => [...region.cells].map((cell) => [cell, cellStorage(cell).value])));
+      const capturedMemory = node.memory ?? memory;
+      const frozen = new Map((node.regions ?? []).flatMap((region) => [...region.cells].map((cell) => [cell, cellStorage(cell, capturedMemory).value])));
       function makeToken(reusable) {
         let consumed = false;
         return {
@@ -442,8 +449,8 @@ export function execute(source, initial, responses = [], cancellations = []) {
             if (!reusable) { if (consumed) throw new Error("oracle one-shot reused"); consumed = true; }
             let rest = node.reenter(replacement);
             if (reusable) {
-              const view = new Map(capturedMemory);
-              for (const [cell, content] of frozen) view.set(cell, { value: content });
+              const view = { parent: capturedMemory, cells: new Map(capturedMemory.cells) };
+              for (const [cell, content] of frozen) view.cells.set(cell, { value: content });
               rest = inMemory(rest, view);
             }
             return successor ? handle(rest, { ...activation, ...successor }) : signature.mode === "deep" ? handle(rest, activation) : rest;

@@ -12,6 +12,7 @@ pub const Kind = enum {
     bypass,
     twice,
     cleanup,
+    shared_cleanup,
     lazy,
     demanded,
     failure_before,
@@ -27,6 +28,22 @@ pub const Kind = enum {
     cleanup_named,
     imported_sequence,
     obligations,
+    cells_independent,
+    cells_shared,
+    memo_independent,
+    memo_shared,
+    state_local,
+    state_shared,
+    state_recursive_local,
+    state_recursive_shared,
+    hyper_duplicate,
+    hyper_configured,
+    hyper_lazy,
+    capture_order,
+    handler_duplicate,
+    handler_mixed_mode,
+    handler_effect_duplicate,
+    borrow_contexts,
 };
 
 pub fn build(raw: *source.Builder, kind: Kind) !source.Module {
@@ -34,6 +51,7 @@ pub fn build(raw: *source.Builder, kind: Kind) !source.Module {
         .deep, .shallow, .transform_deep, .transform_shallow, .bypass, .dispose, .reusable_body => handlerCase(raw, kind),
         .twice => twiceCase(raw),
         .cleanup => cleanupCase(raw),
+        .shared_cleanup => sharedCleanupCase(raw),
         .obligations => obligationsCase(raw, true),
         .lazy, .demanded => delayedCase(raw, kind == .demanded),
         .failure_before, .failure_after => failureCase(raw, kind == .failure_after),
@@ -44,6 +62,22 @@ pub fn build(raw: *source.Builder, kind: Kind) !source.Module {
         .cleanup_named => cleanupNamedCase(raw),
         .imported_sequence => importedSequenceCase(raw),
         .arithmetic, .arithmetic_fail => arithmeticCase(raw, kind == .arithmetic_fail),
+        .cells_independent => @import("coalescing_state_cases.zig").build(raw, .cells_independent),
+        .cells_shared => @import("coalescing_state_cases.zig").build(raw, .cells_shared),
+        .memo_independent => @import("coalescing_state_cases.zig").build(raw, .memo_independent),
+        .memo_shared => @import("coalescing_state_cases.zig").build(raw, .memo_shared),
+        .state_local => @import("source/state_choice_example.zig").local(raw),
+        .state_shared => @import("source/state_choice_example.zig").shared(raw),
+        .state_recursive_local => @import("source/state_choice_example.zig").recursiveLocal(raw),
+        .state_recursive_shared => @import("source/state_choice_example.zig").recursiveShared(raw),
+        .hyper_duplicate => @import("coalescing_hyper_cases.zig").build(raw, .duplicate),
+        .hyper_configured => @import("coalescing_hyper_cases.zig").build(raw, .configured),
+        .hyper_lazy => @import("coalescing_hyper_cases.zig").build(raw, .lazy),
+        .capture_order => @import("coalescing_capture_case.zig").build(raw),
+        .handler_duplicate => @import("coalescing_handler_cases.zig").build(raw, .duplicate),
+        .handler_mixed_mode => @import("coalescing_handler_cases.zig").build(raw, .mixed_mode),
+        .handler_effect_duplicate => @import("coalescing_handler_cases.zig").build(raw, .effect_duplicate),
+        .borrow_contexts => @import("coalescing_borrow_cases.zig").build(raw, false),
     };
 }
 fn handlerCase(raw: *source.Builder, kind: Kind) !source.Module {
@@ -167,6 +201,44 @@ pub fn obligationsCase(raw: *source.Builder, allowed: bool) !source.Module {
     try c.define(entry, try entry_body.ret(result));
     return c.module(entry, unit);
 }
+fn sharedCleanupCase(raw: *source.Builder) !source.Module {
+    const c = try a.Context.init(raw);
+    const integer = try c.scalar(u64);
+    const unit = try c.scalar(void);
+    const lookup = try c.external("case/lookup", integer, integer);
+    const release = try c.external("case/release", integer, unit);
+    const entry = try c.function("entry", &.{
+        .{ .name = "outer", .schema = integer }, .{ .name = "inner", .schema = integer },
+    }, integer, &.{ lookup, release });
+    const root = try c.body(entry);
+    const cleanup_shape = try c.callable(&.{.{ .name = "exit", .schema = try c.cleanupInfo(unit) }}, unit, &.{release}, .{ .use = .linear, .captures = &.{integer} });
+    var cleanups: [2]*const a.Function = undefined;
+    for (&cleanups, [_][]const u8{ "outer", "inner" }) |*cleanup, name| {
+        cleanup.* = try c.functionFor(name, cleanup_shape);
+        const body = try root.closureBody(cleanup.*);
+        try c.define(cleanup.*, try body.ret(try body.perform(release, try root.parameter(name))));
+    }
+    const work_shape = try c.callable(&.{}, integer, &.{lookup}, .{ .use = .linear, .captures = &.{} });
+    const work = try c.functionFor("work", work_shape);
+    const body = try c.body(work);
+    const reply = try body.perform(lookup, try body.constant(u64, 19));
+    try c.define(work, try body.ret(try body.checkedAdd(reply, try body.constant(u64, 1), try c.literalFailure(void, {}))));
+    const inside_shape = try c.callable(&.{}, integer, &.{ lookup, release }, .{ .use = .linear, .captures = &.{integer} });
+    const inside = try c.functionFor("inner protection", inside_shape);
+    const nested = try root.closureBody(inside);
+    try c.define(inside, try nested.ret(try nested.protect(
+        try nested.lambda(work, work_shape),
+        try nested.lambda(cleanups[1], cleanup_shape),
+        &.{},
+    )));
+    try c.define(entry, try root.ret(try root.protect(
+        try root.lambda(inside, inside_shape),
+        try root.lambda(cleanups[0], cleanup_shape),
+        &.{},
+    )));
+    return c.module(entry, unit);
+}
+
 fn cleanupCase(raw: *source.Builder) !source.Module {
     const c = try a.Context.init(raw);
     const integer = try c.scalar(u64);
@@ -370,6 +442,11 @@ pub fn main(init: std.process.Init) !void {
     const kind = std.meta.stringToEnum(Kind, args.next() orelse return error.MissingKind) orelse
         return error.InvalidKind;
     const format = args.next() orelse "bpi3";
+    const mode = if (args.next()) |selected|
+        std.meta.stringToEnum(data.coalescing.Mode, selected) orelse return error.InvalidMode
+    else
+        (data.coalescing.Options{}).mode;
+    if (args.next() != null) return error.UnexpectedArgument;
     var raw = source.Builder.init(init.gpa);
     defer raw.deinit();
     const module = try build(&raw, kind);
@@ -378,7 +455,7 @@ pub fn main(init: std.process.Init) !void {
     if (std.mem.eql(u8, format, "json")) {
         try std.json.Stringify.value(module, .{ .emit_strings_as_arrays = true }, &output.interface);
     } else {
-        var compiled = try source.lower(init.gpa, module);
+        var compiled = try source.lowerObserved(init.gpa, module, .{ .coalescing = .{ .mode = mode } });
         defer compiled.deinit();
         const bytes = try init.gpa.alloc(u8, try data.program_image.encodedLength(compiled.program));
         defer init.gpa.free(bytes);

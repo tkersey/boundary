@@ -65,6 +65,7 @@ fn lowerInternal(
     borrows: []const data.borrow_contract.Summary,
     options: source.CompileOptions,
 ) Error!Construction {
+    options.coalescing.resetObservations();
     if (options.diagnostic) |diagnostic| diagnostic.* = .{};
     errdefer |err| if (options.diagnostic) |diagnostic| {
         diagnostic.code = err;
@@ -126,6 +127,12 @@ fn lowerInternal(
     const threaded = try @import("thread_jumps.zig").optimize(a, program);
     const selected = try @import("tail_clauses.zig").optimize(a, threaded, traits);
     const ordered = try @import("slot_order.zig").optimize(a, selected);
+    if (!component and options.coalescing.mode == .safe)
+        return coalesce(allocator, ordered, &compiler, options);
+    if (options.coalescing.statistics) |stats| stats.* = .{
+        .rounds = stats.rounds,
+        .outcome = if (component) .deferred_open_component else .disabled,
+    };
     var output = std.heap.ArenaAllocator.init(allocator);
     errdefer output.deinit();
     options.stage(if (component) .source_copy else .canonicalization);
@@ -135,10 +142,53 @@ fn lowerInternal(
         try data.relocation.ownReachable(output.allocator(), a, ordered);
     const result = projected.program;
     options.stage(.target_check);
-    const flow = try checkTarget(allocator, &compiler, result, imports, component, borrows, if (component) null else projected.function_origins, options);
+    var flow = try checkTarget(allocator, &compiler, result, imports, component, borrows, if (component) null else projected.function_origins, options);
+    errdefer flow.deinit();
+    if (!component) if (options.coalescing.statistics) |stats| {
+        stats.baseline = try data.coalescing.Counts.of(result);
+        stats.selected = stats.baseline;
+    };
     options.stage(.complete);
     if (options.diagnostic) |diagnostic| diagnostic.* = .{ .phase = .complete };
     return .{ .arena = output, .program = result, .flow = flow };
+}
+
+fn coalesce(allocator: std.mem.Allocator, program: ir.Program, compiler: *Compiler, options: source.CompileOptions) Error!Construction {
+    options.stage(.coalescing);
+    var detail: data.coalescing.Diagnostic = .{};
+    var selected = options.coalescing;
+    if (options.diagnostic) |diagnostic| {
+        diagnostic.target = .{};
+        diagnostic.function = null;
+        diagnostic.variable = null;
+        diagnostic.origins = .{};
+        selected.diagnostic = &detail;
+    }
+    defer {
+        if (options.diagnostic != null) if (options.coalescing.diagnostic) |out| {
+            out.* = detail;
+        };
+    }
+    const result = data.coalescing.run(allocator, program, selected) catch |err| {
+        if (options.diagnostic) |diagnostic| {
+            diagnostic.target = detail.target;
+            diagnostic.origins = detail.origins;
+            if (detail.origins.count != 0) {
+                const function = detail.origins.functions[0];
+                diagnostic.function = function;
+                if (!detail.origins.ambiguous and detail.target.capture != null) {
+                    if (detail.target.field) |field| {
+                        const free = compiler.facts.functions[@intCast(function)].items;
+                        if (field < free.len) diagnostic.variable = free[@intCast(field)];
+                    }
+                }
+            }
+        }
+        return err;
+    };
+    options.stage(.complete);
+    if (options.diagnostic) |diagnostic| diagnostic.* = .{ .phase = .complete };
+    return .{ .arena = result.arena, .program = result.program, .flow = result.flow };
 }
 
 fn checkTarget(allocator: std.mem.Allocator, compiler: *Compiler, program: ir.Program, imports: []const p.Id, component: bool, borrows: []const data.borrow_contract.Summary, origins: ?[]const p.Id, options: source.CompileOptions) Error!data.activation_flow.Facts {
@@ -149,22 +199,12 @@ fn checkTarget(allocator: std.mem.Allocator, compiler: *Compiler, program: ir.Pr
         diagnostic.target = .{};
         diagnostic.function = null;
         diagnostic.variable = null;
+        diagnostic.origins = .{};
     }
     return data.activation_ownership.analyzeObserved(allocator, program, if (options.diagnostic) |diagnostic| &diagnostic.target else null, if (origins == null and compiler.capture_observer != null) .{ .context = compiler, .capture = Compiler.observeCapture } else null) catch |err|
         {
             if (options.diagnostic) |diagnostic| {
-                diagnostic.function = if (diagnostic.target.function) |id| (if (origins) |map| map[@intCast(id)] else id) else null;
-                if (diagnostic.target.capture) |capture| {
-                    for (program.constructors) |constructor| if (constructor.capture == capture) {
-                        diagnostic.function = if (origins) |map| map[@intCast(constructor.function)] else constructor.function;
-                        if (diagnostic.target.field) |field| {
-                            const function = if (origins) |map| map[@intCast(constructor.function)] else constructor.function;
-                            const free = compiler.facts.functions[@intCast(function)].items;
-                            if (field < free.len) diagnostic.variable = free[@intCast(field)];
-                        }
-                        break;
-                    };
-                }
+                @import("diagnostic_origins.zig").translate(diagnostic, program, origins, compiler.facts.functions);
             }
             return err;
         };

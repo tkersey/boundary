@@ -25,6 +25,9 @@ fn add(b: *source.Builder, integer: p.Id, left: p.Id, right: p.Id) !p.Id {
     return b.value(.{ .schema = integer, .expression = .{ .primitive = .{ .opcode = .integer_add, .operands = &.{ left, right }, .failures = &.{.{ .kind = .arithmetic_overflow, .value = failure }} } } });
 }
 pub fn emit(allocator: std.mem.Allocator, kind: Kind) ![]u8 {
+    return emitWithOptions(allocator, kind, .{});
+}
+pub fn emitWithOptions(allocator: std.mem.Allocator, kind: Kind, options: source.CompileOptions) ![]u8 {
     var b = source.Builder.init(allocator);
     defer b.deinit();
     const c = try common(&b);
@@ -36,7 +39,7 @@ pub fn emit(allocator: std.mem.Allocator, kind: Kind) ![]u8 {
         .even => try recursive(&b, c, true),
         .odd => try recursive(&b, c, false),
     };
-    var compiled = try source.component.compile(allocator, b.module(built.entry, c.unit), built.interface);
+    var compiled = try source.component.compileObserved(allocator, b.module(built.entry, c.unit), built.interface, options);
     defer compiled.deinit();
     const bytes = try allocator.alloc(u8, try data.component.encodedLength(compiled.object));
     errdefer allocator.free(bytes);

@@ -1,0 +1,1962 @@
+{
+  "scope": "All three-slot assignment/renaming permutations and one-field mutations; bounded production-record corpus",
+  "kernelSha256": "7d31effb1d4e32523d0fcbd5b4d5f5a8a2289fbd4c731173a33b1c174524282f",
+  "wasmtime": {
+    "ready": true,
+    "wasmtime": "48.0.0",
+    "python": "3.14.7 (main, Aug  5 2026, 10:29:49) [Clang 21.0.0 (clang-2100.1.1.101)]"
+  },
+  "emitterSha256": "02132cdd3e08adae32461e2959d1e8a3ff62cdae6a670653f7c37155eb35fab7",
+  "nativeSha256": "154d1e7424017304e7426c3beb269865ac2fe76dc7ca2c69a7db2ddf29615c3b",
+  "harnessSha256": "f73efca16948143c4012d5be2d1ccaee482c91e51d9c508457b9dc2ce5878a01",
+  "validPrograms": 72,
+  "pairedExecutions": 144,
+  "invalidPrograms": 36,
+  "invalidCompileAttempts": 72,
+  "rows": [
+    {
+      "seed": 0,
+      "offBytes": 169,
+      "safeBytes": 132,
+      "offFunctions": 3,
+      "safeFunctions": 2,
+      "observation": {
+        "kind": "completed",
+        "value": "0b00000000000000160000000000000021000000000000000b0000000000000016000000000000002100000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 64,
+      "offBytes": 169,
+      "safeBytes": 169,
+      "offFunctions": 3,
+      "safeFunctions": 3,
+      "observation": {
+        "kind": "completed",
+        "value": "0b000000000000001600000000000000210000000000000016000000000000000b000000000000002100000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 1,
+      "offBytes": 169,
+      "safeBytes": 132,
+      "offFunctions": 3,
+      "safeFunctions": 2,
+      "observation": {
+        "kind": "completed",
+        "value": "0b00000000000000210000000000000016000000000000000b0000000000000021000000000000001600000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 65,
+      "offBytes": 169,
+      "safeBytes": 169,
+      "offFunctions": 3,
+      "safeFunctions": 3,
+      "observation": {
+        "kind": "completed",
+        "value": "0b000000000000002100000000000000160000000000000021000000000000000b000000000000001600000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 2,
+      "offBytes": 169,
+      "safeBytes": 132,
+      "offFunctions": 3,
+      "safeFunctions": 2,
+      "observation": {
+        "kind": "completed",
+        "value": "16000000000000000b00000000000000210000000000000016000000000000000b000000000000002100000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 66,
+      "offBytes": 169,
+      "safeBytes": 169,
+      "offFunctions": 3,
+      "safeFunctions": 3,
+      "observation": {
+        "kind": "completed",
+        "value": "16000000000000000b0000000000000021000000000000000b0000000000000016000000000000002100000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 3,
+      "offBytes": 169,
+      "safeBytes": 132,
+      "offFunctions": 3,
+      "safeFunctions": 2,
+      "observation": {
+        "kind": "completed",
+        "value": "160000000000000021000000000000000b00000000000000160000000000000021000000000000000b00000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 67,
+      "offBytes": 169,
+      "safeBytes": 169,
+      "offFunctions": 3,
+      "safeFunctions": 3,
+      "observation": {
+        "kind": "completed",
+        "value": "160000000000000021000000000000000b00000000000000210000000000000016000000000000000b00000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 4,
+      "offBytes": 169,
+      "safeBytes": 132,
+      "offFunctions": 3,
+      "safeFunctions": 2,
+      "observation": {
+        "kind": "completed",
+        "value": "21000000000000000b00000000000000160000000000000021000000000000000b000000000000001600000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 68,
+      "offBytes": 169,
+      "safeBytes": 169,
+      "offFunctions": 3,
+      "safeFunctions": 3,
+      "observation": {
+        "kind": "completed",
+        "value": "21000000000000000b0000000000000016000000000000000b0000000000000021000000000000001600000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 5,
+      "offBytes": 169,
+      "safeBytes": 132,
+      "offFunctions": 3,
+      "safeFunctions": 2,
+      "observation": {
+        "kind": "completed",
+        "value": "210000000000000016000000000000000b00000000000000210000000000000016000000000000000b00000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 69,
+      "offBytes": 169,
+      "safeBytes": 169,
+      "offFunctions": 3,
+      "safeFunctions": 3,
+      "observation": {
+        "kind": "completed",
+        "value": "210000000000000016000000000000000b00000000000000160000000000000021000000000000000b00000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 6,
+      "offBytes": 169,
+      "safeBytes": 132,
+      "offFunctions": 3,
+      "safeFunctions": 2,
+      "observation": {
+        "kind": "completed",
+        "value": "0b00000000000000160000000000000021000000000000000b0000000000000016000000000000002100000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 70,
+      "offBytes": 169,
+      "safeBytes": 169,
+      "offFunctions": 3,
+      "safeFunctions": 3,
+      "observation": {
+        "kind": "completed",
+        "value": "0b000000000000001600000000000000210000000000000016000000000000000b000000000000002100000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 7,
+      "offBytes": 169,
+      "safeBytes": 132,
+      "offFunctions": 3,
+      "safeFunctions": 2,
+      "observation": {
+        "kind": "completed",
+        "value": "0b00000000000000210000000000000016000000000000000b0000000000000021000000000000001600000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 71,
+      "offBytes": 169,
+      "safeBytes": 169,
+      "offFunctions": 3,
+      "safeFunctions": 3,
+      "observation": {
+        "kind": "completed",
+        "value": "0b000000000000002100000000000000160000000000000021000000000000000b000000000000001600000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 8,
+      "offBytes": 169,
+      "safeBytes": 132,
+      "offFunctions": 3,
+      "safeFunctions": 2,
+      "observation": {
+        "kind": "completed",
+        "value": "16000000000000000b00000000000000210000000000000016000000000000000b000000000000002100000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 72,
+      "offBytes": 169,
+      "safeBytes": 169,
+      "offFunctions": 3,
+      "safeFunctions": 3,
+      "observation": {
+        "kind": "completed",
+        "value": "16000000000000000b0000000000000021000000000000000b0000000000000016000000000000002100000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 9,
+      "offBytes": 169,
+      "safeBytes": 132,
+      "offFunctions": 3,
+      "safeFunctions": 2,
+      "observation": {
+        "kind": "completed",
+        "value": "160000000000000021000000000000000b00000000000000160000000000000021000000000000000b00000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 73,
+      "offBytes": 169,
+      "safeBytes": 169,
+      "offFunctions": 3,
+      "safeFunctions": 3,
+      "observation": {
+        "kind": "completed",
+        "value": "160000000000000021000000000000000b00000000000000210000000000000016000000000000000b00000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 10,
+      "offBytes": 169,
+      "safeBytes": 132,
+      "offFunctions": 3,
+      "safeFunctions": 2,
+      "observation": {
+        "kind": "completed",
+        "value": "21000000000000000b00000000000000160000000000000021000000000000000b000000000000001600000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 74,
+      "offBytes": 169,
+      "safeBytes": 169,
+      "offFunctions": 3,
+      "safeFunctions": 3,
+      "observation": {
+        "kind": "completed",
+        "value": "21000000000000000b0000000000000016000000000000000b0000000000000021000000000000001600000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 11,
+      "offBytes": 169,
+      "safeBytes": 132,
+      "offFunctions": 3,
+      "safeFunctions": 2,
+      "observation": {
+        "kind": "completed",
+        "value": "210000000000000016000000000000000b00000000000000210000000000000016000000000000000b00000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 75,
+      "offBytes": 169,
+      "safeBytes": 169,
+      "offFunctions": 3,
+      "safeFunctions": 3,
+      "observation": {
+        "kind": "completed",
+        "value": "210000000000000016000000000000000b00000000000000160000000000000021000000000000000b00000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 12,
+      "offBytes": 169,
+      "safeBytes": 132,
+      "offFunctions": 3,
+      "safeFunctions": 2,
+      "observation": {
+        "kind": "completed",
+        "value": "0b00000000000000160000000000000021000000000000000b0000000000000016000000000000002100000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 76,
+      "offBytes": 169,
+      "safeBytes": 169,
+      "offFunctions": 3,
+      "safeFunctions": 3,
+      "observation": {
+        "kind": "completed",
+        "value": "0b000000000000001600000000000000210000000000000016000000000000000b000000000000002100000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 13,
+      "offBytes": 169,
+      "safeBytes": 132,
+      "offFunctions": 3,
+      "safeFunctions": 2,
+      "observation": {
+        "kind": "completed",
+        "value": "0b00000000000000210000000000000016000000000000000b0000000000000021000000000000001600000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 77,
+      "offBytes": 169,
+      "safeBytes": 169,
+      "offFunctions": 3,
+      "safeFunctions": 3,
+      "observation": {
+        "kind": "completed",
+        "value": "0b000000000000002100000000000000160000000000000021000000000000000b000000000000001600000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 14,
+      "offBytes": 169,
+      "safeBytes": 132,
+      "offFunctions": 3,
+      "safeFunctions": 2,
+      "observation": {
+        "kind": "completed",
+        "value": "16000000000000000b00000000000000210000000000000016000000000000000b000000000000002100000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 78,
+      "offBytes": 169,
+      "safeBytes": 169,
+      "offFunctions": 3,
+      "safeFunctions": 3,
+      "observation": {
+        "kind": "completed",
+        "value": "16000000000000000b0000000000000021000000000000000b0000000000000016000000000000002100000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 15,
+      "offBytes": 169,
+      "safeBytes": 132,
+      "offFunctions": 3,
+      "safeFunctions": 2,
+      "observation": {
+        "kind": "completed",
+        "value": "160000000000000021000000000000000b00000000000000160000000000000021000000000000000b00000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 79,
+      "offBytes": 169,
+      "safeBytes": 169,
+      "offFunctions": 3,
+      "safeFunctions": 3,
+      "observation": {
+        "kind": "completed",
+        "value": "160000000000000021000000000000000b00000000000000210000000000000016000000000000000b00000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 16,
+      "offBytes": 169,
+      "safeBytes": 132,
+      "offFunctions": 3,
+      "safeFunctions": 2,
+      "observation": {
+        "kind": "completed",
+        "value": "21000000000000000b00000000000000160000000000000021000000000000000b000000000000001600000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 80,
+      "offBytes": 169,
+      "safeBytes": 169,
+      "offFunctions": 3,
+      "safeFunctions": 3,
+      "observation": {
+        "kind": "completed",
+        "value": "21000000000000000b0000000000000016000000000000000b0000000000000021000000000000001600000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 17,
+      "offBytes": 169,
+      "safeBytes": 132,
+      "offFunctions": 3,
+      "safeFunctions": 2,
+      "observation": {
+        "kind": "completed",
+        "value": "210000000000000016000000000000000b00000000000000210000000000000016000000000000000b00000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 81,
+      "offBytes": 169,
+      "safeBytes": 169,
+      "offFunctions": 3,
+      "safeFunctions": 3,
+      "observation": {
+        "kind": "completed",
+        "value": "210000000000000016000000000000000b00000000000000160000000000000021000000000000000b00000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 18,
+      "offBytes": 169,
+      "safeBytes": 132,
+      "offFunctions": 3,
+      "safeFunctions": 2,
+      "observation": {
+        "kind": "completed",
+        "value": "0b00000000000000160000000000000021000000000000000b0000000000000016000000000000002100000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 82,
+      "offBytes": 169,
+      "safeBytes": 169,
+      "offFunctions": 3,
+      "safeFunctions": 3,
+      "observation": {
+        "kind": "completed",
+        "value": "0b000000000000001600000000000000210000000000000016000000000000000b000000000000002100000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 19,
+      "offBytes": 169,
+      "safeBytes": 132,
+      "offFunctions": 3,
+      "safeFunctions": 2,
+      "observation": {
+        "kind": "completed",
+        "value": "0b00000000000000210000000000000016000000000000000b0000000000000021000000000000001600000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 83,
+      "offBytes": 169,
+      "safeBytes": 169,
+      "offFunctions": 3,
+      "safeFunctions": 3,
+      "observation": {
+        "kind": "completed",
+        "value": "0b000000000000002100000000000000160000000000000021000000000000000b000000000000001600000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 20,
+      "offBytes": 169,
+      "safeBytes": 132,
+      "offFunctions": 3,
+      "safeFunctions": 2,
+      "observation": {
+        "kind": "completed",
+        "value": "16000000000000000b00000000000000210000000000000016000000000000000b000000000000002100000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 84,
+      "offBytes": 169,
+      "safeBytes": 169,
+      "offFunctions": 3,
+      "safeFunctions": 3,
+      "observation": {
+        "kind": "completed",
+        "value": "16000000000000000b0000000000000021000000000000000b0000000000000016000000000000002100000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 21,
+      "offBytes": 169,
+      "safeBytes": 132,
+      "offFunctions": 3,
+      "safeFunctions": 2,
+      "observation": {
+        "kind": "completed",
+        "value": "160000000000000021000000000000000b00000000000000160000000000000021000000000000000b00000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 85,
+      "offBytes": 169,
+      "safeBytes": 169,
+      "offFunctions": 3,
+      "safeFunctions": 3,
+      "observation": {
+        "kind": "completed",
+        "value": "160000000000000021000000000000000b00000000000000210000000000000016000000000000000b00000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 22,
+      "offBytes": 169,
+      "safeBytes": 132,
+      "offFunctions": 3,
+      "safeFunctions": 2,
+      "observation": {
+        "kind": "completed",
+        "value": "21000000000000000b00000000000000160000000000000021000000000000000b000000000000001600000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 86,
+      "offBytes": 169,
+      "safeBytes": 169,
+      "offFunctions": 3,
+      "safeFunctions": 3,
+      "observation": {
+        "kind": "completed",
+        "value": "21000000000000000b0000000000000016000000000000000b0000000000000021000000000000001600000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 23,
+      "offBytes": 169,
+      "safeBytes": 132,
+      "offFunctions": 3,
+      "safeFunctions": 2,
+      "observation": {
+        "kind": "completed",
+        "value": "210000000000000016000000000000000b00000000000000210000000000000016000000000000000b00000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 87,
+      "offBytes": 169,
+      "safeBytes": 169,
+      "offFunctions": 3,
+      "safeFunctions": 3,
+      "observation": {
+        "kind": "completed",
+        "value": "210000000000000016000000000000000b00000000000000160000000000000021000000000000000b00000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 24,
+      "offBytes": 169,
+      "safeBytes": 132,
+      "offFunctions": 3,
+      "safeFunctions": 2,
+      "observation": {
+        "kind": "completed",
+        "value": "0b00000000000000160000000000000021000000000000000b0000000000000016000000000000002100000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 88,
+      "offBytes": 169,
+      "safeBytes": 169,
+      "offFunctions": 3,
+      "safeFunctions": 3,
+      "observation": {
+        "kind": "completed",
+        "value": "0b000000000000001600000000000000210000000000000016000000000000000b000000000000002100000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 25,
+      "offBytes": 169,
+      "safeBytes": 132,
+      "offFunctions": 3,
+      "safeFunctions": 2,
+      "observation": {
+        "kind": "completed",
+        "value": "0b00000000000000210000000000000016000000000000000b0000000000000021000000000000001600000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 89,
+      "offBytes": 169,
+      "safeBytes": 169,
+      "offFunctions": 3,
+      "safeFunctions": 3,
+      "observation": {
+        "kind": "completed",
+        "value": "0b000000000000002100000000000000160000000000000021000000000000000b000000000000001600000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 26,
+      "offBytes": 169,
+      "safeBytes": 132,
+      "offFunctions": 3,
+      "safeFunctions": 2,
+      "observation": {
+        "kind": "completed",
+        "value": "16000000000000000b00000000000000210000000000000016000000000000000b000000000000002100000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 90,
+      "offBytes": 169,
+      "safeBytes": 169,
+      "offFunctions": 3,
+      "safeFunctions": 3,
+      "observation": {
+        "kind": "completed",
+        "value": "16000000000000000b0000000000000021000000000000000b0000000000000016000000000000002100000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 27,
+      "offBytes": 169,
+      "safeBytes": 132,
+      "offFunctions": 3,
+      "safeFunctions": 2,
+      "observation": {
+        "kind": "completed",
+        "value": "160000000000000021000000000000000b00000000000000160000000000000021000000000000000b00000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 91,
+      "offBytes": 169,
+      "safeBytes": 169,
+      "offFunctions": 3,
+      "safeFunctions": 3,
+      "observation": {
+        "kind": "completed",
+        "value": "160000000000000021000000000000000b00000000000000210000000000000016000000000000000b00000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 28,
+      "offBytes": 169,
+      "safeBytes": 132,
+      "offFunctions": 3,
+      "safeFunctions": 2,
+      "observation": {
+        "kind": "completed",
+        "value": "21000000000000000b00000000000000160000000000000021000000000000000b000000000000001600000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 92,
+      "offBytes": 169,
+      "safeBytes": 169,
+      "offFunctions": 3,
+      "safeFunctions": 3,
+      "observation": {
+        "kind": "completed",
+        "value": "21000000000000000b0000000000000016000000000000000b0000000000000021000000000000001600000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 29,
+      "offBytes": 169,
+      "safeBytes": 132,
+      "offFunctions": 3,
+      "safeFunctions": 2,
+      "observation": {
+        "kind": "completed",
+        "value": "210000000000000016000000000000000b00000000000000210000000000000016000000000000000b00000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 93,
+      "offBytes": 169,
+      "safeBytes": 169,
+      "offFunctions": 3,
+      "safeFunctions": 3,
+      "observation": {
+        "kind": "completed",
+        "value": "210000000000000016000000000000000b00000000000000160000000000000021000000000000000b00000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 30,
+      "offBytes": 169,
+      "safeBytes": 132,
+      "offFunctions": 3,
+      "safeFunctions": 2,
+      "observation": {
+        "kind": "completed",
+        "value": "0b00000000000000160000000000000021000000000000000b0000000000000016000000000000002100000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 94,
+      "offBytes": 169,
+      "safeBytes": 169,
+      "offFunctions": 3,
+      "safeFunctions": 3,
+      "observation": {
+        "kind": "completed",
+        "value": "0b000000000000001600000000000000210000000000000016000000000000000b000000000000002100000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 31,
+      "offBytes": 169,
+      "safeBytes": 132,
+      "offFunctions": 3,
+      "safeFunctions": 2,
+      "observation": {
+        "kind": "completed",
+        "value": "0b00000000000000210000000000000016000000000000000b0000000000000021000000000000001600000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 95,
+      "offBytes": 169,
+      "safeBytes": 169,
+      "offFunctions": 3,
+      "safeFunctions": 3,
+      "observation": {
+        "kind": "completed",
+        "value": "0b000000000000002100000000000000160000000000000021000000000000000b000000000000001600000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 32,
+      "offBytes": 169,
+      "safeBytes": 132,
+      "offFunctions": 3,
+      "safeFunctions": 2,
+      "observation": {
+        "kind": "completed",
+        "value": "16000000000000000b00000000000000210000000000000016000000000000000b000000000000002100000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 96,
+      "offBytes": 169,
+      "safeBytes": 169,
+      "offFunctions": 3,
+      "safeFunctions": 3,
+      "observation": {
+        "kind": "completed",
+        "value": "16000000000000000b0000000000000021000000000000000b0000000000000016000000000000002100000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 33,
+      "offBytes": 169,
+      "safeBytes": 132,
+      "offFunctions": 3,
+      "safeFunctions": 2,
+      "observation": {
+        "kind": "completed",
+        "value": "160000000000000021000000000000000b00000000000000160000000000000021000000000000000b00000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 97,
+      "offBytes": 169,
+      "safeBytes": 169,
+      "offFunctions": 3,
+      "safeFunctions": 3,
+      "observation": {
+        "kind": "completed",
+        "value": "160000000000000021000000000000000b00000000000000210000000000000016000000000000000b00000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 34,
+      "offBytes": 169,
+      "safeBytes": 132,
+      "offFunctions": 3,
+      "safeFunctions": 2,
+      "observation": {
+        "kind": "completed",
+        "value": "21000000000000000b00000000000000160000000000000021000000000000000b000000000000001600000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 98,
+      "offBytes": 169,
+      "safeBytes": 169,
+      "offFunctions": 3,
+      "safeFunctions": 3,
+      "observation": {
+        "kind": "completed",
+        "value": "21000000000000000b0000000000000016000000000000000b0000000000000021000000000000001600000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 35,
+      "offBytes": 169,
+      "safeBytes": 132,
+      "offFunctions": 3,
+      "safeFunctions": 2,
+      "observation": {
+        "kind": "completed",
+        "value": "210000000000000016000000000000000b00000000000000210000000000000016000000000000000b00000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 99,
+      "offBytes": 169,
+      "safeBytes": 169,
+      "offFunctions": 3,
+      "safeFunctions": 3,
+      "observation": {
+        "kind": "completed",
+        "value": "210000000000000016000000000000000b00000000000000160000000000000021000000000000000b00000000000000",
+        "trace": [
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "progressed",
+          "completed"
+        ]
+      }
+    },
+    {
+      "seed": 128,
+      "rejected": "InvalidReference",
+      "modes": [
+        "off",
+        "safe"
+      ]
+    },
+    {
+      "seed": 129,
+      "rejected": "InvalidReference",
+      "modes": [
+        "off",
+        "safe"
+      ]
+    },
+    {
+      "seed": 130,
+      "rejected": "InvalidReference",
+      "modes": [
+        "off",
+        "safe"
+      ]
+    },
+    {
+      "seed": 131,
+      "rejected": "InvalidReference",
+      "modes": [
+        "off",
+        "safe"
+      ]
+    },
+    {
+      "seed": 132,
+      "rejected": "InvalidReference",
+      "modes": [
+        "off",
+        "safe"
+      ]
+    },
+    {
+      "seed": 133,
+      "rejected": "InvalidReference",
+      "modes": [
+        "off",
+        "safe"
+      ]
+    },
+    {
+      "seed": 134,
+      "rejected": "InvalidReference",
+      "modes": [
+        "off",
+        "safe"
+      ]
+    },
+    {
+      "seed": 135,
+      "rejected": "InvalidReference",
+      "modes": [
+        "off",
+        "safe"
+      ]
+    },
+    {
+      "seed": 136,
+      "rejected": "InvalidReference",
+      "modes": [
+        "off",
+        "safe"
+      ]
+    },
+    {
+      "seed": 137,
+      "rejected": "InvalidReference",
+      "modes": [
+        "off",
+        "safe"
+      ]
+    },
+    {
+      "seed": 138,
+      "rejected": "InvalidReference",
+      "modes": [
+        "off",
+        "safe"
+      ]
+    },
+    {
+      "seed": 139,
+      "rejected": "InvalidReference",
+      "modes": [
+        "off",
+        "safe"
+      ]
+    },
+    {
+      "seed": 140,
+      "rejected": "InvalidReference",
+      "modes": [
+        "off",
+        "safe"
+      ]
+    },
+    {
+      "seed": 141,
+      "rejected": "InvalidReference",
+      "modes": [
+        "off",
+        "safe"
+      ]
+    },
+    {
+      "seed": 142,
+      "rejected": "InvalidReference",
+      "modes": [
+        "off",
+        "safe"
+      ]
+    },
+    {
+      "seed": 143,
+      "rejected": "InvalidReference",
+      "modes": [
+        "off",
+        "safe"
+      ]
+    },
+    {
+      "seed": 144,
+      "rejected": "InvalidReference",
+      "modes": [
+        "off",
+        "safe"
+      ]
+    },
+    {
+      "seed": 145,
+      "rejected": "InvalidReference",
+      "modes": [
+        "off",
+        "safe"
+      ]
+    },
+    {
+      "seed": 146,
+      "rejected": "InvalidReference",
+      "modes": [
+        "off",
+        "safe"
+      ]
+    },
+    {
+      "seed": 147,
+      "rejected": "InvalidReference",
+      "modes": [
+        "off",
+        "safe"
+      ]
+    },
+    {
+      "seed": 148,
+      "rejected": "InvalidReference",
+      "modes": [
+        "off",
+        "safe"
+      ]
+    },
+    {
+      "seed": 149,
+      "rejected": "InvalidReference",
+      "modes": [
+        "off",
+        "safe"
+      ]
+    },
+    {
+      "seed": 150,
+      "rejected": "InvalidReference",
+      "modes": [
+        "off",
+        "safe"
+      ]
+    },
+    {
+      "seed": 151,
+      "rejected": "InvalidReference",
+      "modes": [
+        "off",
+        "safe"
+      ]
+    },
+    {
+      "seed": 152,
+      "rejected": "InvalidReference",
+      "modes": [
+        "off",
+        "safe"
+      ]
+    },
+    {
+      "seed": 153,
+      "rejected": "InvalidReference",
+      "modes": [
+        "off",
+        "safe"
+      ]
+    },
+    {
+      "seed": 154,
+      "rejected": "InvalidReference",
+      "modes": [
+        "off",
+        "safe"
+      ]
+    },
+    {
+      "seed": 155,
+      "rejected": "InvalidReference",
+      "modes": [
+        "off",
+        "safe"
+      ]
+    },
+    {
+      "seed": 156,
+      "rejected": "InvalidReference",
+      "modes": [
+        "off",
+        "safe"
+      ]
+    },
+    {
+      "seed": 157,
+      "rejected": "InvalidReference",
+      "modes": [
+        "off",
+        "safe"
+      ]
+    },
+    {
+      "seed": 158,
+      "rejected": "InvalidReference",
+      "modes": [
+        "off",
+        "safe"
+      ]
+    },
+    {
+      "seed": 159,
+      "rejected": "InvalidReference",
+      "modes": [
+        "off",
+        "safe"
+      ]
+    },
+    {
+      "seed": 160,
+      "rejected": "InvalidReference",
+      "modes": [
+        "off",
+        "safe"
+      ]
+    },
+    {
+      "seed": 161,
+      "rejected": "InvalidReference",
+      "modes": [
+        "off",
+        "safe"
+      ]
+    },
+    {
+      "seed": 162,
+      "rejected": "InvalidReference",
+      "modes": [
+        "off",
+        "safe"
+      ]
+    },
+    {
+      "seed": 163,
+      "rejected": "InvalidReference",
+      "modes": [
+        "off",
+        "safe"
+      ]
+    }
+  ]
+}
