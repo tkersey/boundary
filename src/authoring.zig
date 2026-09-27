@@ -1688,6 +1688,18 @@ pub const Body = opaque {
             0,
         )), boolean);
     }
+    /// Select between already-staged values. Ownership admission still checks
+    /// that the unselected value may be dropped.
+    pub fn select(self: *Body, condition: *const Value, yes: *const Value, no: *const Value) Error!*const Value {
+        const flag = try self.useValue(condition);
+        const left = try self.useValue(yes);
+        const right = try self.useValue(no);
+        const c = bodyData(self).context;
+        try c.same(try c.scalar(bool), flag.schema);
+        try c.same(left.schema, right.schema);
+        errdefer |err| c.poison(err);
+        return self.bind(try contextData(c).raw.pure(try contextData(c).raw.primitive(try c.schemaId(left.schema), .select, &.{ flag.id, left.id, right.id }, 0)), left.schema);
+    }
     pub fn less(self: *Body, left: *const Value, right: *const Value) Error!*const Value {
         const lhs = try self.useValue(left);
         const rhs = try self.useValue(right);

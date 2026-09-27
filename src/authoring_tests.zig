@@ -1930,3 +1930,20 @@ test "typed equality primitives retain category origin and fault contracts" {
     var compiled = try c.compile(testing.allocator, f, unit);
     defer compiled.deinit();
 }
+
+test "typed eager selection checks the condition and both value contracts" {
+    var raw = source.Builder.init(testing.allocator);
+    defer raw.deinit();
+    const c = try a.Context.init(&raw);
+    const integer = try c.scalar(u64);
+    const f = try c.function("select", &.{.{ .name = "condition", .schema = try c.scalar(bool) }}, integer, &.{});
+    const body = try c.body(f);
+    const condition = try body.parameter("condition");
+    const yes = try body.constant(u64, 1);
+    const no = try body.constant(u64, 2);
+    try testing.expectError(error.SchemaMismatch, body.select(yes, yes, no));
+    try testing.expectError(error.SchemaMismatch, body.select(condition, yes, condition));
+    try c.define(f, try body.ret(try body.select(condition, yes, no)));
+    var compiled = try c.compile(testing.allocator, f, try c.scalar(void));
+    defer compiled.deinit();
+}
