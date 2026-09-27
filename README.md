@@ -45,8 +45,8 @@ returns a typed `example.lookup.v2` request, and the environment supplies its
 result. Application handlers, search, scheduling and cleanup remain Program code.
 
 `library` provides State, Reader/local, Writer, Raise/catch, answer-transforming
-choice, first/all results, DFS/BFS search, owned generators, protect/bracket and
-FIFO cooperative scheduling. Ownership, borrowing, nominal identities, failure
+choice, first/all results, DFS/BFS search, owned generators and FIFO cooperative
+scheduling. Typed bodies provide `protect` and `bracket`. Ownership, borrowing, nominal identities, failure
 order and cleanup remain checked. Stable slots retain earlier bindings without
 copying them into every intermediate continuation interface.
 
@@ -67,6 +67,14 @@ by operation with `clauseFunctionFor` or `resumptionSchemaFor`.
 Choice's `all` and `first` use the same typed `Options`, including separate owned
 and borrowed regions. The [State/Choice examples](src/source/state_choice_example.zig)
 exercise local versus shared state and mutually recursive work through that API.
+
+`Context.resource` declares a nominal resource; `resourceAuthority` selects its
+representation introducers and eliminators. `Body.packResource` and
+`unpackResource` emit accesses checked by that authority. `Body.bracket` transfers
+the owner to cleanup and gives its body a scoped loan. The
+[resource example](src/source/resource_example.zig) runs one typed client against
+scalar and structured representations. `library.cleanup.exitInfo` remains a
+schema helper for explicit source-IR construction; typed code uses `cleanupInfo`.
 
 ## Pure data and components
 

@@ -138,6 +138,7 @@ src/source/diagnostic.zig
 src/source/diagnostic_origins.zig
 src/source/economy_examples.zig
 src/source/examples.zig
+src/source/fixture_inspection.zig
 src/source/generator_example.zig
 src/source/indexed_example.zig
 src/source/injection_example.zig

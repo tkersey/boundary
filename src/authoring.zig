@@ -602,6 +602,37 @@ pub const Context = opaque {
             .region = r.id,
         } } }), &.{}, schema);
     }
+    pub fn resource(self: *Context, representation: *const Schema) Error!*const Schema {
+        const id = try self.schemaId(representation);
+        errdefer |err| self.poison(err);
+        return self.internResult(try contextData(self).raw.resource(id), &.{}, representation);
+    }
+    fn authorityIds(self: *Context, functions: []const *const Function) Error![]const p.Id {
+        const ids = try contextData(self).raw.allocator().alloc(p.Id, functions.len);
+        for (functions, ids) |function_handle, *id| {
+            const f = data(FunctionData, function_handle);
+            try self.origin(f.owner);
+            id.* = f.id;
+        }
+        std.mem.sort(p.Id, ids, {}, std.sort.asc(p.Id));
+        var length: usize = 0;
+        for (ids) |id| {
+            if (length == 0 or ids[length - 1] != id) {
+                ids[length] = id;
+                length += 1;
+            }
+        }
+        return ids[0..length];
+    }
+    /// Bind the existing nominal representation authority to typed declarations.
+    pub fn resourceAuthority(self: *Context, schema: *const Schema, introducers: []const *const Function, eliminators: []const *const Function) Error!void {
+        const id = try self.schemaId(schema);
+        const shape = contextData(self).raw.schemas.items[@intCast(id)];
+        if (shape != .internal or shape.internal != .abstract_resource)
+            return self.reject(error.InvalidCategory, "resource authority", "requires a nominal resource schema");
+        errdefer |err| self.poison(err);
+        try contextData(self).raw.resourceAuthority(id, try self.authorityIds(introducers), try self.authorityIds(eliminators));
+    }
     pub fn cleanupInfo(self: *Context, failure: *const Schema) Error!*const Schema {
         _ = try self.schemaId(failure);
         errdefer |err| self.poison(err);
@@ -1803,6 +1834,66 @@ pub const Body = opaque {
         try c.notePublication(.{ .anchor = .{ .term = term }, .contract = .{ .cleanup = cleanup_info.fields[0].schema } });
         return self.bind(term, info.result orelse return @as(Error!*const Value, c.reject(error.InvalidSchema, "protection", "requires callable body and cleanup contracts")));
     }
+    pub fn packResource(self: *Body, schema: *const Schema, representation: *const Value) Error!*const Value {
+        try self.ready();
+        const c = bodyData(self).context;
+        const id = try c.schemaId(schema);
+        const shape = contextData(c).raw.schemas.items[@intCast(id)];
+        if (shape != .internal or shape.internal != .abstract_resource)
+            return c.reject(error.InvalidCategory, "resource pack", "requires a nominal resource schema");
+        const value = try self.useValue(representation);
+        try c.same(data(SchemaData, schema).result orelse return error.InvalidSchema, value.schema);
+        errdefer |err| c.poison(err);
+        return self.bind(try contextData(c).raw.pure(try contextData(c).raw.primitive(id, .resource_pack, &.{value.id}, 0)), schema);
+    }
+    pub fn unpackResource(self: *Body, resource_value: *const Value) Error!*const Value {
+        const value = try self.useValue(resource_value);
+        const c = bodyData(self).context;
+        var info = data(SchemaData, value.schema);
+        var shape = contextData(c).raw.schemas.items[@intCast(info.id)];
+        if (shape == .internal and shape.internal == .borrowed) {
+            info = data(SchemaData, info.result orelse return error.InvalidSchema);
+            shape = contextData(c).raw.schemas.items[@intCast(info.id)];
+        }
+        if (shape != .internal or shape.internal != .abstract_resource)
+            return c.reject(error.InvalidCategory, "resource unpack", "requires an owned or borrowed nominal resource");
+        const representation = info.result orelse return error.InvalidSchema;
+        errdefer |err| c.poison(err);
+        return self.bind(try contextData(c).raw.pure(try contextData(c).raw.primitive(try c.schemaId(representation), .resource_unpack, &.{value.id}, 0)), representation);
+    }
+    /// Transfer an owner to cleanup; the body receives only its scoped loan.
+    pub fn bracket(self: *Body, resource_value: *const Value, region_handle: *const Region, work: *const Value, cleanup: *const Value, args: []const Argument) Error!*const Value {
+        const owned = try self.useValue(resource_value);
+        const v = try self.useValue(work);
+        const finalizer = try self.useValue(cleanup);
+        const c = bodyData(self).context;
+        const r = data(RegionData, region_handle);
+        try c.origin(r.owner);
+        const resource_shape = contextData(c).raw.schemas.items[@intCast(try c.schemaId(owned.schema))];
+        if (resource_shape != .internal or resource_shape.internal != .abstract_resource)
+            return c.reject(error.InvalidCategory, "bracket", "requires an owned nominal resource");
+        const info = data(SchemaData, v.schema);
+        const cleanup_info = data(SchemaData, finalizer.schema);
+        const work_shape = contextData(c).raw.schemas.items[@intCast(info.id)];
+        const cleanup_shape = contextData(c).raw.schemas.items[@intCast(cleanup_info.id)];
+        if (work_shape != .internal or work_shape.internal != .computation or cleanup_shape != .internal or cleanup_shape.internal != .computation)
+            return c.reject(error.InvalidCategory, "bracket", "requires callable body and cleanup contracts");
+        if (info.fields.len == 0 or cleanup_info.fields.len != 2)
+            return c.reject(error.SchemaMismatch, "bracket", "requires a body loan and cleanup exit-info/owner parameters");
+        try c.same(try c.borrowed(owned.schema, region_handle), info.fields[0].schema);
+        try c.same(owned.schema, cleanup_info.fields[1].schema);
+        try c.same(try c.scalar(void), cleanup_info.result orelse return error.InvalidSchema);
+        errdefer |err| c.poison(err);
+        const term = try contextData(c).raw.term(.{ .protect = .{
+            .body = v.id,
+            .cleanup = finalizer.id,
+            .resource = owned.id,
+            .loan_region = r.id,
+            .arguments = try self.arguments(info.fields[1..], args),
+        } });
+        try c.notePublication(.{ .anchor = .{ .term = term }, .contract = .{ .cleanup = cleanup_info.fields[0].schema } });
+        return self.bind(term, info.result orelse return error.InvalidSchema);
+    }
     pub fn branch(self: *Body) Error!*Body {
         try self.ready();
         return @ptrCast(try bodyData(self).context.save(BodyData, .{
@@ -1962,7 +2053,7 @@ pub const interop = struct {
         switch (shape) {
             .product, .sum, .seq => {},
             .internal => |inner| switch (inner) {
-                .computation, .resumption, .borrowed, .suspension_package, .cell => {},
+                .computation, .resumption, .borrowed, .suspension_package, .cell, .abstract_resource => {},
                 else => return c.intern(id, &.{}),
             },
             else => return c.intern(id, &.{}),
@@ -1986,6 +2077,10 @@ pub const interop = struct {
                 .borrowed => |borrow| try schema(c, borrow.value),
                 .suspension_package => |token| try schema(c, token),
                 .cell => |cell_shape| try schema(c, cell_shape.element),
+                .abstract_resource => |resource_id| if (resource_id < contextData(c).raw.resources.items.len)
+                    try schema(c, contextData(c).raw.resources.items[@intCast(resource_id)].representation)
+                else
+                    return error.InvalidReference,
                 else => null,
             },
             else => null,

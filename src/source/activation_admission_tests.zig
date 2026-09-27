@@ -250,7 +250,7 @@ test "stable resource borrow cannot escape a protected body for an immediate cal
     var b = source.Builder.init(testing.allocator);
     defer b.deinit();
     const original = try source.examples.resourceScalar(&b);
-    const main_bind = b.terms.items[@intCast(b.functions.items[@intCast(original.entry)].body.?)].bind;
+    const main_bind = try @import("fixture_inspection.zig").resourceEntry(&b, original.entry);
     const protected = main_bind.next;
     const body_value = b.terms.items[@intCast(protected)].protect.body;
     const body_function = b.values.items[@intCast(body_value)].expression.lambda;

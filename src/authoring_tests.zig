@@ -1489,3 +1489,78 @@ test "typed Choice shares definitions and preserves names, policy and region cus
 test "typed Choice releases partial construction allocations" {
     try testing.checkAllAllocationFailures(testing.allocator, choiceSharing, .{});
 }
+
+const ResourceCase = enum { valid, unauthorized_pack, unauthorized_unpack, duplicate_owner, escaping_loan, wrong_region, wrong_names };
+fn resourceConstruction(allocator: std.mem.Allocator, mode: ResourceCase) !void {
+    var raw = source.Builder.init(allocator);
+    defer raw.deinit();
+    const c = try a.Context.init(&raw);
+    const unit = try c.scalar(void);
+    const integer = try c.scalar(u64);
+    const representation = try c.record(&.{.{ .name = "number", .schema = integer }});
+    const owned = try c.resource(representation);
+    const region = try c.region();
+    const loan = try c.borrowed(owned, region);
+    const acquire = try c.function("acquire", &.{}, owned, &.{});
+    const release = try c.function("release", &.{.{ .name = "resource", .schema = owned }}, unit, &.{});
+    const work_schema = try c.callable(&.{.{ .name = "loan", .schema = loan }}, if (mode == .escaping_loan) loan else integer, &.{}, .{ .use = .linear, .captures = &.{}, .regions = &.{region} });
+    const work_fn = try c.functionFor("work", work_schema);
+    const entry_fn = try c.function("entry", &.{}, integer, &.{});
+    // Authorize the outside reader so the escape case reaches loan admission,
+    // rather than failing the earlier representation-authority check.
+    try c.resourceAuthority(owned, if (mode == .unauthorized_pack) &.{} else &.{ acquire, acquire }, if (mode == .unauthorized_unpack) &.{ release, entry_fn } else &.{ entry_fn, work_fn, release });
+    const acquire_body = try c.body(acquire);
+    const payload_schema = if (mode == .wrong_names) try c.record(&.{.{ .name = "other", .schema = integer }}) else representation;
+    const payload = try acquire_body.product(payload_schema, &.{.{ .name = if (mode == .wrong_names) "other" else "number", .value = try acquire_body.constant(u64, 42) }});
+    try c.define(acquire, try acquire_body.ret(try acquire_body.packResource(owned, payload)));
+    const release_body = try c.body(release);
+    _ = try release_body.unpackResource(try release_body.parameter("resource"));
+    try c.define(release, try release_body.ret(try release_body.constant(void, {})));
+    const work = try c.body(work_fn);
+    const view = try work.parameter("loan");
+    const result = if (mode == .escaping_loan) view else try work.field(try work.unpackResource(view), "number");
+    try c.define(work_fn, try work.ret(result));
+    const cleanup_schema = try c.callable(&.{ .{ .name = "exit", .schema = try c.cleanupInfo(unit) }, .{ .name = "resource", .schema = owned } }, unit, &.{}, .{ .use = .linear, .captures = &.{} });
+    const cleanup_fn = try c.functionFor("cleanup", cleanup_schema);
+    const cleanup = try c.body(cleanup_fn);
+    try c.define(cleanup_fn, try cleanup.ret(try cleanup.call(release, &.{.{ .name = "resource", .value = try cleanup.parameter("resource") }})));
+    const entry = try c.body(entry_fn);
+    const acquired = try entry.call(acquire, &.{});
+    const protected = try entry.bracket(acquired, if (mode == .wrong_region) try c.region() else region, try entry.lambda(work_fn, work_schema), try entry.lambda(cleanup_fn, cleanup_schema), &.{});
+    const final = if (mode == .escaping_loan or mode == .duplicate_owner)
+        try entry.field(try entry.unpackResource(if (mode == .escaping_loan) protected else acquired), "number")
+    else
+        protected;
+    try c.define(entry_fn, try entry.ret(final));
+    var compiled = try c.compile(allocator, entry_fn, unit);
+    defer compiled.deinit();
+}
+test "typed resources preserve representation authority and exclusive bracket custody" {
+    try testing.expect(!@hasDecl(@import("library/cleanup.zig"), "bracket"));
+    try resourceConstruction(testing.allocator, .valid);
+    try testing.expectError(error.InvalidOwnership, resourceConstruction(testing.allocator, .unauthorized_pack));
+    try testing.expectError(error.InvalidOwnership, resourceConstruction(testing.allocator, .unauthorized_unpack));
+    try testing.expectError(error.UnavailableSlot, resourceConstruction(testing.allocator, .duplicate_owner));
+    try testing.expectError(error.InvalidOwnership, resourceConstruction(testing.allocator, .escaping_loan));
+    try testing.expectError(error.SchemaMismatch, resourceConstruction(testing.allocator, .wrong_region));
+    try testing.expectError(error.SchemaMismatch, resourceConstruction(testing.allocator, .wrong_names));
+}
+test "typed resource construction releases partial allocations" {
+    try testing.checkAllAllocationFailures(testing.allocator, resourceConstruction, .{.valid});
+}
+
+test "typed resource authority rejects foreign declarations before granting rights" {
+    var raw = source.Builder.init(testing.allocator);
+    defer raw.deinit();
+    const c = try a.Context.init(&raw);
+    const other = try a.Context.init(&raw);
+    const representation = try c.scalar(u64);
+    try testing.expectError(error.ForeignHandle, other.resource(representation));
+    const owned = try c.resource(representation);
+    const second = try c.resource(representation);
+    try testing.expect(try a.interop.schemaId(c, owned) != try a.interop.schemaId(c, second));
+    const foreign = try other.function("foreign introducer", &.{}, try other.scalar(u64), &.{});
+    try testing.expectError(error.ForeignHandle, c.resourceAuthority(owned, &.{foreign}, &.{}));
+    try testing.expectEqual(@as(usize, 0), raw.resources.items[0].introducers.len);
+    try testing.expectEqual(@as(usize, 0), raw.resources.items[0].eliminators.len);
+}

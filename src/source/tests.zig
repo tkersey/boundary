@@ -599,7 +599,7 @@ test "a resource borrow cannot escape its protected body even when immediately r
     var b = source.Builder.init(std.testing.allocator);
     defer b.deinit();
     const original = try examples.resourceScalar(&b);
-    const main_bind = b.terms.items[@intCast(b.functions.items[@intCast(original.entry)].body.?)].bind;
+    const main_bind = try @import("fixture_inspection.zig").resourceEntry(&b, original.entry);
     const protected = main_bind.next;
     const body_value = b.terms.items[@intCast(protected)].protect.body;
     const body_function = b.values.items[@intCast(body_value)].expression.lambda;

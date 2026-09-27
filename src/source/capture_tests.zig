@@ -117,7 +117,7 @@ fn program(b: *source.Builder, mode: Mode) !source.Module {
     const owned = try b.variable(r.owned);
     const body = try closure(b, protected_body, &.{r.borrowed}, sequence, &.{}, &.{r.loan});
     const finalizer = try closure(b, r.finalizer, &.{ r.info, r.owned }, unit, &.{}, &.{});
-    const protected = try cleanup.bracket(b, try b.reference(owned), r.loan, body, finalizer);
+    const protected = try b.term(.{ .protect = .{ .resource = try b.reference(owned), .loan_region = r.loan, .body = body, .cleanup = finalizer } });
     const acquired = try b.term(.{ .call = .{ .function = r.acquire, .arguments = &.{} } });
     try b.define(entry, try b.bind(owned, acquired, protected));
     return b.module(entry, unit);
