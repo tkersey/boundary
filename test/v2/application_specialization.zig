@@ -255,3 +255,68 @@ test "removing a private argument retains its faulting evaluation" {
         try std.testing.expectEqualSlices(u8, &.{}, outcome.record.failed.value);
     }
 }
+
+test "independently linked caller and worker specialize without any source module" {
+    const a = std.testing.allocator;
+    const worker: data.component.Object = .{
+        .program = comptime closedBranchProgram(false),
+        .exports = &.{.{ .name = "worker", .reference = .{ .kind = .function, .id = 0 } }},
+        .borrows = &.{.{ .function = 0 }},
+    };
+    const caller: data.component.Object = .{
+        .program = .{
+            .roots = .{ .entry = 0, .result = 3, .failure = 1 },
+            .schemas = &.{ .u64, .unit, .boolean, .{ .product = &.{ 0, 0 } } },
+            .constants = &.{.{ .schema = 2, .bytes = &.{1} }},
+            .effects = &.{},
+            .functions = &.{
+                .{ .entry = 0, .inputs = &.{ 0, 1 }, .layout = .{ .slots = &.{ 0, 0, 2, 3 } }, .result = 3 },
+                .{ .entry = data.relocation.missing, .inputs = &.{ 0, 1, 2 }, .layout = .{ .slots = &.{ 0, 0, 2 } }, .result = 3 },
+            },
+            .blocks = &.{
+                .{ .function = 0, .instructions = &.{.{ .destination = 2, .opcode = .constant, .immediate = 0 }}, .terminator = .{ .call = .{ .function = 1, .arguments = &.{ 0, 1, 2 }, .next = .{ .block = 1, .assignments = &.{.{ .destination = 3, .source = .returned }} } } } },
+                .{ .function = 0, .instructions = &.{}, .terminator = .{ .return_value = 3 } },
+            },
+        },
+        .imports = &.{.{ .name = "worker", .reference = .{ .kind = .function, .id = 1 } }},
+        .exports = &.{.{ .name = "main", .reference = .{ .kind = .function, .id = 0 } }},
+        .borrows = &.{ .{ .function = 0 }, .{ .function = 1 } },
+    };
+    const worker_bytes = try a.alloc(u8, try data.component.encodedLength(worker));
+    defer a.free(worker_bytes);
+    const caller_bytes = try a.alloc(u8, try data.component.encodedLength(caller));
+    defer a.free(caller_bytes);
+    _ = try data.component.encode(a, worker, worker_bytes);
+    _ = try data.component.encode(a, caller, caller_bytes);
+    var linked = try data.linker.link(a, &.{ .{ .key = "caller", .object = caller_bytes }, .{ .key = "worker", .object = worker_bytes } }, &.{.{ .required = .{ .instance = "caller", .symbol = "worker" }, .supplied = .{ .instance = "worker", .symbol = "worker" } }}, .{ .instance = "caller", .symbol = "main" });
+    defer linked.deinit();
+    @memset(caller_bytes, 0xff);
+    @memset(worker_bytes, 0xff);
+    var branch_stats: data.branch_reduction.Statistics = .{};
+    var reduced = try data.branch_reduction.run(a, linked.program, &branch_stats, .{});
+    defer reduced.deinit();
+    try std.testing.expectEqual(@as(usize, 1), branch_stats.branches_removed);
+    var call_stats: data.application_specialization.Statistics = .{};
+    var specialized = try data.application_specialization.run(a, reduced.program, &call_stats, .{});
+    defer specialized.deinit();
+    try std.testing.expectEqual(@as(usize, 1), call_stats.direct_applications);
+    var fewer = try data.dead_arguments.run(a, specialized.program, null, .{});
+    defer fewer.deinit();
+    var p01: data.coalescing.Statistics = .{};
+    var optimized = try data.dead_computation.run(a, fewer.program, null, .{ .coalescing = .{ .statistics = &p01 } });
+    defer optimized.deinit();
+    try std.testing.expect(p01.outcome != .not_run);
+    for (optimized.program.blocks) |block| {
+        try std.testing.expect(block.terminator != .branch and block.terminator != .apply);
+    }
+    for ([_]ir.Program{ linked.program, optimized.program }) |program| {
+        const bytes = try a.alloc(u8, try data.program_image.encodedLength(program));
+        defer a.free(bytes);
+        _ = try data.program_image.encode(a, program, bytes);
+        var outcome = try world.invocation.invoke(a, .{ .image = bytes, .instance = .{ .initial_args = &.{ 10, 0, 0, 0, 0, 0, 0, 0, 21, 0, 0, 0, 0, 0, 0, 0 } } });
+        defer outcome.deinit();
+        try std.testing.expect(outcome.record == .completed);
+        try std.testing.expectEqualSlices(u8, &.{ 21, 0, 0, 0, 0, 0, 0, 0, 21, 0, 0, 0, 0, 0, 0, 0 }, outcome.record.completed);
+    }
+    std.debug.print("two-object known-argument optimization: {d} -> {d} bytes\n", .{ try data.program_image.encodedLength(linked.program), try data.program_image.encodedLength(optimized.program) });
+}

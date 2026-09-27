@@ -40,6 +40,8 @@ src/data/activation_structure_tests.zig
 src/data/activation_types.zig
 src/data/admission.zig
 src/data/aggregate_admission.zig
+src/data/aggregate_reduction.zig
+src/data/aggregate_reduction_tests.zig
 src/data/analysis_sets.zig
 src/data/analysis_sets_tests.zig
 src/data/application_specialization.zig
@@ -186,6 +188,7 @@ test/package_authoring/data.zig
 test/package_authoring/failure_literal_category.zig
 test/package_authoring/lifecycle.zig
 test/package_authoring/rejection.zig
+test/v2/aggregate_reduction.zig
 test/v2/application_specialization.zig
 test/v2/borrow_returns.zig
 test/v2/compact_fixtures.zig

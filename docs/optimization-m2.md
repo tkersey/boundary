@@ -70,6 +70,24 @@ formerly passed to the specialized callable worker: one parameter, one argument
 and one constructor disappear, reducing that witness from 131 to 119 bytes.
 Host, constructor, handler and resource-authority interfaces retain their inputs.
 
+`data.aggregate_reduction` forwards local immutable product projections from
+available original operand versions, including moved product aliases. Its checker
+traces raw definitions backwards, verifies the ordered field and rejects a source
+overwritten after construction. Copy/drop permissions and original/fresh admission
+remain required. Subsequent checked DCE removes unobserved product construction;
+an externally returned aggregate remains materialized. The witness shrinks from
+81 to 69 bytes. This is logical product scalar replacement; private-cell reduction
+and physical allocation placement are still outstanding.
+
+Data-only native tests now cover source-free BMO decoding and closed linking.
+One links the product object before reduction. Another binds an independently
+encoded caller's imported worker to a second object's exported worker; only after
+linking does its known argument prune the branch and enable P03/P05. That witness
+shrinks from 194 to 131 bytes, preserves World output, and runs final P01. The
+optimizer reads linked records after the object byte buffers have been overwritten.
+These tests exercise the transformation sequence explicitly; automatic semantic
+compiler/final-link integration remains unfinished.
+
 Focused checks cover swapped equal-type operands, capture reassignment, stale
 facts after constructor mutation, range/known-bit and length/bound distinctions,
 and every allocation-failure point in the small transformation witness.
@@ -82,6 +100,12 @@ The caller/argument slice expands this to 46 focused tests and six native World
 tests, including a faulting computation whose now-unused argument is removed while
 its evaluation still fails. A temporary parameter-removal statistics bug was
 corrected: count before transferring the list storage, whose length then resets.
+The product suite adds seven cases (26 tests including imported module tests),
+covering wrong-field mutations, overwritten inputs, aliases, escaped outputs,
+invalid original annotations and allocation failures. Native coverage now has
+seven application/link tests and one product/link test. The initial cross-object
+fixture violated imported declaration structure; it was repaired to use a missing
+entry and only the imported ABI slots, preserving production component admission.
 
 ## Remaining M2 obligations
 
@@ -90,12 +114,14 @@ This is not complete M2 or canonical pipeline adoption. Remaining work includes:
 - Remaining P02 domains, return summaries and richer recursive/calling contexts
   beyond the current conservative argument fixed point.
 - Context cloning where callers disagree, and remaining dead
-  store/capture/aggregate reductions. Private dead arguments, singleton incoming-callable specialization
+  store/capture/cell reductions and product forwarding across control flow.
+  Private dead arguments, local product scalar replacement, singleton incoming-callable specialization
   and polymorphic/opaque negatives are implemented.
 - The specified early P04/P05/P07/P08 transformations and independent certificates.
 - Semantic/structural contract integration into compilation and final linking,
   the owned-consumer policy audit, deterministic semantic work budgets, and
-  source-free closed-link execution.
+  automatic source-free closed-link adoption (explicit linked-record execution
+  witnesses now pass).
 - Cross-package qualification, paired economics against the retained C0 corpus,
   and all applicable G/T obligations. M2.5's affine synthesis remains subsequent.
 

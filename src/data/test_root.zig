@@ -16,6 +16,7 @@ test {
     _ = @import("coalescing_candidate_tests.zig");
     _ = @import("coalescing_tests.zig");
     _ = @import("application_specialization_tests.zig");
+    _ = @import("aggregate_reduction_tests.zig");
     _ = @import("coalescing_recursive_tests.zig");
     _ = @import("coalescing_origins_tests.zig");
     _ = @import("coalescing_mutation_tests.zig");
