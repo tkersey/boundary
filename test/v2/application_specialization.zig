@@ -324,3 +324,92 @@ test "independently linked caller and worker specialize without any source modul
     }
     std.debug.print("two-object known-argument optimization: {d} -> {d} bytes\n", .{ try data.program_image.encodedLength(linked.program), try data.program_image.encodedLength(optimized.program) });
 }
+
+fn maskedBranch(comptime opcode: data.program.Opcode) ir.Program {
+    return .{
+        .roots = .{ .entry = 0, .result = 0, .failure = 1 },
+        .schemas = &.{ .u64, .unit, .boolean },
+        .constants = &.{
+            .{ .schema = 0, .bytes = &.{ 0, 0, 0, 0, 0, 0, 0, 0 } },
+            .{ .schema = 0, .bytes = &.{ 1, 0, 0, 0, 0, 0, 0, 0 } },
+        },
+        .effects = &.{},
+        .functions = &.{.{ .entry = 0, .inputs = &.{0}, .layout = .{ .slots = &.{ 0, 0, 0, 0, 2 } }, .result = 0 }},
+        .blocks = &.{
+            .{ .function = 0, .instructions = &.{
+                .{ .destination = 1, .opcode = .constant, .immediate = 0 },
+                .{ .destination = 2, .opcode = .constant, .immediate = 1 },
+                .{ .destination = 3, .opcode = .integer_bit_and, .operands = &.{ 0, 1 } },
+                .{ .destination = 4, .opcode = opcode, .operands = &.{ 3, 2 } },
+            }, .terminator = .{ .branch = .{ .condition = 4, .when_true = .{ .block = 1 }, .when_false = .{ .block = 2 } } } },
+            .{ .function = 0, .instructions = &.{}, .terminator = .{ .return_value = 0 } },
+            .{ .function = 0, .instructions = &.{}, .terminator = .{ .return_value = 1 } },
+        },
+    };
+}
+
+test "source-free integer branch proof preserves extreme unsigned inputs" {
+    const a = std.testing.allocator;
+    const original = comptime maskedBranch(.less);
+    const object: data.component.Object = .{
+        .program = original,
+        .exports = &.{.{ .name = "main", .reference = .{ .kind = .function, .id = 0 } }},
+        .borrows = &.{.{ .function = 0 }},
+    };
+    const object_bytes = try a.alloc(u8, try data.component.encodedLength(object));
+    defer a.free(object_bytes);
+    _ = try data.component.encode(a, object, object_bytes);
+    var stats: data.closed_compilation.Statistics = .{};
+    var p01: data.coalescing.Statistics = .{};
+    var optimized = try data.linker.linkWithCompilation(a, &.{.{ .key = "integer", .object = object_bytes }}, &.{}, .{ .instance = "integer", .symbol = "main" }, .{ .contract = .semantic, .statistics = &stats, .coalescing = .{ .statistics = &p01 } });
+    defer optimized.deinit();
+    @memset(object_bytes, 0xff);
+    try std.testing.expectEqual(data.closed_compilation.Outcome.applied, stats.outcome);
+    try std.testing.expect(p01.outcome != .not_run);
+    for (optimized.program.blocks) |block| try std.testing.expect(block.terminator != .branch);
+    for ([_]u64{ 0, 1, 0x8000000000000000, std.math.maxInt(u64) }) |input| {
+        var args: [8]u8 = undefined;
+        std.mem.writeInt(u64, &args, input, .little);
+        for ([_]ir.Program{ original, optimized.program }) |program| {
+            const bytes = try a.alloc(u8, try data.program_image.encodedLength(program));
+            defer a.free(bytes);
+            _ = try data.program_image.encode(a, program, bytes);
+            var outcome = try world.invocation.invoke(a, .{ .image = bytes, .instance = .{ .initial_args = &args } });
+            defer outcome.deinit();
+            try std.testing.expect(outcome.record == .completed);
+            try std.testing.expectEqualSlices(u8, &args, outcome.record.completed);
+        }
+    }
+    std.debug.print("integer branch source-free: {d} -> {d} bytes\n", .{ try data.program_image.encodedLength(original), try data.program_image.encodedLength(optimized.program) });
+}
+
+test "proved integer branch retains an earlier failing computation" {
+    const a = std.testing.allocator;
+    const baseline = comptime maskedBranch(.less);
+    var original = baseline;
+    original.constants = &.{ baseline.constants[0], baseline.constants[1], .{ .schema = 1, .bytes = &.{} } };
+    var blocks = baseline.blocks[0..3].*;
+    blocks[0].instructions = &.{
+        baseline.blocks[0].instructions[0],
+        baseline.blocks[0].instructions[1],
+        .{ .destination = 3, .opcode = .integer_div, .operands = &.{ 0, 1 }, .failures = &.{ .{ .kind = .arithmetic_overflow, .value = 2 }, .{ .kind = .division_by_zero, .value = 2 } } },
+        baseline.blocks[0].instructions[2],
+        baseline.blocks[0].instructions[3],
+    };
+    original.blocks = &blocks;
+    var stats: data.branch_reduction.Statistics = .{};
+    var reduced = try data.branch_reduction.run(a, original, &stats, .{});
+    defer reduced.deinit();
+    try std.testing.expectEqual(@as(usize, 1), stats.branches_removed);
+    var optimized = try data.dead_computation.run(a, reduced.program, null, .{});
+    defer optimized.deinit();
+    for ([_]ir.Program{ original, optimized.program }) |program| {
+        const bytes = try a.alloc(u8, try data.program_image.encodedLength(program));
+        defer a.free(bytes);
+        _ = try data.program_image.encode(a, program, bytes);
+        var outcome = try world.invocation.invoke(a, .{ .image = bytes, .instance = .{ .initial_args = &.{ 42, 0, 0, 0, 0, 0, 0, 0 } } });
+        defer outcome.deinit();
+        try std.testing.expect(outcome.record == .failed);
+        try std.testing.expectEqualSlices(u8, &.{}, outcome.record.failed.value);
+    }
+}

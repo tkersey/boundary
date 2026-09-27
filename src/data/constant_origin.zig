@@ -6,7 +6,7 @@ const std = @import("std");
 const ir = @import("activation.zig");
 const p = @import("program.zig");
 const contexts = @import("call_contexts.zig");
-pub const Constant = union(enum) { boolean: bool, constructor: p.Id };
+pub const Constant = union(enum) { boolean: bool, unsigned: u64, constructor: p.Id };
 const Query = struct { block: usize, before: usize, slot: p.Id };
 pub const Prover = struct {
     allocator: std.mem.Allocator,
@@ -52,8 +52,14 @@ pub const Prover = struct {
             return switch (instruction.opcode) {
                 .constant => blk: {
                     const value = self.program.constants[@intCast(instruction.immediate)];
-                    if (self.program.schemas[@intCast(value.schema)] != .boolean) break :blk null;
-                    break :blk .{ .boolean = value.bytes[0] == 1 };
+                    break :blk switch (self.program.schemas[@intCast(value.schema)]) {
+                        .boolean => .{ .boolean = value.bytes[0] == 1 },
+                        .u8 => .{ .unsigned = value.bytes[0] },
+                        .u16 => .{ .unsigned = std.mem.readInt(u16, value.bytes[0..2], .little) },
+                        .u32 => .{ .unsigned = std.mem.readInt(u32, value.bytes[0..4], .little) },
+                        .u64 => .{ .unsigned = std.mem.readInt(u64, value.bytes[0..8], .little) },
+                        else => null,
+                    };
                 },
                 .computation => .{ .constructor = instruction.immediate },
                 .move => self.resolve(block, index, instruction.operands[0]),
@@ -61,6 +67,30 @@ pub const Prover = struct {
                     const value = (try self.resolve(block, index, instruction.operands[0])) orelse break :blk null;
                     if (value != .boolean) break :blk null;
                     break :blk .{ .boolean = !value.boolean };
+                },
+                .equal, .less, .integer_bit_and => blk: {
+                    const left = try self.resolve(block, index, instruction.operands[0]);
+                    const right = try self.resolve(block, index, instruction.operands[1]);
+                    if (self.exhausted) break :blk null;
+                    // These proofs describe the successful result only. The
+                    // branch rewrite retains both operand evaluations and the
+                    // primitive, including any preceding failure or effect.
+                    if (instruction.opcode == .integer_bit_and) {
+                        if ((left != null and left.? == .unsigned and left.?.unsigned == 0) or
+                            (right != null and right.? == .unsigned and right.?.unsigned == 0))
+                            break :blk .{ .unsigned = 0 };
+                    }
+                    const l = left orelse break :blk null;
+                    const r = right orelse break :blk null;
+                    if (l == .unsigned and r == .unsigned) break :blk switch (instruction.opcode) {
+                        .equal => .{ .boolean = l.unsigned == r.unsigned },
+                        .less => .{ .boolean = l.unsigned < r.unsigned },
+                        .integer_bit_and => .{ .unsigned = l.unsigned & r.unsigned },
+                        else => unreachable,
+                    };
+                    if (instruction.opcode == .equal and l == .boolean and r == .boolean)
+                        break :blk .{ .boolean = l.boolean == r.boolean };
+                    break :blk null;
                 },
                 else => null,
             };

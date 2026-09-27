@@ -540,3 +540,70 @@ test "dead computation retains the source of an explicit dead edge assignment" {
     defer result.deinit();
     try std.testing.expectEqual(@as(usize, 0), stats.instructions_removed);
 }
+
+fn maskedBranch(comptime opcode: p.Opcode) ir.Program {
+    return .{
+        .roots = .{ .entry = 0, .result = 0, .failure = 1 },
+        .schemas = &.{ .u64, .unit, .boolean },
+        .constants = &.{
+            .{ .schema = 0, .bytes = &.{ 0, 0, 0, 0, 0, 0, 0, 0 } },
+            .{ .schema = 0, .bytes = &.{ 1, 0, 0, 0, 0, 0, 0, 0 } },
+        },
+        .effects = &.{},
+        .functions = &.{.{ .entry = 0, .inputs = &.{0}, .layout = .{ .slots = &.{ 0, 0, 0, 0, 2 } }, .result = 0 }},
+        .blocks = &.{
+            .{ .function = 0, .instructions = &.{
+                .{ .destination = 1, .opcode = .constant, .immediate = 0 },
+                .{ .destination = 2, .opcode = .constant, .immediate = 1 },
+                .{ .destination = 3, .opcode = .integer_bit_and, .operands = &.{ 0, 1 } },
+                .{ .destination = 4, .opcode = opcode, .operands = &.{ 3, 2 } },
+            }, .terminator = .{ .branch = .{ .condition = 4, .when_true = .{ .block = 1 }, .when_false = .{ .block = 2 } } } },
+            .{ .function = 0, .instructions = &.{}, .terminator = .{ .return_value = 0 } },
+            .{ .function = 0, .instructions = &.{}, .terminator = .{ .return_value = 1 } },
+        },
+    };
+}
+
+test "integer facts feed independently checked equal and less branch reductions" {
+    const branch = @import("branch_reduction.zig");
+    inline for (.{ p.Opcode.equal, p.Opcode.less }) |opcode| {
+        const program = comptime maskedBranch(opcode);
+        var stats: branch.Statistics = .{};
+        var result = try branch.run(a, program, &stats, .{});
+        defer result.deinit();
+        try std.testing.expectEqual(@as(usize, 1), stats.branches_removed);
+        try std.testing.expectEqual(@as(usize, 0), stats.proof_unavailable);
+        for (result.program.blocks) |block| try std.testing.expect(block.terminator != .branch);
+        var blocks = program.blocks[0..3].*;
+        blocks[0].terminator = .{ .jump = program.blocks[0].terminator.branch.when_false };
+        var candidate = program;
+        candidate.blocks = &blocks;
+        if (opcode == .less) {
+            try std.testing.expectError(error.InvalidBranchReduction, branch.validate(a, program, candidate, &.{.{ .block = 0, .condition = false }}));
+        } else {
+            try branch.validate(a, program, candidate, &.{.{ .block = 0, .condition = false }});
+        }
+    }
+}
+
+test "integer branch proof rejects unknown operands and changed comparison order" {
+    const branch = @import("branch_reduction.zig");
+    const baseline = comptime maskedBranch(.less);
+    var instructions = baseline.blocks[0].instructions[0..4].*;
+    instructions[3].operands = &.{ 2, 3 };
+    var blocks = baseline.blocks[0..3].*;
+    blocks[0].instructions = &instructions;
+    var original = baseline;
+    original.blocks = &blocks;
+    var candidate_blocks = blocks;
+    candidate_blocks[0].terminator = .{ .jump = baseline.blocks[0].terminator.branch.when_true };
+    var candidate = original;
+    candidate.blocks = &candidate_blocks;
+    try std.testing.expectError(error.InvalidBranchReduction, branch.validate(a, original, candidate, &.{.{ .block = 0, .condition = true }}));
+    instructions[3].operands = &.{ 0, 2 };
+    var stats: branch.Statistics = .{};
+    var unchanged = try branch.run(a, original, &stats, .{});
+    defer unchanged.deinit();
+    try std.testing.expectEqual(@as(usize, 0), stats.branches_removed);
+    try std.testing.expectError(error.InvalidBranchReduction, branch.validate(a, original, candidate, &.{.{ .block = 0, .condition = true }}));
+}

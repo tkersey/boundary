@@ -34,6 +34,22 @@ A proven branch removes an alternative constructor path, enabling a closed
 constructor application to become a direct call across blocks. That witness
 shrinks from 163 to 121 bytes. An unknown external condition retains both targets.
 
+The independent origin proof now reconstructs unsigned constants, bitwise AND
+(including a proved zero mask), and unsigned equality/ordering comparisons from
+raw definitions. These facts were already available to forward analysis but
+previously could not authorize a branch rewrite. Boolean equality is also checked.
+Operand evaluation and the primitive remain in the branch candidate; subsequent
+dead-computation removal still requires its separate totality/demand proof.
+The source-free masked-integer witness shrinks **86 → 58 bytes** through the shared
+semantic final linker and final P01. Native World preserves results for zero, one,
+the high unsigned bit and the maximum u64. A preceding division-by-zero remains a
+failure after branch and dead-computation reduction. Unknown inputs, reversed
+comparison operands and a forged branch choice cannot certify the wrong edge.
+Focused validation: **51 application/data tests and nine native application/link
+tests passed**. These are synthetic size/correctness observations; Agent remains
+bound to the authenticated `8321156` input, whose integrated qualification is
+still running, until the next coherent rebind.
+
 `data.dead_computation` now consumes that specialized candidate. Backwards demand
 removes unused total instructions only when their results and operands permit both
 copy and drop. It excludes calls, mutable operations, faulting instructions and
