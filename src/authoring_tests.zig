@@ -1850,3 +1850,17 @@ test "typed sequence queries, ordering, yield and failing cases preserve contrac
 test "sequence query construction releases partial allocations" {
     try testing.checkAllAllocationFailures(testing.allocator, sequenceQueries, .{false});
 }
+
+test "declared function recovery retains names and refuses another context or raw declaration" {
+    var raw = source.Builder.init(testing.allocator);
+    defer raw.deinit();
+    const c = try a.Context.init(&raw);
+    const unit = try c.scalar(void);
+    const function = try c.function("named", &.{.{ .name = "named-input", .schema = unit }}, unit, &.{});
+    const id = try a.interop.functionId(c, function);
+    try testing.expect(function == try a.interop.declaredFunction(c, id));
+    const foreign = try a.Context.init(&raw);
+    try testing.expectError(error.InvalidReference, a.interop.declaredFunction(foreign, id));
+    const raw_function = try raw.declare(&.{}, try raw.scalar(void), &.{}, &.{});
+    try testing.expectError(error.InvalidReference, a.interop.declaredFunction(c, raw_function));
+}

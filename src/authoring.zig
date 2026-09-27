@@ -2316,10 +2316,24 @@ pub const interop = struct {
     pub fn schemaId(c: *Context, value: *const Schema) Error!p.Id {
         return c.schemaId(value);
     }
+    pub fn regionId(c: *Context, value: *const Region) Error!p.Id {
+        const item = data(RegionData, value);
+        try c.origin(item.owner);
+        return item.id;
+    }
     pub fn operationId(c: *Context, value: *const Operation) Error!p.Id {
         const item = data(OperationData, value);
         try c.origin(item.owner);
         return item.id;
+    }
+    /// Recover a function already declared by this context, preserving its
+    /// named signature and lexical scope. This does not import raw functions.
+    pub fn declaredFunction(c: *Context, id: p.Id) Error!*const Function {
+        try c.ready();
+        for (contextData(c).functions.items) |function| {
+            if (data(FunctionData, function).id == id) return function;
+        }
+        return error.InvalidReference;
     }
     pub fn functionId(c: *Context, value: *const Function) Error!p.Id {
         const item = data(FunctionData, value);

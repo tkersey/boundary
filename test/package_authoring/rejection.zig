@@ -10,6 +10,9 @@ test "public package retires raw effect handler and region facades" {
     try std.testing.expect(!@hasDecl(b.library.generator, "compose"));
     try std.testing.expect(!@hasDecl(b.library.generator, "Composition"));
     try std.testing.expect(@hasDecl(b.library.generator, "pipeline"));
+    try std.testing.expect(@typeInfo(@TypeOf(b.library.scheduler.fifo)).@"fn".params[0].type.? == *b.authoring.Context);
+    try std.testing.expect(@typeInfo(@TypeOf(b.library.scheduler.complete)).@"fn".params[0].type.? == *b.authoring.Body);
+    try std.testing.expect(@typeInfo(b.library.scheduler.Join) == .@"opaque");
     try std.testing.expect(!@hasDecl(b, "handler"));
     try std.testing.expect(!@hasDecl(b, "region"));
     try std.testing.expect(@hasDecl(b.authoring.Context, "handler"));

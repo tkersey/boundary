@@ -491,21 +491,21 @@ test "library specializations share declarations at one eight and sixty-four ins
     const scheduler = @import("../library/scheduler.zig");
     var b = source.Builder.init(std.testing.allocator);
     defer b.deinit();
-    const integer = try b.scalar(u64);
     const unit = try b.scalar(void);
-    const region = b.region();
     const typed = @import("../authoring.zig");
     const author = try typed.Context.init(&b);
     const choices = try choice.family(author, "sharing/choice");
-    const joined = try scheduler.joinType(&b, integer, region);
+    const region = try author.region();
+    const joined = try scheduler.joinType(author, try author.scalar(u64), region);
+    const task_unit = try author.scalar(void);
+    const tasks = try generator.create(author, "sharing/generator", task_unit, task_unit, task_unit, .{ .captures = .{ .continuation = &.{} } });
     var declarations: ?usize = null;
     var handlers: ?usize = null;
     var first_handler: *const typed.Handler = undefined;
     for (0..64) |index| {
         const interpreted = try choice.all(author, choices, try author.scalar(u64), .{ .captures = .{ .continuation = &.{} }, .residual = &.{} });
-        const tasks = try generator.defineExchange(&b, "sharing/generator", unit, unit, unit, &.{}, &.{}, &.{}, .{ .effects = &.{} });
-        _ = try scheduler.fifo(&b, tasks, .{ .effects = &.{} }, &.{});
-        _ = try scheduler.awaiting(&b, tasks, joined, integer, &.{region});
+        _ = try scheduler.fifo(author, tasks, &.{}, &.{});
+        _ = try scheduler.awaiting(author, tasks, joined, &.{region});
         if (index == 0) {
             declarations = b.functions.items.len;
             handlers = b.handlers.items.len;
