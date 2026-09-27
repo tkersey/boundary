@@ -1564,3 +1564,122 @@ test "typed resource authority rejects foreign declarations before granting righ
     try testing.expectEqual(@as(usize, 0), raw.resources.items[0].introducers.len);
     try testing.expectEqual(@as(usize, 0), raw.resources.items[0].eliminators.len);
 }
+
+fn schemaDeclarations(allocator: std.mem.Allocator, negatives: bool) !void {
+    var raw = source.Builder.init(allocator);
+    defer raw.deinit();
+    const c = try a.Context.init(&raw);
+    const unit = try c.scalar(void);
+    const declaration = try c.declareSchema(.alternatives);
+    const node = declaration.schema();
+    const empty = if (negatives) try c.alternatives(&.{}) else null;
+    if (empty) |value| try testing.expect(try a.interop.schemaId(c, value) != try a.interop.schemaId(c, node));
+    const entry_fn = try c.function("entry", &.{}, unit, &.{});
+    const entry = try c.body(entry_fn);
+    try c.define(entry_fn, try entry.ret(try entry.constant(void, {})));
+    if (negatives) {
+        try testing.expectError(error.UndefinedSchema, c.module(entry_fn, unit));
+        try testing.expectError(error.InvalidCategory, c.defineCallable(declaration, &.{}, unit, &.{}, .{ .use = .linear, .captures = &.{} }));
+        const foreign = try a.Context.init(&raw);
+        try testing.expectError(error.ForeignHandle, foreign.defineAlternatives(declaration, &.{}));
+    }
+    const link = try c.record(&.{ .{ .name = "value", .schema = try c.scalar(u64) }, .{ .name = "next", .schema = node } });
+    try c.defineAlternatives(declaration, &.{ .{ .name = "empty", .schema = unit }, .{ .name = "link", .schema = link } });
+    if (empty) |value| try testing.expectEqual(@as(usize, 0), raw.schemas.items[@intCast(try a.interop.schemaId(c, value))].sum.len);
+    if (negatives) try testing.expectError(error.SchemaAlreadyDefined, c.defineAlternatives(declaration, &.{}));
+    if (empty != null) {
+        // Empty sums are intentionally uninhabited source placeholders; the
+        // alias check does not claim that they pass data admission.
+        _ = try c.module(entry_fn, unit);
+    } else {
+        var compiled = try c.compile(allocator, entry_fn, unit);
+        defer compiled.deinit();
+    }
+}
+test "recursive declarations are single assignment and cannot alias empty sums or publish incomplete" {
+    try schemaDeclarations(testing.allocator, true);
+    try schemaDeclarations(testing.allocator, false);
+}
+test "recursive declaration construction releases partial allocations" {
+    try testing.checkAllAllocationFailures(testing.allocator, schemaDeclarations, .{false});
+}
+
+fn readerConstruction(allocator: std.mem.Allocator, sharing: bool) !void {
+    const reader = @import("library/reader.zig");
+    var raw = source.Builder.init(allocator);
+    defer raw.deinit();
+    const c = try a.Context.init(&raw);
+    const unit = try c.scalar(void);
+    const integer = try c.scalar(u64);
+    const family = try reader.family(c, "typed/reader", integer, integer, &.{}, &.{}, &.{});
+    const bound: a.CaptureBounds = .{ .continuation = &.{ unit, integer } };
+    const interpretation = try reader.interpret(c, family, integer, bound);
+    if (sharing) {
+        const count = raw.functions.items.len;
+        for (0..64) |_| try testing.expectEqual(interpretation.handler, (try reader.interpret(c, family, integer, bound)).handler);
+        try testing.expectEqual(count, raw.functions.items.len);
+        const foreign = try a.Context.init(&raw);
+        try testing.expectError(error.ForeignHandle, reader.interpret(foreign, family, integer, bound));
+    }
+    const inside_fn = try c.functionFor("local read", family.inside());
+    const inside = try c.body(inside_fn);
+    try c.define(inside_fn, try inside.ret(try inside.performLocal(family.ask(), try inside.parameter("ask"), try inside.constant(void, {}))));
+    const schema = try c.handledSchema(interpretation.handler);
+    const body_fn = try c.functionFor("two environments", schema);
+    const body = try c.body(body_fn);
+    const local = try body.performScoped(family.local(), try body.parameter("local"), try body.constant(u64, 20), &.{.{ .name = "inside", .value = try body.lambda(inside_fn, family.inside()) }});
+    const outer = try body.performLocal(family.ask(), try body.parameter("ask"), try body.constant(void, {}));
+    try c.define(body_fn, try body.ret(try body.checkedAdd(local, outer, try c.literalFailure(void, {}))));
+    const main = try c.function("entry", &.{}, integer, &.{});
+    const entry = try c.body(main);
+    try c.define(main, try entry.ret(try entry.handleWith(interpretation.handler, try entry.lambda(body_fn, schema), &.{.{ .name = "environment", .value = try entry.constant(u64, 10) }})));
+    var compiled = try c.compile(allocator, main, unit);
+    defer compiled.deinit();
+}
+test "typed Reader preserves scoped local work and shares 64 installations" {
+    try testing.expect(!@hasDecl(@import("library/reader.zig"), "define"));
+    try readerConstruction(testing.allocator, true);
+}
+test "typed Reader releases partial recursive construction allocations" {
+    try testing.checkAllAllocationFailures(testing.allocator, readerConstruction, .{false});
+}
+
+test "recursive Reader retains distinct named answers with equal wire layouts" {
+    const reader = @import("library/reader.zig");
+    var raw = source.Builder.init(testing.allocator);
+    defer raw.deinit();
+    const c = try a.Context.init(&raw);
+    const integer = try c.scalar(u64);
+    const inner = try c.record(&.{.{ .name = "inner", .schema = integer }});
+    const outer = try c.record(&.{.{ .name = "outer", .schema = integer }});
+    try testing.expectEqual(try a.interop.schemaId(c, inner), try a.interop.schemaId(c, outer));
+    const family = try reader.family(c, "reader/names", integer, inner, &.{}, &.{}, &.{});
+    const interpreted = try reader.interpret(c, family, outer, .{ .continuation = &.{ integer, inner, outer } });
+    const outside_token = try c.resumptionSchemaFor(interpreted.handler, family.ask());
+    const inside_token = try c.resumptionSchemaFor(interpreted.inside_handler, family.ask());
+    try testing.expectEqual(outer, outside_token.resultSchema().?);
+    try testing.expectEqual(inner, inside_token.resultSchema().?);
+    try testing.expect(interpreted.handler != interpreted.inside_handler);
+}
+
+test "handler resumption declarations enforce kind, cardinality and single assignment" {
+    var raw = source.Builder.init(testing.allocator);
+    defer raw.deinit();
+    const c = try a.Context.init(&raw);
+    const unit = try c.scalar(void);
+    const first = try c.local("slots/first", unit, unit, .linear);
+    const second = try c.local("slots/second", unit, unit, .linear);
+    const slot = try c.declareSchema(.resumption);
+    const wrong = try c.declareSchema(.alternatives);
+    var options: a.HandlerOptions = .{ .mode = .deep, .use = .linear, .residual = &.{}, .captures = &.{} };
+    options.resumption_slots = &.{};
+    try testing.expectError(error.SchemaMismatch, c.handler(first, unit, unit, options));
+    options.resumption_slots = &.{wrong};
+    try testing.expectError(error.InvalidCategory, c.handler(first, unit, unit, options));
+    options.resumption_slots = &.{ slot, slot };
+    try testing.expectError(error.DuplicateName, c.handlerSet(&.{ .{ .name = "first", .operation = first }, .{ .name = "second", .operation = second } }, unit, unit, options));
+    options.resumption_slots = &.{slot};
+    const handler = try c.handler(first, unit, unit, options);
+    try testing.expectEqual(slot.schema(), try c.resumptionSchemaFor(handler, first));
+    try testing.expectError(error.SchemaAlreadyDefined, c.handler(first, unit, unit, options));
+}

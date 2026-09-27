@@ -1,57 +1,105 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
-//! Reader and local are authored handlers. Local supplies a new capability to
-//! its inside computation and resumes the outside continuation with the old one.
-const source = @import("../source.zig");
-const p = @import("boundary_data").program;
-const Error = source.Error;
-pub const Reader = struct { ask: p.Id, local: p.Id, ask_capability: p.Id, local_capability: p.Id, inside: p.Id, handler: p.Id, resumptions: []const p.Id };
-pub const Captures = struct { continuation: []const p.Id, inside: []const p.Id = &.{} };
-
-pub fn define(b: *source.Builder, identity: []const u8, environment: p.Id, result: p.Id, inside_result: p.Id, bounds: Captures, residual: source.Row, regions: []const p.Id) Error!Reader {
-    const instance = try b.specialization(Reader, "boundary.library.reader/v2", .{ identity, environment, result, inside_result, bounds, residual, regions });
-    if (instance.cached) |value| return value;
-    const captures = bounds.continuation;
-    const unit = try b.scalar(void);
-    const ask = try b.effect(.{ .identity = try @import("std").fmt.allocPrint(b.allocator(), "{s}/ask", .{identity}), .payload = unit, .result = environment, .external = false });
-    const ask_capability = try b.schema(.{ .internal = .{ .capability = ask } });
-    const inside = try b.reserveSchema();
-    const local = try b.effect(.{ .identity = try @import("std").fmt.allocPrint(b.allocator(), "{s}/local", .{identity}), .payload = environment, .result = inside_result, .bodies = &.{inside}, .external = false });
-    const local_capability = try b.schema(.{ .internal = .{ .capability = local } });
-    const effects = try residual.unionWith(b.allocator(), .{ .effects = &.{ ask, local } });
-    const count: usize = if (result == inside_result) 1 else 2;
-    const tokens = try b.allocator().alloc(p.Id, count * 2);
-    for (tokens) |*token| token.* = try b.reserveSchema();
-    const capture_bound = try b.allocator().alloc(p.Id, captures.len + 3 + tokens.len);
-    @memcpy(capture_bound[0..captures.len], captures);
-    capture_bound[captures.len] = ask_capability;
-    capture_bound[captures.len + 1] = local_capability;
-    capture_bound[captures.len + 2] = inside;
-    @memcpy(capture_bound[captures.len + 3 ..], tokens);
-    const inside_captures = try b.allocator().alloc(p.Id, bounds.inside.len + 1);
-    @memcpy(inside_captures[0..bounds.inside.len], bounds.inside);
-    inside_captures[bounds.inside.len] = inside;
-    try b.defineSchema(inside, .{ .internal = .{ .computation = .{ .parameters = &.{ ask_capability, local_capability }, .result = inside_result, .effects = effects.effects, .capture_bound = inside_captures, .use = .linear, .regions = regions } } });
-    var handlers: [2]p.Id = undefined;
-    var clauses: [2]p.Id = undefined;
-    for (0..count) |index| {
-        const answer = if (index == 0) result else inside_result;
-        const ask_token = tokens[index * 2];
-        const local_token = tokens[index * 2 + 1];
-        try b.defineSchema(ask_token, .{ .internal = .{ .resumption = .{ .effect = ask, .input = environment, .answer = answer, .effects = residual.effects, .capture_bound = capture_bound, .handled = &.{ ask, local }, .mode = .deep, .use = .linear } } });
-        try b.defineSchema(local_token, .{ .internal = .{ .resumption = .{ .effect = local, .input = inside_result, .answer = answer, .effects = residual.effects, .capture_bound = capture_bound, .handled = &.{ ask, local }, .mode = .deep, .use = .linear } } });
-        const returns = try b.declare(&.{ environment, answer }, answer, &.{}, regions);
-        const ask_clause = try b.declare(&.{ environment, unit, ask_token }, answer, residual.effects, regions);
-        const local_clause = try b.declare(&.{ environment, environment, inside, local_token }, answer, residual.effects, regions);
-        clauses[index] = local_clause;
-        handlers[index] = try b.handler(.{ .mode = .deep, .input = answer, .answer = answer, .return_function = returns, .state = &.{environment}, .effects = residual.effects, .clauses = &.{ .{ .effect = ask, .function = ask_clause, .resumption = ask_token }, .{ .effect = local, .function = local_clause, .resumption = local_token } } });
-        try b.define(returns, try b.pure(try b.reference(b.parameter(returns, 1))));
-        try b.define(ask_clause, try b.term(.{ .resume_value = .{ .resumption = try b.reference(b.parameter(ask_clause, 2)), .argument = try b.reference(b.parameter(ask_clause, 0)) } }));
+//! Reader/local retains both the scoped body and the outside continuation.
+const std = @import("std");
+const a = @import("../authoring.zig");
+pub const Family = opaque {
+    pub fn ask(self: *const Family) *const a.Operation {
+        return familyData(self).ask;
     }
-    for (clauses[0..count]) |clause| {
-        const value = try b.variable(inside_result);
-        const inner = try b.term(.{ .handle = .{ .handler = handlers[count - 1], .body = try b.reference(b.parameter(clause, 2)), .state = &.{try b.reference(b.parameter(clause, 1))} } });
-        const resumed = try b.term(.{ .resume_value = .{ .resumption = try b.reference(b.parameter(clause, 3)), .argument = try b.reference(value) } });
-        try b.define(clause, try b.bind(value, inner, resumed));
+    pub fn local(self: *const Family) *const a.Operation {
+        return familyData(self).local;
     }
-    return instance.finish(b, .{ .ask = ask, .local = local, .ask_capability = ask_capability, .local_capability = local_capability, .inside = inside, .handler = handlers[0], .resumptions = tokens });
+    pub fn askCapability(self: *const Family) *const a.Schema {
+        return familyData(self).ask_capability;
+    }
+    pub fn localCapability(self: *const Family) *const a.Schema {
+        return familyData(self).local_capability;
+    }
+    pub fn inside(self: *const Family) *const a.Schema {
+        return familyData(self).inside;
+    }
+};
+const FamilyData = struct {
+    ask: *const a.Operation,
+    local: *const a.Operation,
+    ask_capability: *const a.Schema,
+    local_capability: *const a.Schema,
+    environment: *const a.Schema,
+    inside: *const a.Schema,
+    inside_result: *const a.Schema,
+    inside_captures: []const *const a.Schema,
+    residual: []const *const a.Operation,
+    regions: []const *const a.Region,
+    interpretations: std.ArrayList(Cached) = .empty,
+};
+fn familyData(f: *const Family) *FamilyData {
+    return @ptrCast(@alignCast(@constCast(f)));
+}
+pub const Reader = struct { handler: *const a.Handler, inside_handler: *const a.Handler, resumptions: []const *const a.Schema };
+const Cached = struct { result: *const a.Schema, captures: a.CaptureBounds, value: Reader };
+pub fn family(c: *a.Context, identity: []const u8, environment: *const a.Schema, inside_result: *const a.Schema, inside_captures: []const *const a.Schema, residual: []const *const a.Operation, regions: []const *const a.Region) a.Error!*const Family {
+    const allocator = a.interop.builder(c).allocator();
+    const ask = try c.local(try std.fmt.allocPrint(allocator, "{s}/ask", .{identity}), try c.scalar(void), environment, .linear);
+    const declaration = try c.declareSchema(.callable);
+    const inside = declaration.schema();
+    const local = try c.scoped(try std.fmt.allocPrint(allocator, "{s}/local", .{identity}), environment, inside_result, .linear, &.{.{ .name = "inside", .schema = inside }});
+    const ask_capability = try c.capability(ask);
+    const local_capability = try c.capability(local);
+    const bound = try allocator.alloc(*const a.Schema, inside_captures.len + 1);
+    @memcpy(bound[0..inside_captures.len], inside_captures);
+    bound[inside_captures.len] = inside;
+    const effects = try allocator.alloc(*const a.Operation, residual.len + 2);
+    @memcpy(effects[0..residual.len], residual);
+    @memcpy(effects[residual.len..], &[_]*const a.Operation{ ask, local });
+    try c.defineCallable(declaration, &.{ .{ .name = "ask", .schema = ask_capability }, .{ .name = "local", .schema = local_capability } }, inside_result, effects, .{ .use = .linear, .captures = bound, .regions = regions });
+    const saved = try allocator.create(FamilyData);
+    saved.* = .{ .ask = ask, .local = local, .ask_capability = ask_capability, .local_capability = local_capability, .environment = environment, .inside = inside, .inside_result = inside_result, .inside_captures = bound, .residual = try allocator.dupe(*const a.Operation, residual), .regions = try allocator.dupe(*const a.Region, regions) };
+    return @ptrCast(saved);
+}
+pub fn interpret(c: *a.Context, reader: *const Family, result: *const a.Schema, captures: a.CaptureBounds) a.Error!Reader {
+    const f = familyData(reader);
+    _ = try c.capability(f.ask);
+    for (f.interpretations.items) |entry| if (entry.result == result and std.mem.eql(*const a.Schema, entry.captures.continuation, captures.continuation) and std.mem.eql(*const a.Schema, entry.captures.body, captures.body)) return entry.value;
+    const allocator = a.interop.builder(c).allocator();
+    const count: usize = if (result == f.inside_result and std.mem.eql(*const a.Schema, captures.body, f.inside_captures)) 1 else 2;
+    const declarations = try allocator.alloc(*const a.SchemaDeclaration, count * 2);
+    const tokens = try allocator.alloc(*const a.Schema, declarations.len);
+    for (declarations, tokens) |*slot, *token| {
+        slot.* = try c.declareSchema(.resumption);
+        token.* = slot.*.schema();
+    }
+    const bound = try allocator.alloc(*const a.Schema, captures.continuation.len + 3 + tokens.len);
+    @memcpy(bound[0..captures.continuation.len], captures.continuation);
+    @memcpy(bound[captures.continuation.len..][0..3], &[_]*const a.Schema{ f.ask_capability, f.local_capability, f.inside });
+    @memcpy(bound[captures.continuation.len + 3 ..], tokens);
+    var handlers: [2]*const a.Handler = undefined;
+    for (handlers[0..count], 0..) |*handler, index| {
+        const answer = if (index == 0) result else f.inside_result;
+        handler.* = try c.handlerSet(&.{ .{ .name = "ask", .operation = f.ask }, .{ .name = "local", .operation = f.local } }, answer, answer, .{
+            .mode = .deep,
+            .use = .linear,
+            .residual = f.residual,
+            .return_effects = &.{},
+            .captures = bound,
+            .body_captures = if (index == 0) captures.body else f.inside_captures,
+            .borrowed_regions = f.regions,
+            .state = &.{.{ .name = "environment", .schema = f.environment }},
+            .resumption_slots = declarations[index * 2 ..][0..2],
+        });
+        const returns_fn = try c.returnFunction(handler.*);
+        const returns = try c.body(returns_fn);
+        try c.define(returns_fn, try returns.ret(try returns.parameter("result")));
+        const asks_fn = try c.clauseFunctionFor(handler.*, f.ask);
+        const asks = try c.body(asks_fn);
+        try c.define(asks_fn, try asks.ret(try asks.resumeValue(try asks.parameter("resumption"), try asks.parameter("environment"))));
+    }
+    for (handlers[0..count]) |handler| {
+        const clause_fn = try c.clauseFunctionFor(handler, f.local);
+        const clause = try c.body(clause_fn);
+        const inner = try clause.handleWith(handlers[count - 1], try clause.parameter("inside"), &.{.{ .name = "environment", .value = try clause.parameter("payload") }});
+        try c.define(clause_fn, try clause.ret(try clause.resumeValue(try clause.parameter("resumption"), inner)));
+    }
+    const value: Reader = .{ .handler = handlers[0], .inside_handler = handlers[count - 1], .resumptions = tokens };
+    try f.interpretations.append(allocator, .{ .result = result, .captures = .{ .continuation = try allocator.dupe(*const a.Schema, captures.continuation), .body = try allocator.dupe(*const a.Schema, captures.body) }, .value = value });
+    return value;
 }

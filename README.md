@@ -50,7 +50,7 @@ scheduling. Typed bodies provide `protect` and `bracket`. Ownership, borrowing, 
 order and cleanup remain checked. Stable slots retain earlier bindings without
 copying them into every intermediate continuation interface.
 
-Choice, State, Writer and Raise families use an `authoring.Context` and typed handles.
+Choice, State, Reader, Writer and Raise families use an `authoring.Context` and typed handles.
 Choice/Writer/Raise expose `effect()` and `capability()`; State exposes `get()`, `put()`
 and their capability schemas. Interpretations return typed handler and answer
 handles. Repeated interpretations share definitions
@@ -75,6 +75,12 @@ the owner to cleanup and gives its body a scoped loan. The
 [resource example](src/source/resource_example.zig) runs one typed client against
 scalar and structured representations. `library.cleanup.exitInfo` remains a
 schema helper for explicit source-IR construction; typed code uses `cleanupInfo`.
+
+Recursive interfaces use `declareSchema` and typed definitions. A declaration is
+bound once, retains its named metadata through cycles, and must be complete before
+module publication. `HandlerOptions.resumption_slots` lets handler construction
+complete declared tokens for mutually retaining clauses. Reader/local uses these
+declarations in the [scoped forwarding example](src/source/scoped_reader_example.zig).
 
 ## Pure data and components
 

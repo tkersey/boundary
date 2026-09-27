@@ -14,6 +14,8 @@ pub const Error = source.Error || error{
     InvalidCategory,
     InvalidBranch,
     UndefinedBody,
+    UndefinedSchema,
+    SchemaAlreadyDefined,
 };
 pub const Schema = opaque {
     pub fn fields(self: *const Schema) []const Field {
@@ -24,6 +26,7 @@ pub const Schema = opaque {
     }
     pub fn describe(self: *const Schema, writer: *std.Io.Writer) !void {
         const item = data(SchemaData, self);
+        if (item.pending) |kind| return writer.print("unresolved {s}", .{@tagName(kind)});
         const shape = contextData(item.owner).raw.schemas.items[@intCast(item.id)];
         if (shape == .internal and shape.internal == .capability) {
             const instance = shape.internal.capability;
@@ -57,6 +60,12 @@ pub const Schema = opaque {
     }
 };
 pub const Operation = opaque {};
+pub const SchemaKind = enum { alternatives, callable, resumption };
+pub const SchemaDeclaration = opaque {
+    pub fn schema(self: *const SchemaDeclaration) *const Schema {
+        return data(SchemaDeclarationData, self).schema;
+    }
+};
 pub const Function = opaque {};
 pub const Value = opaque {};
 pub const FailureLiteral = opaque {};
@@ -91,6 +100,8 @@ pub const CallableOptions = struct {
     regions: []const *const Region = &.{},
 };
 pub const HandlerOptions = struct {
+    /// Optional forward declarations, in operation order, completed by this handler.
+    resumption_slots: ?[]const *const SchemaDeclaration = null,
     /// Permit protected cleanup obligations in captured resumptions.
     obligations: bool = false,
     mode: p.Mode,
@@ -155,7 +166,9 @@ const SchemaData = struct {
     fields: []const Field = &.{},
     result: ?*const Schema = null,
     captures: []const *const Schema = &.{},
+    pending: ?SchemaKind = null,
 };
+const SchemaDeclarationData = struct { schema: *const Schema };
 const OperationData = struct {
     owner: *Context,
     id: p.Id,
@@ -405,6 +418,54 @@ pub const Context = opaque {
         errdefer |err| self.poison(err);
         return self.intern(try contextData(self).raw.scalar(T), &.{});
     }
+    /// A checked forward reference. Every declaration must be completed before publication.
+    pub fn declareSchema(self: *Context, kind: SchemaKind) Error!*const SchemaDeclaration {
+        try self.ready();
+        errdefer |err| self.poison(err);
+        const raw = contextData(self).raw;
+        const id = try raw.reserveSchema();
+        // This invalid nominal index cannot alias any ordinary schema, including
+        // the empty sum used by raw source binders.
+        raw.schemas.items[@intCast(id)] = .{ .internal = .{ .abstract_resource = std.math.maxInt(p.Id) } };
+        const schema = handle(Schema, try self.save(SchemaData, .{ .owner = self, .id = id, .pending = kind }));
+        try contextData(self).schemas.append(raw.allocator(), schema);
+        return handle(SchemaDeclaration, try self.save(SchemaDeclarationData, .{ .schema = schema }));
+    }
+    fn declarationSlot(self: *Context, declaration: *const SchemaDeclaration, kind: SchemaKind) Error!*SchemaData {
+        const item = @constCast(data(SchemaData, declaration.schema()));
+        try self.origin(item.owner);
+        const pending = item.pending orelse return self.reject(error.SchemaAlreadyDefined, "schema", "declaration is already complete");
+        if (pending != kind) return self.reject(error.InvalidCategory, "schema", "declaration kind differs from its definition");
+        return item;
+    }
+    fn bindSchema(self: *Context, declaration: *const SchemaDeclaration, kind: SchemaKind, shape: p.Schema, names: []const Field, result: ?*const Schema, captures: []const *const Schema) Error!*const Schema {
+        const item = try self.declarationSlot(declaration, kind);
+        errdefer |err| self.poison(err);
+        const allocator = contextData(self).raw.allocator();
+        const fields_copy = try self.fields(names);
+        if (result) |value| _ = try self.schemaId(value);
+        _ = try self.schemaIds(captures);
+        const captures_copy = try allocator.dupe(*const Schema, captures);
+        const owned_shape = try source.own(p.Schema, allocator, shape);
+        contextData(self).raw.schemas.items[@intCast(item.id)] = owned_shape;
+        item.fields = fields_copy;
+        item.result = result;
+        item.captures = captures_copy;
+        item.pending = null;
+        return declaration.schema();
+    }
+    pub fn defineAlternatives(self: *Context, declaration: *const SchemaDeclaration, cases: []const Field) Error!void {
+        _ = try self.declarationSlot(declaration, .alternatives);
+        const completed = try self.alternatives(cases);
+        const info = data(SchemaData, completed);
+        _ = try self.bindSchema(declaration, .alternatives, contextData(self).raw.schemas.items[@intCast(info.id)], info.fields, null, &.{});
+    }
+    pub fn defineCallable(self: *Context, declaration: *const SchemaDeclaration, parameters: []const Field, result: *const Schema, allowed: []const *const Operation, options: CallableOptions) Error!void {
+        _ = try self.declarationSlot(declaration, .callable);
+        const completed = try self.callable(parameters, result, allowed, options);
+        const info = data(SchemaData, completed);
+        _ = try self.bindSchema(declaration, .callable, contextData(self).raw.schemas.items[@intCast(info.id)], info.fields, info.result, info.captures);
+    }
     pub fn record(self: *Context, names: []const Field) Error!*const Schema {
         try self.ready();
         errdefer |err| self.poison(err);
@@ -443,7 +504,8 @@ pub const Context = opaque {
         for (names, ids) |item, *id| {
             id.* = try self.schemaId(item.schema);
             const shape = contextData(self).raw.schemas.items[@intCast(id.*)];
-            if (shape != .internal or shape.internal != .computation) return @as(Error!*const Operation, self.reject(error.InvalidCategory, "scoped operation", "body operands must be callable"));
+            if ((shape != .internal or shape.internal != .computation) and data(SchemaData, item.schema).pending != .callable)
+                return @as(Error!*const Operation, self.reject(error.InvalidCategory, "scoped operation", "body operands must be callable"));
         }
         const id = try contextData(self).raw.effect(.{
             .identity = name,
@@ -790,6 +852,14 @@ pub const Context = opaque {
     pub fn handlerSet(self: *Context, operations: []const HandledOperation, input: *const Schema, answer: *const Schema, options: HandlerOptions) Error!*const Handler {
         try self.ready();
         if (operations.len == 0) return self.reject(error.InvalidCategory, "handler", "requires at least one local operation");
+        if (options.resumption_slots) |slots| {
+            if (slots.len != operations.len) return self.reject(error.SchemaMismatch, "handler", "one resumption declaration is required per operation");
+            for (slots, 0..) |slot, index| {
+                _ = try self.declarationSlot(slot, .resumption);
+                for (slots[0..index]) |previous| if (previous == slot)
+                    return self.reject(error.DuplicateName, "handler", "resumption declarations must be distinct");
+            }
+        }
         for (operations, 0..) |item, index| {
             const op = data(OperationData, item.operation);
             try self.origin(op.owner);
@@ -824,9 +894,9 @@ pub const Context = opaque {
         const returns = try self.handlerReturn(input, answer, options);
         const clauses = try allocator.alloc(p.Clause, operations.len);
         const metadata = try allocator.alloc(HandlerClauseData, operations.len);
-        for (operations, clauses, metadata) |item, *clause, *meta| {
+        for (operations, clauses, metadata, 0..) |item, *clause, *meta, index| {
             const op = data(OperationData, item.operation);
-            const resume_id = try contextData(self).raw.schema(.{ .internal = .{ .resumption = .{
+            const resume_shape: p.Schema = .{ .internal = .{ .resumption = .{
                 .effect = op.id,
                 .input = try self.schemaId(op.result),
                 .answer = try self.schemaId(resume_answer),
@@ -838,8 +908,12 @@ pub const Context = opaque {
                 .use = options.use,
                 .owned_regions = try self.regionIds(options.owned_regions),
                 .obligations = options.obligations,
-            } } });
-            const resumption = try self.internComplete(resume_id, &.{.{ .name = "reply", .schema = op.result }}, resume_answer, options.captures);
+            } } };
+            const resumption = if (options.resumption_slots) |slots|
+                try self.bindSchema(slots[index], .resumption, resume_shape, &.{.{ .name = "reply", .schema = op.result }}, resume_answer, options.captures)
+            else
+                try self.internComplete(try contextData(self).raw.schema(resume_shape), &.{.{ .name = "reply", .schema = op.result }}, resume_answer, options.captures);
+            const resume_id = try self.schemaId(resumption);
             const function_handle = try self.handlerClause(op, answer, resumption, options);
             clause.* = .{ .effect = op.id, .function = data(FunctionData, function_handle).id, .resumption = resume_id };
             meta.* = .{ .operation = item.operation, .function = function_handle, .resumption = resumption };
@@ -1142,6 +1216,11 @@ pub const Context = opaque {
         const f = data(FunctionData, entry);
         try self.origin(f.owner);
         const failure_id = try self.schemaId(failure);
+        for (contextData(self).schemas.items) |schema| if (data(SchemaData, schema).pending != null) {
+            const err = self.reject(error.UndefinedSchema, "schema", "forward declaration has no definition");
+            contextData(self).diagnostic.actual = schema;
+            return err;
+        };
         for (contextData(self).raw.functions.items, 0..) |function_item, id| if (function_item.body == null)
             return self.reject(error.UndefinedBody, self.functionName(id) orelse "unnamed source function", "declaration has no body");
         errdefer |err| self.poison(err);
@@ -2171,7 +2250,7 @@ pub const interop = struct {
 /// Compatibility adapters retain the existing low-level error set.
 pub fn sourceError(err: Error) source.Error {
     return switch (err) {
-        error.ForeignHandle, error.OutOfScope, error.ClosedBody, error.PoisonedAuthoring, error.SchemaMismatch, error.UnknownName, error.DuplicateName, error.InvalidCategory, error.InvalidBranch, error.UndefinedBody => error.InvalidSource,
+        error.ForeignHandle, error.OutOfScope, error.ClosedBody, error.PoisonedAuthoring, error.SchemaMismatch, error.UnknownName, error.DuplicateName, error.InvalidCategory, error.InvalidBranch, error.UndefinedBody, error.UndefinedSchema, error.SchemaAlreadyDefined => error.InvalidSource,
         else => |other| other,
     };
 }
