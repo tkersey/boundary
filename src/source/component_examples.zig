@@ -85,7 +85,7 @@ fn stateful(b: *source.Builder, c: Common) !Built {
 fn suspension(b: *source.Builder, c: Common) !Built {
     const compute = try b.declare(&.{}, c.integer, &.{c.read}, &.{});
     const release = try b.effect(.{ .identity = "component/release", .payload = c.integer, .result = c.unit });
-    const generator = try gen.define(b, "component/yield", c.integer, &.{ c.unit, c.integer }, &.{}, .{ .effects = &.{release} });
+    const generator = try gen.defineExchange(b, "component/yield", c.unit, c.integer, c.unit, &.{ c.unit, c.integer }, &.{}, &.{}, .{ .effects = &.{release} });
     const start = try b.declare(&.{generator.capability}, c.unit, &.{ release, generator.effect }, &.{});
     const value = try b.variable(c.integer);
     const body = try b.declare(&.{}, c.unit, &.{generator.effect}, &.{});

@@ -223,7 +223,7 @@ test "a nested suspension package retains implicit handler and region borrows" {
         const region = try b.schema(.{ .internal = .{ .region = r } });
         const uses_region = form == 2 or form == 4;
         const regions: []const data.program.Id = if (uses_region) &.{r} else &.{};
-        const generator = try gen.define(&b, "implicit-package-borrow", unit, &.{unit}, &.{}, .{ .effects = &.{} });
+        const generator = try gen.defineExchange(&b, "implicit-package-borrow", unit, unit, unit, &.{unit}, &.{}, &.{}, .{ .effects = &.{} });
         const yielded_body = try b.declare(&.{generator.capability}, unit, &.{generator.effect}, &.{});
         try b.define(yielded_body, try b.term(.{ .perform = .{ .effect = generator.effect, .capability = try b.reference(b.parameter(yielded_body, 0)), .payload = try b.constant(void, {}) } }));
         const yielded_type = try b.schema(.{ .internal = .{ .computation = .{ .parameters = &.{generator.capability}, .result = unit, .effects = &.{generator.effect} } } });
@@ -503,7 +503,7 @@ test "library specializations share declarations at one eight and sixty-four ins
     var first_handler: *const typed.Handler = undefined;
     for (0..64) |index| {
         const interpreted = try choice.all(author, choices, try author.scalar(u64), .{ .captures = .{ .continuation = &.{} }, .residual = &.{} });
-        const tasks = try generator.define(&b, "sharing/generator", unit, &.{}, &.{}, .{ .effects = &.{} });
+        const tasks = try generator.defineExchange(&b, "sharing/generator", unit, unit, unit, &.{}, &.{}, &.{}, .{ .effects = &.{} });
         _ = try scheduler.fifo(&b, tasks, .{ .effects = &.{} }, &.{});
         _ = try scheduler.awaiting(&b, tasks, joined, integer, &.{region});
         if (index == 0) {

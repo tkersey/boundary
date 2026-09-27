@@ -20,7 +20,7 @@ fn authored(b: *source.Builder) a.Error!source.ast.Module {
     const join = try scheduler.joinType(b, integer, r);
     const logging_family = try writer.family(c, "example/task-log", try c.scalar(u64));
     const w = .{ .effect = try a.interop.operationId(c, logging_family.effect()), .capability = try a.interop.schemaId(c, logging_family.capability()) };
-    const tasks = try generator.defineScoped(b, "example/task-yield", unit, &.{ unit, integer, join.cell, w.capability }, &.{}, &.{r}, .{ .effects = &.{w.effect} });
+    const tasks = try generator.defineExchange(b, "example/task-yield", unit, unit, unit, &.{ unit, integer, join.cell, w.capability }, &.{}, &.{r}, .{ .effects = &.{w.effect} });
     const fifo = try scheduler.fifo(b, tasks, .{ .effects = &.{w.effect} }, &.{r});
     const await_join = try scheduler.awaiting(b, tasks, join, integer, &.{r});
     const capture_ids = [_]p.Id{ unit, integer, join.cell, tasks.capability, tasks.package, tasks.answer, tasks.yielded, fifo.queue };

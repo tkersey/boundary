@@ -11,7 +11,7 @@ pub const Fixtures = struct { package: p.Id, queue: p.Id, factory: p.Id, release
 pub fn define(b: *source.Builder, release: p.Id) source.Error!Fixtures {
     const unit = try b.scalar(void);
     const integer = try b.scalar(u64);
-    const generator = try gen.define(b, "custody/suspend", integer, &.{ unit, integer }, &.{}, .{ .effects = &.{release} });
+    const generator = try gen.defineExchange(b, "custody/suspend", unit, integer, unit, &.{ unit, integer }, &.{}, &.{}, .{ .effects = &.{release} });
     const start = try b.declare(&.{ generator.capability, integer }, unit, &.{ release, generator.effect }, &.{});
     const body = try b.declare(&.{}, unit, &.{generator.effect}, &.{});
     const finalizer = try b.declare(&.{try cleanup.exitInfo(b, integer)}, unit, &.{release}, &.{});

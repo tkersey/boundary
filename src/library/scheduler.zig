@@ -94,7 +94,7 @@ fn constructionAllocation(allocator: @import("std").mem.Allocator) !void {
     const unit = try b.scalar(void);
     const integer = try b.scalar(u64);
     const region = b.region();
-    const tasks = try generator.defineScoped(&b, "scheduler/allocation", unit, &.{ unit, integer }, &.{}, &.{region}, .{ .effects = &.{} });
+    const tasks = try generator.defineExchange(&b, "scheduler/allocation", unit, unit, unit, &.{ unit, integer }, &.{}, &.{region}, .{ .effects = &.{} });
     const join = try joinType(&b, integer, region);
     const scheduler = try fifo(&b, tasks, .{ .effects = &.{} }, &.{region});
     const waiter = try awaiting(&b, tasks, join, integer, &.{region});

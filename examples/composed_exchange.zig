@@ -117,10 +117,10 @@ const Application = struct {
         const second = try b.bind(next, try generator.exchange(b, azc.generator, try b.reference(allp), try b.constant(u64, 5)), try e.yielded(azc.generator, try b.reference(next), 122, np, stop));
         const joined = try b.bind(all, try b.term(.{ .call = .{ .function = azc.start, .arguments = &.{ try b.reference(azp), try b.reference(cp), try b.constant(u64, 4) } } }), if (right_finish) try e.completed(azc.generator, try b.reference(all), 2, done) else try e.yielded(azc.generator, try b.reference(all), 120, allp, second));
         const first = try b.bind(aza, try b.term(.{ .call = .{ .function = az.start, .arguments = &.{ try b.reference(ap), try b.reference(zp), try b.constant(u64, 3) } } }), try e.yielded(az.generator, try b.reference(aza), 18, azp, joined));
-        const retained = try b.bind(da, try generator.begin(b, c, try e.participant(c, 4, 1000, true), try b.constant(u64, 0)), try e.yielded(c, try b.reference(da), 0, dp, first));
-        const third = try b.bind(ca, try generator.begin(b, c, try e.participant(c, 3, 100, false), try b.constant(u64, 0)), try e.yielded(c, try b.reference(ca), 0, cp, retained));
-        const two = try b.bind(za, try generator.begin(b, z, try e.participant(z, 2, 10, true), try b.constant(u64, 0)), try e.yielded(z, try b.reference(za), 0, zp, third));
-        try b.define(entry, try b.bind(aa, try generator.begin(b, a, try e.participant(a, 1, 1, false), try b.constant(u64, 0)), try e.yielded(a, try b.reference(aa), 0, ap, two)));
+        const retained = try b.bind(da, try generator.start(b, c, try e.participant(c, 4, 1000, true), &.{try b.constant(u64, 0)}), try e.yielded(c, try b.reference(da), 0, dp, first));
+        const third = try b.bind(ca, try generator.start(b, c, try e.participant(c, 3, 100, false), &.{try b.constant(u64, 0)}), try e.yielded(c, try b.reference(ca), 0, cp, retained));
+        const two = try b.bind(za, try generator.start(b, z, try e.participant(z, 2, 10, true), &.{try b.constant(u64, 0)}), try e.yielded(z, try b.reference(za), 0, zp, third));
+        try b.define(entry, try b.bind(aa, try generator.start(b, a, try e.participant(a, 1, 1, false), &.{try b.constant(u64, 0)}), try e.yielded(a, try b.reference(aa), 0, ap, two)));
         return b.module(entry, unit);
     }
 };

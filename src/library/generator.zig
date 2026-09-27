@@ -12,14 +12,6 @@ pub const Scope = struct {
     residual: source.Row = .{ .effects = &.{} },
 };
 
-pub fn define(builder: *source.Builder, identity: []const u8, element: p.Id, captures: []const p.Id, owned_regions: []const p.Id, residual: source.Row) Error!Generator {
-    return defineScoped(builder, identity, element, captures, owned_regions, &.{}, residual);
-}
-pub fn defineScoped(builder: *source.Builder, identity: []const u8, element: p.Id, captures: []const p.Id, owned_regions: []const p.Id, borrowed_regions: []const p.Id, residual: source.Row) Error!Generator {
-    const unit = try builder.scalar(void);
-    return defineExchange(builder, identity, unit, element, unit, captures, owned_regions, borrowed_regions, residual);
-}
-
 /// Bidirectional owned exchange: supplied input advances to the next offered
 /// output or completion. It never returns the preceding output again.
 pub fn defineExchange(builder: *source.Builder, identity: []const u8, input: p.Id, element: p.Id, result: p.Id, captures: []const p.Id, owned_regions: []const p.Id, borrowed_regions: []const p.Id, residual: source.Row) Error!Generator {
@@ -29,7 +21,7 @@ pub fn defineExchange(builder: *source.Builder, identity: []const u8, input: p.I
     return instance.finish(builder, value);
 }
 
-const TypedExchange = struct {
+pub const Exchange = struct {
     input: *const a.Schema,
     element: *const a.Schema,
     result: *const a.Schema,
@@ -44,6 +36,21 @@ const TypedExchange = struct {
         return .{ .input = try a.interop.schemaId(c, self.input), .result = try a.interop.schemaId(c, self.result), .effect = try a.interop.operationId(c, self.effect), .capability = try a.interop.schemaId(c, self.capability), .element = try a.interop.schemaId(c, self.element), .answer = try a.interop.schemaId(c, self.answer), .yielded = try a.interop.schemaId(c, self.yielded), .package = try a.interop.schemaId(c, self.package), .resumption = try a.interop.schemaId(c, self.resumption), .handler = try a.interop.handlerId(c, self.handler) };
     }
 };
+pub const Options = struct {
+    captures: a.CaptureBounds,
+    owned_regions: []const *const a.Region = &.{},
+    borrowed_regions: []const *const a.Region = &.{},
+    residual: []const *const a.Operation = &.{},
+    parameters: []const a.Field = &.{},
+    body_use: p.Use = .linear,
+};
+
+/// Declare a typed owned exchange. Reuse this definition for every endpoint
+/// sharing its nominal operation and recursive answer contract.
+pub fn create(c: *a.Context, identity: []const u8, input: *const a.Schema, element: *const a.Schema, result: *const a.Schema, options: Options) a.Error!Exchange {
+    return makeExchange(c, identity, input, element, result, options.captures.continuation, options.owned_regions, options.borrowed_regions, options.residual, options.parameters, options.captures.body, options.body_use);
+}
+
 fn schemas(c: *a.Context, ids: []const p.Id) a.Error![]const *const a.Schema {
     const values = try a.interop.builder(c).allocator().alloc(*const a.Schema, ids.len);
     for (ids, values) |id, *value| value.* = try a.interop.schema(c, id);
@@ -61,10 +68,10 @@ fn regionHandles(c: *a.Context, ids: []const p.Id) a.Error![]const *const a.Regi
 }
 fn authoredExchange(b: *source.Builder, identity: []const u8, input: p.Id, element: p.Id, result: p.Id, captures: []const p.Id, owned_regions: []const p.Id, borrowed_regions: []const p.Id, residual: source.Row) a.Error!Generator {
     const c = try a.Context.init(b);
-    const value = try makeExchange(c, identity, try a.interop.schema(c, input), try a.interop.schema(c, element), try a.interop.schema(c, result), try schemas(c, captures), try regionHandles(c, owned_regions), try regionHandles(c, borrowed_regions), try operations(c, residual.effects), &.{});
+    const value = try makeExchange(c, identity, try a.interop.schema(c, input), try a.interop.schema(c, element), try a.interop.schema(c, result), try schemas(c, captures), try regionHandles(c, owned_regions), try regionHandles(c, borrowed_regions), try operations(c, residual.effects), &.{}, &.{}, .linear);
     return value.sourceIds(c);
 }
-fn makeExchange(c: *a.Context, identity: []const u8, input: *const a.Schema, element: *const a.Schema, result: *const a.Schema, captures: []const *const a.Schema, owned: []const *const a.Region, borrowed: []const *const a.Region, residual: []const *const a.Operation, parameters: []const a.Field) a.Error!TypedExchange {
+fn makeExchange(c: *a.Context, identity: []const u8, input: *const a.Schema, element: *const a.Schema, result: *const a.Schema, captures: []const *const a.Schema, owned: []const *const a.Region, borrowed: []const *const a.Region, residual: []const *const a.Operation, parameters: []const a.Field, body_captures: []const *const a.Schema, body_use: p.Use) a.Error!Exchange {
     const effect = try c.local(identity, element, input, .linear);
     const capability = try c.capability(effect);
     const bound = try a.interop.builder(c).allocator().alloc(*const a.Schema, captures.len + 1);
@@ -79,6 +86,8 @@ fn makeExchange(c: *a.Context, identity: []const u8, input: *const a.Schema, ele
         .return_effects = &.{},
         .clause_effects = &.{},
         .captures = bound,
+        .body_captures = body_captures,
+        .body_use = body_use,
         .owned_regions = owned,
         .borrowed_regions = borrowed,
         .obligations = true,
@@ -104,11 +113,6 @@ pub fn next(builder: *source.Builder, generator: Generator, package: p.Id) Error
 }
 pub fn close(builder: *source.Builder, generator: Generator, package: p.Id) Error!p.Id {
     return builder.term(.{ .dispose = try builder.primitive(generator.resumption, .unpack, &.{package}, 0) });
-}
-
-/// Begin a fresh owned body with its first input. Body parameters are capability, input.
-pub fn begin(builder: *source.Builder, definition: Generator, body: p.Id, input: p.Id) Error!p.Id {
-    return start(builder, definition, body, &.{input});
 }
 
 pub fn start(builder: *source.Builder, definition: Generator, body: p.Id, arguments: []const p.Id) Error!p.Id {
@@ -164,7 +168,7 @@ fn composeTyped(b: *source.Builder, identity: []const u8, left: Generator, right
     const effects = try operations(c, residual.effects);
     const borrowed = try regionHandles(c, borrowed_regions);
     const parameters = &[_]a.Field{ .{ .name = "left", .schema = lp }, .{ .name = "right", .schema = rp }, .{ .name = "input", .schema = input } };
-    const g = try makeExchange(c, identity, input, element, result, &.{ lp, rp, input, try a.interop.schema(c, left.element), element, result, try c.scalar(void) }, try regionHandles(c, owned_regions), borrowed, effects, parameters);
+    const g = try makeExchange(c, identity, input, element, result, &.{ lp, rp, input, try a.interop.schema(c, left.element), element, result, try c.scalar(void) }, try regionHandles(c, owned_regions), borrowed, effects, parameters, &.{}, .linear);
     const loop_schema = try c.handledSchema(g.handler);
     const loop_fn = try c.functionFor("exchange pipeline", loop_schema);
     const loop = try c.body(loop_fn);

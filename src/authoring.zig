@@ -244,6 +244,7 @@ const ProductPartsData = struct { body: *Body, fields: []const Argument };
 const Binding = union(enum) {
     bind: struct { variable: p.Id, term: p.Id },
     unpack: struct { value: p.Id, variables: []const p.Id },
+    yield_now,
 };
 fn data(comptime T: type, pointer: anytype) *const T {
     return @ptrCast(@alignCast(pointer));
@@ -1526,6 +1527,21 @@ pub const Body = opaque {
         return self.bind(try contextData(c).raw.pure(value), schema);
     }
     pub fn unpack(self: *Body, package_value: *const Value) Error!*const Value {
+        const value = try self.unpackOperand(package_value);
+        const c = bodyData(self).context;
+        errdefer |err| c.poison(err);
+        const info = data(ValueData, value);
+        return self.bind(try contextData(c).raw.pure(info.id), info.schema);
+    }
+    /// Consume a suspension package directly, without exposing an intermediate
+    /// continuation owner to the caller's statement scope.
+    pub fn resumePackage(self: *Body, package_value: *const Value, reply: *const Value) Error!*const Value {
+        return self.resumeValue(try self.unpackOperand(package_value), reply);
+    }
+    pub fn disposePackage(self: *Body, package_value: *const Value) Error!*const Value {
+        return self.dispose(try self.unpackOperand(package_value));
+    }
+    fn unpackOperand(self: *Body, package_value: *const Value) Error!*const Value {
         const packaged = try self.useValue(package_value);
         const c = bodyData(self).context;
         const info = data(SchemaData, packaged.schema);
@@ -1540,7 +1556,7 @@ pub const Body = opaque {
             &.{packaged.id},
             0,
         );
-        return self.bind(try contextData(c).raw.pure(value), result);
+        return self.makeValue(value, result);
     }
     pub fn resumeValue(
         self: *Body,
@@ -1711,8 +1727,8 @@ pub const Body = opaque {
         try self.ready();
         const c = bodyData(self).context;
         errdefer |err| c.poison(err);
-        const unit = try c.scalar(void);
-        return self.bind(try contextData(c).raw.term(.{ .yield_then = try contextData(c).raw.pure(try contextData(c).raw.constant(void, {})) }), unit);
+        try bodyData(self).bindings.append(contextData(c).raw.allocator(), .yield_now);
+        return self.constant(void, {});
     }
     pub fn newCell(self: *Body, schema: *const Schema, region: *const Value, initial: *const Value) Error!*const Value {
         try self.ready();
@@ -2128,6 +2144,7 @@ pub const Body = opaque {
             const binding = bodyData(self).bindings.items[index];
             term = switch (binding) {
                 .bind => |value| try contextData(c).raw.bind(value.variable, value.term, term),
+                .yield_now => try contextData(c).raw.term(.{ .yield_then = term }),
                 .unpack => |value| try contextData(c).raw.term(.{ .unpack_product = .{
                     .value = value.value,
                     .variables = value.variables,

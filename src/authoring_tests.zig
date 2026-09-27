@@ -697,7 +697,7 @@ test "handler return effects can be pure while the clause retains residual I/O" 
     try testing.expectError(error.InvalidEffect, handlerReturnEffects(testing.allocator, false, false, true));
 }
 
-fn suspensionRoundtrip(allocator: std.mem.Allocator, duplicate: bool, duplicate_product: bool) !void {
+fn suspensionRoundtrip(allocator: std.mem.Allocator, duplicate: bool, duplicate_product: bool, direct: bool) !void {
     var raw = source.Builder.init(allocator);
     defer raw.deinit();
     const c = try a.Context.init(&raw);
@@ -720,6 +720,8 @@ fn suspensionRoundtrip(allocator: std.mem.Allocator, duplicate: bool, duplicate_
     const ordinary = try body.constant(void, {});
     try testing.expectError(error.InvalidCategory, body.package(ordinary));
     try testing.expectError(error.InvalidCategory, body.unpack(ordinary));
+    try testing.expectError(error.InvalidCategory, body.resumePackage(ordinary, ordinary));
+    try testing.expectError(error.InvalidCategory, body.disposePackage(ordinary));
     const packaged = try body.package(try body.parameter("resumption"));
     const box_schema = try c.record(&.{.{
         .name = "future",
@@ -728,17 +730,24 @@ fn suspensionRoundtrip(allocator: std.mem.Allocator, duplicate: bool, duplicate_
     const box = try body.product(box_schema, &.{.{ .name = "future", .value = packaged }});
     const parts = try body.destructure(box);
     const future = try parts.get("future");
-    var token = try body.unpack(future);
-    if (duplicate) {
-        _ = try body.dispose(token);
-        token = try body.unpack(future);
+    if (direct) {
+        var selected = future;
+        if (duplicate or duplicate_product) _ = try body.disposePackage(future);
+        if (duplicate_product) selected = try (try body.destructure(box)).get("future");
+        try c.define(clause, try body.ret(try body.resumePackage(selected, try body.parameter("payload"))));
+    } else {
+        var token = try body.unpack(future);
+        if (duplicate) {
+            _ = try body.dispose(token);
+            token = try body.unpack(future);
+        }
+        if (duplicate_product) {
+            _ = try body.dispose(token);
+            const again = try body.destructure(box);
+            token = try body.unpack(try again.get("future"));
+        }
+        try c.define(clause, try body.ret(try body.resumeValue(token, try body.parameter("payload"))));
     }
-    if (duplicate_product) {
-        _ = try body.dispose(token);
-        const again = try body.destructure(box);
-        token = try body.unpack(try again.get("future"));
-    }
-    try c.define(clause, try body.ret(try body.resumeValue(token, try body.parameter("payload"))));
     const work_schema = try c.handledSchema(handler);
     const work = try c.functionFor("work", work_schema);
     const working = try c.body(work);
@@ -759,12 +768,14 @@ fn suspensionRoundtrip(allocator: std.mem.Allocator, duplicate: bool, duplicate_
 }
 
 test "typed suspension packaging preserves resumption custody" {
-    try suspensionRoundtrip(testing.allocator, false, false);
-    for ([_]bool{ false, true }) |product| {
-        if (suspensionRoundtrip(testing.allocator, !product, product)) {
-            return error.DuplicatePackageAdmitted;
-        } else |err| {
-            try testing.expect(err == error.UnavailableSlot or err == error.InvalidOwnership);
+    for ([_]bool{ false, true }) |direct| {
+        try suspensionRoundtrip(testing.allocator, false, false, direct);
+        for ([_]bool{ false, true }) |product| {
+            if (suspensionRoundtrip(testing.allocator, !product, product, direct)) {
+                return error.DuplicatePackageAdmitted;
+            } else |err| {
+                try testing.expect(err == error.UnavailableSlot or err == error.InvalidOwnership);
+            }
         }
     }
 }

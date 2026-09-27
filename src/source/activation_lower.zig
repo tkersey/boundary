@@ -450,6 +450,23 @@ const Function = struct {
                     .block = rest,
                     .destination = try self.resolve(env, binding.variable),
                 };
+                // A control operation ends this block in the same custody
+                // scope. Its result still enters the binding's successor scope.
+                // Do not add an empty edge after eagerly staged operands.
+                const value_term = self.compiler.source.terms[@intCast(binding.value)];
+                switch (value_term) {
+                    .call,
+                    .apply,
+                    .perform,
+                    .handle,
+                    .with_region,
+                    .protect,
+                    .resume_value,
+                    .resume_with,
+                    .resume_computation,
+                    => return self.control(block, value_term, next),
+                    else => {},
+                }
                 return .{ .jump = .{
                     .block = try self.schedule(binding.value, task.environment, next, task.custody),
                 } };

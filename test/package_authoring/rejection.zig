@@ -4,6 +4,9 @@ test "public package retires raw effect handler and region facades" {
     try std.testing.expect(!@hasDecl(b, "effect"));
     try std.testing.expect(!@hasDecl(b, "computation"));
     try std.testing.expect(@hasDecl(b, "source"));
+    try std.testing.expect(!@hasDecl(b.library.generator, "define"));
+    try std.testing.expect(!@hasDecl(b.library.generator, "defineScoped"));
+    try std.testing.expect(!@hasDecl(b.library.generator, "begin"));
     try std.testing.expect(!@hasDecl(b, "handler"));
     try std.testing.expect(!@hasDecl(b, "region"));
     try std.testing.expect(@hasDecl(b.authoring.Context, "handler"));

@@ -1,65 +1,68 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
 //! An authored caller retains a generator with a private cell and exit obligation.
 const source = @import("../source.zig");
+const a = @import("../authoring.zig");
 const gen = @import("../library/generator.zig");
-const cleanup = @import("../library/cleanup.zig");
-const p = @import("boundary_data").program;
-const Error = source.Error;
 
-pub fn build(b: *source.Builder) Error!source.ast.Module {
-    const unit = try b.scalar(void);
-    const integer = try b.scalar(u64);
-    const pair = try b.schema(.{ .product = &.{ integer, integer } });
-    const scope = b.region();
-    const region_type = try b.schema(.{ .internal = .{ .region = scope } });
-    const cell_type = try b.schema(.{ .internal = .{ .cell = .{ .element = integer, .region = scope } } });
-    const release = try b.effect(.{ .identity = "example/generator-release", .payload = integer, .result = unit });
-    const generator = try gen.define(b, "example/generator-yield", integer, &.{ unit, integer, cell_type }, &.{scope}, .{ .effects = &.{release} });
+pub fn build(b: *source.Builder) source.Error!source.Module {
+    return authored(b) catch |err| return a.sourceError(err);
+}
+fn authored(b: *source.Builder) a.Error!source.Module {
+    const c = try a.Context.init(b);
+    const unit = try c.scalar(void);
+    const integer = try c.scalar(u64);
+    const pair = try c.record(&.{ .{ .name = "first", .schema = integer }, .{ .name = "second", .schema = integer } });
+    const scope = try c.region();
+    const cell_type = try c.cell(scope, integer);
+    const release = try c.external("example/generator-release", integer, unit);
+    const generator = try gen.create(c, "example/generator-yield", unit, integer, unit, .{
+        .captures = .{ .continuation = &.{ unit, integer, cell_type } },
+        .owned_regions = &.{scope},
+        .residual = &.{release},
+        .body_use = .reusable,
+    });
     const effects = &.{ release, generator.effect };
-    const main = try b.declare(&.{}, pair, &.{release}, &.{});
-    const start = try b.declare(&.{generator.capability}, unit, effects, &.{});
-    const private = try b.declare(&.{region_type}, unit, effects, &.{scope});
-    const body = try b.declare(&.{}, unit, &.{generator.effect}, &.{scope});
-    const finalizer = try b.declare(&.{try cleanup.exitInfo(b, unit)}, unit, &.{release}, &.{scope});
-    const capability = try b.reference(b.parameter(start, 0));
-    const cell = try b.variable(cell_type);
-    const cell_ref = try b.reference(cell);
-    const read = try b.primitive(integer, .cell_get, &.{cell_ref}, 0);
-    const first = try b.term(.{ .perform = .{ .effect = generator.effect, .capability = capability, .payload = read } });
-    const second = try b.term(.{ .perform = .{ .effect = generator.effect, .capability = capability, .payload = read } });
-    const set = try b.pure(try b.primitive(unit, .cell_set, &.{ cell_ref, try b.constant(u64, 43) }, 0));
-    const ignored = try b.variable(unit);
-    const ignored_set = try b.variable(unit);
-    const ignored_second = try b.variable(unit);
-    try b.define(body, try b.bind(ignored, first, try b.bind(ignored_set, set, try b.bind(ignored_second, second, try b.pure(try b.constant(void, {}))))));
-    try b.define(finalizer, try b.term(.{ .perform = .{ .effect = release, .payload = read } }));
-    const body_type = try b.schema(.{ .internal = .{ .computation = .{ .parameters = &.{}, .result = unit, .effects = &.{generator.effect}, .capture_bound = &.{ generator.capability, cell_type }, .regions = &.{scope} } } });
-    const cleanup_type = try b.schema(.{ .internal = .{ .computation = .{ .parameters = &.{try cleanup.exitInfo(b, unit)}, .result = unit, .effects = &.{release}, .capture_bound = &.{cell_type}, .regions = &.{scope} } } });
-    const protect = try b.term(.{ .protect = .{ .body = try b.lambda(body, body_type), .cleanup = try b.lambda(finalizer, cleanup_type) } });
-    try b.define(private, try b.bind(cell, try b.pure(try b.primitive(cell_type, .cell_new, &.{ try b.reference(b.parameter(private, 0)), try b.constant(u64, 42) }, 0)), protect));
-    const private_type = try b.schema(.{ .internal = .{ .computation = .{ .parameters = &.{region_type}, .result = unit, .effects = effects, .capture_bound = &.{generator.capability}, .regions = &.{scope} } } });
-    try b.define(start, try b.term(.{ .with_region = .{ .region = scope, .body = try b.lambda(private, private_type) } }));
-    const start_type = try b.schema(.{ .internal = .{ .computation = .{ .parameters = &.{generator.capability}, .result = unit, .effects = effects } } });
-    const answer = try b.variable(generator.answer);
-    const done = try b.variable(unit);
-    const yielded = try b.variable(generator.yielded);
-    const a = try b.variable(integer);
-    const owned = try b.variable(generator.package);
-    const answer2 = try b.variable(generator.answer);
-    const done2 = try b.variable(unit);
-    const yielded2 = try b.variable(generator.yielded);
-    const c = try b.variable(integer);
-    const owned2 = try b.variable(generator.package);
-    const closed = try b.variable(unit);
-    const failure = try b.term(.{ .fail = try b.constant(void, {}) });
-    const result = try b.pure(try b.primitive(pair, .product, &.{ try b.reference(a), try b.reference(c) }, 0));
-    const close = try b.bind(closed, try gen.close(b, generator, try b.reference(owned2)), result);
-    const unpack2 = try b.term(.{ .unpack_product = .{ .value = try b.reference(yielded2), .variables = &.{ c, owned2 }, .body = close } });
-    const match2 = try b.term(.{ .match_sum = .{ .value = try b.reference(answer2), .cases = &.{ .{ .variable = done2, .body = failure }, .{ .variable = yielded2, .body = unpack2 } } } });
-    const next = try b.bind(answer2, try gen.next(b, generator, try b.reference(owned)), match2);
-    const unpack = try b.term(.{ .unpack_product = .{ .value = try b.reference(yielded), .variables = &.{ a, owned }, .body = try b.term(.{ .yield_then = next }) } });
-    const match = try b.term(.{ .match_sum = .{ .value = try b.reference(answer), .cases = &.{ .{ .variable = done, .body = failure }, .{ .variable = yielded, .body = unpack } } } });
-    const installed = try b.term(.{ .handle = .{ .handler = generator.handler, .body = try b.lambda(start, start_type) } });
-    try b.define(main, try b.bind(answer, installed, match));
-    return b.module(main, unit);
+    const start_type = try c.handledSchema(generator.handler);
+    const start_fn = try c.functionFor("generator producer", start_type);
+    const start = try c.body(start_fn);
+    const capability = try start.parameter("capability");
+    const private_type = try c.regionBodySchema(scope, &.{}, unit, effects, .{ .use = .reusable, .captures = &.{generator.capability} });
+    const private_fn = try c.functionFor("private generator state", private_type);
+    const private = try start.closureBody(private_fn);
+    const cell = try private.newCell(cell_type, try private.parameter("region"), try private.constant(u64, 42));
+    const body_type = try c.callable(&.{}, unit, &.{generator.effect}, .{ .use = .reusable, .captures = &.{ generator.capability, cell_type }, .regions = &.{scope} });
+    const body_fn = try c.functionFor("generator yields", body_type);
+    const body = try private.closureBody(body_fn);
+    _ = try body.performLocal(generator.effect, capability, try body.readCell(cell));
+    _ = try body.writeCell(cell, try body.constant(u64, 43));
+    _ = try body.performLocal(generator.effect, capability, try body.readCell(cell));
+    try c.define(body_fn, try body.ret(try body.constant(void, {})));
+    const cleanup_type = try c.callable(&.{.{ .name = "exit", .schema = try c.cleanupInfo(unit) }}, unit, &.{release}, .{ .use = .reusable, .captures = &.{cell_type}, .regions = &.{scope} });
+    const cleanup_fn = try c.functionFor("generator release", cleanup_type);
+    const cleanup = try private.closureBody(cleanup_fn);
+    try c.define(cleanup_fn, try cleanup.ret(try cleanup.perform(release, try cleanup.readCell(cell))));
+    try c.define(private_fn, try private.ret(try private.protect(try private.lambda(body_fn, body_type), try private.lambda(cleanup_fn, cleanup_type), &.{})));
+    try c.define(start_fn, try start.ret(try start.withRegion(scope, try start.lambda(private_fn, private_type), &.{})));
+
+    const main = try c.function("entry", &.{}, pair, &.{release});
+    const entry = try c.body(main);
+    const answer = try entry.handleWith(generator.handler, try entry.lambda(start_fn, start_type), &.{});
+    const done = try entry.caseOf(answer, "done");
+    const yielded = try entry.caseOf(answer, "yielded");
+    const first = yielded.body();
+    const parts = try first.destructure(yielded.payload());
+    const first_value = try parts.get("value");
+    const future = try parts.get("future");
+    _ = try first.yieldNow();
+    const answer2 = try first.resumePackage(future, try first.constant(void, {}));
+    const done2 = try first.caseOf(answer2, "done");
+    const yielded2 = try first.caseOf(answer2, "yielded");
+    const second = yielded2.body();
+    const parts2 = try second.destructure(yielded2.payload());
+    const second_value = try parts2.get("value");
+    _ = try second.disposePackage(try parts2.get("future"));
+    const result = try second.product(pair, &.{ .{ .name = "first", .value = first_value }, .{ .name = "second", .value = second_value } });
+    const next = try first.match(answer2, &.{ try done2.fail(pair, try done2.body().constant(void, {})), try yielded2.ret(result) });
+    try c.define(main, try entry.ret(try entry.match(answer, &.{ try done.fail(pair, try done.body().constant(void, {})), try yielded.ret(next) })));
+    return c.module(main, unit);
 }

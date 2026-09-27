@@ -78,8 +78,8 @@ const Application = struct {
         var dispose = try b.bind(try b.variable(unit), try generator.close(b, g, try e.ref(ap)), after_dispose);
         if (normal) dispose = try normalExchange(e, ap, resume_side);
         const side = try e.yielded(try e.ref(z), 50, zp, dispose);
-        const started = try b.bind(z, try generator.begin(b, g, body, try b.constant(u64, 50)), side);
-        try b.define(entry, try b.bind(a, try generator.begin(b, g, body, try b.constant(u64, 5)), try e.yielded(try e.ref(a), 5, ap, started)));
+        const started = try b.bind(z, try generator.start(b, g, body, &.{try b.constant(u64, 50)}), side);
+        try b.define(entry, try b.bind(a, try generator.start(b, g, body, &.{try b.constant(u64, 5)}), try e.yielded(try e.ref(a), 5, ap, started)));
         return b.module(entry, unit);
     }
 };

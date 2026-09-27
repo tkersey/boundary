@@ -174,7 +174,7 @@ const CleanupDisposal = struct {
         const region_type = try b.schema(.{ .internal = .{ .region = region } });
         const logging_family = try writer.family(c, "example/cleanup-owner-writer", try c.scalar(u64));
         const w = .{ .effect = try a.interop.operationId(c, logging_family.effect()), .capability = try a.interop.schemaId(c, logging_family.capability()) };
-        const g = try generator.defineScoped(b, "example/cleanup-owned-yield", integer, &.{ unit, integer, w.capability }, &.{}, &.{region}, .{ .effects = &.{w.effect} });
+        const g = try generator.defineExchange(b, "example/cleanup-owned-yield", unit, integer, unit, &.{ unit, integer, w.capability }, &.{}, &.{region}, .{ .effects = &.{w.effect} });
         const capture_ids = [_]boundary.data.program.Id{ unit, integer, g.capability, g.answer, g.resumption, g.package, g.yielded };
         var captures: [capture_ids.len]*const a.Schema = undefined;
         for (capture_ids, &captures) |id, *schema| schema.* = try a.interop.schema(c, id);
