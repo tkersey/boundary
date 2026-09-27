@@ -21,6 +21,7 @@ pub const branch_reduction = @import("branch_reduction.zig");
 pub const dead_computation = @import("dead_computation.zig");
 pub const dead_arguments = @import("dead_arguments.zig");
 pub const aggregate_reduction = @import("aggregate_reduction.zig");
+pub const expression_reuse = @import("expression_reuse.zig");
 pub const component = @import("component.zig");
 pub const borrow_contract = @import("borrow_contract.zig");
 pub const borrow_flow = @import("borrow_flow.zig");

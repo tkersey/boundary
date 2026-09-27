@@ -88,6 +88,24 @@ optimizer reads linked records after the object byte buffers have been overwritt
 These tests exercise the transformation sequence explicitly; automatic semantic
 compiler/final-link integration remains unfinished.
 
+`data.expression_reuse` implements the early P04 total-expression subset. A
+definition catalogue records opcode, output schema, immediate and ordered operand
+slots; must-availability invalidates a definition on any source/operand write or
+relevant parallel edge assignment. Intersections require availability on every
+incoming path. Reuse is checked separately by backwards raw-record traversal to
+the dominating successful producer. Mutable reads, faulting expressions, closures,
+packages/resources and non-copy/drop values are excluded. No commutative or
+copy-alias canonicalization is assumed. Cyclic proofs conservatively decline.
+
+The diamond witness computes the same XOR before and after a control-flow region;
+reuse reduces its dynamic XOR evaluations from two to one on both paths. A local
+repetition also reuses its earlier value. The linked-record native witness shrinks
+82 to 81 bytes and preserves outputs for both paths and multiple operands. This
+does not establish a timing improvement. The pass bounds discovery and independent
+correspondence work deterministically, defaults to one million work units, and
+rolls back the complete candidate before final P01 when that budget is exhausted.
+Original/fresh admission and P01 retain their own obligations and budgets.
+
 Focused checks cover swapped equal-type operands, capture reassignment, stale
 facts after constructor mutation, range/known-bit and length/bound distinctions,
 and every allocation-failure point in the small transformation witness.
@@ -106,6 +124,11 @@ invalid original annotations and allocation failures. Native coverage now has
 seven application/link tests and one product/link test. The initial cross-object
 fixture violated imported declaration structure; it was repaired to use a missing
 entry and only the imported ABI slots, preserving production component admission.
+P04 adds twelve focused cases (30 tests including module tests): local/join reuse,
+operand writes and parallel swaps, non-dominance, self-overwritten producers,
+early/late budget rollback, differing fault payloads, distinct closure captures,
+mutable cell reads and allocation failures. Three native tests cover linked
+diamond execution, path-specific mutation and a real cell read after mutation.
 
 ## Remaining M2 obligations
 
@@ -117,7 +140,9 @@ This is not complete M2 or canonical pipeline adoption. Remaining work includes:
   store/capture/cell reductions and product forwarding across control flow.
   Private dead arguments, local product scalar replacement, singleton incoming-callable specialization
   and polymorphic/opaque negatives are implemented.
-- The specified early P04/P05/P07/P08 transformations and independent certificates.
+- Remaining P04 value numbering across aliases/renaming and cyclic proofs;
+  P05 private stores, P07 capture reduction/summaries, and P08 private-cell
+  replacement, with their independent certificates.
 - Semantic/structural contract integration into compilation and final linking,
   the owned-consumer policy audit, deterministic semantic work budgets, and
   automatic source-free closed-link adoption (explicit linked-record execution

@@ -79,6 +79,8 @@ src/data/dead_arguments.zig
 src/data/dead_computation.zig
 src/data/diagnostic.zig
 src/data/effect_scope.zig
+src/data/expression_reuse.zig
+src/data/expression_reuse_tests.zig
 src/data/function_inputs.zig
 src/data/graph.zig
 src/data/graph_order.zig
@@ -202,6 +204,7 @@ test/v2/emit_compact.zig
 test/v2/emit_economy.zig
 test/v2/emit_scalar.zig
 test/v2/emit_source.zig
+test/v2/expression_reuse.zig
 test/v2/oracle_scopes.zig
 test/v2/snapshot_retention.zig
 tools/authoring_stats.zig
