@@ -174,7 +174,21 @@ const CleanupDisposal = struct {
         const region_type = try b.schema(.{ .internal = .{ .region = region } });
         const logging_family = try writer.family(c, "example/cleanup-owner-writer", try c.scalar(u64));
         const w = .{ .effect = try a.interop.operationId(c, logging_family.effect()), .capability = try a.interop.schemaId(c, logging_family.capability()) };
-        const g = try generator.defineExchange(b, "example/cleanup-owned-yield", unit, integer, unit, &.{ unit, integer, w.capability }, &.{}, &.{region}, .{ .effects = &.{w.effect} });
+        const definition = try generator.create(c, "example/cleanup-owned-yield", try c.scalar(void), try c.scalar(u64), try c.scalar(void), .{
+            .captures = .{ .continuation = &.{ try c.scalar(void), try c.scalar(u64), logging_family.capability() } },
+            .borrowed_regions = &.{try a.interop.region(c, region)},
+            .residual = &.{logging_family.effect()},
+        });
+        // This fixture varies cleanup/disposal IR around one checked family.
+        const g = .{
+            .capability = try a.interop.schemaId(c, definition.capability()),
+            .effect = try a.interop.operationId(c, definition.effect()),
+            .handler = try a.interop.handlerId(c, definition.handler()),
+            .answer = try a.interop.schemaId(c, definition.answer()),
+            .yielded = try a.interop.schemaId(c, definition.yielded()),
+            .package = try a.interop.schemaId(c, definition.package()),
+            .resumption = try a.interop.schemaId(c, definition.resumption()),
+        };
         const capture_ids = [_]boundary.data.program.Id{ unit, integer, g.capability, g.answer, g.resumption, g.package, g.yielded };
         var captures: [capture_ids.len]*const a.Schema = undefined;
         for (capture_ids, &captures) |id, *schema| schema.* = try a.interop.schema(c, id);
@@ -245,7 +259,7 @@ const CleanupDisposal = struct {
         const element = try b.variable(integer);
         const package = try b.variable(g.package);
         const result = try b.pure(try b.constant(u64, 42));
-        const closed = try b.bind(try b.variable(unit), try generator.close(b, g, try b.reference(package)), result);
+        const closed = try b.bind(try b.variable(unit), try b.term(.{ .dispose = try b.primitive(g.resumption, .unpack, &.{try b.reference(package)}, 0) }), result);
         const unpack = try b.term(.{ .unpack_product = .{ .value = try b.reference(yielded), .variables = &.{ element, package }, .body = closed } });
         const matched = try b.term(.{ .match_sum = .{ .value = try b.reference(answer), .cases = &.{ .{ .variable = done, .body = result }, .{ .variable = yielded, .body = unpack } } } });
         try b.define(written_body, try b.bind(answer, protected, matched));

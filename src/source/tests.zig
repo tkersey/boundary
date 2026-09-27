@@ -223,7 +223,20 @@ test "a nested suspension package retains implicit handler and region borrows" {
         const region = try b.schema(.{ .internal = .{ .region = r } });
         const uses_region = form == 2 or form == 4;
         const regions: []const data.program.Id = if (uses_region) &.{r} else &.{};
-        const generator = try gen.defineExchange(&b, "implicit-package-borrow", unit, unit, unit, &.{unit}, &.{}, &.{}, .{ .effects = &.{} });
+        const a = @import("../authoring.zig");
+        const c = try a.Context.init(&b);
+        const typed_unit = try c.scalar(void);
+        const definition = try gen.create(c, "implicit-package-borrow", typed_unit, typed_unit, typed_unit, .{ .captures = .{ .continuation = &.{typed_unit} } });
+        // Project the checked family for deliberate lexical-borrow IR variants.
+        const generator = .{
+            .capability = try a.interop.schemaId(c, definition.capability()),
+            .effect = try a.interop.operationId(c, definition.effect()),
+            .handler = try a.interop.handlerId(c, definition.handler()),
+            .answer = try a.interop.schemaId(c, definition.answer()),
+            .yielded = try a.interop.schemaId(c, definition.yielded()),
+            .package = try a.interop.schemaId(c, definition.package()),
+            .resumption = try a.interop.schemaId(c, definition.resumption()),
+        };
         const yielded_body = try b.declare(&.{generator.capability}, unit, &.{generator.effect}, &.{});
         try b.define(yielded_body, try b.term(.{ .perform = .{ .effect = generator.effect, .capability = try b.reference(b.parameter(yielded_body, 0)), .payload = try b.constant(void, {}) } }));
         const yielded_type = try b.schema(.{ .internal = .{ .computation = .{ .parameters = &.{generator.capability}, .result = unit, .effects = &.{generator.effect} } } });
@@ -233,7 +246,7 @@ test "a nested suspension package retains implicit handler and region borrows" {
         const yielded = try b.variable(generator.yielded);
         const payload = try b.variable(unit);
         const package = try b.variable(generator.package);
-        const unpack = try b.term(.{ .unpack_product = .{ .value = try b.reference(yielded), .variables = &.{ payload, package }, .body = try gen.close(&b, generator, try b.reference(package)) } });
+        const unpack = try b.term(.{ .unpack_product = .{ .value = try b.reference(yielded), .variables = &.{ payload, package }, .body = try b.term(.{ .dispose = try b.primitive(generator.resumption, .unpack, &.{try b.reference(package)}, 0) }) } });
         try b.define(consume, try b.term(.{ .match_sum = .{ .value = try b.reference(b.parameter(consume, 0)), .cases = &.{ .{ .variable = done, .body = try b.pure(try b.constant(void, {})) }, .{ .variable = yielded, .body = unpack } } } }));
         const inside_result = if (form >= 3) unit else generator.answer;
         const scope = try b.declare(if (uses_region) &.{region} else &.{}, inside_result, &.{}, regions);
