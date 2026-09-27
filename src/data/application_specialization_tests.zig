@@ -315,3 +315,190 @@ test "unused division and its failure remain observable" {
     candidate.blocks = &.{.{ .function = 0, .instructions = &.{}, .terminator = .{ .return_value = 0 } }};
     try std.testing.expectError(error.InvalidDeadComputation, dead.validate(a, original, candidate, &.{.{ .block = 0, .removed = &.{0} }}));
 }
+
+fn argumentBranchProgram(comptime known: bool) ir.Program {
+    var program = comptime closedBranchProgram(false);
+    program.roots = .{ .entry = 3, .result = 3, .failure = 1 };
+    program.functions = &.{ program.functions[0], program.functions[1], program.functions[2], .{ .entry = 7, .inputs = if (known) &.{ 0, 1 } else &.{ 0, 1, 2 }, .layout = .{ .slots = &.{ 0, 0, 4, 3 } }, .result = 3 } };
+    program.blocks = &.{
+        program.blocks[0],                                                                                                                                                                                                                                                                          program.blocks[1],                                                              program.blocks[2], program.blocks[3], program.blocks[4], program.blocks[5], program.blocks[6],
+        .{ .function = 3, .instructions = if (known) &.{.{ .destination = 2, .opcode = .constant, .immediate = 0 }} else &.{}, .terminator = .{ .call = .{ .function = 0, .arguments = &.{ 0, 1, 2 }, .next = .{ .block = 8, .assignments = &.{.{ .destination = 3, .source = .returned }} } } } }, .{ .function = 3, .instructions = &.{}, .terminator = .{ .return_value = 3 } },
+    };
+    return program;
+}
+
+test "known caller argument prunes the worker branch and unlocks constructor specialization" {
+    const branch = @import("branch_reduction.zig");
+    const original = comptime argumentBranchProgram(true);
+    var branch_stats: branch.Statistics = .{};
+    var reduced = try branch.run(a, original, &branch_stats, .{});
+    defer reduced.deinit();
+    try std.testing.expectEqual(@as(usize, 1), branch_stats.branches_removed);
+    try std.testing.expectEqual(@as(usize, 1), reduced.program.constructors.len);
+    var stats: specialize.Statistics = .{};
+    var result = try specialize.run(a, reduced.program, &stats, .{});
+    defer result.deinit();
+    try std.testing.expectEqual(@as(usize, 1), stats.direct_applications);
+    std.debug.print("known caller argument: {d} -> {d} bytes\n", .{ try @import("program_image.zig").encodedLength(original), try @import("program_image.zig").encodedLength(result.program) });
+}
+
+test "unknown host argument does not become a private-worker constant" {
+    var stats: @import("branch_reduction.zig").Statistics = .{};
+    var result = try @import("branch_reduction.zig").run(a, comptime argumentBranchProgram(false), &stats, .{});
+    defer result.deinit();
+    try std.testing.expectEqual(@as(usize, 0), stats.branches_removed);
+    try std.testing.expectEqual(@as(usize, 2), result.program.constructors.len);
+}
+
+fn incomingCallableProgram(comptime closed: bool) ir.Program {
+    var program = captured;
+    program.functions = &.{ captured.functions[0], if (closed) .{ .entry = 2, .inputs = &.{1}, .layout = .{ .slots = &.{ 0, 0, 3 } }, .result = 3 } else captured.functions[1], .{ .entry = 3, .inputs = &.{ 2, 1 }, .layout = captured.functions[0].layout, .result = 3 } };
+    program.schemas = if (closed) &.{ .u64, .unit, .{ .internal = .{ .computation = .{ .parameters = &.{0}, .result = 3, .use = .reusable } } }, .{ .product = &.{ 0, 0 } } } else captured.schemas;
+    program.scopes = if (closed) .{ .captures = &.{.{ .fields = &.{}, .use = .reusable }} } else captured.scopes;
+    program.blocks = &.{
+        .{ .function = 0, .instructions = &.{.{ .destination = 2, .opcode = .computation, .operands = if (closed) &.{} else &.{0}, .immediate = 0 }}, .terminator = .{ .call = .{ .function = 2, .arguments = &.{ 2, 1 }, .next = captured.blocks[0].terminator.apply.next } } },
+        captured.blocks[1],
+        if (closed) .{ .function = 1, .instructions = &.{.{ .destination = 2, .opcode = .product, .operands = &.{ 1, 1 } }}, .terminator = .{ .return_value = 2 } } else captured.blocks[2],
+        .{ .function = 2, .instructions = &.{}, .terminator = .{ .apply = .{ .computation = 2, .arguments = &.{1}, .next = .{ .block = 4, .assignments = &.{.{ .destination = 3, .source = .returned }} } } } },
+        .{ .function = 2, .instructions = &.{}, .terminator = .{ .return_value = 3 } },
+    };
+    return program;
+}
+
+test "singleton incoming callable specializes its worker while opaque captured environment stays" {
+    var stats: specialize.Statistics = .{};
+    var result = try specialize.run(a, comptime incomingCallableProgram(true), &stats, .{});
+    defer result.deinit();
+    try std.testing.expectEqual(@as(usize, 1), stats.direct_applications);
+    try std.testing.expectEqual(@as(usize, 1), stats.retained_constructions);
+    var retained = try specialize.run(a, comptime incomingCallableProgram(false), &stats, .{});
+    defer retained.deinit();
+    try std.testing.expectEqual(@as(usize, 0), stats.direct_applications);
+}
+
+fn polymorphicIncomingProgram() ir.Program {
+    var program = comptime closedBranchProgram(false);
+    program.functions = &.{ program.functions[0], program.functions[1], program.functions[2], .{ .entry = 7, .inputs = &.{ 2, 1 }, .layout = program.functions[0].layout, .result = 3 } };
+    program.blocks = &.{
+        program.blocks[0],                                                                                                                                                 program.blocks[1],                                                                                                                                                                                       program.blocks[2],
+        .{ .function = 0, .instructions = &.{}, .terminator = .{ .call = .{ .function = 3, .arguments = &.{ 2, 1 }, .next = program.blocks[3].terminator.apply.next } } }, program.blocks[4],                                                                                                                                                                                       program.blocks[5],
+        program.blocks[6],                                                                                                                                                 .{ .function = 3, .instructions = &.{}, .terminator = .{ .apply = .{ .computation = 2, .arguments = &.{1}, .next = .{ .block = 8, .assignments = &.{.{ .destination = 3, .source = .returned }} } } } }, .{ .function = 3, .instructions = &.{}, .terminator = .{ .return_value = 3 } },
+    };
+    return program;
+}
+
+test "two incoming constructors retain dispatch and reject a forged direct-call certificate" {
+    const original = comptime polymorphicIncomingProgram();
+    var stats: specialize.Statistics = .{};
+    var result = try specialize.run(a, original, &stats, .{});
+    defer result.deinit();
+    try std.testing.expectEqual(@as(usize, 0), stats.direct_applications);
+    var blocks = original.blocks[0..9].*;
+    blocks[7].terminator = .{ .call = .{ .function = 1, .arguments = &.{1}, .next = original.blocks[7].terminator.apply.next } };
+    var candidate = original;
+    candidate.blocks = &blocks;
+    try std.testing.expectError(error.InvalidSpecialization, specialize.validate(a, original, candidate, &.{.{ .block = 7 }}));
+}
+
+test "recursive call component joins changing arguments and never freezes the first caller" {
+    const original: ir.Program = .{
+        .roots = .{ .entry = 0, .result = 0, .failure = 1 },
+        .schemas = &.{ .boolean, .unit },
+        .constants = &.{.{ .schema = 0, .bytes = &.{1} }},
+        .effects = &.{},
+        .functions = &.{
+            .{ .entry = 0, .inputs = &.{}, .layout = .{ .slots = &.{0} }, .result = 0 },
+            .{ .entry = 2, .inputs = &.{0}, .layout = .{ .slots = &.{0} }, .result = 0 },
+        },
+        .blocks = &.{
+            .{ .function = 0, .instructions = &.{.{ .destination = 0, .opcode = .constant, .immediate = 0 }}, .terminator = .{ .call = .{ .function = 1, .arguments = &.{0}, .next = .{ .block = 1, .assignments = &.{.{ .destination = 0, .source = .returned }} } } } },
+            .{ .function = 0, .instructions = &.{}, .terminator = .{ .return_value = 0 } },
+            .{ .function = 1, .instructions = &.{}, .terminator = .{ .branch = .{ .condition = 0, .when_true = .{ .block = 3 }, .when_false = .{ .block = 4 } } } },
+            .{ .function = 1, .instructions = &.{.{ .destination = 0, .opcode = .boolean_not, .operands = &.{0} }}, .terminator = .{ .call = .{ .function = 1, .arguments = &.{0}, .next = .{ .block = 4, .assignments = &.{.{ .destination = 0, .source = .returned }} } } } },
+            .{ .function = 1, .instructions = &.{}, .terminator = .{ .return_value = 0 } },
+        },
+    };
+    var known = try facts.analyze(a, original);
+    defer known.deinit();
+    try std.testing.expectEqual(@as(?bool, null), known.blocks[2].definitions[0].value.boolean);
+    var stats: @import("branch_reduction.zig").Statistics = .{};
+    var result = try @import("branch_reduction.zig").run(a, original, &stats, .{});
+    defer result.deinit();
+    try std.testing.expectEqual(@as(usize, 0), stats.branches_removed);
+}
+
+test "constructor-visible worker stays open even when its observed direct argument is constant" {
+    var original = comptime argumentBranchProgram(true);
+    original.schemas = &.{ original.schemas[0], original.schemas[1], original.schemas[2], original.schemas[3], original.schemas[4], .{ .internal = .{ .computation = .{ .parameters = &.{ 0, 0, 4 }, .result = 3, .use = .reusable } } } };
+    original.constructors = &.{ original.constructors[0], original.constructors[1], .{ .function = 0, .capture = 0, .schema = 5 } };
+    var known = try facts.analyze(a, original);
+    defer known.deinit();
+    try std.testing.expectEqual(@as(?bool, null), known.blocks[0].definitions[4].value.boolean);
+    var stats: @import("branch_reduction.zig").Statistics = .{};
+    var result = try @import("branch_reduction.zig").run(a, original, &stats, .{});
+    defer result.deinit();
+    try std.testing.expectEqual(@as(usize, 0), stats.branches_removed);
+}
+
+fn callerAllocationAttempt(allocator: std.mem.Allocator) !void {
+    var result = try @import("branch_reduction.zig").run(allocator, comptime argumentBranchProgram(true), null, .{});
+    defer result.deinit();
+}
+test "call-context propagation and independent caller proof release allocation failures" {
+    try std.testing.checkAllAllocationFailures(a, callerAllocationAttempt, .{});
+}
+
+test "private dead callable argument removal unlocks constructor elimination" {
+    const dead_args = @import("dead_arguments.zig");
+    const original = comptime incomingCallableProgram(true);
+    var specialized = try specialize.run(a, original, null, .{});
+    defer specialized.deinit();
+    var stats: dead_args.Statistics = .{};
+    var smaller = try dead_args.run(a, specialized.program, &stats, .{});
+    defer smaller.deinit();
+    try std.testing.expectEqual(@as(usize, 1), stats.parameters_removed);
+    try std.testing.expectEqual(@as(usize, 1), stats.call_arguments_removed);
+    var dead_stats: @import("dead_computation.zig").Statistics = .{};
+    var result = try @import("dead_computation.zig").run(a, smaller.program, &dead_stats, .{});
+    defer result.deinit();
+    try std.testing.expectEqual(@as(usize, 1), dead_stats.constructions_removed);
+    std.debug.print("incoming callable plus dead argument/construction: {d} -> {d} bytes\n", .{ try @import("program_image.zig").encodedLength(original), try @import("program_image.zig").encodedLength(result.program) });
+}
+
+const private_arguments: ir.Program = .{
+    .roots = .{ .entry = 0, .result = 0, .failure = 1 },
+    .schemas = &.{ .u64, .unit },
+    .constants = &.{},
+    .effects = &.{},
+    .functions = &.{
+        .{ .entry = 0, .inputs = &.{ 0, 1 }, .layout = .{ .slots = &.{ 0, 0, 0 } }, .result = 0 },
+        .{ .entry = 2, .inputs = &.{ 0, 1 }, .layout = .{ .slots = &.{ 0, 0 } }, .result = 0 },
+    },
+    .blocks = &.{
+        .{ .function = 0, .instructions = &.{}, .terminator = .{ .call = .{ .function = 1, .arguments = &.{ 0, 1 }, .next = .{ .block = 1, .assignments = &.{.{ .destination = 2, .source = .returned }} } } } },
+        .{ .function = 0, .instructions = &.{}, .terminator = .{ .return_value = 2 } },
+        .{ .function = 1, .instructions = &.{}, .terminator = .{ .return_value = 1 } },
+    },
+};
+
+test "dead argument checker preserves ordered correspondence at every call" {
+    const dead = @import("dead_arguments.zig");
+    var functions = private_arguments.functions[0..2].*;
+    functions[1].inputs = &.{1};
+    var blocks = private_arguments.blocks[0..3].*;
+    blocks[0].terminator.call.arguments = &.{1};
+    var candidate = private_arguments;
+    candidate.functions = &functions;
+    candidate.blocks = &blocks;
+    try dead.validate(a, private_arguments, candidate, &.{.{ .function = 1, .removed = &.{0} }});
+    blocks[0].terminator.call.arguments = &.{0};
+    try std.testing.expectError(error.InvalidDeadArguments, dead.validate(a, private_arguments, candidate, &.{.{ .function = 1, .removed = &.{0} }}));
+}
+
+fn deadArgumentAllocationAttempt(allocator: std.mem.Allocator) !void {
+    var result = try @import("dead_arguments.zig").run(allocator, private_arguments, null, .{});
+    defer result.deinit();
+}
+test "dead argument transformation releases all partial owners" {
+    try std.testing.checkAllAllocationFailures(a, deadArgumentAllocationAttempt, .{});
+}

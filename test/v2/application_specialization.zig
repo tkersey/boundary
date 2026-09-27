@@ -158,3 +158,100 @@ test "World still observes unused division failure after dead computation reduct
         try std.testing.expectEqualSlices(u8, &.{}, outcome.record.failed.value);
     }
 }
+
+fn argumentBranchProgram(comptime known: bool) ir.Program {
+    var program = comptime closedBranchProgram(false);
+    program.roots = .{ .entry = 3, .result = 3, .failure = 1 };
+    program.functions = &.{ program.functions[0], program.functions[1], program.functions[2], .{ .entry = 7, .inputs = if (known) &.{ 0, 1 } else &.{ 0, 1, 2 }, .layout = .{ .slots = &.{ 0, 0, 4, 3 } }, .result = 3 } };
+    program.blocks = &.{
+        program.blocks[0],                                                                                                                                                                                                                                                                          program.blocks[1],                                                              program.blocks[2], program.blocks[3], program.blocks[4], program.blocks[5], program.blocks[6],
+        .{ .function = 3, .instructions = if (known) &.{.{ .destination = 2, .opcode = .constant, .immediate = 0 }} else &.{}, .terminator = .{ .call = .{ .function = 0, .arguments = &.{ 0, 1, 2 }, .next = .{ .block = 8, .assignments = &.{.{ .destination = 3, .source = .returned }} } } } }, .{ .function = 3, .instructions = &.{}, .terminator = .{ .return_value = 3 } },
+    };
+    return program;
+}
+
+fn incomingCallableProgram(comptime closed: bool) ir.Program {
+    var program = captured;
+    program.functions = &.{ captured.functions[0], if (closed) .{ .entry = 2, .inputs = &.{1}, .layout = .{ .slots = &.{ 0, 0, 3 } }, .result = 3 } else captured.functions[1], .{ .entry = 3, .inputs = &.{ 2, 1 }, .layout = captured.functions[0].layout, .result = 3 } };
+    program.schemas = if (closed) &.{ .u64, .unit, .{ .internal = .{ .computation = .{ .parameters = &.{0}, .result = 3, .use = .reusable } } }, .{ .product = &.{ 0, 0 } } } else captured.schemas;
+    program.scopes = if (closed) .{ .captures = &.{.{ .fields = &.{}, .use = .reusable }} } else captured.scopes;
+    program.blocks = &.{
+        .{ .function = 0, .instructions = &.{.{ .destination = 2, .opcode = .computation, .operands = if (closed) &.{} else &.{0}, .immediate = 0 }}, .terminator = .{ .call = .{ .function = 2, .arguments = &.{ 2, 1 }, .next = captured.blocks[0].terminator.apply.next } } },
+        captured.blocks[1],
+        if (closed) .{ .function = 1, .instructions = &.{.{ .destination = 2, .opcode = .product, .operands = &.{ 1, 1 } }}, .terminator = .{ .return_value = 2 } } else captured.blocks[2],
+        .{ .function = 2, .instructions = &.{}, .terminator = .{ .apply = .{ .computation = 2, .arguments = &.{1}, .next = .{ .block = 4, .assignments = &.{.{ .destination = 3, .source = .returned }} } } } },
+        .{ .function = 2, .instructions = &.{}, .terminator = .{ .return_value = 3 } },
+    };
+    return program;
+}
+
+test "World preserves the known caller argument and incoming callable specializations" {
+    const a = std.testing.allocator;
+    for ([_]ir.Program{ comptime argumentBranchProgram(true), comptime incomingCallableProgram(true) }) |original| {
+        var pruned = try data.branch_reduction.run(a, original, null, .{});
+        defer pruned.deinit();
+        var specialized = try data.application_specialization.run(a, pruned.program, null, .{});
+        defer specialized.deinit();
+        var fewer_arguments = try data.dead_arguments.run(a, specialized.program, null, .{});
+        defer fewer_arguments.deinit();
+        var optimized = try data.dead_computation.run(a, fewer_arguments.program, null, .{});
+        defer optimized.deinit();
+        for ([_]u64{ 0, 21, 999 }) |argument| {
+            var args: [16]u8 = undefined;
+            std.mem.writeInt(u64, args[0..8], 10, .little);
+            std.mem.writeInt(u64, args[8..16], argument, .little);
+            var expected: [16]u8 = undefined;
+            std.mem.writeInt(u64, expected[0..8], argument, .little);
+            std.mem.writeInt(u64, expected[8..16], argument, .little);
+            for ([_]ir.Program{ original, optimized.program }) |program| {
+                const bytes = try a.alloc(u8, try data.program_image.encodedLength(program));
+                defer a.free(bytes);
+                _ = try data.program_image.encode(a, program, bytes);
+                var outcome = try world.invocation.invoke(a, .{ .image = bytes, .instance = .{ .initial_args = &args } });
+                defer outcome.deinit();
+                try std.testing.expect(outcome.record == .completed);
+                try std.testing.expectEqualSlices(u8, &expected, outcome.record.completed);
+            }
+        }
+    }
+}
+
+const private_arguments: ir.Program = .{
+    .roots = .{ .entry = 0, .result = 0, .failure = 1 },
+    .schemas = &.{ .u64, .unit },
+    .constants = &.{},
+    .effects = &.{},
+    .functions = &.{
+        .{ .entry = 0, .inputs = &.{ 0, 1 }, .layout = .{ .slots = &.{ 0, 0, 0 } }, .result = 0 },
+        .{ .entry = 2, .inputs = &.{ 0, 1 }, .layout = .{ .slots = &.{ 0, 0 } }, .result = 0 },
+    },
+    .blocks = &.{
+        .{ .function = 0, .instructions = &.{}, .terminator = .{ .call = .{ .function = 1, .arguments = &.{ 0, 1 }, .next = .{ .block = 1, .assignments = &.{.{ .destination = 2, .source = .returned }} } } } },
+        .{ .function = 0, .instructions = &.{}, .terminator = .{ .return_value = 2 } },
+        .{ .function = 1, .instructions = &.{}, .terminator = .{ .return_value = 1 } },
+    },
+};
+
+test "removing a private argument retains its faulting evaluation" {
+    const a = std.testing.allocator;
+    var original = private_arguments;
+    original.constants = &.{.{ .schema = 1, .bytes = &.{} }};
+    var blocks = private_arguments.blocks[0..3].*;
+    blocks[0].instructions = &.{.{ .destination = 0, .opcode = .integer_div, .operands = &.{ 0, 1 }, .failures = &.{ .{ .kind = .arithmetic_overflow, .value = 0 }, .{ .kind = .division_by_zero, .value = 0 } } }};
+    original.blocks = &blocks;
+    var stats: data.dead_arguments.Statistics = .{};
+    var fewer = try data.dead_arguments.run(a, original, &stats, .{});
+    defer fewer.deinit();
+    try std.testing.expectEqual(@as(usize, 1), stats.call_arguments_removed);
+    var optimized = try data.dead_computation.run(a, fewer.program, null, .{});
+    defer optimized.deinit();
+    for ([_]ir.Program{ original, optimized.program }) |program| {
+        const bytes = try a.alloc(u8, try data.program_image.encodedLength(program));
+        defer a.free(bytes);
+        _ = try data.program_image.encode(a, program, bytes);
+        var outcome = try world.invocation.invoke(a, .{ .image = bytes, .instance = .{ .initial_args = &.{ 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } } });
+        defer outcome.deinit();
+        try std.testing.expect(outcome.record == .failed);
+        try std.testing.expectEqualSlices(u8, &.{}, outcome.record.failed.value);
+    }
+}

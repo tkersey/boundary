@@ -1,11 +1,12 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
-//! Temporary stable-slot definition facts. Incoming values are unknown; a
+//! Temporary stable-slot definition facts. External incoming values are unknown; a
 //! definition never means a slot keeps that value after a later assignment.
 const std = @import("std");
 const ir = @import("activation.zig");
 const p = @import("program.zig");
 const image = @import("program_image.zig");
 const ownership = @import("activation_ownership.zig");
+const contexts = @import("call_contexts.zig");
 pub const Error = ownership.Error || image.Error || error{StaleFacts};
 pub const Version = usize;
 pub const Value = struct {
@@ -52,8 +53,9 @@ pub const Facts = struct {
 };
 
 /// Admission runs before facts can hide an originally invalid instruction.
-/// Function entries are open-world roots. Edges transfer predecessor values
-/// simultaneously; joins only lose precision and constructor sets widen to top.
+/// Host, constructor, handler and authority entries are open-world roots.
+/// Private calls transfer ordered arguments. Edges transfer predecessor values
+/// simultaneously; recursive joins lose precision and constructor sets widen.
 pub fn analyze(allocator: std.mem.Allocator, program: ir.Program) Error!Facts {
     var checked = try ownership.analyze(allocator, program);
     defer checked.deinit();
@@ -80,12 +82,14 @@ pub fn analyze(allocator: std.mem.Allocator, program: ir.Program) Error!Facts {
         }
         out.* = .{ .definitions = definitions, .results = results, .exit = versions, .outgoing = try a.alloc(Value, layout.len) };
     }
-    // Every function can initially receive unknown arguments. Interprocedural
-    // specialization must supply a separate checked calling-context contract.
+    // Unknown-entry workers are roots. Private direct-call workers are reached
+    // through ordered call transfers, including recursive cycles in this same
+    // monotone worklist. No observed call can narrow an externally supplied input.
     var queue: std.ArrayList(usize) = .empty;
     const queued = try a.alloc(bool, work.len);
     @memset(queued, false);
-    for (program.functions) |function| {
+    for (program.functions, 0..) |function, id| {
+        if (!contexts.unknownEntry(program, id)) continue;
         const entry: usize = @intCast(function.entry);
         work[entry].reachable = true;
         if (!queued[entry]) {
@@ -169,6 +173,28 @@ const Propagation = struct {
     fn value(self: Propagation, slot: p.Id) Value {
         return self.source.outgoing[@intCast(slot)];
     }
+    fn call(self: *Propagation, function_id: p.Id, arguments: []const p.Id) std.mem.Allocator.Error!void {
+        const function = self.program.functions[@intCast(function_id)];
+        const entry: usize = @intCast(function.entry);
+        const target = &self.work[entry];
+        var changed = !target.reachable;
+        for (function.layout.slots, 0..) |schema, slot| {
+            var incoming = bounds(self.program.schemas[@intCast(schema)]);
+            for (function.inputs, arguments) |destination, argument| {
+                if (destination == slot) incoming = forgetOrigin(self.value(argument));
+            }
+            const merged = if (target.reachable) joined(target.definitions[slot].value, incoming) else incoming;
+            if (!std.meta.eql(target.definitions[slot].value, merged)) {
+                target.definitions[slot].value = merged;
+                changed = true;
+            }
+        }
+        target.reachable = true;
+        if (changed and !self.queued[entry]) {
+            try self.queue.append(self.allocator, entry);
+            self.queued[entry] = true;
+        }
+    }
     fn edge(self: Propagation, next: ir.Edge, overwritten: []const p.Id) std.mem.Allocator.Error!void {
         const target = &self.work[@intCast(next.block)];
         var changed = !target.reachable;
@@ -208,6 +234,10 @@ const Propagation = struct {
             },
             .switch_variant => |v| for (v.cases) |next| try self.edge(next, &.{}),
             .unpack_product => |v| try self.edge(v.next, v.destinations),
+            .call => |v| {
+                try self.call(v.function, v.arguments);
+                try self.edge(v.next, &.{});
+            },
             inline else => |v| try self.edge(v.next, &.{}),
         }
     }

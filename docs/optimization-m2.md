@@ -11,8 +11,11 @@ and records a distinct definition for each stable-slot write. It currently deriv
 constants, constructor origins, unsigned masks and sequence length facts. A
 worklist transfers predecessor values simultaneously and joins incoming facts;
 cycles lose unsupported constant precision. Constructor sets widen to explicit
-unknown above four possibilities. Function entries remain open-world unknown
-roots. An incoming vector’s maximum is not its actual length.
+unknown above four possibilities. Host, constructor, handler and resource-authority
+entries remain open-world unknown roots. Private direct-call workers receive
+ordered caller argument facts through the same monotone worklist, including
+recursive components. Return values remain conservatively unknown. An incoming
+vector’s maximum is not its actual length.
 
 `data.application_specialization.run` consumes those facts. It replaces a locally
 constructed computation and its single application with the existing function's
@@ -48,6 +51,25 @@ one direct call, and reduces BPI3 from 108 to 97 bytes. Unchanged native World
 returns the same ordered pair for three distinct runtime capture/argument pairs.
 This is synthetic capability evidence, not a real-Agent speed claim.
 
+The known-argument witness now calls a private worker with a constant boolean;
+that argument proves one worker branch infeasible and enables P03, reducing the
+witness from 194 to 152 bytes. A separate
+worker receiving a singleton closed callable specializes its incoming `apply`.
+The backwards checker reconstructs all raw direct callers and accepts only
+agreement, without reusing the forward analysis. Two incoming constructors,
+unknown host arguments, constructor-visible workers and opaque captured
+environments retain conservative behavior. A recursive worker that changes its
+argument joins both values instead of freezing its initial caller's constant.
+
+`data.dead_arguments` removes unused copy/drop parameters from private direct-call
+workers and the corresponding ordered argument at every call. It retains argument
+evaluation. The independent checker verifies the complete call set, input liveness,
+usage permissions and exact ABI subsequences; original and candidate admission
+precede final P01. This lets dead-computation elimination remove the construction
+formerly passed to the specialized callable worker: one parameter, one argument
+and one constructor disappear, reducing that witness from 131 to 119 bytes.
+Host, constructor, handler and resource-authority interfaces retain their inputs.
+
 Focused checks cover swapped equal-type operands, capture reassignment, stale
 facts after constructor mutation, range/known-bit and length/bound distinctions,
 and every allocation-failure point in the small transformation witness.
@@ -56,15 +78,20 @@ work-limit rollback, and allocation-failure coverage. Its focused suite has 36
 passing tests, and the native record suite has four. The initial division fixture
 was rejected because its fault table used the wrong wire order; correcting the
 fixture to the admitted overflow/zero order left production admission unchanged.
+The caller/argument slice expands this to 46 focused tests and six native World
+tests, including a faulting computation whose now-unused argument is removed while
+its evaluation still fails. A temporary parameter-removal statistics bug was
+corrected: count before transferring the list storage, whose length then resets.
 
 ## Remaining M2 obligations
 
 This is not complete M2 or canonical pipeline adoption. Remaining work includes:
 
-- Remaining P02 domains, loop/SCC summaries and conservative interprocedural
-  calling contexts; the known-argument version of the branch-to-constructor witness.
-- Incoming-callable caller specialization, polymorphic/opaque negatives and
-  applicable dead argument/capture/aggregate reductions.
+- Remaining P02 domains, return summaries and richer recursive/calling contexts
+  beyond the current conservative argument fixed point.
+- Context cloning where callers disagree, and remaining dead
+  store/capture/aggregate reductions. Private dead arguments, singleton incoming-callable specialization
+  and polymorphic/opaque negatives are implemented.
 - The specified early P04/P05/P07/P08 transformations and independent certificates.
 - Semantic/structural contract integration into compilation and final linking,
   the owned-consumer policy audit, deterministic semantic work budgets, and

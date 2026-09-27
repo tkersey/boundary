@@ -1,9 +1,11 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
 //! Independent backwards proof over actual definitions and predecessor edges.
-//! Ambiguous joins and cycles return unknown, never an optimistic certificate.
+//! Disagreeing/unknown joins and cycles cannot certify a constant. Private entry
+//! proofs reconstruct every raw direct caller without consuming forward facts.
 const std = @import("std");
 const ir = @import("activation.zig");
 const p = @import("program.zig");
+const contexts = @import("call_contexts.zig");
 pub const Constant = union(enum) { boolean: bool, constructor: p.Id };
 const Query = struct { block: usize, before: usize, slot: p.Id };
 pub const Prover = struct {
@@ -48,8 +50,18 @@ pub const Prover = struct {
                 else => null,
             };
         }
-        if (self.program.functions[@intCast(source.function)].entry == block) return null;
         var incoming: Incoming = .{ .prover = self, .target = block, .slot = slot };
+        const function = self.program.functions[@intCast(source.function)];
+        if (function.entry == block) {
+            if (contexts.unknownEntry(self.program, source.function)) return null;
+            const parameter = std.mem.indexOfScalar(p.Id, function.inputs, slot) orelse return null;
+            // Reconstruct every raw caller independently of forward facts.
+            // A disagreeing, unknown or cyclic caller invalidates the proof.
+            for (self.program.blocks, 0..) |caller, id| {
+                if (caller.terminator != .call or caller.terminator.call.function != source.function) continue;
+                incoming.merge(try self.resolve(id, caller.instructions.len, caller.terminator.call.arguments[parameter]));
+            }
+        }
         for (self.program.blocks, 0..) |predecessor, id| {
             if (predecessor.function != source.function) continue;
             switch (predecessor.terminator) {
@@ -70,7 +82,7 @@ pub const Prover = struct {
                 inline else => |value| try incoming.edge(id, value.next, &.{}),
             }
         }
-        return if (incoming.count == 1) incoming.value else null;
+        return if (incoming.count != 0) incoming.value else null;
     }
 };
 const Incoming = struct {
@@ -79,20 +91,25 @@ const Incoming = struct {
     slot: p.Id,
     count: usize = 0,
     value: ?Constant = null,
+    fn merge(self: *Incoming, value: ?Constant) void {
+        if (self.count == 0) self.value = value else if (!std.meta.eql(self.value, value)) self.value = null;
+        self.count += 1;
+    }
     fn edge(self: *Incoming, predecessor: usize, next: ir.Edge, overwritten: []const p.Id) std.mem.Allocator.Error!void {
         if (next.block != self.target) return;
-        self.count += 1;
-        if (self.count != 1) {
-            self.value = null;
-            return;
-        }
         var origin = self.slot;
         for (next.assignments) |assignment| if (assignment.destination == self.slot) {
-            if (assignment.source == .returned) return;
+            if (assignment.source == .returned) {
+                self.merge(null);
+                return;
+            }
             origin = assignment.source.slot;
         };
-        if (std.mem.indexOfScalar(p.Id, overwritten, origin) != null) return;
+        if (std.mem.indexOfScalar(p.Id, overwritten, origin) != null) {
+            self.merge(null);
+            return;
+        }
         // Resolve the source in the predecessor view, not the updated target.
-        self.value = try self.prover.resolve(predecessor, self.prover.program.blocks[predecessor].instructions.len, origin);
+        self.merge(try self.prover.resolve(predecessor, self.prover.program.blocks[predecessor].instructions.len, origin));
     }
 };
