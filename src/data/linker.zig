@@ -11,7 +11,7 @@ const Id = p.Id;
 pub const Instance = struct { key: []const u8, object: []const u8 };
 pub const Endpoint = struct { instance: []const u8, symbol: []const u8 };
 pub const Binding = struct { required: Endpoint, supplied: Endpoint };
-pub const Error = @import("coalescing.zig").Error || component.Error || error{ DuplicateInstance, MissingInstance, MissingSymbol, DuplicateBinding, UnresolvedImport, IncompatibleInterface, IncompatibleFailure };
+pub const Error = @import("closed_compilation.zig").Error || component.Error || error{ DuplicateInstance, MissingInstance, MissingSymbol, DuplicateBinding, UnresolvedImport, IncompatibleInterface, IncompatibleFailure };
 pub const Linked = struct {
     arena: std.heap.ArenaAllocator,
     program: ir.Program,
@@ -54,7 +54,11 @@ pub fn link(allocator: std.mem.Allocator, input: []const Instance, bindings: []c
 }
 
 pub fn linkWithOptions(allocator: std.mem.Allocator, input: []const Instance, bindings: []const Binding, entry: Endpoint, options: @import("coalescing.zig").Options) Error!Linked {
-    options.resetObservations();
+    return linkWithCompilation(allocator, input, bindings, entry, .{ .coalescing = options });
+}
+
+pub fn linkWithCompilation(allocator: std.mem.Allocator, input: []const Instance, bindings: []const Binding, entry: Endpoint, options: @import("closed_compilation.zig").Options) Error!Linked {
+    options.coalescing.resetObservations();
     var temporary = std.heap.ArenaAllocator.init(allocator);
     defer temporary.deinit();
     const a = temporary.allocator();
@@ -138,7 +142,7 @@ pub fn linkWithOptions(allocator: std.mem.Allocator, input: []const Instance, bi
     var checked = try @import("activation_ownership.zig").analyze(allocator, result);
     defer checked.deinit();
     try checkBorrows(a, units, result);
-    const optimized = try @import("coalescing.zig").run(allocator, result, options);
+    const optimized = try @import("closed_compilation.zig").run(allocator, result, options);
     return .{ .arena = optimized.arena, .program = optimized.program, .flow = optimized.flow };
 }
 

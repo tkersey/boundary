@@ -1078,6 +1078,17 @@ pub const Context = opaque {
     ) Error!source.Compiled {
         return self.lowerNamedWithOptions(allocator, try self.publish(entry, failure, false), coalescing);
     }
+    /// Select cross-build observation guarantees while retaining the Context's
+    /// original-occurrence capture observer and mandatory P01 validation.
+    pub fn compileWithCompilation(
+        self: *Context,
+        allocator: std.mem.Allocator,
+        entry: *const Function,
+        failure: *const Schema,
+        compilation: @import("boundary_data").closed_compilation.Options,
+    ) Error!source.Compiled {
+        return self.lowerNamedWithCompilation(allocator, try self.publish(entry, failure, false), compilation);
+    }
     fn lowerNamed(self: *Context, allocator: std.mem.Allocator, module_value: source.Module) Error!source.Compiled {
         return self.lowerNamedWithOptions(allocator, module_value, .{});
     }
@@ -1087,10 +1098,26 @@ pub const Context = opaque {
         module_value: source.Module,
         coalescing: @import("boundary_data").coalescing.Options,
     ) Error!source.Compiled {
+        return self.lowerNamedWithCompilation(allocator, module_value, .{ .coalescing = coalescing });
+    }
+    fn lowerNamedWithCompilation(
+        self: *Context,
+        allocator: std.mem.Allocator,
+        module_value: source.Module,
+        compilation: @import("boundary_data").closed_compilation.Options,
+    ) Error!source.Compiled {
         var diagnostic: source.Diagnostic = .{};
         var result = source.lowerObserved(allocator, module_value, .{
             .diagnostic = &diagnostic,
-            .coalescing = coalescing,
+            .coalescing = compilation.coalescing,
+            .contract = compilation.contract,
+            .objective = compilation.objective,
+            .image_growth_bytes = compilation.image_growth_bytes,
+            .max_image_bytes = compilation.max_image_bytes,
+            .semantic_work_limit = compilation.work_limit,
+            .semantic_round_limit = compilation.round_limit,
+            .semantic_statistics = compilation.statistics,
+            .compilation_observer = compilation.observer,
             .captures = if (contextData(self).lambda_schemas.count() != 0 or contextData(self).handlers.items.len != 0) .{ .context = self, .capture = observeCapture, .closure = observeClosure } else null,
         }) catch |err| {
             if (contextData(self).capture_failure) |failure| return failure;

@@ -36,7 +36,10 @@ fn eligible(program: ir.Program, block: ir.Block, op: ir.Instruction, permission
     for (op.operands) |slot| {
         if (slot == op.destination or !permissions.copy[@intCast(slots[@intCast(slot)])] or !permissions.drop[@intCast(slots[@intCast(slot)])]) return false;
     }
-    return switch (op.opcode) {
+    return canNumber(op.opcode);
+}
+pub fn canNumber(opcode: p.Opcode) bool {
+    return switch (opcode) {
         .constant, .equal, .less, .boolean_not, .integer_bit_not, .integer_bit_and, .integer_bit_or, .integer_bit_xor, .product, .field, .variant, .variant_tag, .enum_tag, .sequence_length, .select => true,
         else => false,
     };

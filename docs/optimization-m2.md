@@ -273,6 +273,76 @@ well-typed wrong-field mutation, multiple observers, direct callers, shared type
 delayed failure and allocation failures. Three native tests cover source-free
 retention/resumption, parent observation and delayed failure timing.
 
+## Shared closed-compilation path
+
+`data.closed_compilation` now owns the structural/semantic contract for source
+lowering and final linking. Both contracts run P01. Structural remains the
+compatibility default; semantic preserves the specified external contract while
+allowing different private layouts and logical work across newly compiled images.
+`source.lowerObserved` selects it through `CompileOptions.contract`;
+`authoring.Context.compileWithCompilation` preserves the mandatory original named
+capture observer; `data.linker.linkWithCompilation` applies the same driver after
+all imports, interfaces and borrow summaries have been checked. Existing structural
+entry points forward to this implementation. Component emission defers both
+whole-program P01 and semantic work until a closed link, even if its caller selects
+semantic compilation. Ordinary codecs and World execution are unchanged.
+
+The driver holds an admitted P01 baseline and independently owned successors.
+It refreshes analyses through the existing checked passes and runs final P01 on
+the selected candidate. False witnesses, allocation failures and checked arithmetic
+overflow remain errors. Work/round exhaustion discards the semantic attempt and
+returns the exact structural baseline; hard image limits still apply on rollback.
+Original-invalid input rejects before a zero optimization budget can defer work.
+Semantic error indices are not misreported as original source-variable locations.
+
+The defaults are four rounds and 100,000,000,000 conservative scan-reservation
+units. Per stage the reservation is `64 * logical_record_count² + 16 * byte_payload`
+plus the bounded analysis/proof allowance where needed. These are reservations,
+not claims of executed comparisons. Logical records are counted directly because
+wire compression is not a work bound. Value propagation additionally counts work
+up to 10,000,000 units; backwards proofs count up to 1,000,000 units and retain the
+256-level stack guard. GVN retains its counted bound. No unfinished facts escape.
+P01 keeps its separate exact accounting and rollback rule.
+
+Final image growth uses the supplied exact integer defaults: size zero,
+balanced `max(1024, ceil(baseline/20))`, speed `max(4096, ceil(baseline/4))`.
+Explicit zero growth and stronger absolute image limits work as specified.
+Candidate selection also considers explicitly heuristic static operation and
+capture-payload estimates; those estimates are not runtime measurements. A real
+no-op retains the baseline bytes. Observer callbacks do not select output.
+
+Tune found unnecessary full passes in this initial driver. Applicability checks
+now read the admitted records/liveness: absent branches/applies/cells, no repeated
+eligible opcode, no dead destination/input, or absent eligible capture shapes skip
+the corresponding stage. They do not authorize a rewrite; selected stages retain
+all independent validators. Five alternating paired batches, each with three
+warmups and nine samples, preserved every selected image digest. Median paired
+construction ratios (after/before) are 0.123 arithmetic, 0.130 reusable_body,
+0.496 cells_independent and 0.131 deep. [Lossless raw observations](performance/m2-closed-compilation.json)
+retain all sample values. These measure removal of avoidable construction work,
+not a World speedup or elimination of the remaining compiler overhead.
+
+Checks: 237 data tests and 218 authoring tests pass; native typed compilation
+executes both contracts after all source owners are released, and the two-object
+native witness now also executes the actual semantic final-link path. Tests cover
+original capture violations, open deferral, zero and late limits, hard byte limits,
+compressed-wire accounting, observer determinism and allocation-failure cleanup.
+
+### Owned-consumer audit in progress
+
+Agent source inspected at `c181ef58623cd0260a0bee7ad44dafdf099fdc20`:
+
+| Owner | Current evidence | Required continuation |
+| --- | --- | --- |
+| `src/authoring.zig:89` | Registry admission runs before either Boundary compilation path; direct compilation forwards `boundary_options`. | Select the audited contract at owned product emission, preserving registry verification. |
+| `src/compiled_tool.zig:171` | Final linking currently forwards only coalescing options. | Forward the full compilation policy to the shared final linker after rebinding the Boundary dependency. Keep original tool-role/interface checks. |
+| `runtime/parser_cli.mjs:100` | `--max-quanta` counts drives of 100 World work units; model/check allowances are separate host counters before environmental calls. | Preserve limits and ingress handling; qualify semantic images and boundary cancellation/allowance behavior. |
+| `docs/parser-synthesis.md:38` | Quanta are explicitly image work units; exhaustion parks the actual checkpoint and exact pending ingress, without retrying an external call. | Document the new-image semantic contract without weakening same-image work accounting or external-call budgets. |
+| World runtime | No execution or State codec changes in this integration. | Keep exact same-image stepping/interruption and authenticated runtime bindings during consumer qualification. |
+
+This is not a completed consumer migration. Agent's emitter policy, compiled-tool
+forwarding, source/package/runtime rebinding and corresponding tests remain open.
+
 ## Remaining M2 obligations
 
 This is not complete M2 or canonical pipeline adoption. Remaining work includes:
@@ -286,10 +356,10 @@ This is not complete M2 or canonical pipeline adoption. Remaining work includes:
 - Remaining P04 value numbering across aliases/renaming and cyclic proofs;
   broader P07 context support and the remaining qualification of P05/P08's
   implemented private-cell/store subset, with independent certificates.
-- Semantic/structural contract integration into compilation and final linking,
-  the owned-consumer policy audit, deterministic semantic work budgets, and
-  automatic source-free closed-link adoption (explicit linked-record execution
-  witnesses now pass).
+- Qualification of the shared structural/semantic compiler and final linker,
+  completion of the owned-consumer policy audit and adoption, and calibration of
+  deterministic budgets on the real corpus. The shared entry points and their
+  source-free/typed witnesses are implemented.
 - Cross-package qualification, paired economics against the retained C0 corpus,
   and all applicable G/T obligations. M2.5's affine synthesis remains subsequent.
 

@@ -9,6 +9,7 @@ pub const Stage = enum {
     direct_optimization,
     canonicalization,
     coalescing,
+    semantic_optimization,
     complete,
 };
 pub const Diagnostic = struct {
@@ -38,6 +39,16 @@ pub const Options = struct {
     observer: ?Observer = null,
     captures: ?CaptureObserver = null,
     coalescing: data.coalescing.Options = .{},
+    /// Structural preserves cross-build logical work; semantic preserves the
+    /// declared external contract. Neither contract can disable P01.
+    contract: data.closed_compilation.Contract = .structural,
+    objective: data.closed_compilation.Objective = .balanced,
+    image_growth_bytes: ?usize = null,
+    max_image_bytes: ?usize = null,
+    semantic_work_limit: u64 = data.closed_compilation.default_work_limit,
+    semantic_round_limit: usize = 4,
+    semantic_statistics: ?*data.closed_compilation.Statistics = null,
+    compilation_observer: ?data.closed_compilation.Observer = null,
 
     pub fn stage(self: Options, next: Stage) void {
         if (self.diagnostic) |d| d.phase = next;

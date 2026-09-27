@@ -66,6 +66,7 @@ fn lowerInternal(
     options: source.CompileOptions,
 ) Error!Construction {
     options.coalescing.resetObservations();
+    if (options.semantic_statistics) |stats| stats.* = .{};
     if (options.diagnostic) |diagnostic| diagnostic.* = .{};
     errdefer |err| if (options.diagnostic) |diagnostic| {
         diagnostic.code = err;
@@ -128,6 +129,7 @@ fn lowerInternal(
     const selected = try @import("tail_clauses.zig").optimize(a, threaded, traits);
     const ordered = try @import("slot_order.zig").optimize(a, selected);
     if (!component) return coalesce(allocator, ordered, &compiler, options);
+    if (options.semantic_statistics) |stats| stats.outcome = .deferred_open_component;
     if (options.coalescing.statistics) |stats| stats.* = .{
         .rounds = stats.rounds,
         .outcome = .deferred_open_component,
@@ -143,8 +145,20 @@ fn lowerInternal(
     return .{ .arena = output, .program = result, .flow = flow };
 }
 
+const CompilationObserver = struct {
+    options: source.CompileOptions,
+    fn enter(context: *anyopaque, stage: data.closed_compilation.Stage) void {
+        const self: *CompilationObserver = @ptrCast(@alignCast(context));
+        self.options.stage(if (stage == .p01) .coalescing else .semantic_optimization);
+        if (self.options.compilation_observer) |observer| observer.enter(observer.context, stage);
+    }
+};
 fn coalesce(allocator: std.mem.Allocator, program: ir.Program, compiler: *Compiler, options: source.CompileOptions) Error!Construction {
-    options.stage(.coalescing);
+    var observation: CompilationObserver = .{ .options = options };
+    var statistics: data.closed_compilation.Statistics = .{};
+    defer if (options.semantic_statistics) |out| {
+        out.* = statistics;
+    };
     var detail: data.coalescing.Diagnostic = .{};
     var selected = options.coalescing;
     if (options.diagnostic) |diagnostic| {
@@ -159,8 +173,26 @@ fn coalesce(allocator: std.mem.Allocator, program: ir.Program, compiler: *Compil
             out.* = detail;
         };
     }
-    const result = data.coalescing.run(allocator, program, selected) catch |err| {
+    const result = data.closed_compilation.run(allocator, program, .{
+        .contract = options.contract,
+        .objective = options.objective,
+        .image_growth_bytes = options.image_growth_bytes,
+        .max_image_bytes = options.max_image_bytes,
+        .work_limit = options.semantic_work_limit,
+        .round_limit = options.semantic_round_limit,
+        .statistics = &statistics,
+        .observer = .{ .context = &observation, .enter = CompilationObserver.enter },
+        .coalescing = selected,
+    }) catch |err| {
         if (options.diagnostic) |diagnostic| {
+            if (statistics.stages_run != 0 or (statistics.failed_stage != null and statistics.failed_stage != .p01)) {
+                // Semantic records no longer use the source's original indices.
+                diagnostic.target = .{};
+                diagnostic.origins = .{};
+                diagnostic.function = null;
+                diagnostic.variable = null;
+                return err;
+            }
             diagnostic.target = detail.target;
             diagnostic.origins = detail.origins;
             if (detail.origins.count != 0) {

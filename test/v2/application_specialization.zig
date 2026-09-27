@@ -290,6 +290,10 @@ test "independently linked caller and worker specialize without any source modul
     _ = try data.component.encode(a, caller, caller_bytes);
     var linked = try data.linker.link(a, &.{ .{ .key = "caller", .object = caller_bytes }, .{ .key = "worker", .object = worker_bytes } }, &.{.{ .required = .{ .instance = "caller", .symbol = "worker" }, .supplied = .{ .instance = "worker", .symbol = "worker" } }}, .{ .instance = "caller", .symbol = "main" });
     defer linked.deinit();
+    var pipeline_stats: data.closed_compilation.Statistics = .{};
+    var integrated = try data.linker.linkWithCompilation(a, &.{ .{ .key = "caller", .object = caller_bytes }, .{ .key = "worker", .object = worker_bytes } }, &.{.{ .required = .{ .instance = "caller", .symbol = "worker" }, .supplied = .{ .instance = "worker", .symbol = "worker" } }}, .{ .instance = "caller", .symbol = "main" }, .{ .contract = .semantic, .statistics = &pipeline_stats });
+    defer integrated.deinit();
+    try std.testing.expectEqual(data.closed_compilation.Outcome.applied, pipeline_stats.outcome);
     @memset(caller_bytes, 0xff);
     @memset(worker_bytes, 0xff);
     var branch_stats: data.branch_reduction.Statistics = .{};
@@ -309,7 +313,7 @@ test "independently linked caller and worker specialize without any source modul
     for (optimized.program.blocks) |block| {
         try std.testing.expect(block.terminator != .branch and block.terminator != .apply);
     }
-    for ([_]ir.Program{ linked.program, optimized.program }) |program| {
+    for ([_]ir.Program{ linked.program, optimized.program, integrated.program }) |program| {
         const bytes = try a.alloc(u8, try data.program_image.encodedLength(program));
         defer a.free(bytes);
         _ = try data.program_image.encode(a, program, bytes);

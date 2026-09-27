@@ -26,6 +26,7 @@ pub const cell_reduction = @import("cell_reduction.zig");
 pub const capture_reduction = @import("capture_reduction.zig");
 pub const capture_summary = @import("capture_summary.zig");
 pub const capture_projection = @import("capture_projection.zig");
+pub const closed_compilation = @import("closed_compilation.zig");
 pub const component = @import("component.zig");
 pub const borrow_contract = @import("borrow_contract.zig");
 pub const borrow_flow = @import("borrow_flow.zig");

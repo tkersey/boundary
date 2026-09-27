@@ -1947,3 +1947,51 @@ test "typed eager selection checks the condition and both value contracts" {
     var compiled = try c.compile(testing.allocator, f, try c.scalar(void));
     defer compiled.deinit();
 }
+
+test "typed and direct compilation share explicit contracts and mandatory P01" {
+    const data = @import("boundary_data");
+    for ([_]bool{ false, true }) |typed| for ([_]data.closed_compilation.Contract{ .structural, .semantic }) |contract| {
+        var raw = source.Builder.init(testing.allocator);
+        defer raw.deinit();
+        const c = try a.Context.init(&raw);
+        const integer = try c.scalar(u64);
+        const unit = try c.scalar(void);
+        const entry = try c.function("entry", &.{.{ .name = "x", .schema = integer }}, integer, &.{});
+        const body = try c.body(entry);
+        const x = try body.parameter("x");
+        const schema = try c.callable(&.{}, integer, &.{}, .{ .use = .reusable, .captures = &.{integer} });
+        const nested = try c.functionFor("nested", schema);
+        const inner = try body.closureBody(nested);
+        try c.define(nested, try inner.ret(x));
+        try c.define(entry, try body.ret(try body.apply(try body.lambda(nested, schema), &.{})));
+        var stats: data.closed_compilation.Statistics = .{};
+        var p01: data.coalescing.Statistics = .{};
+        var result = if (typed)
+            try c.compileWithCompilation(testing.allocator, entry, unit, .{ .contract = contract, .statistics = &stats, .coalescing = .{ .statistics = &p01 } })
+        else
+            try source.lowerObserved(testing.allocator, try c.module(entry, unit), .{ .contract = contract, .semantic_statistics = &stats, .coalescing = .{ .statistics = &p01 } });
+        defer result.deinit();
+        try testing.expect(p01.outcome != .not_run);
+        if (contract == .semantic) {
+            try testing.expect(stats.stages_run > 0);
+            try testing.expect(stats.outcome != .work_limit);
+        } else try testing.expectEqual(data.closed_compilation.Outcome.structural, stats.outcome);
+    };
+}
+
+test "semantic typed compilation cannot erase an original named capture violation" {
+    var raw = source.Builder.init(testing.allocator);
+    defer raw.deinit();
+    const c = try a.Context.init(&raw);
+    const integer = try c.scalar(u64);
+    const unit = try c.scalar(void);
+    const entry = try c.function("entry", &.{.{ .name = "x", .schema = integer }}, integer, &.{});
+    const body = try c.body(entry);
+    const x = try body.parameter("x");
+    const schema = try c.callable(&.{}, integer, &.{}, .{ .use = .reusable, .captures = &.{} });
+    const nested = try c.functionFor("nested", schema);
+    const inner = try body.closureBody(nested);
+    try c.define(nested, try inner.ret(x));
+    try c.define(entry, try body.ret(try body.apply(try body.lambda(nested, schema), &.{})));
+    try testing.expectError(error.SchemaMismatch, c.compileWithCompilation(testing.allocator, entry, unit, .{ .contract = .semantic }));
+}

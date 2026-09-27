@@ -416,3 +416,16 @@ test "local protected borrow checking follows imported result provenance" {
         }
     }
 }
+
+test "component emission defers semantic compilation regardless of selected closed contract" {
+    for (std.enums.values(source.component_examples.Kind)) |kind| {
+        const baseline = try source.component_examples.emit(testing.allocator, kind);
+        defer testing.allocator.free(baseline);
+        var stats: data.closed_compilation.Statistics = .{ .outcome = .applied, .changed_stages = 99 };
+        const object_bytes = try source.component_examples.emitWithOptions(testing.allocator, kind, .{ .contract = .semantic, .semantic_statistics = &stats });
+        defer testing.allocator.free(object_bytes);
+        try testing.expectEqualSlices(u8, baseline, object_bytes);
+        try testing.expectEqual(data.closed_compilation.Outcome.deferred_open_component, stats.outcome);
+        try testing.expectEqual(@as(usize, 0), stats.changed_stages);
+    }
+}

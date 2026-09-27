@@ -22,6 +22,7 @@ test {
     _ = @import("capture_reduction_tests.zig");
     _ = @import("capture_summary_tests.zig");
     _ = @import("capture_projection_tests.zig");
+    _ = @import("closed_compilation_tests.zig");
     _ = @import("coalescing_recursive_tests.zig");
     _ = @import("coalescing_origins_tests.zig");
     _ = @import("coalescing_mutation_tests.zig");

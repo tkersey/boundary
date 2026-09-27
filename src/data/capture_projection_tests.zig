@@ -3,7 +3,7 @@ const std = @import("std");
 const ir = @import("activation.zig");
 const projection = @import("capture_projection.zig");
 const a = std.testing.allocator;
-const reused: ir.Program = .{
+pub const reused: ir.Program = .{
     .roots = .{ .entry = 0, .result = 3, .failure = 1 },
     .schemas = &.{ .u64, .unit, .{ .internal = .{ .computation = .{ .parameters = &.{0}, .result = 0, .capture_bound = &.{3}, .use = .reusable } } }, .{ .product = &.{ 0, 0 } } },
     .constants = &.{},

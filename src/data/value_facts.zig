@@ -7,7 +7,15 @@ const p = @import("program.zig");
 const image = @import("program_image.zig");
 const ownership = @import("activation_ownership.zig");
 const contexts = @import("call_contexts.zig");
-pub const Error = ownership.Error || image.Error || error{StaleFacts};
+pub const Error = ownership.Error || image.Error || error{ StaleFacts, SemanticWorkLimit };
+pub const default_work_limit: u64 = 10_000_000;
+const Work = struct {
+    remaining: u64,
+    fn take(self: *Work, amount: usize) error{SemanticWorkLimit}!void {
+        if (amount > self.remaining) return error.SemanticWorkLimit;
+        self.remaining -= amount;
+    }
+};
 pub const Version = usize;
 pub const Value = struct {
     boolean: ?bool = null,
@@ -57,8 +65,12 @@ pub const Facts = struct {
 /// Private calls transfer ordered arguments. Edges transfer predecessor values
 /// simultaneously; recursive joins lose precision and constructor sets widen.
 pub fn analyze(allocator: std.mem.Allocator, program: ir.Program) Error!Facts {
+    return analyzeWithLimit(allocator, program, default_work_limit);
+}
+pub fn analyzeWithLimit(allocator: std.mem.Allocator, program: ir.Program, work_limit: u64) Error!Facts {
     var checked = try ownership.analyze(allocator, program);
     defer checked.deinit();
+    var budget: Work = .{ .remaining = work_limit };
     const epoch = try image.identity(allocator, program);
     var arena = std.heap.ArenaAllocator.init(allocator);
     errdefer arena.deinit();
@@ -66,6 +78,7 @@ pub fn analyze(allocator: std.mem.Allocator, program: ir.Program) Error!Facts {
     const work = try a.alloc(Working, program.blocks.len);
     for (program.blocks, work) |block, *out| {
         const layout = program.functions[@intCast(block.function)].layout.slots;
+        try budget.take(layout.len + block.instructions.len);
         const versions = try a.alloc(Version, layout.len);
         const definitions = try a.alloc(Definition, layout.len + block.instructions.len);
         for (layout, versions, 0..) |schema, *version, slot| {
@@ -74,6 +87,7 @@ pub fn analyze(allocator: std.mem.Allocator, program: ir.Program) Error!Facts {
         }
         const results = try a.alloc(Version, block.instructions.len);
         for (block.instructions, results, 0..) |instruction, *result, index| {
+            try budget.take(instruction.operands.len);
             const operands = try a.alloc(Version, instruction.operands.len);
             for (instruction.operands, operands) |slot, *version| version.* = versions[@intCast(slot)];
             result.* = layout.len + index;
@@ -101,6 +115,7 @@ pub fn analyze(allocator: std.mem.Allocator, program: ir.Program) Error!Facts {
     var visits: usize = 0;
     var head: usize = 0;
     while (head < queue.items.len) {
+        try budget.take(1);
         const id = queue.items[head];
         head += 1;
         queued[id] = false;
@@ -109,11 +124,13 @@ pub fn analyze(allocator: std.mem.Allocator, program: ir.Program) Error!Facts {
         visits += 1;
         const layout = program.functions[@intCast(block.function)].layout.slots;
         for (block.instructions, state.results, 0..) |instruction, version, index| {
+            try budget.take(1 + instruction.operands.len);
             state.definitions[version].value = transfer(program, layout[@intCast(instruction.destination)], instruction, state.definitions[version].operands, state.definitions, index);
             transfers += 1;
         }
+        try budget.take(state.exit.len);
         for (state.exit, state.outgoing) |version, *value| value.* = state.definitions[version].value;
-        var propagation: Propagation = .{ .program = program, .work = work, .source = state, .allocator = a, .queue = &queue, .queued = queued };
+        var propagation: Propagation = .{ .program = program, .work = work, .source = state, .allocator = a, .queue = &queue, .queued = queued, .budget = &budget };
         try propagation.terminator(block.terminator);
     }
     const blocks = try a.alloc(Block, work.len);
@@ -164,6 +181,7 @@ fn joined(left: Value, right: Value) Value {
     return result;
 }
 const Propagation = struct {
+    budget: *Work,
     program: ir.Program,
     work: []Working,
     source: *const Working,
@@ -173,12 +191,13 @@ const Propagation = struct {
     fn value(self: Propagation, slot: p.Id) Value {
         return self.source.outgoing[@intCast(slot)];
     }
-    fn call(self: *Propagation, function_id: p.Id, arguments: []const p.Id) std.mem.Allocator.Error!void {
+    fn call(self: *Propagation, function_id: p.Id, arguments: []const p.Id) Error!void {
         const function = self.program.functions[@intCast(function_id)];
         const entry: usize = @intCast(function.entry);
         const target = &self.work[entry];
         var changed = !target.reachable;
         for (function.layout.slots, 0..) |schema, slot| {
+            try self.budget.take(1 + function.inputs.len);
             var incoming = bounds(self.program.schemas[@intCast(schema)]);
             for (function.inputs, arguments) |destination, argument| {
                 if (destination == slot) incoming = forgetOrigin(self.value(argument));
@@ -195,13 +214,14 @@ const Propagation = struct {
             self.queued[entry] = true;
         }
     }
-    fn edge(self: Propagation, next: ir.Edge, overwritten: []const p.Id) std.mem.Allocator.Error!void {
+    fn edge(self: Propagation, next: ir.Edge, overwritten: []const p.Id) Error!void {
         const target = &self.work[@intCast(next.block)];
         var changed = !target.reachable;
         const layout = self.program.functions[@intCast(self.program.blocks[@intCast(next.block)].function)].layout.slots;
         // Read only source exit versions. No assignment can see an earlier
         // destination write from this same parallel edge.
         for (layout, 0..) |schema, slot| {
+            try self.budget.take(1 + next.assignments.len + overwritten.len);
             var incoming = if (std.mem.indexOfScalar(p.Id, overwritten, slot) != null) bounds(self.program.schemas[@intCast(schema)]) else self.value(slot);
             for (next.assignments) |assignment| if (assignment.destination == slot) {
                 incoming = switch (assignment.source) {
@@ -222,7 +242,7 @@ const Propagation = struct {
             self.queued[@intCast(next.block)] = true;
         }
     }
-    fn terminator(self: *Propagation, term: ir.Terminator) std.mem.Allocator.Error!void {
+    fn terminator(self: *Propagation, term: ir.Terminator) Error!void {
         switch (term) {
             .return_value, .fail => {},
             .jump, .yield_value => |next| try self.edge(next, &.{}),

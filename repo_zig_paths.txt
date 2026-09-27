@@ -60,6 +60,8 @@ src/data/capture_summary_tests.zig
 src/data/cell_reduction.zig
 src/data/cell_reduction_tests.zig
 src/data/cleanup_contract.zig
+src/data/closed_compilation.zig
+src/data/closed_compilation_tests.zig
 src/data/coalescing.zig
 src/data/coalescing_candidate.zig
 src/data/coalescing_candidate_tests.zig
@@ -206,6 +208,7 @@ test/v2/capture_projection.zig
 test/v2/capture_reduction.zig
 test/v2/capture_summary.zig
 test/v2/cell_reduction.zig
+test/v2/closed_compilation.zig
 test/v2/compact_fixtures.zig
 test/v2/compact_wasm.zig
 test/v2/compare_activation_flow.zig
