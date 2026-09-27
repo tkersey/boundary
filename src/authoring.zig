@@ -88,6 +88,8 @@ pub const HandlerOptions = struct {
     mode: p.Mode,
     use: p.Use,
     residual: []const *const Operation,
+    /// Null preserves the handler's residual row; an empty row declares a pure return arm.
+    return_effects: ?[]const *const Operation = null,
     escaping: []const *const Operation = &.{},
     captures: []const *const Schema,
     body_use: p.Use = .linear,
@@ -714,7 +716,12 @@ pub const Context = opaque {
         clause_fields[options.state.len] = .{ .name = "payload", .schema = op.payload };
         @memcpy(clause_fields[options.state.len + 1 .. clause_fields.len - 1], op.bodies);
         clause_fields[clause_fields.len - 1] = .{ .name = "resumption", .schema = resumption };
-        const returns = try self.function("handler return", returns_fields, answer, options.residual);
+        const returns = try self.function(
+            "handler return",
+            returns_fields,
+            answer,
+            options.return_effects orelse options.residual,
+        );
         const clause = try self.function("operation clause", clause_fields, answer, options.residual);
         const rf = data(FunctionData, returns).id;
         const cf = data(FunctionData, clause).id;

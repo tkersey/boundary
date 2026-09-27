@@ -4,6 +4,11 @@ Import `boundary.authoring`. It stages ordinary Boundary source; the existing
 source checker, lowering, target admission and unchanged World interpreter remain
 authoritative. The low-level `boundary.computation` API remains available.
 
+Handlers may declare `return_effects` separately from their residual row. Omit it
+to retain the full residual allowance, or use `&.{}` for a pure return arm while
+the operation clause still performs residual effects. Authoritative source
+admission rejects a return body that exceeds its declared row.
+
 Construct handlers and regions through `authoring.Context.handler` and
 `authoring.Context.region`. The former top-level `boundary.handler` and
 `boundary.region` aliases are removed. Expert record inspection uses

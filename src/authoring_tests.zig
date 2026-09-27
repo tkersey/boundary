@@ -639,6 +639,62 @@ fn twiceSharing(allocator: std.mem.Allocator) !void {
 }
 
 const FailureCase = enum { matching, mismatch, discarded };
+fn handlerReturnEffects(allocator: std.mem.Allocator, pure: bool, performs: bool) !void {
+    var raw = source.Builder.init(allocator);
+    defer raw.deinit();
+    const c = try a.Context.init(&raw);
+    const unit = try c.scalar(void);
+    const ask = try c.local("return-effects/ask", unit, unit, .linear);
+    const read = try c.external("return-effects/read", unit, unit);
+    const handler = try c.handler(ask, unit, unit, .{
+        .mode = .deep,
+        .use = .linear,
+        .residual = &.{read},
+        .return_effects = if (pure) &.{} else null,
+        .captures = &.{ unit, try c.capability(ask) },
+    });
+    const returns = try c.returnFunction(handler);
+    const returned = try c.body(returns);
+    const result = try returned.parameter("result");
+    try c.define(returns, try returned.ret(if (performs)
+        try returned.perform(read, result)
+    else
+        result));
+    const clause = try c.clauseFunction(handler);
+    const handled = try c.body(clause);
+    const reply = try handled.perform(read, try handled.parameter("payload"));
+    try c.define(clause, try handled.ret(try handled.resumeValue(
+        try handled.parameter("resumption"),
+        reply,
+    )));
+    const body_schema = try c.handledSchema(handler);
+    const work = try c.functionFor("work", body_schema);
+    const body = try c.body(work);
+    try c.define(work, try body.ret(try body.performLocal(
+        ask,
+        try body.parameter("capability"),
+        try body.constant(void, {}),
+    )));
+    const entry = try c.function("entry", &.{}, unit, &.{read});
+    const root = try c.body(entry);
+    try c.define(entry, try root.ret(try root.handleWith(
+        handler,
+        try root.lambda(work, body_schema),
+        &.{},
+    )));
+    const module = try c.module(entry, unit);
+    const return_id = try a.interop.functionId(c, returns);
+    try testing.expectEqual(@as(usize, if (pure) 0 else 1), module.functions[return_id].effects.len);
+    var compiled = try c.compile(allocator, entry, unit);
+    defer compiled.deinit();
+}
+
+test "handler return effects can be pure while the clause retains residual I/O" {
+    try handlerReturnEffects(testing.allocator, true, false);
+    try handlerReturnEffects(testing.allocator, false, true);
+    try testing.expectError(error.InvalidEffect, handlerReturnEffects(testing.allocator, true, true));
+}
+
 fn explicitFailure(allocator: std.mem.Allocator, mode: FailureCase) !void {
     var raw = source.Builder.init(allocator);
     defer raw.deinit();
