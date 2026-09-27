@@ -205,6 +205,33 @@ analysis and independent validation and is retained under the corrected Boundary
 construction-cost policy. It is not silently charged to World, nor does it waive
 later phase-separated World or whole-consumer cost gates.
 
+`data.capture_projection` implements P07's immutable product-field case. A private
+constructor observing exactly one field captures that field, and its worker reads
+the projected value directly. Constructors and direct callers project only after
+the original product evaluation. A fresh private computation schema carries the
+new bound; shared schemas/descriptors and public inputs are preserved. The checker
+verifies the full original observation census, exact selected field, fresh caller
+slots, worker slot types, constructor types and every unchanged record. Original
+and candidate admission and final P01 remain mandatory. Effectful/opaque capture
+contexts and potentially failing extraction are outside this domain.
+
+The source-free witness changes reachable blob payload from 4104 to zero bytes and
+checkpoint size from 4215 to 115 bytes, preserving both repeated-call results and
+same-image resumption. An independent parent use of the original product remains
+correct. A failing variant extraction still fails only after construction. The
+small scalar-pair image grows 131 to 134 bytes under this semantic transformation;
+P01's own no-growth decision is unchanged.
+
+Tune's existing replay benchmark measured seven alternating paired batches with
+three warmups/nine samples per process on the same M2 Pro/ReleaseSafe configuration.
+The two-call timing is inconclusive (paired median ratio 1.000, range 0.780–1.059);
+the 32-call ratio is 0.977 (range 0.970–0.987). Peak working payload is
+20,380 → 20,403 bytes and 33,220 → 33,205 bytes, respectively. Allocation calls
+change 61 → 60 and 216 → 185. The 23-byte increase is recorded and below the
+supplied memory threshold. [Raw observations](performance/m2-capture-projection.json)
+bind exact inputs/sources. These fresh-invocation timings do not discharge separate
+admission, checkpoint timing, or real-consumer qualification.
+
 Focused checks cover swapped equal-type operands, capture reassignment, stale
 facts after constructor mutation, range/known-bit and length/bound distinctions,
 and every allocation-failure point in the small transformation witness.
@@ -241,6 +268,10 @@ forged OR, individual observation, mutation, direct callers, opaque aliases,
 preserved faulting evaluation, allocation failures and primitive-law checks.
 Native/source-free checkpoint and repeated-call tests pass, and the replay
 benchmark verifies all paired outcomes.
+The projection suite adds seven cases (25 with module tests), including a
+well-typed wrong-field mutation, multiple observers, direct callers, shared types,
+delayed failure and allocation failures. Three native tests cover source-free
+retention/resumption, parent observation and delayed failure timing.
 
 ## Remaining M2 obligations
 
@@ -248,13 +279,12 @@ This is not complete M2 or canonical pipeline adoption. Remaining work includes:
 
 - Remaining P02 domains, return summaries and richer recursive/calling contexts
   beyond the current conservative argument fixed point.
-- Context cloning where callers disagree, capture projection and product forwarding
+- Context cloning where callers disagree and product forwarding
   across control flow; broader cell cases remain conservative.
   Private dead arguments, local product scalar replacement, singleton incoming-callable specialization
   and polymorphic/opaque negatives are implemented.
 - Remaining P04 value numbering across aliases/renaming and cyclic proofs;
-  P07 product-field projection (dead captures and the XOR summary are implemented),
-  and the remaining qualification of P05/P08's
+  broader P07 context support and the remaining qualification of P05/P08's
   implemented private-cell/store subset, with independent certificates.
 - Semantic/structural contract integration into compilation and final linking,
   the owned-consumer policy audit, deterministic semantic work budgets, and

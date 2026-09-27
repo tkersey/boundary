@@ -51,6 +51,8 @@ src/data/borrow_contract.zig
 src/data/borrow_flow.zig
 src/data/branch_reduction.zig
 src/data/call_contexts.zig
+src/data/capture_projection.zig
+src/data/capture_projection_tests.zig
 src/data/capture_reduction.zig
 src/data/capture_reduction_tests.zig
 src/data/capture_summary.zig
@@ -200,6 +202,7 @@ test/package_authoring/rejection.zig
 test/v2/aggregate_reduction.zig
 test/v2/application_specialization.zig
 test/v2/borrow_returns.zig
+test/v2/capture_projection.zig
 test/v2/capture_reduction.zig
 test/v2/capture_summary.zig
 test/v2/cell_reduction.zig
