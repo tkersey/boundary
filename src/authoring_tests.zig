@@ -1763,3 +1763,79 @@ test "terminal identity bindings collapse without moving intervening effects" {
 test "terminal identity normalization releases partial allocations" {
     try testing.checkAllAllocationFailures(testing.allocator, tailReturn, .{false});
 }
+
+fn searchSharing(allocator: std.mem.Allocator) !void {
+    const search = @import("library/search.zig");
+    var raw = source.Builder.init(allocator);
+    defer raw.deinit();
+    const c = try a.Context.init(&raw);
+    const integer = try c.scalar(u64);
+    const left = try c.record(&.{.{ .name = "left", .schema = integer }});
+    const right = try c.record(&.{.{ .name = "right", .schema = integer }});
+    const family = try search.family(c, "sharing/search");
+    var options: search.Options = .{ .captures = .{ .continuation = &.{} }, .residual = &.{}, .order = .depth_first };
+    const dfs = try search.interpret(c, family, left, options);
+    const renamed = try search.interpret(c, family, right, options);
+    options.order = .breadth_first;
+    const bfs = try search.interpret(c, family, left, options);
+    try testing.expect(dfs.handler != renamed.handler and dfs.explore != bfs.explore);
+    const count = raw.functions.items.len;
+    for (0..64) |_| try testing.expectEqual(bfs.explore, (try search.interpret(c, family, left, options)).explore);
+    try testing.expectEqual(count, raw.functions.items.len);
+    const foreign = try a.Context.init(&raw);
+    try testing.expectError(error.ForeignHandle, search.interpret(foreign, family, left, options));
+}
+test "typed Search shares definitions without erasing names or traversal policy" {
+    try testing.expect(!@hasDecl(@import("library/search.zig"), "define"));
+    try searchSharing(testing.allocator);
+}
+test "typed Search releases partial construction allocations" {
+    try testing.checkAllAllocationFailures(testing.allocator, searchSharing, .{});
+}
+
+test "region body contracts canonicalize region sets without changing token position" {
+    var raw = source.Builder.init(testing.allocator);
+    defer raw.deinit();
+    const c = try a.Context.init(&raw);
+    const outer = try c.region();
+    const inner = try c.region();
+    const schema = try c.regionBodySchema(inner, &.{}, try c.scalar(void), &.{}, .{ .use = .linear, .captures = &.{}, .regions = &.{ outer, inner, outer } });
+    const signature = raw.schemas.items[@intCast(try a.interop.schemaId(c, schema))].internal.computation;
+    try testing.expectEqualSlices(source.Id, &.{ 0, 1 }, signature.regions);
+    try testing.expectEqual(try a.interop.schemaId(c, try c.regionSchema(inner)), signature.parameters[0]);
+}
+
+fn sequenceQueries(allocator: std.mem.Allocator, negative: bool) !void {
+    var raw = source.Builder.init(allocator);
+    defer raw.deinit();
+    const c = try a.Context.init(&raw);
+    const integer = try c.scalar(u64);
+    const unit = try c.scalar(void);
+    const sequence = try c.sequence(integer);
+    const function = try c.function("query", &.{}, integer, &.{});
+    const body = try c.body(function);
+    const value = try body.constant(u64, 7);
+    const values = try body.sequenceValue(sequence, &.{value});
+    if (negative) {
+        const boolean = try body.constant(bool, true);
+        try testing.expectError(error.InvalidCategory, body.less(boolean, boolean));
+        try testing.expectError(error.InvalidCategory, body.sequenceLength(value));
+        try testing.expectError(error.SchemaMismatch, body.sequenceGet(values, boolean));
+    }
+    _ = try body.less(try body.constant(i64, -3), try body.constant(i64, 2));
+    const length = try body.sequenceLength(values);
+    const item = try body.sequenceGet(values, try body.checked(.subtract, length, try body.constant(u64, 1), .{ .overflow = try c.literalFailure(void, {}) }));
+    const missing = try body.caseOf(item, "none");
+    const present = try body.caseOf(item, "some");
+    _ = try present.body().yieldNow();
+    try c.define(function, try body.ret(try body.match(item, &.{ try missing.fail(integer, try missing.body().constant(void, {})), try present.ret(present.payload()) })));
+    if (negative) try testing.expectError(error.ClosedBody, body.yieldNow());
+    var compiled = try c.compile(allocator, function, unit);
+    defer compiled.deinit();
+}
+test "typed sequence queries, ordering, yield and failing cases preserve contracts" {
+    try sequenceQueries(testing.allocator, true);
+}
+test "sequence query construction releases partial allocations" {
+    try testing.checkAllAllocationFailures(testing.allocator, sequenceQueries, .{false});
+}

@@ -84,6 +84,11 @@ pub const Case = opaque {
         const computation = try item.body.ret(value);
         return handle(FinishedCase, try bodyData(item.body).context.save(FinishedCaseData, .{ .case = self, .computation = computation }));
     }
+    pub fn fail(self: *const Case, result: *const Schema, failure: *const Value) Error!*const FinishedCase {
+        const item = data(CaseData, self);
+        const computation = try item.body.fail(result, failure);
+        return handle(FinishedCase, try bodyData(item.body).context.save(FinishedCaseData, .{ .case = self, .computation = computation }));
+    }
 };
 pub const FinishedCase = opaque {};
 pub const ProductParts = opaque {
@@ -612,11 +617,25 @@ pub const Context = opaque {
             try self.origin(r.owner);
             id.* = r.id;
         }
-        return ids;
+        std.mem.sort(p.Id, ids, {}, std.sort.asc(p.Id));
+        var length: usize = 0;
+        for (ids) |id| {
+            if (length == 0 or ids[length - 1] != id) {
+                ids[length] = id;
+                length += 1;
+            }
+        }
+        return ids[0..length];
     }
     pub fn region(self: *Context) Error!*const Region {
         try self.ready();
         return handle(Region, try self.save(RegionData, .{ .owner = self, .id = contextData(self).raw.region() }));
+    }
+    pub fn regionSchema(self: *Context, region_handle: *const Region) Error!*const Schema {
+        const r = data(RegionData, region_handle);
+        try self.origin(r.owner);
+        errdefer |err| self.poison(err);
+        return self.intern(try contextData(self).raw.schema(.{ .internal = .{ .region = r.id } }), &.{});
     }
     pub fn cell(self: *Context, region_handle: *const Region, element: *const Schema) Error!*const Schema {
         const r = data(RegionData, region_handle);
@@ -640,7 +659,7 @@ pub const Context = opaque {
         const r = data(RegionData, region_handle);
         try self.origin(r.owner);
         errdefer |err| self.poison(err);
-        const token = try self.intern(try contextData(self).raw.schema(.{ .internal = .{ .region = r.id } }), &.{});
+        const token = try self.regionSchema(region_handle);
         const names = try contextData(self).raw.allocator().alloc(Field, parameters.len + 1);
         names[0] = .{ .name = "region", .schema = token };
         @memcpy(names[1..], parameters);
@@ -1652,6 +1671,48 @@ pub const Body = opaque {
             &.{ a.id, b.id },
             0,
         )), boolean);
+    }
+    pub fn less(self: *Body, left: *const Value, right: *const Value) Error!*const Value {
+        const lhs = try self.useValue(left);
+        const rhs = try self.useValue(right);
+        const c = bodyData(self).context;
+        try c.same(lhs.schema, rhs.schema);
+        const id = try c.schemaId(lhs.schema);
+        switch (contextData(c).raw.schemas.items[@intCast(id)]) {
+            .i8, .i16, .i32, .i64, .u8, .u16, .u32, .u64 => {},
+            else => return c.reject(error.InvalidCategory, "less", "requires matching integer values"),
+        }
+        errdefer |err| c.poison(err);
+        const boolean = try c.scalar(bool);
+        return self.bind(try contextData(c).raw.pure(try contextData(c).raw.primitive(try c.schemaId(boolean), .less, &.{ lhs.id, rhs.id }, 0)), boolean);
+    }
+    pub fn sequenceLength(self: *Body, sequence: *const Value) Error!*const Value {
+        const value = try self.useValue(sequence);
+        const c = bodyData(self).context;
+        const shape = contextData(c).raw.schemas.items[@intCast(try c.schemaId(value.schema))];
+        if (shape != .seq) return c.reject(error.InvalidCategory, "length", "requires an unbounded sequence");
+        errdefer |err| c.poison(err);
+        const integer = try c.scalar(u64);
+        return self.bind(try contextData(c).raw.pure(try contextData(c).raw.primitive(try c.schemaId(integer), .sequence_length, &.{value.id}, 0)), integer);
+    }
+    pub fn sequenceGet(self: *Body, sequence: *const Value, index: *const Value) Error!*const Value {
+        const value = try self.useValue(sequence);
+        const offset = try self.useValue(index);
+        const c = bodyData(self).context;
+        const info = data(SchemaData, value.schema);
+        if (contextData(c).raw.schemas.items[@intCast(info.id)] != .seq)
+            return c.reject(error.InvalidCategory, "sequence get", "requires an unbounded sequence");
+        try c.same(try c.scalar(u64), offset.schema);
+        errdefer |err| c.poison(err);
+        const optional = try c.alternatives(&.{ .{ .name = "none", .schema = try c.scalar(void) }, .{ .name = "some", .schema = info.result orelse return error.InvalidSchema } });
+        return self.bind(try contextData(c).raw.pure(try contextData(c).raw.primitive(try c.schemaId(optional), .sequence_get, &.{ value.id, offset.id }, 0)), optional);
+    }
+    pub fn yieldNow(self: *Body) Error!*const Value {
+        try self.ready();
+        const c = bodyData(self).context;
+        errdefer |err| c.poison(err);
+        const unit = try c.scalar(void);
+        return self.bind(try contextData(c).raw.term(.{ .yield_then = try contextData(c).raw.pure(try contextData(c).raw.constant(void, {})) }), unit);
     }
     pub fn newCell(self: *Body, schema: *const Schema, region: *const Value, initial: *const Value) Error!*const Value {
         try self.ready();

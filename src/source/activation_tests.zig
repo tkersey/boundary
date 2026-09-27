@@ -258,14 +258,18 @@ test "reused lexical name has distinct stable bindings" {
     var destinations: [2]p.Id = undefined;
     var count: usize = 0;
     var result: ?p.Id = null;
-    for (image.blocks) |block| switch (block.terminator) {
-        .jump => |edge| for (edge.assignments) |assignment| {
-            destinations[count] = assignment.destination;
+    for (image.blocks) |block| {
+        for (block.instructions) |instruction| if (instruction.opcode == .constant) {
+            try testing.expect(count < destinations.len);
+            destinations[count] = instruction.destination;
             count += 1;
-        },
-        .return_value => |slot| result = slot,
-        else => return error.TestUnexpectedResult,
-    };
+        };
+        switch (block.terminator) {
+            .jump => {},
+            .return_value => |slot| result = slot,
+            else => return error.TestUnexpectedResult,
+        }
+    }
     try testing.expectEqual(2, count);
     try testing.expect(destinations[0] != destinations[1]);
     try testing.expectEqual(destinations[1], result.?);
@@ -490,4 +494,46 @@ test "projection forwarding cannot erase malformed source operations" {
             return error.TestUnexpectedResult;
         } else |_| {}
     }
+}
+
+test "copy-binding fusion preserves repeated mutable reads across a write" {
+    var b = source.Builder.init(testing.allocator);
+    defer b.deinit();
+    const unit = try b.scalar(void);
+    const integer = try b.scalar(u64);
+    const pair = try b.schema(.{ .product = &.{ integer, integer } });
+    const region_id = b.region();
+    const region = try b.schema(.{ .internal = .{ .region = region_id } });
+    const cell = try b.schema(.{ .internal = .{ .cell = .{ .element = integer, .region = region_id } } });
+    const inside = try b.declare(&.{region}, pair, &.{}, &.{region_id});
+    const target = try b.variable(cell);
+    const first = try b.variable(integer);
+    const ignored = try b.variable(unit);
+    const second = try b.variable(integer);
+    const read = try b.primitive(integer, .cell_get, &.{try b.reference(target)}, 0);
+    const write = try b.primitive(unit, .cell_set, &.{ try b.reference(target), try b.constant(u64, 7) }, 0);
+    const answer = try b.pure(try b.primitive(pair, .product, &.{ try b.reference(first), try b.reference(second) }, 0));
+    const body = try b.bind(first, try b.pure(read), try b.bind(ignored, try b.pure(write), try b.bind(second, try b.pure(read), answer)));
+    try b.define(inside, try b.bind(target, try b.pure(try b.primitive(cell, .cell_new, &.{ try b.reference(b.parameter(inside, 0)), try b.constant(u64, 1) }, 0)), body));
+    const main = try b.declare(&.{}, pair, &.{}, &.{});
+    const signature = try b.schema(.{ .internal = .{ .computation = .{ .parameters = &.{region}, .result = pair, .regions = &.{region_id} } } });
+    try b.define(main, try b.term(.{ .with_region = .{ .region = region_id, .body = try b.lambda(inside, signature) } }));
+    var compiled = try lower(testing.allocator, b.module(main, unit));
+    defer compiled.deinit();
+    var matched = false;
+    for (compiled.program.blocks) |block| {
+        var index: usize = 0;
+        const expected = [_]p.Opcode{ .cell_get, .cell_set, .cell_get };
+        for (block.instructions) |instruction| {
+            if (instruction.opcode != .cell_get and instruction.opcode != .cell_set) continue;
+            try testing.expect(index < expected.len);
+            try testing.expectEqual(expected[index], instruction.opcode);
+            index += 1;
+        }
+        if (index != 0) {
+            try testing.expectEqual(expected.len, index);
+            matched = true;
+        }
+    }
+    try testing.expect(matched);
 }

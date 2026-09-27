@@ -50,7 +50,7 @@ scheduling. Typed bodies provide `protect` and `bracket`. Ownership, borrowing, 
 order and cleanup remain checked. Stable slots retain earlier bindings without
 copying them into every intermediate continuation interface.
 
-Choice, State, Reader, Writer and Raise families use an `authoring.Context` and typed handles.
+Choice, Search, State, Reader, Writer and Raise families use an `authoring.Context` and typed handles.
 Choice/Writer/Raise expose `effect()` and `capability()`; State exposes `get()`, `put()`
 and their capability schemas. Interpretations return typed handler and answer
 handles. Repeated interpretations share definitions
@@ -91,6 +91,12 @@ raw Generator call surface and its consumers are still undergoing typed migratio
 Exchange composition now uses typed matching, package consumption and recursive
 calls. A terminal identity binding is normalized by `Body.ret` without moving
 intervening work.
+
+Search uses `family`, `interpret` and typed `collect`, with explicit DFS/BFS
+worklist order. The [queens example](src/source/queens_example.zig) uses typed
+sequence queries, integer ordering, scoped cells and resource cleanup throughout.
+Lowering keeps straight-line copyable value bindings in one block while retaining
+owned custody boundaries, named provenance and statement-level evaluation order.
 
 ## Pure data and components
 

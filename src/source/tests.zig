@@ -488,7 +488,6 @@ test "tail clauses reject well-typed authored failure and hidden effects at pure
 test "library specializations share declarations at one eight and sixty-four installations" {
     const choice = @import("../library/choice.zig");
     const generator = @import("../library/generator.zig");
-    const search = @import("../library/search.zig");
     const scheduler = @import("../library/scheduler.zig");
     var b = source.Builder.init(std.testing.allocator);
     defer b.deinit();
@@ -505,7 +504,6 @@ test "library specializations share declarations at one eight and sixty-four ins
     for (0..64) |index| {
         const interpreted = try choice.all(author, choices, try author.scalar(u64), .{ .captures = .{ .continuation = &.{} }, .residual = &.{} });
         const tasks = try generator.define(&b, "sharing/generator", unit, &.{}, &.{}, .{ .effects = &.{} });
-        _ = try search.define(&b, "sharing/search", integer, &.{}, .{ .effects = &.{} }, &.{}, &.{}, .depth_first);
         _ = try scheduler.fifo(&b, tasks, .{ .effects = &.{} }, &.{});
         _ = try scheduler.awaiting(&b, tasks, joined, integer, &.{region});
         if (index == 0) {

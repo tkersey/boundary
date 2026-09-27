@@ -406,6 +406,40 @@ const Function = struct {
     }
 
     fn term(self: *Function, block: *Block, task: Task) Error!ir.Terminator {
+        var current = task;
+        var traversed: usize = 0;
+        while (true) {
+            const expression = self.compiler.source.terms[@intCast(current.term)];
+            if (expression != .bind) break;
+            const binding = expression.bind;
+            const value_term = self.compiler.source.terms[@intCast(binding.value)];
+            const schema = self.compiler.source.variables[@intCast(binding.variable)];
+            // Owned bindings introduce custody scopes and keep their original
+            // boundaries. A copyable value has no such scope transition.
+            if (value_term != .value or !self.compiler.uses.copy[@intCast(schema)]) break;
+            if (traversed >= self.compiler.source.terms.len) return error.InvalidSource;
+            traversed += 1;
+            const first_fresh = self.slots.items.len;
+            const value = try block.value(value_term.value);
+            if (value < first_fresh) {
+                // Preserve distinct named-variable provenance for aliases.
+                const environment = try self.bind(current.environment, binding.variable);
+                const rest = try self.schedule(binding.next, environment, current.next, current.custody);
+                return .{ .jump = try self.edge(.{ .block = rest, .destination = try self.resolve(environment, binding.variable) }, .{ .slot = value }) };
+            }
+            if (self.compiler.capture_observer != null) self.slot_variables.items[@intCast(value)] = binding.variable;
+            current.environment = try self.bindings.bind(current.environment, binding.variable, value);
+            current.term = binding.next;
+            block.environment = current.environment;
+            // Staging remains eager. A repeated cell read after a write must
+            // execute again, even when source expressions share an ID.
+            block.computed.clearRetainingCapacity();
+            block.products.clearRetainingCapacity();
+        }
+        return self.termAfterValues(block, current);
+    }
+
+    fn termAfterValues(self: *Function, block: *Block, task: Task) Error!ir.Terminator {
         const expression = self.compiler.source.terms[@intCast(task.term)];
         switch (expression) {
             .bind => |binding| {
