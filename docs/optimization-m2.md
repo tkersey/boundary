@@ -523,8 +523,17 @@ request payload/schema, nominal effect identity, result, approval, write and
 cleanup. Native and production-WASM fresh-invocation peak memory decrease against
 both controls, and checkpoint maxima do not grow. The exact local/cumulative
 observations are in Agent's `conformance/agent4/m2-runtime-comparison.json`.
-Paired timing measurements and review closure remain pending; memory savings do
-not establish latency improvements.
+Paired timing measurements subsequently completed. The user accepted thirteen
+confirmed phase costs: ten checkpoint encodings, two restores and one native
+execution cell. No full fresh-invocation slowdown was confirmed. Agent retains
+the exact observations and acceptance in `conformance/agent4/m2-execution-timing.json`.
+Compiler construction costs are reported in `docs/performance/m2-compiler-costs.json`
+in Agent: three alternating process windows, three warmups and nine samples per
+window, with all 1,296 emitted image hashes checked. ReAct compilation grows
+roughly 20 ms → 326 ms, and requested peak construction allocation grows
+36.5 MB → 429.4 MB. This is the cost of the checked transformation search,
+reported under the corrected construction-cost policy. Runtime observations
+remain separate. Final installed serial-review closure is still pending.
 
 ## Remaining M2 obligations
 
@@ -534,9 +543,10 @@ specialization, worker/wrapper/inlining and global control. Section 4.6 permits
 coarse finite facts and requires extensions to have actual consumers. The earlier
 remaining-work list mixed later precision improvements into M2's gate.
 
-M2 closeout still requires the owned-consumer policy audit and qualification of
-the final source/package/runtime tuple, required serial/browser checks, paired
-economics against C0, and applicable G/T obligations. Shared demand, effect,
+The owned-consumer policy audit, final source/package/runtime binding, required
+serial/browser checks and measured local/cumulative economics are now recorded
+in Agent’s M2 adoption report. Final proof reconciliation and installed serial
+reviews remain before M2 closes. Shared demand, effect,
 custody and escape obligations use the original admission/trait/liveness owners
 and the conservative scope/use census; no second ownership checker is introduced.
 
