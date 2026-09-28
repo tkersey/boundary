@@ -544,3 +544,187 @@ test "direct state dimension bound excludes a forwarded dynamic word" {
     try std.testing.expectEqual(.applied, stats.outcome);
     try std.testing.expectEqual(@as(usize, 1), stats.reduced_words);
 }
+
+test "additional opaque observation expands the actual record state space" {
+    var original_plan = (try affine.analyze(a, rotating, 0, 1000000)).?;
+    defer original_plan.deinit();
+    var program = rotating;
+    var blocks = rotating.blocks[0..6].*;
+    // Retain the parity observation and add an independent field observation
+    // at a nonlinear boundary; every recursive update remains identical.
+    blocks[5].instructions = &.{ rotating.blocks[5].instructions[0], .{ .destination = 5, .opcode = .integer_bit_or, .operands = &.{ 5, 0 } } };
+    program.blocks = &blocks;
+    var expanded = (try affine.analyze(a, program, 0, 1000000)).?;
+    defer expanded.deinit();
+    try std.testing.expectEqualDeep(original_plan.transitions, expanded.transitions);
+    try std.testing.expectEqual(@as(usize, 3), expanded.basis.len);
+    const space = @import("affine_space.zig");
+    var closure = try space.Space.init(3);
+    var budget: space.Budget = .{ .remaining = 1000000 };
+    for (expanded.basis) |row| _ = try closure.insert(row, &budget);
+    for (original_plan.basis) |row| try std.testing.expect((try closure.coefficients(row, &budget)) != null);
+    var stats: @import("affine_state.zig").Statistics = .{};
+    var retained = try @import("affine_state.zig").run(a, program, 0, &stats, 1000000, .{});
+    defer retained.deinit();
+    try std.testing.expectEqual(.no_change, stats.outcome);
+}
+
+test "independent acceptance rejects an admissible wrong affine offset" {
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    const storage = arena.allocator();
+    var original = rotating;
+    original.constants = &.{ rotating.constants[0], .{ .schema = 0, .bytes = &.{ 0xa5, 0, 0, 0, 0, 0, 0, 0 } } };
+    const functions = try storage.dupe(ir.Function, original.functions);
+    functions[1].layout.slots = &.{ 0, 0, 0, 0, 2, 0, 2, 0, 0 };
+    original.functions = functions;
+    var blocks = rotating.blocks[0..6].*;
+    blocks[3].instructions = &.{ rotating.blocks[3].instructions[0], .{ .destination = 8, .opcode = .constant, .immediate = 1 }, .{ .destination = 5, .opcode = .integer_bit_xor, .operands = &.{ 5, 8 } }, rotating.blocks[3].instructions[1] };
+    original.blocks = &blocks;
+    var candidate = (try @import("affine_emit.zig").construct(a, original, 0, 1000000)).?;
+    defer candidate.deinit();
+    const check = @import("affine_validate.zig");
+    try check.validate(a, original, candidate.program, 0, candidate.basis, candidate.input_bias, 1000000);
+    try std.testing.expect(candidate.program.constants.len > original.constants.len);
+    const constants = try storage.dupe(@import("program.zig").Literal, candidate.program.constants);
+    const index = original.constants.len;
+    const bytes = try storage.dupe(u8, constants[index].bytes);
+    bytes[0] ^= 1;
+    constants[index].bytes = bytes;
+    var wrong = candidate.program;
+    wrong.constants = constants;
+    var admitted = try @import("activation_ownership.zig").analyze(a, wrong);
+    defer admitted.deinit();
+    try std.testing.expectError(error.InvalidAffineCandidate, check.validate(a, original, wrong, 0, candidate.basis, candidate.input_bias, 1000000));
+}
+
+test "independent acceptance rejects an admissible wrong successor worker" {
+    var original = rotating;
+    original.functions = &.{ rotating.functions[0], rotating.functions[1], .{ .entry = 6, .inputs = &.{ 0, 1, 2, 3 }, .layout = .{ .slots = &.{ 0, 0, 0, 2 } }, .result = 0 } };
+    var blocks: [7]ir.Block = undefined;
+    @memcpy(blocks[0..6], rotating.blocks);
+    blocks[6] = .{ .function = 2, .instructions = &.{}, .terminator = .{ .return_value = 0 } };
+    original.blocks = &blocks;
+    var candidate = (try @import("affine_emit.zig").construct(a, original, 0, 1000000)).?;
+    defer candidate.deinit();
+    const check = @import("affine_validate.zig");
+    try check.validate(a, original, candidate.program, 0, candidate.basis, candidate.input_bias, 1000000);
+    const changed = try a.dupe(ir.Block, candidate.program.blocks);
+    defer a.free(changed);
+    changed[3].terminator.call.function = 2;
+    var wrong = candidate.program;
+    wrong.blocks = changed;
+    var admitted = try @import("activation_ownership.zig").analyze(a, wrong);
+    defer admitted.deinit();
+    try std.testing.expectError(error.InvalidAffineCandidate, check.validate(a, original, wrong, 0, candidate.basis, candidate.input_bias, 1000000));
+}
+
+test "full product inspection of the rotating state preserves all three words" {
+    var program = rotating;
+    var schemas = [_]@import("program.zig").Schema{ rotating.schemas[0], rotating.schemas[1], rotating.schemas[2], rotating.schemas[3], .{ .product = &.{ 0, 0, 0 } } };
+    schemas[3].internal.computation.result = 4;
+    program.schemas = &schemas;
+    program.roots.result = 4;
+    var functions = rotating.functions[0..2].*;
+    functions[0].result = 4;
+    functions[0].layout.slots = &.{ 0, 0, 0, 0, 2, 3, 4 };
+    functions[1].result = 4;
+    functions[1].layout.slots = &.{ 0, 0, 0, 0, 2, 0, 2, 4, 4 };
+    program.functions = &functions;
+    var blocks = rotating.blocks[0..6].*;
+    blocks[5].instructions = &.{.{ .destination = 8, .opcode = .product, .operands = &.{ 0, 1, 2 } }};
+    blocks[5].terminator = .{ .return_value = 8 };
+    program.blocks = &blocks;
+    var plan = (try affine.analyze(a, program, 0, 1000000)).?;
+    defer plan.deinit();
+    try std.testing.expectEqual(@as(usize, 3), plan.observations.len);
+    try std.testing.expectEqual(@as(usize, 3), plan.basis.len);
+    var stats: @import("affine_state.zig").Statistics = .{};
+    var retained = try @import("affine_state.zig").run(a, program, 0, &stats, 1000000, .{});
+    defer retained.deinit();
+    var baseline = try @import("coalescing.zig").run(a, program, .{});
+    defer baseline.deinit();
+    try std.testing.expectEqual(.no_change, stats.outcome);
+    try std.testing.expectEqual(try @import("program_image.zig").identity(a, baseline.program), try @import("program_image.zig").identity(a, retained.program));
+}
+
+test "original capture admission precedes every affine target decision" {
+    var original = rotating;
+    var blocks = rotating.blocks[0..6].*;
+    blocks[0].instructions = &.{.{ .destination = 5, .opcode = .computation, .operands = &.{ 0, 1 }, .immediate = 0 }};
+    original.blocks = &blocks;
+    if (@import("activation_ownership.zig").analyze(a, original)) |value| {
+        var accepted = value;
+        accepted.deinit();
+        return error.ExpectedOriginalRejection;
+    } else |original_error| {
+        try std.testing.expectError(original_error, @import("affine_state.zig").run(a, original, 0, null, 1000000, .{}));
+        try std.testing.expectError(original_error, @import("affine_state.zig").run(a, original, std.math.maxInt(usize), null, 0, .{}));
+        try std.testing.expectError(original_error, @import("affine_state.zig").runTarget(a, original, .{ .parameters = .{ .worker = 0, .count = 0 } }, null, 0, .{}));
+    }
+}
+
+test "a valid opaque computation consumer keeps its original capture interface" {
+    var original = rotating;
+    original.functions = &.{ rotating.functions[0], rotating.functions[1], .{ .entry = 6, .inputs = &.{ 0, 1, 2 }, .layout = .{ .slots = &.{ 3, 0, 2, 0 } }, .result = 0 } };
+    var blocks: [8]ir.Block = undefined;
+    @memcpy(blocks[0..6], rotating.blocks);
+    blocks[0].terminator = .{ .call = .{ .function = 2, .arguments = &.{ 5, 3, 4 }, .next = rotating.blocks[0].terminator.apply.next } };
+    blocks[6] = .{ .function = 2, .instructions = &.{}, .terminator = .{ .apply = .{ .computation = 0, .arguments = &.{ 1, 2 }, .next = .{ .block = 7, .assignments = &.{.{ .destination = 3, .source = .returned }} } } } };
+    blocks[7] = .{ .function = 2, .instructions = &.{}, .terminator = .{ .return_value = 3 } };
+    original.blocks = &blocks;
+    var admitted = try @import("activation_ownership.zig").analyze(a, original);
+    defer admitted.deinit();
+    var plan = try affine.analyze(a, original, 0, 1000000);
+    defer if (plan) |*value| value.deinit();
+    try std.testing.expect(plan == null);
+    var stats: @import("affine_state.zig").Statistics = .{};
+    var retained = try @import("affine_state.zig").run(a, original, 0, &stats, 1000000, .{});
+    defer retained.deinit();
+    var baseline = try @import("coalescing.zig").run(a, original, .{});
+    defer baseline.deinit();
+    try std.testing.expectEqual(.no_change, stats.outcome);
+    try std.testing.expectEqual(try @import("program_image.zig").identity(a, baseline.program), try @import("program_image.zig").identity(a, retained.program));
+}
+
+test "a future reset prevents a one-coordinate parity rewrite" {
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    var original = try parityFixture(arena.allocator(), 2);
+    original.constants = &.{ rotating.constants[0], .{ .schema = 0, .bytes = &.{ 0, 0, 0, 0, 0, 0, 0, 0 } } };
+    const blocks = try arena.allocator().dupe(ir.Block, original.blocks);
+    blocks[3].instructions = &.{ .{ .destination = 4, .opcode = .constant, .immediate = 1 }, .{ .destination = 5, .opcode = .constant, .immediate = 0 } };
+    blocks[3].terminator.call.arguments = &.{ 4, 1, 2, 5 };
+    original.blocks = blocks;
+    var plan = (try affine.analyze(a, original, 0, 1000000)).?;
+    defer plan.deinit();
+    try std.testing.expectEqual(@as(usize, 2), plan.basis.len);
+    var stats: @import("affine_state.zig").Statistics = .{};
+    var retained = try @import("affine_state.zig").run(a, original, 0, &stats, 1000000, .{});
+    defer retained.deinit();
+    try std.testing.expectEqual(.no_change, stats.outcome);
+}
+
+test "adding a third legal update mode invalidates a two-mode summary" {
+    const original = comptime twoModes();
+    var previous = (try @import("affine_emit.zig").construct(a, original, 0, 1000000)).?;
+    defer previous.deinit();
+    var expanded = original;
+    expanded.constants = &.{ original.constants[0], original.constants[1], .{ .schema = 0, .bytes = &.{ 42, 0, 0, 0, 0, 0, 0, 0 } } };
+    var blocks: [10]ir.Block = undefined;
+    @memcpy(blocks[0..8], original.blocks);
+    // u=0 retains rotation; other nonzero inputs retain swap; u=42 adds reset.
+    blocks[2].terminator.branch.when_true.block = 8;
+    blocks[8] = .{ .function = 1, .instructions = &.{ .{ .destination = 5, .opcode = .constant, .immediate = 2 }, .{ .destination = 6, .opcode = .equal, .operands = &.{ 3, 5 } } }, .terminator = .{ .branch = .{ .condition = 6, .when_true = .{ .block = 9 }, .when_false = .{ .block = 3 } } } };
+    blocks[9] = .{ .function = 1, .instructions = &.{ .{ .destination = 5, .opcode = .constant, .immediate = 1 }, .{ .destination = 6, .opcode = .constant, .immediate = 0 } }, .terminator = .{ .call = .{ .function = 1, .arguments = &.{ 5, 1, 2, 3, 6 }, .next = original.blocks[7].terminator.call.next } } };
+    expanded.blocks = &blocks;
+    var plan = (try affine.analyze(a, expanded, 0, 1000000)).?;
+    defer plan.deinit();
+    try std.testing.expectEqual(@as(usize, 3), plan.transitions.len);
+    try std.testing.expectEqual(@as(usize, 3), plan.basis.len);
+    try std.testing.expectError(error.InvalidAffineCandidate, @import("affine_validate.zig").validate(a, expanded, previous.program, 0, previous.basis, previous.input_bias, 1000000));
+    var stats: @import("affine_state.zig").Statistics = .{};
+    var retained = try @import("affine_state.zig").run(a, expanded, 0, &stats, 1000000, .{});
+    defer retained.deinit();
+    try std.testing.expectEqual(.no_change, stats.outcome);
+}

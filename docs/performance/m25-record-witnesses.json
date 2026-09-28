@@ -1,0 +1,9 @@
+{
+  "productionSource": "15c53569bae3e12131088a0141487b8385173184",
+  "command": "zig test src/data/affine_capture_tests.zig -O ReleaseSafe",
+  "exitCode": 0,
+  "tests": 58,
+  "logSha256": "66941418a734fef2e3d0f14ca7af13fe3da92e157c55dd181df9e2b50077ab28",
+  "testSourceSha256": "b603c40a27428f577c260fb443d19c4da77ae12a44b07f2359f81503eaa89367",
+  "scope": "Record-level affine closure, mutation, admission, allocation, work-limit and lifetime witnesses; not a full-program completion claim"
+}

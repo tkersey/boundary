@@ -202,6 +202,7 @@ test/package_authoring/data.zig
 test/package_authoring/failure_literal_category.zig
 test/package_authoring/lifecycle.zig
 test/package_authoring/rejection.zig
+test/v2/affine_cycle_timing.zig
 test/v2/aggregate_reduction.zig
 test/v2/application_specialization.zig
 test/v2/borrow_returns.zig

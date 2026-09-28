@@ -312,3 +312,96 @@ restores and 21 wrong-image rejections**. It includes direct-parameter parity at
 selected. `performance/m25-direct-platform-qualification.json` binds this evidence
 to source 15c5356 and the unchanged authenticated kernel. Real-consumer rebinding
 and economics remain separate.
+
+## L01–L20 evidence map
+
+This map names the implemented fragment and its evidence. It does not assert
+completion of the full optimization programme or turn a finite model into a
+production certificate. General mutually recursive worker co-synthesis is still
+outside the implemented recognizer; the concrete placement case required by
+§13.9 has real admitted-record, conversion, back-edge and independent-object
+witnesses. Unchanged locations retain their identity representation. No claim of
+global layout optimality is made.
+
+| Requirement | Concrete evidence and scope |
+| --- | --- |
+| L01 | `affine_capture_tests`: 24 generated, admitted non-permutation matrices with dynamic inputs/offsets; emission and independent acceptance. |
+| L02 | `test/v2/affine_capture`: three-word recurrent capture becomes two; independent expected values at 0, 1, 2, 3, 8 and 31 updates. `original capture admission precedes every affine target decision` preserves rejection even for invalid targets/zero budgets. |
+| L03 | `a future reset prevents a one-coordinate parity rewrite`; Annex C independently supplies the shortest future distinguishing suffix. |
+| L04 | Native recurrent input/offset witness, missing caller-bias mutation, wrong recursive argument mutation, and `independent acceptance rejects an admissible wrong affine offset`. |
+| L05 | Two dynamically selected recursive modes and a separately added third reset mode; the expanded action set forces full state and rejects the stale two-mode candidate. |
+| L06 | `affine_parallel_tests`, stable-slot extraction test, native cyclic-edge execution, and one-expression accumulator reuse with independent checking. |
+| L07 | `full product inspection of the rotating state preserves all three words`: admitted full tuple observation, rank three, exact P01 no-op. |
+| L08 | Full two-word inspection followed by a one-coordinate private loop; native request/resume; independently encoded inspection/loop objects linked without source storage. |
+| L09 | Calling a full observer from the parity worker forces the full state; the indexed closure-kernel test separately checks backward propagation over a return edge. |
+| L10 | `additional opaque observation expands the actual record state space`: unchanged transitions and containment of every previous basis row in the expanded closure. |
+| L11 | Distinct observation/canonical bases independently validate and execute. `affine_state.cost` measures actual construction instructions, all worker update/output/control instructions, and encoded bytes; selection is an explicit deterministic heuristic, not a speed/minimality theorem. |
+| L12 | The same-rank wrong basis `{1,2}` is rejected against the actual emitted records; rank alone grants no equivalence. |
+| L13 | Rank-zero emission and full-rank no-op tests, plus default-pipeline retention of small unprofitable direct cases. |
+| L14 | Exact scalar/reusable/no-owned-or-borrowed-region eligibility; nonlinear OR is a retained boundary; valid opaque computation consumer declines; constructor-backed/public/handler/resource interfaces cannot enter the direct-parameter route. |
+| L15 | Independently encoded caller/worker BMO1 objects expose the recurrence only at closed link; ordinary linker/interface admission still precedes the shared semantic stage. Object buffers are destroyed before execution. |
+| L16 | Checked 2/3/8/32/64/128-word scaling; direct-parameter 128-word boundary; native/WASM/Wasmtime outputs. The extended cost probe measures initialization, Prepared storage, invocation peak and checkpoints separately. Native/WASM storage and paired latency are measured below; the one native admission increase has explicit user acceptance. |
+| L17 | Independently admitted wrong capture order, recursive arguments, parallel transfer, offset, and successor worker are rejected by the record checker. |
+| L18 | Annex C prefix reconstruction; 21 actual-image same-image restores and wrong-image rejections through the unchanged kernel. No semantic compiler certificate is used to change World stepping. |
+| L19 | Allocation-failure injection for extraction, emission, checked capture/direct transformations and product unpacking; exact deterministic P01 rollback; changed-mode stale candidate rejection and decoded-input lifetime checks. |
+| L20 | `performance/m25-annex-c.json` retains the executed finite-model counts and independent-oracle results separately from production tests. |
+
+The final economics probe found a native admission-peak increase for the
+128-word direct fixture despite lower Prepared/invocation storage. The user explicitly accepted that bounded increase on 2026-09-28. Full consumer
+integration and the paired latency run have now completed; their exact outcomes
+are recorded below and in Agent’s conformance evidence.
+
+## Final direct-worker economic observations
+
+The same-contract predecessor probe verifies the exact image identities used by
+the timing comparison. For 8/32/128 words, native invocation peaks change
+15,476 -> 15,254 / 35,372 -> 33,422 / 108,754 -> 102,992 bytes. Prepared storage
+also decreases, and each maximum checkpoint is 11 bytes smaller. The 128-word
+admission peak increases 56,430 -> 58,496 bytes; the user explicitly accepted this bounded tradeoff on 2026-09-28. Compiler allocation costs increase and are reported separately.
+
+All 18 paired native/WASM admission, fresh-invocation and quantum-one complete
+checkpoint/restore-cycle comparisons finished with no confirmed slowdown above
+5%. Fresh-invocation median ratios are 0.851–0.911 native and 0.850–0.873 WASM.
+These are bounded fixture observations on an ordinary host, not isolated
+checkpoint-phase measurements or a general speedup theorem. Raw windows,
+input/executable identities and the sampling protocol are retained in
+`performance/m25-direct-timing.json`; memory/control details are in
+`performance/m25-direct-memory.json`.
+
+The additional record-boundary suite passed **57/57 tests**, including full tuple
+inspection, observer monotonicity, reset, original admission, opaque consumption
+and independently admissible offset/successor mutations. Production source is
+unchanged from 15c5356; these additions strengthen its qualification.
+
+Production WASM storage measurements used three fresh kernels per arm/case.
+For 8/32/128 words, admission, Prepared retention and maximum quantum-one
+invocation payload all decrease. At 128 words, WASM admission is
+74,254 -> 52,620 bytes, retained payload 60,972 -> 46,290, and cycle peak
+111,729 -> 95,200. Linear-memory capacity is unchanged (1,179,648 bytes).
+These guest-payload/capacity counts exclude host buffers and RSS and are not
+substituted for the separately recorded native counts.
+
+## M2.5 bounded checkpoint disposition
+
+The production source/package input is **15c53569bae3e12131088a0141487b8385173184**
+with unchanged authenticated World source f8a1597 and kernel 7d31effb. The
+latest additional record-witness suite passed **58/58 tests**. Boundary’s
+production-source integrated result remains 319/319 steps and 570/570 tests;
+later changes are qualification probes, tests and evidence. Agent’s final
+authoring/integration/browser run passed 411/411 steps and 202/202 Zig tests;
+its separate economy target passed 208/208 steps and 4/4 tests. Node groups
+and both real browser results are retained in Agent’s conformance report.
+
+The native 128-word admission increase is accepted by the explicit user reply;
+WASM storage improves and the 18 paired latency comparisons confirm no slowdown
+above 5%. Actual residual storage and compiler allocation costs remain visible.
+The required bounded M2.5 fragment and §13.9 inspection-to-loop placement case
+are qualified. §13.9 does not require identifying every maximal slice or globally
+minimizing all simultaneous layouts. General mutually recursive co-synthesis is
+an explicit capability limitation, rather than a new prerequisite inferred from
+a family name. No broader synthesis/optimality claim is made.
+
+Continue M3’s P06–P10/P21 obligations on the same branch/PR, then the complete
+remaining programme. P01–P31, T01–T42, G01–G45 and L01–L20 remain the destination.
+Full serial code reviews remain deferred until implementation and required
+technical qualification are complete; no merge or release is authorized.

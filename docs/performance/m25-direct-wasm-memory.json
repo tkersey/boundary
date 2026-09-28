@@ -1,0 +1,232 @@
+{
+  "scope": "Three fresh production WASM kernels per arm/case for admission and complete quantum-one cycles. Guest working payload and linear memory capacity are separate; host buffers/RSS are not counted.",
+  "boundaryCommit": "15c53569bae3e12131088a0141487b8385173184",
+  "kernelSha256": "7d31effb1d4e32523d0fcbd5b4d5f5a8a2289fbd4c731173a33b1c174524282f",
+  "rows": [
+    {
+      "n": 8,
+      "structural": {
+        "imageSha256": "bd525fede39f216faa72caa80f0cc3e7e45b287150e7ed6b490a3ce85648843d",
+        "imageBytes": 174,
+        "samples": [
+          {
+            "admission": {
+              "peak": 7620,
+              "retained": 6722,
+              "linearMemoryBytes": 1179648
+            },
+            "cyclePeak": 12439,
+            "checkpointMax": 181,
+            "transitions": 14
+          },
+          {
+            "admission": {
+              "peak": 7620,
+              "retained": 6722,
+              "linearMemoryBytes": 1179648
+            },
+            "cyclePeak": 12439,
+            "checkpointMax": 181,
+            "transitions": 14
+          },
+          {
+            "admission": {
+              "peak": 7620,
+              "retained": 6722,
+              "linearMemoryBytes": 1179648
+            },
+            "cyclePeak": 12439,
+            "checkpointMax": 181,
+            "transitions": 14
+          }
+        ]
+      },
+      "semantic": {
+        "imageSha256": "a38108d417e62d5f983d6bb391ce270f4f3d585a961e50b57e291479545d343c",
+        "imageBytes": 169,
+        "samples": [
+          {
+            "admission": {
+              "peak": 7594,
+              "retained": 6696,
+              "linearMemoryBytes": 1179648
+            },
+            "cyclePeak": 12257,
+            "checkpointMax": 170,
+            "transitions": 14
+          },
+          {
+            "admission": {
+              "peak": 7594,
+              "retained": 6696,
+              "linearMemoryBytes": 1179648
+            },
+            "cyclePeak": 12257,
+            "checkpointMax": 170,
+            "transitions": 14
+          },
+          {
+            "admission": {
+              "peak": 7594,
+              "retained": 6696,
+              "linearMemoryBytes": 1179648
+            },
+            "cyclePeak": 12257,
+            "checkpointMax": 170,
+            "transitions": 14
+          }
+        ]
+      }
+    },
+    {
+      "n": 32,
+      "structural": {
+        "imageSha256": "91ed34331385e28c72ca39ec695895f304a9e69f1194845691bde778b7dd2496",
+        "imageBytes": 294,
+        "samples": [
+          {
+            "admission": {
+              "peak": 18798,
+              "retained": 16716,
+              "linearMemoryBytes": 1179648
+            },
+            "cyclePeak": 30987,
+            "checkpointMax": 445,
+            "transitions": 38
+          },
+          {
+            "admission": {
+              "peak": 18798,
+              "retained": 16716,
+              "linearMemoryBytes": 1179648
+            },
+            "cyclePeak": 30987,
+            "checkpointMax": 445,
+            "transitions": 38
+          },
+          {
+            "admission": {
+              "peak": 18798,
+              "retained": 16716,
+              "linearMemoryBytes": 1179648
+            },
+            "cyclePeak": 30987,
+            "checkpointMax": 445,
+            "transitions": 38
+          }
+        ]
+      },
+      "semantic": {
+        "imageSha256": "25bf35607a9a3733916a31c1f76070b896e0f905b6dff19462e9819367d20fb9",
+        "imageBytes": 265,
+        "samples": [
+          {
+            "admission": {
+              "peak": 16744,
+              "retained": 14662,
+              "linearMemoryBytes": 1179648
+            },
+            "cyclePeak": 28671,
+            "checkpointMax": 434,
+            "transitions": 38
+          },
+          {
+            "admission": {
+              "peak": 16744,
+              "retained": 14662,
+              "linearMemoryBytes": 1179648
+            },
+            "cyclePeak": 28671,
+            "checkpointMax": 434,
+            "transitions": 38
+          },
+          {
+            "admission": {
+              "peak": 16744,
+              "retained": 14662,
+              "linearMemoryBytes": 1179648
+            },
+            "cyclePeak": 28671,
+            "checkpointMax": 434,
+            "transitions": 38
+          }
+        ]
+      }
+    },
+    {
+      "n": 128,
+      "structural": {
+        "imageSha256": "db3ac76fc76efdf34d7ab23616886f6ec576ceaf4b1ebd5499a257ab2bd2bc77",
+        "imageBytes": 1050,
+        "samples": [
+          {
+            "admission": {
+              "peak": 74254,
+              "retained": 60972,
+              "linearMemoryBytes": 1179648
+            },
+            "cyclePeak": 111729,
+            "checkpointMax": 1505,
+            "transitions": 134
+          },
+          {
+            "admission": {
+              "peak": 74254,
+              "retained": 60972,
+              "linearMemoryBytes": 1179648
+            },
+            "cyclePeak": 111729,
+            "checkpointMax": 1505,
+            "transitions": 134
+          },
+          {
+            "admission": {
+              "peak": 74254,
+              "retained": 60972,
+              "linearMemoryBytes": 1179648
+            },
+            "cyclePeak": 111729,
+            "checkpointMax": 1505,
+            "transitions": 134
+          }
+        ]
+      },
+      "semantic": {
+        "imageSha256": "8eaeb91fcc79eee003493e48cfd8160b2044af1d3add8c70486f7c0e0ea58910",
+        "imageBytes": 924,
+        "samples": [
+          {
+            "admission": {
+              "peak": 52620,
+              "retained": 46290,
+              "linearMemoryBytes": 1179648
+            },
+            "cyclePeak": 95200,
+            "checkpointMax": 1494,
+            "transitions": 134
+          },
+          {
+            "admission": {
+              "peak": 52620,
+              "retained": 46290,
+              "linearMemoryBytes": 1179648
+            },
+            "cyclePeak": 95200,
+            "checkpointMax": 1494,
+            "transitions": 134
+          },
+          {
+            "admission": {
+              "peak": 52620,
+              "retained": 46290,
+              "linearMemoryBytes": 1179648
+            },
+            "cyclePeak": 95200,
+            "checkpointMax": 1494,
+            "transitions": 134
+          }
+        ]
+      }
+    }
+  ]
+}
