@@ -372,3 +372,46 @@ initial guard rejection are in `performance/m3-p10-recursive-*.json`.
 The required mutually recursive positive case is implemented. Additional concrete
 escaping/handler-retention witnesses, P09 residuals, P21, full consumer qualification
 and the remaining programme stay open; this is not full M3 closure.
+
+## P10 first-class escape witnesses
+
+The concrete negative corpus now includes a helper returned by a factory as a
+computation value, then applied, and a captured value retained by a deep handler
+while its body yields. Both originals pass independent admission. Contification
+declines them and returns the exact mandatory-P01 baseline. Native execution
+preserves the returned helper's result and restores/resumes the handler-held
+capture on the same image. These strengthen the existing constructor-addressability,
+different-continuation, custody and suspension exclusions.
+
+## P21 common tails — initial slice
+
+`common_tails.zig` shares identical complete tails within one function and
+custody scope. It redirects every selected edge and function entry, preserving
+instructions, operands, assignments, constants and failure payloads. When both
+branch edges become identical, the branch becomes one jump; condition-producing
+instructions remain until separately validated dead-computation elimination.
+Original and fresh candidate admission, a raw correspondence checker and final
+P01 remain mandatory. Record-comparison work is charged before traversal.
+
+The initial domain uses copyable/droppable exportable values and functions without
+effects, declared regions or call/suspension/control-handler operations. It does
+not merge across authority boundaries or reinterpret layout slots. Tests show P01
+alone retains the distinct local blocks: this transformation remains outside
+P01's local-bijection contract. Different custody and failure payloads, forged
+targets and altered instructions reject; allocation and work-limit rollback pass.
+A preceding division-by-zero computation still fails before the shared tail.
+
+The shared semantic compiler selects the new candidate, and native World checks
+original, checked, semantic and source-free linked outputs. Existing source-level
+empty-jump threading is unchanged. Tail duplication, outlining and their remaining
+P21 obligations stay open; this is not full P21 or M3 closure.
+
+The new fixture passes 36 cross-engine comparisons, three same-image restores,
+three wrong-image rejections and six malformed inputs. Ten paired timing cells
+against f436f7e complete without confirmed slowdown. Native/WASM admission peak
+falls 444/758 bytes, retained storage falls 232/484 bytes and invocation peak
+falls 232/494 bytes. Checkpoint maxima remain 82 bytes. Forty-eight earlier
+images remain byte-identical. Raw observations are retained in
+`performance/m3-p21-tails-*.json`. Final ReleaseSafe validation passes
+319/319 steps and 660/660 tests; the new native tail suite covers 48 executions,
+including the preserved preceding failure.

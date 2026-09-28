@@ -21,10 +21,11 @@ const pre = @import("partial_redundancy.zig");
 const patterns = @import("call_patterns.zig");
 const leaves = @import("leaf_inlining.zig");
 const joins = @import("contification.zig");
+const tails = @import("common_tails.zig");
 const unpack = @import("capture_unpack.zig");
 pub const Contract = enum { structural, semantic };
 pub const Objective = enum { size, balanced, speed };
-pub const Stage = enum { p01, branch, applications, aggregates, expressions, cells, dead_computation, dead_arguments, dead_captures, capture_projection, capture_summary, affine_state, capture_unpack, partial_redundancy, call_patterns, leaf_inlining, contification };
+pub const Stage = enum { p01, branch, applications, aggregates, expressions, cells, dead_computation, dead_arguments, dead_captures, capture_projection, capture_summary, affine_state, capture_unpack, partial_redundancy, call_patterns, leaf_inlining, contification, common_tails };
 pub const default_work_limit: u64 = 100_000_000_000;
 pub const Outcome = enum { not_run, structural, deferred_open_component, no_change, applied, work_limit, size_guard };
 pub const Statistics = struct {
@@ -60,8 +61,8 @@ pub const Options = struct {
         if (self.statistics) |stats| stats.* = .{};
     }
 };
-pub const Error = branch.Error || applications.Error || aggregates.Error || expressions.Error || cells.Error || dead.Error || arguments.Error || captures.Error || projections.Error || summaries.Error || affine.Error || unpack.Error || pre.Error || patterns.Error || leaves.Error || joins.Error;
-const schedule = [_]Stage{ .branch, .capture_unpack, .aggregates, .dead_computation, .affine_state, .call_patterns, .branch, .applications, .leaf_inlining, .contification, .aggregates, .expressions, .partial_redundancy, .cells, .dead_computation, .dead_arguments, .dead_captures, .capture_projection, .capture_summary, .dead_computation, .dead_arguments, .applications, .dead_computation };
+pub const Error = branch.Error || applications.Error || aggregates.Error || expressions.Error || cells.Error || dead.Error || arguments.Error || captures.Error || projections.Error || summaries.Error || affine.Error || unpack.Error || pre.Error || patterns.Error || leaves.Error || joins.Error || tails.Error;
+const schedule = [_]Stage{ .branch, .capture_unpack, .aggregates, .dead_computation, .affine_state, .call_patterns, .branch, .applications, .leaf_inlining, .contification, .aggregates, .expressions, .partial_redundancy, .cells, .dead_computation, .dead_arguments, .dead_captures, .capture_projection, .capture_summary, .dead_computation, .dead_arguments, .applications, .dead_computation, .common_tails };
 fn notify(options: Options, stage: Stage) void {
     if (options.observer) |observer| observer.enter(observer.context, stage);
 }
@@ -130,7 +131,7 @@ fn reservation(program: ir.Program, stage: Stage) Error!u64 {
     // is separately capped by its counted allowance.
     const comparisons: u64 = switch (stage) {
         .branch => std.math.mul(u64, program.blocks.len, program.blocks.len) catch return error.Capacity,
-        .call_patterns, .leaf_inlining, .contification => std.math.mul(u64, try sumWork(&.{ program.functions.len, max_inputs, instructions, program.blocks.len, 1 }), shape.records) catch return error.Capacity,
+        .call_patterns, .leaf_inlining, .contification, .common_tails => std.math.mul(u64, try sumWork(&.{ program.functions.len, max_inputs, instructions, program.blocks.len, 1 }), shape.records) catch return error.Capacity,
         .applications => std.math.mul(u64, try sumWork(&.{ applications_count, 1 }), shape.records) catch return error.Capacity,
         .aggregates => block_squares,
         .expressions => 0,
@@ -359,6 +360,7 @@ fn possible(allocator: std.mem.Allocator, owned: *const p01.Owned, stage: Stage)
         .call_patterns => return patterns.possible(program),
         .leaf_inlining => return leaves.possible(program),
         .contification => return joins.possible(program),
+        .common_tails => return tails.possible(program),
         .p01 => return true,
     }
     return false;
@@ -546,6 +548,12 @@ fn apply(a: std.mem.Allocator, program: ir.Program, stage: Stage, options: p01.O
         .expressions => blk: {
             var stats: expressions.Statistics = .{};
             const result = try expressions.run(a, program, &stats, .{ .coalescing = options });
+            exhausted.* = stats.work_limit;
+            break :blk result;
+        },
+        .common_tails => blk: {
+            var stats: tails.Statistics = .{};
+            const result = try tails.run(a, program, &stats, .{ .coalescing = options });
             exhausted.* = stats.work_limit;
             break :blk result;
         },

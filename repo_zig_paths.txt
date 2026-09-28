@@ -85,12 +85,15 @@ src/data/coalescing_view.zig
 src/data/coalescing_view_tests.zig
 src/data/coalescing_witness.zig
 src/data/coalescing_witness_tests.zig
+src/data/common_tails.zig
+src/data/common_tails_tests.zig
 src/data/compact_sequence.zig
 src/data/compact_sequence_tests.zig
 src/data/component.zig
 src/data/component_tests.zig
 src/data/constant_origin.zig
 src/data/contification.zig
+src/data/contification_escape_tests.zig
 src/data/contification_recursive_tests.zig
 src/data/contification_tests.zig
 src/data/contracts.zig
@@ -225,6 +228,8 @@ test/v2/capture_reduction.zig
 test/v2/capture_summary.zig
 test/v2/cell_reduction.zig
 test/v2/closed_compilation.zig
+test/v2/common_tails.zig
+test/v2/common_tails_platform.zig
 test/v2/compact_fixtures.zig
 test/v2/compact_wasm.zig
 test/v2/compare_activation_flow.zig

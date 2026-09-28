@@ -7,6 +7,8 @@ test {
     _ = @import("leaf_inlining_tests.zig");
     _ = @import("contification_tests.zig");
     _ = @import("contification_recursive_tests.zig");
+    _ = @import("contification_escape_tests.zig");
+    _ = @import("common_tails_tests.zig");
     _ = @import("partial_redundancy_tests.zig");
     _ = @import("affine_extract.zig");
     _ = @import("affine_capture_tests.zig");
