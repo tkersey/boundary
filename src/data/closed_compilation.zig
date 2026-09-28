@@ -47,6 +47,12 @@ pub const Options = struct {
     statistics: ?*Statistics = null,
     observer: ?Observer = null,
     coalescing: p01.Options = .{},
+
+    /// Begin an invocation before any producer can reject its input.
+    pub fn resetObservations(self: Options) void {
+        self.coalescing.resetObservations();
+        if (self.statistics) |stats| stats.* = .{};
+    }
 };
 pub const Error = branch.Error || applications.Error || aggregates.Error || expressions.Error || cells.Error || dead.Error || arguments.Error || captures.Error || projections.Error || summaries.Error;
 const schedule = [_]Stage{ .branch, .applications, .aggregates, .expressions, .cells, .dead_computation, .dead_arguments, .dead_captures, .capture_projection, .capture_summary, .dead_computation, .dead_arguments, .applications, .dead_computation };
@@ -276,6 +282,7 @@ fn possible(allocator: std.mem.Allocator, owned: *const p01.Owned, stage: Stage)
 }
 
 pub fn run(allocator: std.mem.Allocator, original: ir.Program, options: Options) Error!p01.Owned {
+    options.resetObservations();
     var stats: Statistics = .{};
     var stage: Stage = .p01;
     defer if (options.statistics) |out| {

@@ -429,3 +429,20 @@ test "component emission defers semantic compilation regardless of selected clos
         try testing.expectEqual(@as(usize, 0), stats.changed_stages);
     }
 }
+
+test "component preparation resets observations before allocation failure" {
+    var builder = source.Builder.init(testing.allocator);
+    defer builder.deinit();
+    const unit = try builder.scalar(void);
+    const entry = try builder.declare(&.{}, unit, &.{}, &.{});
+    try builder.define(entry, try builder.pure(try builder.constant(void, {})));
+    var stats: data.closed_compilation.Statistics = .{ .outcome = .applied, .final_bytes = 42 };
+    var p01: data.coalescing.Statistics = .{};
+    var failing = testing.FailingAllocator.init(testing.allocator, .{ .fail_index = 0 });
+    try testing.expectError(error.OutOfMemory, source.component.compileObserved(failing.allocator(), builder.module(entry, unit), .{
+        .imports = &.{.{ .name = "worker", .reference = .{ .kind = .function, .id = entry } }},
+        .exports = &.{},
+    }, .{ .semantic_statistics = &stats, .coalescing = .{ .statistics = &p01 } }));
+    try testing.expectEqualDeep(data.closed_compilation.Statistics{}, stats);
+    try testing.expectEqualDeep(data.coalescing.Statistics{}, p01);
+}

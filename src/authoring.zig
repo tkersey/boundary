@@ -1076,7 +1076,7 @@ pub const Context = opaque {
         failure: *const Schema,
         coalescing: @import("boundary_data").coalescing.Options,
     ) Error!source.Compiled {
-        return self.lowerNamedWithOptions(allocator, try self.publish(entry, failure, false), coalescing);
+        return self.compileWithCompilation(allocator, entry, failure, .{ .coalescing = coalescing });
     }
     /// Select cross-build observation guarantees while retaining the Context's
     /// original-occurrence capture observer and mandatory P01 validation.
@@ -1087,6 +1087,7 @@ pub const Context = opaque {
         failure: *const Schema,
         compilation: @import("boundary_data").closed_compilation.Options,
     ) Error!source.Compiled {
+        compilation.resetObservations();
         return self.lowerNamedWithCompilation(allocator, try self.publish(entry, failure, false), compilation);
     }
     fn lowerNamed(self: *Context, allocator: std.mem.Allocator, module_value: source.Module) Error!source.Compiled {

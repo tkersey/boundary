@@ -50,6 +50,12 @@ pub const Options = struct {
     semantic_statistics: ?*data.closed_compilation.Statistics = null,
     compilation_observer: ?data.closed_compilation.Observer = null,
 
+    pub fn resetObservations(self: Options) void {
+        const compilation: data.closed_compilation.Options = .{ .statistics = self.semantic_statistics, .coalescing = self.coalescing };
+        compilation.resetObservations();
+        if (self.diagnostic) |diagnostic| diagnostic.* = .{};
+    }
+
     pub fn stage(self: Options, next: Stage) void {
         if (self.diagnostic) |d| d.phase = next;
         if (self.observer) |observer| observer.enter(observer.context, next);

@@ -65,9 +65,7 @@ fn lowerInternal(
     borrows: []const data.borrow_contract.Summary,
     options: source.CompileOptions,
 ) Error!Construction {
-    options.coalescing.resetObservations();
-    if (options.semantic_statistics) |stats| stats.* = .{};
-    if (options.diagnostic) |diagnostic| diagnostic.* = .{};
+    options.resetObservations();
     errdefer |err| if (options.diagnostic) |diagnostic| {
         diagnostic.code = err;
     };

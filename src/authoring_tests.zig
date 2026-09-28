@@ -1995,3 +1995,37 @@ test "semantic typed compilation cannot erase an original named capture violatio
     try c.define(entry, try body.ret(try body.apply(try body.lambda(nested, schema), &.{})));
     try testing.expectError(error.SchemaMismatch, c.compileWithCompilation(testing.allocator, entry, unit, .{ .contract = .semantic }));
 }
+
+test "typed publication resets reused compilation observations before rejection" {
+    const data = @import("boundary_data");
+    for ([_]data.closed_compilation.Contract{ .structural, .semantic }) |contract| {
+        var raw = source.Builder.init(testing.allocator);
+        defer raw.deinit();
+        const c = try a.Context.init(&raw);
+        const unit = try c.scalar(void);
+        const entry = try c.function("entry", &.{}, unit, &.{});
+        const body = try c.body(entry);
+        try c.define(entry, try body.ret(try body.constant(void, {})));
+        var stats: data.closed_compilation.Statistics = .{};
+        var p01: data.coalescing.Statistics = .{};
+        const options: data.closed_compilation.Options = .{ .contract = contract, .statistics = &stats, .coalescing = .{ .statistics = &p01 } };
+        for ([_]bool{ false, true }) |foreign| {
+            var valid = try c.compileWithCompilation(testing.allocator, entry, unit, options);
+            valid.deinit();
+            try testing.expect(stats.outcome != .not_run);
+            try testing.expect(p01.outcome != .not_run);
+            var other_raw = source.Builder.init(testing.allocator);
+            defer other_raw.deinit();
+            const other = try a.Context.init(&other_raw);
+            const other_unit = try other.scalar(void);
+            const undefined_entry = try other.function("undefined", &.{}, other_unit, &.{});
+            if (foreign) {
+                try testing.expectError(error.ForeignHandle, other.compileWithCompilation(testing.allocator, entry, other_unit, options));
+            } else {
+                try testing.expectError(error.UndefinedBody, other.compileWithCompilation(testing.allocator, undefined_entry, other_unit, options));
+            }
+            try testing.expectEqualDeep(data.closed_compilation.Statistics{}, stats);
+            try testing.expectEqualDeep(data.coalescing.Statistics{}, p01);
+        }
+    }
+}

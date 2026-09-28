@@ -28,6 +28,7 @@ pub fn compile(allocator: std.mem.Allocator, module: source.Module, interface: I
     return compileObserved(allocator, module, interface, .{});
 }
 pub fn compileObserved(allocator: std.mem.Allocator, module: source.Module, interface: Interface, options: source.CompileOptions) !Compiled {
+    options.resetObservations();
     var temporary = std.heap.ArenaAllocator.init(allocator);
     defer temporary.deinit();
     var functions: std.ArrayList(data.program.Id) = .empty;

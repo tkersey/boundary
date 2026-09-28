@@ -587,3 +587,43 @@ with exit zero: **319/319 steps and 528/528 tests**. Its log SHA-256 is
 `18b3a05169f9720ed1533add78077582a796e23f28a0a9218ff75b66e88d429e`.
 This repair changes diagnostic reset behavior, not record transformations or the
 World runtime. Agent package rebinding and a fresh review sequence remain open.
+
+## Observation lifetime across public compilation entry points
+
+The second initial review sequence at `b32115d` is terminal, including the one
+permitted recovery after malformed invariant-review output. Four lenses reported
+the same typed-publication observation defect; fresh-eyes reported no findings.
+The linker repair remains valid, but it did not cover failures before typed
+publication reaches lowering. Review credit is reset.
+
+The required observation is invocation-local: after a new call begins, caller
+statistics cannot describe an earlier invocation. Source lowering already reset
+its outputs, but typed publication, component preparation and Agent admission can
+fail before entering it. The source-derived affected callers are
+`Context.compileWithCompilation`, `Context.compileWithOptions`, source component
+`compileObserved`, Agent `compileObserved`, and Agent compiled-tool `link`.
+Direct source lowering, direct closed-record compilation and final linking must
+retain their own entry reset because they are independently callable.
+
+The selected ordinary boundary is `closed_compilation.Options.resetObservations`.
+It resets semantic and P01 observations together; source options delegate and also
+reset source diagnostics. Every listed public entry calls the owning reset before
+its first fallible action or observer callback. The legacy typed options wrapper
+now delegates to the full compilation entry. Required original admission,
+publication callbacks, failure errors, successful observations and emitted records
+remain unchanged. Nested compilation phases may report their actual current
+stage; no claim is made that a failed outer operation did no inner work.
+
+New regression cases cover successful-call reuse followed by undefined or foreign
+typed publication, component preparation allocation failure, Agent emitter failure
+and Agent entry rejection, with structural/semantic choices where applicable.
+Focused ReleaseSafe validation passes **474/474 Boundary tests** (6/6 steps) and
+**4/4 Agent economy tests** (3/3 steps). The original linker rejection regression
+remains. The complete aggregate, package rebind and successor reviews are tracked
+separately; these focused passes do not close M2.
+
+The repaired Boundary aggregate now completes with terminal exit zero:
+**319/319 steps and 531/531 tests** in ReleaseSafe. Log SHA-256:
+`c890b609d2d469d82bf81412d72113cb2f88cfea6c791dc9749f3a137e8e7916`.
+Agent's companion entry resets passed the focused economy suite against this
+source; authenticated package rebinding and final review closure remain open.

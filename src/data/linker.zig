@@ -58,8 +58,7 @@ pub fn linkWithOptions(allocator: std.mem.Allocator, input: []const Instance, bi
 }
 
 pub fn linkWithCompilation(allocator: std.mem.Allocator, input: []const Instance, bindings: []const Binding, entry: Endpoint, options: @import("closed_compilation.zig").Options) Error!Linked {
-    options.coalescing.resetObservations();
-    if (options.statistics) |stats| stats.* = .{};
+    options.resetObservations();
     var temporary = std.heap.ArenaAllocator.init(allocator);
     defer temporary.deinit();
     const a = temporary.allocator();
