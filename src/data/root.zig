@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
 //! Portable definitions and pure admission. This module never executes programs.
 pub const wire = @import("wire.zig");
+pub const partial_redundancy = @import("partial_redundancy.zig");
 pub const affine_capture = @import("affine_capture.zig");
 /// Candidate construction only; does not certify transformation equivalence.
 pub const affine_candidate = @import("affine_emit.zig");

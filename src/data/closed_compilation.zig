@@ -17,10 +17,11 @@ const captures = @import("capture_reduction.zig");
 const projections = @import("capture_projection.zig");
 const summaries = @import("capture_summary.zig");
 const affine = @import("affine_state.zig");
+const pre = @import("partial_redundancy.zig");
 const unpack = @import("capture_unpack.zig");
 pub const Contract = enum { structural, semantic };
 pub const Objective = enum { size, balanced, speed };
-pub const Stage = enum { p01, branch, applications, aggregates, expressions, cells, dead_computation, dead_arguments, dead_captures, capture_projection, capture_summary, affine_state, capture_unpack };
+pub const Stage = enum { p01, branch, applications, aggregates, expressions, cells, dead_computation, dead_arguments, dead_captures, capture_projection, capture_summary, affine_state, capture_unpack, partial_redundancy };
 pub const default_work_limit: u64 = 100_000_000_000;
 pub const Outcome = enum { not_run, structural, deferred_open_component, no_change, applied, work_limit, size_guard };
 pub const Statistics = struct {
@@ -56,8 +57,8 @@ pub const Options = struct {
         if (self.statistics) |stats| stats.* = .{};
     }
 };
-pub const Error = branch.Error || applications.Error || aggregates.Error || expressions.Error || cells.Error || dead.Error || arguments.Error || captures.Error || projections.Error || summaries.Error || affine.Error || unpack.Error;
-const schedule = [_]Stage{ .branch, .capture_unpack, .aggregates, .dead_computation, .affine_state, .applications, .aggregates, .expressions, .cells, .dead_computation, .dead_arguments, .dead_captures, .capture_projection, .capture_summary, .dead_computation, .dead_arguments, .applications, .dead_computation };
+pub const Error = branch.Error || applications.Error || aggregates.Error || expressions.Error || cells.Error || dead.Error || arguments.Error || captures.Error || projections.Error || summaries.Error || affine.Error || unpack.Error || pre.Error;
+const schedule = [_]Stage{ .branch, .capture_unpack, .aggregates, .dead_computation, .affine_state, .applications, .aggregates, .expressions, .partial_redundancy, .cells, .dead_computation, .dead_arguments, .dead_captures, .capture_projection, .capture_summary, .dead_computation, .dead_arguments, .applications, .dead_computation };
 fn notify(options: Options, stage: Stage) void {
     if (options.observer) |observer| observer.enter(observer.context, stage);
 }
@@ -129,6 +130,7 @@ fn reservation(program: ir.Program, stage: Stage) Error!u64 {
         .applications => std.math.mul(u64, try sumWork(&.{ applications_count, 1 }), shape.records) catch return error.Capacity,
         .aggregates => block_squares,
         .expressions => 0,
+        .partial_redundancy => std.math.mul(u64, try sumWork(&.{ instructions, program.blocks.len, 1 }), shape.records) catch return error.Capacity,
         .cells => std.math.mul(u64, try sumWork(&.{ cells_count, 1 }), shape.records) catch return error.Capacity,
         .dead_computation => std.math.mul(u64, try sumWork(&.{ instructions, max_slots, program.blocks.len, 1 }), shape.records) catch return error.Capacity,
         .dead_arguments => std.math.mul(u64, try sumWork(&.{ program.functions.len, max_inputs, 1 }), shape.records) catch return error.Capacity,
@@ -140,13 +142,13 @@ fn reservation(program: ir.Program, stage: Stage) Error!u64 {
     const byte_work = std.math.mul(u64, shape.bytes, 16) catch return error.Capacity;
     const facts: u64 = switch (stage) {
         .branch, .applications, .aggregates => 22_000_000,
-        .expressions => 1_000_000,
+        .expressions, .partial_redundancy => 1_000_000,
         .affine_state => std.math.mul(u64, try sumWork(&.{ program.constructors.len, program.functions.len }), 6_000_000) catch return error.Capacity,
         else => 0,
     };
     return std.math.add(u64, std.math.add(u64, scans, byte_work) catch return error.Capacity, facts) catch return error.Capacity;
 }
-const Cost = struct { bytes: usize, work: u64, retention: u64, admission_sets: [4]u64 };
+const Cost = struct { bytes: usize, work: u64, path_work: ?u64 = null, retention: u64, admission_sets: [4]u64 };
 // Zig 0.16's geometric growth starts with cache_line / node_size. Cover
 // 64/128-byte cache lines and 16/24-byte nodes without querying the build host.
 const node_growth_starts = [_]u64{ 2, 4, 5, 8 };
@@ -190,6 +192,51 @@ fn payloadEstimate(program: ir.Program, schema: u64, depth: usize, memo: []?u64,
     memo[id] = result;
     return result;
 }
+// A bounded per-activation path estimate lets PRE expose dynamic work savings
+// that static code counts cannot represent. Calls retain the existing opaque
+// dispatch weight; this is not a whole-program bound or a runtime speed claim.
+fn blockWork(block: ir.Block) u64 {
+    var work: u64 = if (block.terminator == .apply) 4 else 1;
+    for (block.instructions) |op| work +|= switch (op.opcode) {
+        .move => 0,
+        .cell_new => 8,
+        .cell_get, .cell_set => 3,
+        else => 1,
+    };
+    return work;
+}
+fn pathSuccessor(term: ir.Terminator, index: usize) ?ir.Edge {
+    return switch (term) {
+        .return_value, .fail => null,
+        .jump => |v| if (index == 0) v else null,
+        .branch => |v| if (index == 0) v.when_true else if (index == 1) v.when_false else null,
+        .switch_variant => |v| if (index < v.cases.len) v.cases[index] else null,
+        .yield_value => |v| if (index == 0) v else null,
+        inline else => |v| if (index == 0) v.next else null,
+    };
+}
+fn pathAt(program: ir.Program, block: usize, marks: []u8, memo: []u64, depth: usize) ?u64 {
+    if (depth >= 512 or marks[block] == 1) return null;
+    if (marks[block] == 2) return memo[block];
+    marks[block] = 1;
+    var following: u64 = 0;
+    var index: usize = 0;
+    while (pathSuccessor(program.blocks[block].terminator, index)) |edge| : (index += 1)
+        following = @max(following, pathAt(program, @intCast(edge.block), marks, memo, depth + 1) orelse return null);
+    memo[block] = blockWork(program.blocks[block]) +| following;
+    marks[block] = 2;
+    return memo[block];
+}
+fn pathWork(allocator: std.mem.Allocator, program: ir.Program) Error!?u64 {
+    const marks = try allocator.alloc(u8, program.blocks.len);
+    defer allocator.free(marks);
+    @memset(marks, 0);
+    const memo = try allocator.alloc(u64, program.blocks.len);
+    defer allocator.free(memo);
+    var work: u64 = 0;
+    for (program.functions) |function| work +|= pathAt(program, @intCast(function.entry), marks, memo, 0) orelse return null;
+    return work;
+}
 fn cost(allocator: std.mem.Allocator, owned: *const p01.Owned) Error!Cost {
     const program = owned.program;
     const memo = try allocator.alloc(?u64, program.schemas.len);
@@ -202,16 +249,10 @@ fn cost(allocator: std.mem.Allocator, owned: *const p01.Owned) Error!Cost {
     // allocator resize success, or native versus wasm node representation.
     // This models the retained analysis containers, not World runtime memory.
     const admission_sets = try admissionSetCost(owned.flow.pool.nodeCount(), owned.flow.pool.interned.capacity());
-    var result: Cost = .{ .bytes = try image.encodedLength(program), .work = 0, .retention = 0, .admission_sets = admission_sets };
+    var result: Cost = .{ .bytes = try image.encodedLength(program), .work = 0, .path_work = try pathWork(allocator, program), .retention = 0, .admission_sets = admission_sets };
     for (program.blocks) |block| {
-        result.work +|= if (block.terminator == .apply) 4 else 1;
+        result.work +|= blockWork(block);
         for (block.instructions) |op| {
-            result.work +|= switch (op.opcode) {
-                .move => 0,
-                .cell_new => 8,
-                .cell_get, .cell_set => 3,
-                else => 1,
-            };
             if (op.opcode == .computation) {
                 const capture = program.scopes.captures[@intCast(program.constructors[@intCast(op.immediate)].capture)];
                 for (capture.fields) |field| result.retention +|= payloadEstimate(program, field, 0, memo, active);
@@ -233,7 +274,8 @@ fn allowBaseline(options: Options, bytes: usize) Error!void {
 fn better(candidate: Cost, baseline: Cost, objective: Objective) bool {
     // Deterministic, explicitly heuristic estimates; never runtime measurements.
     if (objective == .size) return candidate.bytes < baseline.bytes or (candidate.bytes == baseline.bytes and candidate.work < baseline.work);
-    return candidate.retention < baseline.retention or candidate.work < baseline.work or candidate.bytes < baseline.bytes;
+    return candidate.retention < baseline.retention or candidate.work < baseline.work or candidate.bytes < baseline.bytes or
+        (candidate.path_work != null and baseline.path_work != null and candidate.path_work.? < baseline.path_work.?);
 }
 fn possible(allocator: std.mem.Allocator, owned: *const p01.Owned, stage: Stage) Error!bool {
     const program = owned.program;
@@ -301,6 +343,7 @@ fn possible(allocator: std.mem.Allocator, owned: *const p01.Owned, stage: Stage)
             }
             for (program.functions, 0..) |_, id| if (affine.directTarget(program, id) != null) return true;
         },
+        .partial_redundancy => return pre.possible(program),
         .p01 => return true,
     }
     return false;
@@ -491,6 +534,12 @@ fn apply(a: std.mem.Allocator, program: ir.Program, stage: Stage, options: p01.O
             exhausted.* = stats.work_limit;
             break :blk result;
         },
+        .partial_redundancy => blk: {
+            var stats: pre.Statistics = .{};
+            const result = try pre.run(a, program, &stats, .{ .coalescing = options });
+            exhausted.* = stats.work_limit;
+            break :blk result;
+        },
         .cells => cells.run(a, program, null, options),
         .dead_computation => dead.run(a, program, null, .{ .coalescing = options }),
         .dead_arguments => arguments.run(a, program, null, options),
@@ -550,4 +599,16 @@ test "candidate admission cost accounts for a wasm growth cliff hidden by native
     const before: Cost = .{ .bytes = 3064, .work = 200, .retention = 0, .admission_sets = try admissionSetCost(536, 1024) };
     const after: Cost = .{ .bytes = 3047, .work = 190, .retention = 0, .admission_sets = try admissionSetCost(553, 1024) };
     try std.testing.expect(!admissionGrowthAllowed(after, before));
+}
+
+test "activation path cost is exact for a simple chain and unknown for a CFG cycle" {
+    const a = std.testing.allocator;
+    var blocks = [_]ir.Block{
+        .{ .function = 0, .instructions = &.{.{ .destination = 0, .opcode = .constant }}, .terminator = .{ .jump = .{ .block = 1 } } },
+        .{ .function = 0, .instructions = &.{}, .terminator = .{ .return_value = 0 } },
+    };
+    const program: ir.Program = .{ .roots = .{ .entry = 0, .result = 0, .failure = 0 }, .schemas = &.{.unit}, .constants = &.{.{ .schema = 0, .bytes = &.{} }}, .effects = &.{}, .functions = &.{.{ .entry = 0, .inputs = &.{}, .layout = .{ .slots = &.{0} }, .result = 0 }}, .blocks = &blocks };
+    try std.testing.expectEqual(@as(?u64, 3), try pathWork(a, program));
+    blocks[1].terminator = .{ .jump = .{ .block = 0 } };
+    try std.testing.expectEqual(@as(?u64, null), try pathWork(a, program));
 }

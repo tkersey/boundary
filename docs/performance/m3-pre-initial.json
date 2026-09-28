@@ -1,0 +1,28 @@
+{
+  "scope": "First P06 latest-placement slice; incomplete M3 qualification",
+  "focused": {
+    "command": "zig test src/data/partial_redundancy_tests.zig -O ReleaseSafe",
+    "tests": 41,
+    "exitCode": 0,
+    "logSha256": "d5a752be429793466bccc7e0745d9d7b813ca2884ff05db657c2ddb2257b63a2"
+  },
+  "dataAggregate": {
+    "command": "zig build check-data -Doptimize=ReleaseSafe --summary all",
+    "steps": 3,
+    "tests": 306,
+    "exitCode": 0,
+    "logSha256": "f7cd89c722694e47ee3b5370a521458ad152d0aef817373d2756f9c5f6c0aa03",
+    "scope": "Before final speculative-early-path mutation test; focused run covers that addition"
+  },
+  "native": {
+    "tests": 2,
+    "exitCode": 0,
+    "logSha256": "431c81cd2de6453f16a9afd5149883dbc54c320b3e924d6879852c105eea9d57",
+    "scope": "Independent record-path evaluation counts, native expected outputs, shared semantic compilation and source-free closed link"
+  },
+  "remaining": [
+    "Dedicated borrowed-owner negative witness",
+    "Platform and economic qualification",
+    "Remaining P06/P09/P10/P21 and full optimisation programme"
+  ]
+}

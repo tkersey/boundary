@@ -99,6 +99,8 @@ src/data/graph_order_tests.zig
 src/data/invocation.zig
 src/data/invocation_tests.zig
 src/data/linker.zig
+src/data/partial_redundancy.zig
+src/data/partial_redundancy_tests.zig
 src/data/process_state.zig
 src/data/program.zig
 src/data/program_image.zig
@@ -224,6 +226,7 @@ test/v2/emit_scalar.zig
 test/v2/emit_source.zig
 test/v2/expression_reuse.zig
 test/v2/oracle_scopes.zig
+test/v2/partial_redundancy.zig
 test/v2/snapshot_retention.zig
 tools/authoring_stats.zig
 tools/component_example.zig
