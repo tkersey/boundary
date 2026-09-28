@@ -194,3 +194,34 @@ final economic qualification. The post-normalization data aggregate is running.
 The post-normalization data aggregate completes with terminal exit zero:
 **3/3 steps, 275/275 tests passed**. This closes that local validation, not the
 remaining M2.5 cross-platform, real-consumer, representation and economic gates.
+
+## Private product captures
+
+`capture_unpack.zig` independently checks scalarization of a homogeneous unsigned
+product captured by a private recursive worker. It preserves original product
+construction/evaluation, introduces ordered total field projections at construction
+and direct-call sites, and gives only that constructor a fresh capture descriptor
+and callable schema. It rejects whole-product/opaque capture uses and shared worker
+interfaces. The validator checks exact field order and all unchanged records;
+a wrong same-typed projection remains admissible but is rejected as a transformation.
+
+The shared semantic schedule consumes this stage, then existing aggregate forwarding
+and dead-computation removal expose the scalar affine cycle. The focused composition
+passes 32/32 tests including allocation failures. The native suite passes 9/9 tests,
+including the product-backed cycle through the complete pipeline. The product's
+three live words become two affine words. The updated data aggregate is running;
+previous timing measurements remain bound to the pre-product schedule and are not
+relabeled as this candidate's final economics.
+
+The product-stage data aggregate passed 278/278 tests. A further whole-product
+observation case confirms that legitimate full-tuple observation keeps the exact
+P01 baseline rather than forcing scalarization (33-test focused harness passed).
+A generated production test also passes 24 admitted non-permutation affine
+matrices with dynamic input and offsets through discovery, emission, independent
+acceptance and final P01. This is one generated test with 24 cases, not 24 new
+independent test functions. The updated aggregate including these cases is running.
+
+The updated product/generated-case ReleaseSafe data aggregate completes with
+terminal exit zero: **3/3 steps and 280/280 tests**. The product-capture slice is
+qualified at this local level; final platform, consumer and economic validation
+remains outstanding.

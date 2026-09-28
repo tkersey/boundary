@@ -459,3 +459,59 @@ test "private affine input normalization rejects a missing caller conversion" {
     defer admitted.deinit();
     try std.testing.expectError(error.InvalidAffineCandidate, affine.validate(a, original, altered, 0, candidate.basis, candidate.input_bias, 1000000));
 }
+
+const product_cycle: ir.Program = .{
+    .roots = .{ .entry = 0, .result = 0, .failure = 1 },
+    .schemas = &.{ .u64, .unit, .boolean, .{ .product = &.{ 0, 0, 0 } }, .{ .internal = .{ .computation = .{ .parameters = &.{ 0, 2 }, .result = 0, .capture_bound = &.{3}, .use = .reusable } } } },
+    .constants = &.{.{ .schema = 2, .bytes = &.{0} }},
+    .effects = &.{},
+    .functions = &.{
+        .{ .entry = 0, .inputs = &.{ 0, 1, 2 }, .layout = .{ .slots = &.{ 3, 0, 2, 4, 0 } }, .result = 0 },
+        .{ .entry = 2, .inputs = &.{ 0, 1, 2 }, .layout = .{ .slots = &.{ 3, 0, 2, 0, 0, 0, 0, 3, 2, 0 } }, .result = 0 },
+    },
+    .blocks = &.{
+        .{ .function = 0, .instructions = &.{.{ .destination = 3, .opcode = .computation, .operands = &.{0} }}, .terminator = .{ .apply = .{ .computation = 3, .arguments = &.{ 1, 2 }, .next = .{ .block = 1, .assignments = &.{.{ .destination = 4, .source = .returned }} } } } },
+        .{ .function = 0, .instructions = &.{}, .terminator = .{ .return_value = 4 } },
+        .{ .function = 1, .instructions = &.{}, .terminator = .{ .branch = .{ .condition = 2, .when_true = .{ .block = 3 }, .when_false = .{ .block = 5 } } } },
+        .{ .function = 1, .instructions = &.{
+            .{ .destination = 3, .opcode = .field, .operands = &.{0}, .immediate = 0 },
+            .{ .destination = 4, .opcode = .field, .operands = &.{0}, .immediate = 1 },
+            .{ .destination = 5, .opcode = .field, .operands = &.{0}, .immediate = 2 },
+            .{ .destination = 6, .opcode = .integer_bit_xor, .operands = &.{ 3, 1 } },
+            .{ .destination = 7, .opcode = .product, .operands = &.{ 4, 5, 6 } },
+            .{ .destination = 8, .opcode = .constant },
+        }, .terminator = .{ .call = .{ .function = 1, .arguments = &.{ 7, 1, 8 }, .next = .{ .block = 4, .assignments = &.{.{ .destination = 9, .source = .returned }} } } } },
+        .{ .function = 1, .instructions = &.{}, .terminator = .{ .return_value = 9 } },
+        .{ .function = 1, .instructions = &.{
+            .{ .destination = 3, .opcode = .field, .operands = &.{0}, .immediate = 0 },
+            .{ .destination = 4, .opcode = .field, .operands = &.{0}, .immediate = 1 },
+            .{ .destination = 6, .opcode = .integer_bit_xor, .operands = &.{ 3, 4 } },
+        }, .terminator = .{ .return_value = 6 } },
+    },
+    .scopes = .{ .captures = &.{.{ .fields = &.{3}, .use = .reusable }} },
+    .constructors = &.{.{ .function = 1, .capture = 0, .schema = 4 }},
+};
+
+test "World executes private product capture through scalar and affine reductions" {
+    const a = std.testing.allocator;
+    var stats: data.closed_compilation.Statistics = .{};
+    var optimized = try data.closed_compilation.run(a, product_cycle, .{ .contract = .semantic, .statistics = &stats });
+    defer optimized.deinit();
+    try std.testing.expectEqual(.applied, stats.outcome);
+    for ([_]bool{ false, true }) |rotate| {
+        var args: [33]u8 = undefined;
+        for ([_]u64{ 1, 2, 4, 8 }, 0..) |value, i| std.mem.writeInt(u64, args[i * 8 ..][0..8], value, .little);
+        args[32] = @intFromBool(rotate);
+        var expected: [8]u8 = undefined;
+        std.mem.writeInt(u64, &expected, if (rotate) 2 ^ 4 else 1 ^ 2, .little);
+        for ([_]ir.Program{ product_cycle, optimized.program }) |program| {
+            const bytes = try a.alloc(u8, try image.encodedLength(program));
+            defer a.free(bytes);
+            _ = try image.encode(a, program, bytes);
+            var outcome = try world.invocation.invoke(a, .{ .image = bytes, .instance = .{ .initial_args = &args } });
+            defer outcome.deinit();
+            try std.testing.expect(outcome.record == .completed);
+            try std.testing.expectEqualSlices(u8, &expected, outcome.record.completed);
+        }
+    }
+}

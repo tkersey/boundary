@@ -3,6 +3,7 @@ test {
     _ = @import("affine_extract.zig");
     _ = @import("affine_capture_tests.zig");
     _ = @import("affine_parallel_tests.zig");
+    _ = @import("capture_unpack_tests.zig");
     _ = @import("root.zig");
     _ = @import("tests.zig");
     _ = @import("compact_sequence_tests.zig");

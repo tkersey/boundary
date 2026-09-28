@@ -322,3 +322,66 @@ test "edge from a parity worker back to full inspection prevents capture loss" {
     defer result.deinit();
     try std.testing.expectEqual(.no_change, stats.outcome);
 }
+
+test "unseen admitted affine matrices use record semantics rather than fixture names" {
+    var random: u64 = 0x3183_25_2026;
+    for (0..24) |_| {
+        var arena = std.heap.ArenaAllocator.init(a);
+        defer arena.deinit();
+        const storage = arena.allocator();
+        var program = try parityFixture(storage, 3);
+        const functions = try storage.dupe(ir.Function, program.functions);
+        const blocks = try storage.dupe(ir.Block, program.blocks);
+        var layout: std.ArrayList(u64) = .empty;
+        try layout.appendSlice(storage, functions[1].layout.slots);
+        var operations: std.ArrayList(ir.Instruction) = .empty;
+        const arguments = try storage.dupe(u64, blocks[3].terminator.call.arguments);
+        const literal = @import("program.zig").Literal;
+        program.constants = try storage.dupe(literal, &.{ program.constants[0], .{ .schema = 0, .bytes = &.{ 0, 0, 0, 0, 0, 0, 0, 0 } }, .{ .schema = 0, .bytes = &.{ 0x37, 0, 0, 0, 0, 0, 0, 0 } } });
+        // Equal row parity preserves the all-ones unobservable direction of
+        // the two-dimensional even-parity observation space. Rows are not
+        // restricted to permutations: some combine all original coordinates.
+        for (0..3) |row| {
+            random = random *% 6364136223846793005 +% 1442695040888963407;
+            const mask = ([_]u8{ 1, 2, 4, 7 })[@intCast(random >> 62)];
+            var value: ?u64 = null;
+            for (0..3) |column| if (mask & (@as(u8, 1) << @intCast(column)) != 0) {
+                if (value) |previous| {
+                    const slot = layout.items.len;
+                    try layout.append(storage, 0);
+                    try operations.append(storage, .{ .destination = slot, .opcode = .integer_bit_xor, .operands = try storage.dupe(u64, &.{ previous, column }) });
+                    value = slot;
+                } else value = column;
+            };
+            if (random & 1 != 0) {
+                const slot = layout.items.len;
+                try layout.append(storage, 0);
+                try operations.append(storage, .{ .destination = slot, .opcode = .integer_bit_xor, .operands = try storage.dupe(u64, &.{ value.?, 3 }) });
+                value = slot;
+            }
+            if (random & 2 != 0) {
+                const constant_slot = layout.items.len;
+                try layout.append(storage, 0);
+                try operations.append(storage, .{ .destination = constant_slot, .opcode = .constant, .immediate = 2 });
+                const slot = layout.items.len;
+                try layout.append(storage, 0);
+                try operations.append(storage, .{ .destination = slot, .opcode = .integer_bit_xor, .operands = try storage.dupe(u64, &.{ value.?, constant_slot }) });
+                value = slot;
+            }
+            arguments[row] = value.?;
+        }
+        try operations.append(storage, .{ .destination = 6, .opcode = .constant, .immediate = 0 });
+        blocks[3].instructions = operations.items;
+        blocks[3].terminator.call.arguments = arguments;
+        blocks[5].instructions = &.{.{ .destination = 5, .opcode = .integer_bit_xor, .operands = &.{ 0, 1 } }};
+        blocks[5].terminator = .{ .return_value = 5 };
+        functions[1].layout.slots = layout.items;
+        program.functions = functions;
+        program.blocks = blocks;
+        var stats: @import("affine_state.zig").Statistics = .{};
+        var result = try @import("affine_state.zig").run(a, program, 0, &stats, 1000000, .{});
+        defer result.deinit();
+        try std.testing.expectEqual(.applied, stats.outcome);
+        try std.testing.expect(stats.reduced_words <= 2);
+    }
+}
