@@ -1,6 +1,6 @@
 # Boundary — Correct the In-flight Cutover, Then Execute the Optimization Program
 
-> Latest user instruction: **No code review is needed before moving onto the optimization phase.** Stage A requires the exact removals and execution/package/economic qualification below, but no CAS/code-review campaign. Do not delay M2 for review or change installed skills/global configuration. This overrides pre-optimization review requirements in this document.
+> Latest user instruction: **Complete the optimization programme, then review.** Full code-review campaigns are deferred until the remaining M2 work, M2.5 and M3–M8 implementation and required technical qualification are complete. Do not gate movement between milestones or draft PRs on code reviews, clean-review counts, or review-epoch freezes. Stage A's earlier pre-optimization review waiver remains in force. Correctness checks, independent transformation validation, package/runtime qualification and performance acceptance remain mandatory during implementation. This scheduling override takes precedence over contrary workflow, milestone, task or review-brief prose; do not change installed skills or global configuration.
 
 **Complete executable handoff · September 27, 2026**  
 **Workflow:** `$actuating serial-reviews`  
@@ -38,6 +38,9 @@ open-component deferral and explicit work-limit behavior remain intact.
 
 Use the currently installed $actuating serial-reviews workflow as defined.
 That workflow owns planning, task tracking, implementation and reviews.
+Apply the user-directed review schedule in I.9: complete the optimization
+programme and its technical qualification before full code reviews. Do not
+insert a review campaign between milestones or draft PRs.
 The former $st and $fixed-point-driver references were erroneous; do not restore
 or recreate those skills or change global configuration to satisfy them.
 Use $metanoetic to challenge the scope/architecture and remove unjustified
@@ -260,6 +263,16 @@ Stage A ends once mandatory P01 and meaningful witnesses pass, the exact deletio
 ### Stage B — Continue Part II without recreating Phase 0
 
 Once Stage A has a coherent validated checkpoint, continue the full Part II programme. Preserve the corrected drafts as that independently reviewable checkpoint. Create unique, focused successor optimization branches and draft PRs in repositories that actually change; use the existing corrected commits as exact development dependencies when they are not yet merged. Use appropriate stacked bases/cross-links to avoid presenting inherited changes as new work. No automatic merges or another operator prompt are necessary.
+
+#### Review schedule — implement the complete programme first
+
+Continue the remaining M2 work, M2.5, and M3–M8 in dependency order without full code-review campaigns between milestones or PRs. A milestone's implementation, correctness, integration and economic acceptance obligations still govern its technical completion; code-review convergence does not gate starting the next optimization slice. Qualified unmerged commits remain valid development dependencies without prior code-review completion.
+
+Apply this change to the current execution immediately: do not launch further intermediate review lenses, clean-confirmation attempts or review-recovery attempts. An already-running review may finish, but its completion and review-epoch freeze must not delay continued implementation. Preserve its actual findings and provenance; address concrete correctness defects in the affected implementation slice. Do not count an unfinished review as passed or reuse an old clean result as evidence for changed code.
+
+After the full specified optimization implementation and required technical qualification are complete, freeze the final repository/package/runtime tuple and run the currently installed Actuating serial-review contract on the completed scope. Resolve findings and follow that contract's convergence rules at this final review stage. Preserve the focused draft PRs and report their dependency relationships; do not merge automatically.
+
+This changes review timing only. All P01–P31, T01–T42, G01–G45 and L01–L20 requirements, original and candidate admission, independent validators, focused and required integrated tests, cumulative cost comparisons, explicit performance-tradeoff decisions, authenticated bindings and existing effect restrictions remain in force. Review deferral is not permission to defer those engineering obligations or conceal known defects.
 
 When Stage A lands, update successor ancestry and authenticated pins using actual landed commits/package bytes. Prefer rebase where collaboration constraints permit it; never overwrite another writer. Maintain the distinction between source identity, package identity and an existing runtime artifact.
 
@@ -1535,6 +1548,8 @@ Status is not a percentage of claimed completion. Use explicit terms such as `im
 ## 10. Dependency-ordered implementation plan
 
 The milestones below are work packages within this one specification, not requests for another planning document or another design approval. Reuse current repository conventions and preserve unrelated changes. Land or publish only under the implementing session's authorization.
+
+Follow I.9's review schedule: complete these optimization milestones and their technical qualification before the full serial-review stage; no per-milestone or per-PR review gate is required.
 
 ### M0 — Reconcile the actual baseline and contracts
 
