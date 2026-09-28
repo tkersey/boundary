@@ -9,10 +9,11 @@ const edge_state = @import("affine_edges.zig");
 const privacy = @import("capture_reduction.zig");
 const ownership = @import("activation_ownership.zig");
 pub const Error = ownership.Error || space.Error;
+pub const Target = @import("affine_target.zig").Target;
 pub const Transition = struct { block: usize, values: []const extract.Expression };
 pub const Plan = struct {
     arena: std.heap.ArenaAllocator,
-    constructor: usize,
+    constructor: ?usize,
     worker: p.Id,
     schema: p.Id,
     dimension: usize,
@@ -29,20 +30,26 @@ fn observe(seed: *space.Space, value: ?extract.Expression, budget: *space.Budget
     if (value) |v| _ = try seed.insert(v.state, budget);
 }
 
-/// Original admission precedes discovery. The first domain has fixed capture
-/// layout and recursive direct calls; generalized control-location layouts follow.
+/// Original admission precedes discovery for either private interface form.
 pub fn analyze(allocator: std.mem.Allocator, program: ir.Program, constructor_id: usize, work_limit: u64) Error!?Plan {
+    return analyzeTarget(allocator, program, .{ .capture = constructor_id }, work_limit);
+}
+pub fn analyzeTarget(allocator: std.mem.Allocator, program: ir.Program, target: Target, work_limit: u64) Error!?Plan {
     var flow = try ownership.analyze(allocator, program);
     defer flow.deinit();
-    if (constructor_id >= program.constructors.len) return null;
-    const constructor = program.constructors[constructor_id];
-    const capture = program.scopes.captures[@intCast(constructor.capture)];
-    const worker = program.functions[@intCast(constructor.function)];
-    const n = capture.fields.len;
-    if (n == 0 or n > space.max_dimension or capture.owned_regions.len != 0 or capture.borrowed_regions.len != 0 or capture.use != .reusable or worker.effects.len != 0 or worker.regions.len != 0) return null;
-    const schema = capture.fields[0];
-    if (extract.unsignedWidth(program.schemas[@intCast(schema)]) == null or !privacy.privateWorker(program, constructor_id) or !privacy.privateConstructions(program, constructor_id)) return null;
-    for (capture.fields) |field| if (field != schema) return null;
+    const constructor_id = target.constructor();
+    if (constructor_id) |id| {
+        if (id >= program.constructors.len or !privacy.privateWorker(program, id) or !privacy.privateConstructions(program, id)) return null;
+        const capture = program.scopes.captures[@intCast(program.constructors[id].capture)];
+        if (capture.owned_regions.len != 0 or capture.borrowed_regions.len != 0 or capture.use != .reusable) return null;
+    } else if (!privacy.privateDirectWorker(program, target.parameters.worker)) return null;
+    const worker_id = target.worker(program);
+    const worker = program.functions[@intCast(worker_id)];
+    const n = target.dimension(program);
+    if (n == 0 or n > space.max_dimension or n > worker.inputs.len or worker.effects.len != 0 or worker.regions.len != 0) return null;
+    const schema = worker.layout.slots[@intCast(worker.inputs[0])];
+    if (extract.unsignedWidth(program.schemas[@intCast(schema)]) == null) return null;
+    for (worker.inputs[0..n]) |slot| if (worker.layout.slots[@intCast(slot)] != schema) return null;
     if (worker.inputs.len - n > space.max_dimension) return null;
     var arena = std.heap.ArenaAllocator.init(allocator);
     var keep = false;
@@ -56,7 +63,7 @@ pub fn analyze(allocator: std.mem.Allocator, program: ir.Program, constructor_id
     @memset(returned, false);
     // A returned value is an opaque boundary result, not a hidden state copy.
     for (program.blocks) |block| {
-        if (block.function != constructor.function) continue;
+        if (block.function != worker_id) continue;
         var edges: [2]ir.Edge = undefined;
         const count: usize = switch (block.terminator) {
             .call => |call| blk: {
@@ -86,7 +93,7 @@ pub fn analyze(allocator: std.mem.Allocator, program: ir.Program, constructor_id
         };
     }
     for (program.blocks, 0..) |block, block_id| {
-        if (block.function != constructor.function) continue;
+        if (block.function != worker_id) continue;
         try budget.charge();
         const values = try a.alloc(?extract.Expression, worker.layout.slots.len);
         const defined = try a.dupe(bool, returned);
@@ -154,7 +161,7 @@ pub fn analyze(allocator: std.mem.Allocator, program: ir.Program, constructor_id
             .jump => {},
             .call => |call| {
                 for (call.arguments) |slot| if (!defined[@intCast(slot)]) return null;
-                if (call.function == constructor.function) {
+                if (call.function == worker_id) {
                     const state = (try extract.interface(a, values, call.arguments[0..n], &budget)) orelse return null;
                     const matrix = try a.alloc(space.Row, n);
                     for (state, matrix) |value, *row| row.* = value.state;
@@ -183,11 +190,11 @@ pub fn analyze(allocator: std.mem.Allocator, program: ir.Program, constructor_id
     // This first normalization keeps encoded input values invariant through CFG
     // edges. Reassigned dynamic inputs retain their original representation.
     for (program.blocks) |block| {
-        if (block.function != constructor.function) continue;
+        if (block.function != worker_id) continue;
         for (worker.inputs[n..], input_bias) |slot, *bias| {
             if (@import("slot_access.zig").terminator(block.terminator, slot).writes != 0) bias.* = 0;
         }
     }
     keep = true;
-    return .{ .arena = arena, .constructor = constructor_id, .worker = constructor.function, .schema = schema, .dimension = n, .basis = basis, .input_bias = input_bias, .observations = observations, .transitions = owned_transitions };
+    return .{ .arena = arena, .constructor = constructor_id, .worker = worker_id, .schema = schema, .dimension = n, .basis = basis, .input_bias = input_bias, .observations = observations, .transitions = owned_transitions };
 }

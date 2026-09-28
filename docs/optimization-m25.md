@@ -266,3 +266,41 @@ and scope are retained in `performance/m25-platform-qualification.json`.
 Delivery now continues on one active branch and draft PR per repository. Earlier
 stacked branches are historical checkpoints, not additional milestone work queues.
 Full optimization implementation and technical qualification precede code reviews.
+
+## Direct private parameters and bounded accumulator storage
+
+The representation decision now distinguishes an existing capture interface from
+an entirely private direct-parameter interface. Requiring a constructor was an
+incidental restriction: the admitted direct call already supplies the same ordered
+state operands. `affine_target.zig` describes the proposed interface only. Original
+admission, complete private-use checks, the independent emitted-record validator,
+and final P01 still decide acceptance. Entry points, constructor-backed functions,
+handler entries and resource callbacks cannot use the direct-parameter route.
+No synthetic constructor, adapter function or wire-format change is introduced.
+
+The direct target keeps a trailing word parameter dynamic when every recursive
+call forwards it unchanged and no local operation/edge overwrites it. The checker
+still proves the exact ordered input relation at every incoming and recursive
+call; this selection is not a certificate. The existing basis portfolio and
+source-free final-link schedule consume this target. State and dynamic-input
+bounds remain separate, including the 128-state-word case with a dynamic word.
+
+Initial direct candidates validated but failed the unchanged profitability or
+admission-growth guards. A local cost probe identified excessive fresh scratch
+slots in XOR chains. Emission now reuses one fresh accumulator **within each
+expression**. Distinct basis expressions and parallel edge outputs retain separate
+slots. The independent checker evaluates actual stable-slot writes in order and
+still checks each emitted equation. The default pipeline selects the 8-word parity
+case (174 -> 169 image bytes) and the 32-word case (294 -> 265); two- and three-word
+cases remain legal no-ops. These are static image measurements, not speed claims.
+The regression tests require both actual selected direct calls and exact no-op
+retention, alongside well-typed wrong-argument rejection and allocation/work-limit
+rollback. Native execution covers original, checked, shared-compiler and closed-link
+images with no constructors, both branch choices and three dynamic input values.
+
+The first completed checks passed 286/286 data tests and 12/12 native tests.
+The final integrated ReleaseSafe check, including the additional 128-word
+boundary and one-scratch assertions, completed **319/319 steps and 570/570 tests**. Existing 8b90033 consumer timing
+and its user-accepted costs are historical inputs, not qualification of this change.
+General coupled multi-worker synthesis and the remaining L01–L20/runtime economic
+obligations remain open; this extends the actual production transformation domain.

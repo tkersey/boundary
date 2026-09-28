@@ -151,18 +151,26 @@ fn checkEdge(before: ir.Edge, after: ir.Edge, old: []const ?Value, new: []const 
 }
 
 pub fn validate(allocator: std.mem.Allocator, original: ir.Program, candidate: ir.Program, constructor_id: usize, basis: []const u128, input_bias: []const u64, work_limit: u64) Error!void {
+    return validateTarget(allocator, original, candidate, .{ .capture = constructor_id }, basis, input_bias, work_limit);
+}
+pub fn validateTarget(allocator: std.mem.Allocator, original: ir.Program, candidate: ir.Program, target: @import("affine_target.zig").Target, basis: []const u128, input_bias: []const u64, work_limit: u64) Error!void {
     var original_flow = try ownership.analyze(allocator, original);
     defer original_flow.deinit();
     var candidate_flow = try ownership.analyze(allocator, candidate);
     defer candidate_flow.deinit();
-    if (constructor_id >= original.constructors.len or !privacy.privateWorker(original, constructor_id) or !privacy.privateConstructions(original, constructor_id)) return error.InvalidAffineCandidate;
-    const ctor = original.constructors[constructor_id];
-    const capture = original.scopes.captures[@intCast(ctor.capture)];
-    const n = capture.fields.len;
-    if (n == 0 or n > 128 or basis.len >= n or capture.use != .reusable or capture.owned_regions.len != 0 or capture.borrowed_regions.len != 0) return error.InvalidAffineCandidate;
-    const schema = capture.fields[0];
+    const constructor_id = target.constructor();
+    if (constructor_id) |id| {
+        if (id >= original.constructors.len or !privacy.privateWorker(original, id) or !privacy.privateConstructions(original, id)) return error.InvalidAffineCandidate;
+        const capture = original.scopes.captures[@intCast(original.constructors[id].capture)];
+        if (capture.use != .reusable or capture.owned_regions.len != 0 or capture.borrowed_regions.len != 0) return error.InvalidAffineCandidate;
+    } else if (!privacy.privateDirectWorker(original, target.parameters.worker)) return error.InvalidAffineCandidate;
+    const worker_id = target.worker(original);
+    const worker = original.functions[@intCast(worker_id)];
+    const n = target.dimension(original);
+    if (n == 0 or n > 128 or n > worker.inputs.len or basis.len >= n) return error.InvalidAffineCandidate;
+    const schema = worker.layout.slots[@intCast(worker.inputs[0])];
     if (width(original.schemas[@intCast(schema)]) == null) return error.InvalidAffineCandidate;
-    for (capture.fields) |field| if (field != schema) return error.InvalidAffineCandidate;
+    for (worker.inputs[0..n]) |slot| if (worker.layout.slots[@intCast(slot)] != schema) return error.InvalidAffineCandidate;
     for (basis) |row| if (row & ~space.mask(n) != 0) return error.InvalidAffineCandidate;
     var unchanged = candidate;
     unchanged.functions = original.functions;
@@ -170,20 +178,22 @@ pub fn validate(allocator: std.mem.Allocator, original: ir.Program, candidate: i
     unchanged.constructors = original.constructors;
     unchanged.scopes.captures = original.scopes.captures;
     unchanged.constants = original.constants;
-    if (!equal(ir.Program, original, unchanged) or original.functions.len != candidate.functions.len or original.blocks.len != candidate.blocks.len or original.constructors.len != candidate.constructors.len or candidate.scopes.captures.len != original.scopes.captures.len + 1 or candidate.constants.len < original.constants.len) return error.InvalidAffineCandidate;
+    if (!equal(ir.Program, original, unchanged) or original.functions.len != candidate.functions.len or original.blocks.len != candidate.blocks.len or original.constructors.len != candidate.constructors.len or candidate.scopes.captures.len != original.scopes.captures.len + @intFromBool(constructor_id != null) or candidate.constants.len < original.constants.len) return error.InvalidAffineCandidate;
     for (original.constants, candidate.constants[0..original.constants.len]) |a, b| if (!equal(p.Literal, a, b)) return error.InvalidAffineCandidate;
     for (original.scopes.captures, candidate.scopes.captures[0..original.scopes.captures.len]) |a, b| if (!equal(p.Capture, a, b)) return error.InvalidAffineCandidate;
-    var new_capture = candidate.scopes.captures[original.scopes.captures.len];
-    if (new_capture.fields.len != basis.len) return error.InvalidAffineCandidate;
-    for (new_capture.fields) |field| if (field != schema) return error.InvalidAffineCandidate;
-    new_capture.fields = capture.fields;
-    if (!equal(p.Capture, capture, new_capture)) return error.InvalidAffineCandidate;
+    if (constructor_id) |id| {
+        const capture = original.scopes.captures[@intCast(original.constructors[id].capture)];
+        var new_capture = candidate.scopes.captures[original.scopes.captures.len];
+        if (new_capture.fields.len != basis.len) return error.InvalidAffineCandidate;
+        for (new_capture.fields) |field| if (field != schema) return error.InvalidAffineCandidate;
+        new_capture.fields = capture.fields;
+        if (!equal(p.Capture, capture, new_capture)) return error.InvalidAffineCandidate;
+    }
     for (original.constructors, candidate.constructors, 0..) |before, after, id| {
         var expected = before;
-        if (id == constructor_id) expected.capture = original.scopes.captures.len;
+        if (constructor_id != null and id == constructor_id.?) expected.capture = original.scopes.captures.len;
         if (!equal(p.Constructor, expected, after)) return error.InvalidAffineCandidate;
     }
-    const worker = original.functions[@intCast(ctor.function)];
     if (input_bias.len != worker.inputs.len - n) return error.InvalidAffineCandidate;
     const word_bytes = width(original.schemas[@intCast(schema)]).?;
     for (worker.inputs[n..], input_bias) |slot, bias| {
@@ -196,7 +206,7 @@ pub fn validate(allocator: std.mem.Allocator, original: ir.Program, candidate: i
         metadata.layout = before.layout;
         if (!equal(ir.Function, before, metadata) or after.layout.slots.len < before.layout.slots.len or !std.mem.eql(p.Id, before.layout.slots, after.layout.slots[0..before.layout.slots.len])) return error.InvalidAffineCandidate;
         for (after.layout.slots[before.layout.slots.len..]) |field| if (field != schema) return error.InvalidAffineCandidate;
-        if (id == ctor.function) {
+        if (id == worker_id) {
             if (after.inputs.len != before.inputs.len - n + basis.len or !std.mem.eql(p.Id, before.inputs[0..basis.len], after.inputs[0..basis.len]) or !std.mem.eql(p.Id, before.inputs[n..], after.inputs[basis.len..])) return error.InvalidAffineCandidate;
         } else if (!std.mem.eql(p.Id, before.inputs, after.inputs)) return error.InvalidAffineCandidate;
     }
@@ -209,7 +219,7 @@ pub fn validate(allocator: std.mem.Allocator, original: ir.Program, candidate: i
         if (before.function != after.function or before.custody != after.custody) return error.InvalidAffineCandidate;
         const old_function = original.functions[@intCast(before.function)];
         const new_function = candidate.functions[@intCast(before.function)];
-        const is_worker = before.function == ctor.function;
+        const is_worker = before.function == worker_id;
         if (is_worker) for (worker.inputs[n..], input_bias) |slot, bias| {
             if (bias != 0 and @import("slot_access.zig").terminator(before.terminator, slot).writes != 0) return error.InvalidAffineCandidate;
         };
@@ -241,7 +251,7 @@ pub fn validate(allocator: std.mem.Allocator, original: ir.Program, candidate: i
             };
             // Only matching call-return transfers introduce token cross-block values.
             for (original.blocks) |predecessor| {
-                if (predecessor.function != ctor.function or predecessor.terminator != .call or predecessor.terminator.call.next.block >= original.blocks.len) continue;
+                if (predecessor.function != worker_id or predecessor.terminator != .call or predecessor.terminator.call.next.block >= original.blocks.len) continue;
                 const edge = predecessor.terminator.call.next;
                 if (edge.block != block_index) continue;
                 for (edge.assignments) |assignment| {
@@ -274,7 +284,7 @@ pub fn validate(allocator: std.mem.Allocator, original: ir.Program, candidate: i
             var metadata = replacement;
             metadata.operands = op.operands;
             if (!equal(ir.Instruction, op, metadata)) return error.InvalidAffineCandidate;
-            if (op.opcode == .computation and op.immediate == constructor_id) {
+            if (constructor_id != null and op.opcode == .computation and op.immediate == constructor_id.?) {
                 try mappedArguments(op.operands, replacement.operands, old, new, basis, n, &.{});
             } else {
                 if (op.operands.len != replacement.operands.len) return error.InvalidAffineCandidate;
@@ -291,7 +301,7 @@ pub fn validate(allocator: std.mem.Allocator, original: ir.Program, candidate: i
             .call => |call| {
                 if (terminator != .call) return error.InvalidAffineCandidate;
                 const arguments = terminator.call.arguments;
-                if (call.function == ctor.function) try mappedArguments(call.arguments, arguments, old, new, basis, n, input_bias) else {
+                if (call.function == worker_id) try mappedArguments(call.arguments, arguments, old, new, basis, n, input_bias) else {
                     if (call.arguments.len != arguments.len) return error.InvalidAffineCandidate;
                     for (call.arguments, arguments) |left, right| if (!same(old[@intCast(left)], new[@intCast(right)])) return error.InvalidAffineCandidate;
                 }
@@ -301,7 +311,7 @@ pub fn validate(allocator: std.mem.Allocator, original: ir.Program, candidate: i
                     terminator.call.next = call.next;
                 }
             },
-            .apply => |application| if (!is_worker and selectedApplication(original, before.function, application.computation, constructor_id)) {
+            .apply => |application| if (constructor_id != null and !is_worker and selectedApplication(original, before.function, application.computation, constructor_id.?)) {
                 if (terminator != .apply) return error.InvalidAffineCandidate;
                 try inputArguments(application.arguments, terminator.apply.arguments, old, new, input_bias);
                 terminator.apply.arguments = application.arguments;

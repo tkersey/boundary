@@ -39,6 +39,7 @@ src/data/activation_structure.zig
 src/data/activation_structure_tests.zig
 src/data/activation_types.zig
 src/data/admission.zig
+src/data/affine_target.zig
 src/data/aggregate_admission.zig
 src/data/aggregate_reduction.zig
 src/data/aggregate_reduction_tests.zig

@@ -132,7 +132,8 @@ fn reservation(program: ir.Program, stage: Stage) Error!u64 {
         .cells => std.math.mul(u64, try sumWork(&.{ cells_count, 1 }), shape.records) catch return error.Capacity,
         .dead_computation => std.math.mul(u64, try sumWork(&.{ instructions, max_slots, program.blocks.len, 1 }), shape.records) catch return error.Capacity,
         .dead_arguments => std.math.mul(u64, try sumWork(&.{ program.functions.len, max_inputs, 1 }), shape.records) catch return error.Capacity,
-        .dead_captures, .capture_projection, .capture_summary, .affine_state, .capture_unpack => std.math.mul(u64, try sumWork(&.{ program.constructors.len, constructions, 1 }), shape.records) catch return error.Capacity,
+        .affine_state => std.math.mul(u64, try sumWork(&.{ program.constructors.len, program.functions.len, constructions, 1 }), shape.records) catch return error.Capacity,
+        .dead_captures, .capture_projection, .capture_summary, .capture_unpack => std.math.mul(u64, try sumWork(&.{ program.constructors.len, constructions, 1 }), shape.records) catch return error.Capacity,
         .p01 => 0,
     };
     const scans = std.math.mul(u64, std.math.add(u64, comparisons, shape.records) catch return error.Capacity, 64) catch return error.Capacity;
@@ -140,7 +141,7 @@ fn reservation(program: ir.Program, stage: Stage) Error!u64 {
     const facts: u64 = switch (stage) {
         .branch, .applications, .aggregates => 22_000_000,
         .expressions => 1_000_000,
-        .affine_state => std.math.mul(u64, program.constructors.len, 6_000_000) catch return error.Capacity,
+        .affine_state => std.math.mul(u64, try sumWork(&.{ program.constructors.len, program.functions.len }), 6_000_000) catch return error.Capacity,
         else => 0,
     };
     return std.math.add(u64, std.math.add(u64, scans, byte_work) catch return error.Capacity, facts) catch return error.Capacity;
@@ -284,18 +285,21 @@ fn possible(allocator: std.mem.Allocator, owned: *const p01.Owned, stage: Stage)
             if (capture.fields.len != 1 or program.schemas[@intCast(capture.fields[0])] != .product) continue;
             for (program.blocks) |block| if (block.function == constructor.function and block.terminator == .call and block.terminator.call.function == constructor.function) return true;
         },
-        .affine_state => for (program.constructors) |constructor| {
-            const capture = program.scopes.captures[@intCast(constructor.capture)];
-            if (capture.fields.len == 0 or capture.fields.len > 128) continue;
-            for (program.blocks) |block| {
-                if (block.function != constructor.function) continue;
-                switch (block.terminator) {
-                    .call => |call| if (call.function == constructor.function) return true,
-                    .jump => |edge| if (edge.assignments.len != 0) return true,
-                    .branch => |choice| if (choice.when_true.assignments.len != 0 or choice.when_false.assignments.len != 0) return true,
-                    else => {},
+        .affine_state => {
+            for (program.constructors) |constructor| {
+                const capture = program.scopes.captures[@intCast(constructor.capture)];
+                if (capture.fields.len == 0 or capture.fields.len > 128) continue;
+                for (program.blocks) |block| {
+                    if (block.function != constructor.function) continue;
+                    switch (block.terminator) {
+                        .call => |call| if (call.function == constructor.function) return true,
+                        .jump => |edge| if (edge.assignments.len != 0) return true,
+                        .branch => |choice| if (choice.when_true.assignments.len != 0 or choice.when_false.assignments.len != 0) return true,
+                        else => {},
+                    }
                 }
             }
+            for (program.functions, 0..) |_, id| if (affine.directTarget(program, id) != null) return true;
         },
         .p01 => return true,
     }
@@ -498,6 +502,17 @@ fn apply(a: std.mem.Allocator, program: ir.Program, stage: Stage, options: p01.O
             for (program.constructors, 0..) |_, id| {
                 var stats: affine.Statistics = .{};
                 var result = try affine.run(a, program, id, &stats, 1_000_000, options);
+                if (stats.outcome == .work_limit) {
+                    exhausted.* = true;
+                    break :blk result;
+                }
+                if (stats.outcome == .applied) break :blk result;
+                result.deinit();
+            }
+            for (program.functions, 0..) |_, id| {
+                const target = affine.directTarget(program, id) orelse continue;
+                var stats: affine.Statistics = .{};
+                var result = try affine.runTarget(a, program, target, &stats, 1_000_000, options);
                 if (stats.outcome == .work_limit) {
                     exhausted.* = true;
                     break :blk result;

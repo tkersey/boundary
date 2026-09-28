@@ -635,3 +635,56 @@ test "independent closed objects retain full inspection before a reduced parity 
         }
     }
 }
+
+test "World executes checked direct parameter state through semantic compile and closed link" {
+    const a = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    var original = try parityFixture(arena.allocator(), 8);
+    const blocks = try arena.allocator().dupe(ir.Block, original.blocks);
+    blocks[0].instructions = &.{};
+    blocks[0].terminator = .{ .call = .{ .function = 1, .arguments = original.functions[0].inputs, .next = original.blocks[0].terminator.apply.next } };
+    original.blocks = blocks;
+    original.constructors = &.{};
+    var stats: affine.Statistics = .{};
+    var reduced = try affine.runTarget(a, original, affine.directTarget(original, 1).?, &stats, 1000000, .{});
+    defer reduced.deinit();
+    try std.testing.expectEqual(@as(usize, 1), stats.reduced_words);
+    var semantic = try data.closed_compilation.run(a, original, .{ .contract = .semantic });
+    defer semantic.deinit();
+    const object: data.component.Object = .{
+        .program = original,
+        .exports = &.{.{ .name = "main", .reference = .{ .kind = .function, .id = 0 } }},
+        .borrows = &.{ .{ .function = 0 }, .{ .function = 1 } },
+    };
+    const encoded_object = try a.alloc(u8, try data.component.encodedLength(object));
+    defer a.free(encoded_object);
+    _ = try data.component.encode(a, object, encoded_object);
+    var linked = try data.linker.linkWithCompilation(a, &.{.{ .key = "direct", .object = encoded_object }}, &.{}, .{ .instance = "direct", .symbol = "main" }, .{ .contract = .semantic });
+    defer linked.deinit();
+    for ([_]ir.Program{ semantic.program, linked.program }) |program| {
+        const entry = program.functions[@intCast(program.roots.entry)].entry;
+        try std.testing.expectEqual(@as(usize, 3), program.blocks[@intCast(entry)].terminator.call.arguments.len);
+    }
+    @memset(encoded_object, 0xff);
+    for ([_]ir.Program{ original, reduced.program, semantic.program, linked.program }) |program| {
+        try std.testing.expectEqual(@as(usize, 0), program.constructors.len);
+        const bytes = try a.alloc(u8, try image.encodedLength(program));
+        defer a.free(bytes);
+        _ = try image.encode(a, program, bytes);
+        for ([_]u64{ 0, 0xa5, std.math.maxInt(u64) }) |input| {
+            for ([_]bool{ false, true }) |flag| {
+                var args: [73]u8 = undefined;
+                for (0..8) |i| std.mem.writeInt(u64, args[i * 8 ..][0..8], i + 1, .little);
+                std.mem.writeInt(u64, args[64..72], input, .little);
+                args[72] = @intFromBool(flag);
+                var outcome = try world.invocation.invoke(a, .{ .image = bytes, .instance = .{ .initial_args = &args } });
+                defer outcome.deinit();
+                try std.testing.expect(outcome.record == .completed);
+                var expected: [8]u8 = undefined;
+                std.mem.writeInt(u64, &expected, 8 ^ (if (flag) input else @as(u64, 0)), .little);
+                try std.testing.expectEqualSlices(u8, &expected, outcome.record.completed);
+            }
+        }
+    }
+}

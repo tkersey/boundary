@@ -15,8 +15,18 @@ pub const Statistics = struct { constructors_reduced: usize = 0, fields_removed:
 
 pub fn privateWorker(program: ir.Program, constructor_id: usize) bool {
     const worker = program.constructors[constructor_id].function;
-    if (program.roots.entry == worker) return false;
     for (program.constructors, 0..) |other, id| if (id != constructor_id and other.function == worker) return false;
+    return privateFunction(program, worker);
+}
+
+pub fn privateDirectWorker(program: ir.Program, worker: p.Id) bool {
+    if (worker >= program.functions.len) return false;
+    for (program.constructors) |constructor| if (constructor.function == worker) return false;
+    return privateFunction(program, worker);
+}
+
+fn privateFunction(program: ir.Program, worker: p.Id) bool {
+    if (program.roots.entry == worker) return false;
     for (program.handlers) |handler| {
         if (handler.return_function == worker) return false;
         for (handler.clauses) |clause| if (clause.function == worker) return false;

@@ -424,3 +424,123 @@ test "checked affine output survives decoded input and source buffer release" {
     defer decoded_result.deinit();
     try std.testing.expectEqual(try image.identity(a, result.program), decoded_result.identity);
 }
+
+pub fn directFixture(storage: std.mem.Allocator) !ir.Program {
+    return directParameters(storage, rotating);
+}
+fn directParameters(storage: std.mem.Allocator, original: ir.Program) !ir.Program {
+    var program = original;
+    const blocks = try storage.dupe(ir.Block, program.blocks);
+    blocks[0].instructions = &.{};
+    blocks[0].terminator = .{ .call = .{ .function = 1, .arguments = program.functions[0].inputs, .next = program.blocks[0].terminator.apply.next } };
+    program.blocks = blocks;
+    program.constructors = &.{};
+    return program;
+}
+
+test "direct recursive parameter state uses the checked affine pipeline without constructors" {
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    const program = try directFixture(arena.allocator());
+    const pass = @import("affine_state.zig");
+    const target = pass.directTarget(program, 1).?;
+    var stats: pass.Statistics = .{};
+    var output = try pass.runTarget(a, program, target, &stats, 1000000, .{});
+    defer output.deinit();
+    try std.testing.expectEqual(.applied, stats.outcome);
+    try std.testing.expectEqual(@as(usize, 3), stats.original_words);
+    try std.testing.expectEqual(@as(usize, 2), stats.reduced_words);
+    try std.testing.expectEqual(@as(usize, 0), output.program.constructors.len);
+    const entry = output.program.functions[@intCast(output.program.roots.entry)];
+    try std.testing.expectEqual(@as(usize, 5), entry.inputs.len);
+    var semantic = try @import("closed_compilation.zig").run(a, program, .{ .contract = .semantic });
+    defer semantic.deinit();
+    try std.testing.expectEqual(@as(usize, 0), semantic.program.constructors.len);
+    // This small direct-call fixture is sound to reduce but uneconomical under
+    // the default objective. The larger parity witness below must be selected.
+    var baseline = try @import("coalescing.zig").run(a, program, .{});
+    defer baseline.deinit();
+    try std.testing.expectEqual(try @import("program_image.zig").identity(a, baseline.program), try @import("program_image.zig").identity(a, semantic.program));
+}
+
+test "direct parameter acceptance rejects admissible wrong incoming argument" {
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    const program = try directFixture(arena.allocator());
+    const pass = @import("affine_state.zig");
+    const target = pass.directTarget(program, 1).?;
+    var candidate = (try @import("affine_emit.zig").constructTarget(a, program, target, 1000000, .observations)).?;
+    defer candidate.deinit();
+    try pass.validateTarget(a, program, candidate.program, target, candidate.basis, candidate.input_bias, 1000000);
+    const blocks = try arena.allocator().dupe(ir.Block, candidate.program.blocks);
+    const arguments = try arena.allocator().dupe(u64, blocks[0].terminator.call.arguments);
+    arguments[0] = 0;
+    blocks[0].terminator.call.arguments = arguments;
+    var wrong = candidate.program;
+    wrong.blocks = blocks;
+    var admitted = try @import("activation_ownership.zig").analyze(a, wrong);
+    defer admitted.deinit();
+    try std.testing.expectError(error.InvalidAffineCandidate, pass.validateTarget(a, program, wrong, target, candidate.basis, candidate.input_bias, 1000000));
+    try std.testing.expectError(error.InvalidAffineCandidate, pass.validateTarget(a, program, candidate.program, .{ .parameters = .{ .worker = 0, .count = 4 } }, candidate.basis, candidate.input_bias, 1000000));
+    try std.testing.expect(pass.directTarget(rotating, 1) == null);
+    try std.testing.expect(pass.directTarget(program, 0) == null);
+}
+
+fn directAllocationAttempt(allocator: std.mem.Allocator, program: ir.Program) !void {
+    const pass = @import("affine_state.zig");
+    var output = try pass.runTarget(allocator, program, pass.directTarget(program, 1).?, null, 1000000, .{});
+    defer output.deinit();
+}
+
+test "direct parameter synthesis owns every partial allocation and rolls back work exhaustion" {
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    const program = try directFixture(arena.allocator());
+    try std.testing.checkAllAllocationFailures(a, directAllocationAttempt, .{program});
+    const pass = @import("affine_state.zig");
+    var stats: pass.Statistics = .{};
+    var limited = try pass.runTarget(a, program, pass.directTarget(program, 1).?, &stats, 0, .{});
+    defer limited.deinit();
+    var baseline = try @import("coalescing.zig").run(a, program, .{});
+    defer baseline.deinit();
+    try std.testing.expectEqual(.work_limit, stats.outcome);
+    try std.testing.expectEqual(try @import("program_image.zig").identity(a, baseline.program), try @import("program_image.zig").identity(a, limited.program));
+}
+
+test "shared compiler selects profitable direct parity state and retains small no-ops" {
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    for ([_]usize{ 2, 3, 8, 32 }) |n| {
+        const program = try directParameters(arena.allocator(), try parityFixture(arena.allocator(), n));
+        var stats: @import("closed_compilation.zig").Statistics = .{};
+        var output = try @import("closed_compilation.zig").run(a, program, .{ .contract = .semantic, .statistics = &stats });
+        defer output.deinit();
+        const entry = output.program.functions[@intCast(output.program.roots.entry)].entry;
+        if (n >= 8) {
+            try std.testing.expectEqual(@as(usize, 3), output.program.blocks[@intCast(entry)].terminator.call.arguments.len);
+            try std.testing.expectEqual(.full, stats.selected_candidate);
+            try std.testing.expect(stats.final_bytes < stats.baseline_bytes);
+            const pass = @import("affine_state.zig");
+            var candidate = (try @import("affine_emit.zig").constructTarget(a, program, pass.directTarget(program, 1).?, 1000000, .observations)).?;
+            defer candidate.deinit();
+            try std.testing.expectEqual(program.functions[0].layout.slots.len + 1, candidate.program.functions[0].layout.slots.len);
+        } else {
+            try std.testing.expectEqual(.baseline, stats.selected_candidate);
+            try std.testing.expectEqual(stats.baseline_bytes, stats.final_bytes);
+        }
+    }
+}
+
+test "direct state dimension bound excludes a forwarded dynamic word" {
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    const program = try directParameters(arena.allocator(), try parityFixture(arena.allocator(), 128));
+    const pass = @import("affine_state.zig");
+    const target = pass.directTarget(program, 1).?;
+    try std.testing.expectEqual(@as(usize, 128), target.parameters.count);
+    var stats: pass.Statistics = .{};
+    var output = try pass.runTarget(a, program, target, &stats, 1000000, .{});
+    defer output.deinit();
+    try std.testing.expectEqual(.applied, stats.outcome);
+    try std.testing.expectEqual(@as(usize, 1), stats.reduced_words);
+}

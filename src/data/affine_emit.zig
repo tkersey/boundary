@@ -10,7 +10,7 @@ pub const Error = census.Error || error{UnrepresentableAffineObservation};
 pub const Candidate = struct {
     arena: std.heap.ArenaAllocator,
     program: ir.Program,
-    constructor: usize,
+    constructor: ?usize,
     basis: []const space.Row,
     input_bias: []const u64,
     pub fn deinit(self: *Candidate) void {
@@ -41,34 +41,49 @@ const Builder = struct {
         try self.literals.append(self.a, .{ .schema = self.schema, .bytes = bytes });
         return self.append(.constant, &.{}, id);
     }
-    fn combine(self: *Builder, accumulator: ?p.Id, value: p.Id) Error!p.Id {
-        return if (accumulator) |previous| self.append(.integer_bit_xor, &.{ previous, value }, 0) else value;
+    const Accumulator = struct { value: ?p.Id = null, scratch: ?p.Id = null };
+    fn combine(self: *Builder, accumulator: *Accumulator, value: p.Id) Error!void {
+        const previous = accumulator.value orelse {
+            accumulator.value = value;
+            return;
+        };
+        if (accumulator.scratch) |slot| {
+            // This scratch belongs only to this expression. Other basis rows
+            // and edge outputs retain distinct slots until their parallel use.
+            try self.budget.charge();
+            try self.operations.append(self.a, .{ .destination = slot, .opcode = .integer_bit_xor, .operands = try self.a.dupe(p.Id, &.{ previous, value }) });
+            accumulator.value = slot;
+        } else {
+            const slot = try self.append(.integer_bit_xor, &.{ previous, value }, 0);
+            accumulator.scratch = slot;
+            accumulator.value = slot;
+        }
     }
     fn expression(self: *Builder, value: extract.Expression, basis: *const space.Space, summary: []const p.Id, inputs: []const p.Id) Error!p.Id {
         const coefficients = (try basis.coefficients(value.state, self.budget)) orelse return error.UnrepresentableAffineObservation;
-        var result: ?p.Id = null;
+        var result: Accumulator = .{};
         for (summary, 0..) |slot, i| if (coefficients & space.coordinate(i) != 0) {
-            result = try self.combine(result, slot);
+            try self.combine(&result, slot);
         };
         for (inputs, 0..) |slot, i| if (value.input & space.coordinate(i) != 0) {
-            result = try self.combine(result, slot);
+            try self.combine(&result, slot);
         };
         var offset = value.constant;
         for (self.input_bias, 0..) |bias, i| if (value.input & space.coordinate(i) != 0) {
             offset ^= bias;
         };
-        if (offset != 0) result = try self.combine(result, try self.constant(offset));
-        return result orelse try self.constant(0);
+        if (offset != 0) try self.combine(&result, try self.constant(offset));
+        return result.value orelse try self.constant(0);
     }
     fn biased(self: *Builder, slot: p.Id, bias: u64) Error!p.Id {
         return if (bias == 0) slot else self.append(.integer_bit_xor, &.{ slot, try self.constant(bias) }, 0);
     }
     fn original(self: *Builder, row: space.Row, operands: []const p.Id) Error!p.Id {
-        var result: ?p.Id = null;
+        var result: Accumulator = .{};
         for (operands, 0..) |slot, i| if (row & space.coordinate(i) != 0) {
-            result = try self.combine(result, slot);
+            try self.combine(&result, slot);
         };
-        return result orelse try self.constant(0);
+        return result.value orelse try self.constant(0);
     }
 };
 fn remap(builder: *Builder, slot: p.Id, values: []const ?extract.Expression, basis: *const space.Space, summary: []const p.Id, inputs: []const p.Id) Error!p.Id {
@@ -109,7 +124,11 @@ pub fn construct(allocator: std.mem.Allocator, original: ir.Program, constructor
     return constructBasis(allocator, original, constructor_id, work_limit, .observations);
 }
 pub fn constructBasis(allocator: std.mem.Allocator, original: ir.Program, constructor_id: usize, work_limit: u64, choice: Basis) Error!?Candidate {
-    var plan = (try census.analyze(allocator, original, constructor_id, work_limit)) orelse return null;
+    return constructTarget(allocator, original, .{ .capture = constructor_id }, work_limit, choice);
+}
+pub fn constructTarget(allocator: std.mem.Allocator, original: ir.Program, target: census.Target, work_limit: u64, choice: Basis) Error!?Candidate {
+    var plan = (try census.analyzeTarget(allocator, original, target, work_limit)) orelse return null;
+    const constructor_id = plan.constructor;
     defer plan.deinit();
     if (plan.basis.len == plan.dimension) return null;
     var arena = std.heap.ArenaAllocator.init(allocator);
@@ -126,15 +145,17 @@ pub fn constructBasis(allocator: std.mem.Allocator, original: ir.Program, constr
     const functions = try a.dupe(ir.Function, original.functions);
     const blocks = try a.dupe(ir.Block, original.blocks);
     const constructors = try a.dupe(p.Constructor, original.constructors);
-    const captures = try a.alloc(p.Capture, original.scopes.captures.len + 1);
+    const captures = try a.alloc(p.Capture, original.scopes.captures.len + @intFromBool(constructor_id != null));
     @memcpy(captures[0..original.scopes.captures.len], original.scopes.captures);
-    const ctor = &constructors[constructor_id];
-    var capture = original.scopes.captures[@intCast(ctor.capture)];
-    const fields = try a.alloc(p.Id, plan.basis.len);
-    @memset(fields, plan.schema);
-    capture.fields = fields;
-    captures[original.scopes.captures.len] = capture;
-    ctor.capture = original.scopes.captures.len;
+    if (constructor_id) |id| {
+        const ctor = &constructors[id];
+        var capture = original.scopes.captures[@intCast(ctor.capture)];
+        const fields = try a.alloc(p.Id, plan.basis.len);
+        @memset(fields, plan.schema);
+        capture.fields = fields;
+        captures[original.scopes.captures.len] = capture;
+        ctor.capture = original.scopes.captures.len;
+    }
     const worker = original.functions[@intCast(plan.worker)];
     const input_slots = try a.alloc(p.Id, worker.inputs.len - plan.dimension + plan.basis.len);
     @memcpy(input_slots[0..plan.basis.len], worker.inputs[0..plan.basis.len]);
@@ -152,7 +173,7 @@ pub fn constructBasis(allocator: std.mem.Allocator, original: ir.Program, constr
         if (block.function != plan.worker) {
             for (block.instructions) |op| {
                 var replacement = op;
-                if (op.opcode == .computation and op.immediate == constructor_id) {
+                if (constructor_id != null and op.opcode == .computation and op.immediate == constructor_id.?) {
                     const operands = try a.alloc(p.Id, plan.basis.len);
                     for (plan.basis, operands) |row, *operand| operand.* = try builder.original(row, op.operands);
                     replacement.operands = operands;
@@ -166,7 +187,7 @@ pub fn constructBasis(allocator: std.mem.Allocator, original: ir.Program, constr
                 for (call.arguments[plan.dimension..], arguments[plan.basis.len..], plan.input_bias) |slot, *argument, bias| argument.* = try builder.biased(slot, bias);
                 out.terminator.call.arguments = arguments;
             }
-            if (block.terminator == .apply and appliesConstructor(original, block.function, block.terminator.apply.computation, constructor_id)) {
+            if (constructor_id != null and block.terminator == .apply and appliesConstructor(original, block.function, block.terminator.apply.computation, constructor_id.?)) {
                 const arguments = try a.dupe(p.Id, block.terminator.apply.arguments);
                 for (arguments, plan.input_bias) |*argument, bias| argument.* = try builder.biased(argument.*, bias);
                 out.terminator.apply.arguments = arguments;

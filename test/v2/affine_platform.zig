@@ -35,5 +35,15 @@ pub fn main(init: std.process.Init) !void {
         try writeCase(init, directory, name, original, false);
         const direct = try std.fmt.allocPrint(arena.allocator(), "{s}-direct", .{name});
         try writeCase(init, directory, direct, original, true);
+        if (n >= 8) {
+            var parameters = original;
+            const blocks = try arena.allocator().dupe(data.activation.Block, original.blocks);
+            blocks[0].instructions = &.{};
+            blocks[0].terminator = .{ .call = .{ .function = 1, .arguments = original.functions[0].inputs, .next = original.blocks[0].terminator.apply.next } };
+            parameters.blocks = blocks;
+            parameters.constructors = &.{};
+            const parameter_name = try std.fmt.allocPrint(arena.allocator(), "parameters-{d}", .{n});
+            try writeCase(init, directory, parameter_name, parameters, false);
+        }
     }
 }
