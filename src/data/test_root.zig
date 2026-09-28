@@ -10,6 +10,7 @@ test {
     _ = @import("contification_escape_tests.zig");
     _ = @import("common_tails_tests.zig");
     _ = @import("tail_duplication_tests.zig");
+    _ = @import("outlining_tests.zig");
     _ = @import("partial_redundancy_tests.zig");
     _ = @import("affine_extract.zig");
     _ = @import("affine_capture_tests.zig");

@@ -1,0 +1,138 @@
+{
+  "scope": "Native fresh invocation and three fresh WASM quantum-one cycles per path; working payload excludes host buffers/RSS",
+  "fixture": "outline",
+  "kernelSha256": "7d31effb1d4e32523d0fcbd5b4d5f5a8a2289fbd4c731173a33b1c174524282f",
+  "nativeSha256": "0d7b616711edf08fdbc7c97e32ce1547340ed093570fa753ba30ae25cae9278e",
+  "runnerSha256": "36b5199a511643ae80596ad4fbba26fa06b4b846b2052544ff8cce48c42f0748",
+  "rows": [
+    {
+      "name": "first",
+      "control": {
+        "imageSha256": "1bf6c6ac9e38d376b544410cbdd6546435b9ef61bf220a26b4b0392d63d91a46",
+        "native": {
+          "multiTemplates": 0,
+          "branchActivations": 0,
+          "transitions": 27,
+          "peakWorkingBytes": 18052,
+          "addedNodes": 1,
+          "copiedBlobBytes": 0
+        },
+        "wasmFreshPeak": 17182,
+        "wasmCycles": [
+          {
+            "peak": 17724,
+            "checkpointMax": 93,
+            "invocations": 27
+          },
+          {
+            "peak": 17724,
+            "checkpointMax": 93,
+            "invocations": 27
+          },
+          {
+            "peak": 17724,
+            "checkpointMax": 93,
+            "invocations": 27
+          }
+        ]
+      },
+      "candidate": {
+        "imageSha256": "7a5cba25ea165a64c7c096b07244830211457522911d7d2968e7809bf04d8f5d",
+        "native": {
+          "multiTemplates": 0,
+          "branchActivations": 0,
+          "transitions": 28,
+          "peakWorkingBytes": 15379,
+          "addedNodes": 1,
+          "copiedBlobBytes": 0
+        },
+        "wasmFreshPeak": 13659,
+        "wasmCycles": [
+          {
+            "peak": 14574,
+            "checkpointMax": 93,
+            "invocations": 28
+          },
+          {
+            "peak": 14574,
+            "checkpointMax": 93,
+            "invocations": 28
+          },
+          {
+            "peak": 14574,
+            "checkpointMax": 93,
+            "invocations": 28
+          }
+        ]
+      }
+    },
+    {
+      "name": "second",
+      "control": {
+        "imageSha256": "1bf6c6ac9e38d376b544410cbdd6546435b9ef61bf220a26b4b0392d63d91a46",
+        "native": {
+          "multiTemplates": 0,
+          "branchActivations": 0,
+          "transitions": 27,
+          "peakWorkingBytes": 18133,
+          "addedNodes": 1,
+          "copiedBlobBytes": 0
+        },
+        "wasmFreshPeak": 17489,
+        "wasmCycles": [
+          {
+            "peak": 17724,
+            "checkpointMax": 93,
+            "invocations": 27
+          },
+          {
+            "peak": 17724,
+            "checkpointMax": 93,
+            "invocations": 27
+          },
+          {
+            "peak": 17724,
+            "checkpointMax": 93,
+            "invocations": 27
+          }
+        ]
+      },
+      "candidate": {
+        "imageSha256": "7a5cba25ea165a64c7c096b07244830211457522911d7d2968e7809bf04d8f5d",
+        "native": {
+          "multiTemplates": 0,
+          "branchActivations": 0,
+          "transitions": 28,
+          "peakWorkingBytes": 15379,
+          "addedNodes": 1,
+          "copiedBlobBytes": 0
+        },
+        "wasmFreshPeak": 13659,
+        "wasmCycles": [
+          {
+            "peak": 14574,
+            "checkpointMax": 93,
+            "invocations": 28
+          },
+          {
+            "peak": 14574,
+            "checkpointMax": 93,
+            "invocations": 28
+          },
+          {
+            "peak": 14574,
+            "checkpointMax": 93,
+            "invocations": 28
+          }
+        ]
+      }
+    }
+  ],
+  "sourceFiles": {
+    "src/data/outlining.zig": "5722f40ec991769a5900bed52f70412625727d4abcc20296bcba5d373ac56f22",
+    "src/data/closed_compilation.zig": "4a3bfb019794d11f0489af7ed66d53e81d49d81e8a2f35808423ebfe34807753",
+    "src/data/root.zig": "a4e7e53e6e38ca560a2ff74db458265781868b0556756abd55fbd460ae1d161d",
+    "test/v2/outlining.zig": "79ff3482ecac50c074ad5c280ea379b1597afc0bfae5b8aeee424f01d31873b4",
+    "test/v2/outlining_platform.zig": "ee1024eddb181c83a44d6f6fa092ecc457a4bce039485a6d5d964f15869c6f82"
+  }
+}

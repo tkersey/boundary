@@ -112,6 +112,8 @@ src/data/invocation_tests.zig
 src/data/leaf_inlining.zig
 src/data/leaf_inlining_tests.zig
 src/data/linker.zig
+src/data/outlining.zig
+src/data/outlining_tests.zig
 src/data/partial_redundancy.zig
 src/data/partial_redundancy_tests.zig
 src/data/process_state.zig
@@ -247,6 +249,8 @@ test/v2/emit_scalar.zig
 test/v2/emit_source.zig
 test/v2/expression_reuse.zig
 test/v2/oracle_scopes.zig
+test/v2/outlining.zig
+test/v2/outlining_platform.zig
 test/v2/partial_redundancy.zig
 test/v2/pre_platform.zig
 test/v2/snapshot_retention.zig

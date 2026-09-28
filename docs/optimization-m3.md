@@ -450,3 +450,36 @@ and unresolved cost dispositions retain their original subjects.
 
 Final duplication qualification: 319/319 ReleaseSafe steps and 667/667 tests;
 38 focused tests and 48 native executions pass.
+
+## P21 pure-sequence outlining
+
+`outlining.zig` normalizes repeated straight-line return sequences by their actual
+input and definition order, then creates one fresh private worker. Each original
+site calls that worker with its ordered live inputs and returns the same result.
+The independent checker reconstructs the substitution from original definitions,
+checks every unchanged record and continuation, and forbids redirects to existing
+handler authority. The first fragment is single-assignment, total scalar code with
+copyable/exportable values, one custody scope and no effects or regions.
+
+Sequences must exceed the existing eight-instruction leaf-inlining fragment;
+outlining runs after shrinking passes. A second semantic compilation is required
+to preserve the selected image, guarding against inline/outline oscillation. Exact
+mandatory-P01 image sizes reject nonshrinking candidates. Original/fresh admission,
+allocation cleanup and work/site bounds remain intact.
+
+The selected witness shares a 25-instruction sequence at two sites. It introduces
+two static call sites and one dynamic call per invocation. Native execution passes
+24 original/checked/semantic/source-free cases. Platform checks pass 72 cross-engine
+comparisons, three same-image restores, three wrong-image rejections and six
+malformed inputs. All ten paired timing cells against dd6fec5 complete without a
+confirmed slowdown, despite transitions increasing from 27 to 28.
+
+Native/WASM admission peak falls 2808/4670 bytes and retained storage falls
+2726/3604 bytes. Invocation peak falls 2673–2754 bytes native and 3523–3830 bytes
+WASM, while checkpoint maxima remain 93 bytes. These are fixture-specific measured
+tradeoffs, not an inference from image size. Exact evidence is retained in
+`performance/m3-p21-outline-*.json`. Full consumer qualification and remaining
+programme obligations are still open.
+
+Final outlining qualification: 319/319 ReleaseSafe steps and 673/673 tests;
+37 focused tests and 24 native executions pass. Sixty prior images are byte-identical.
