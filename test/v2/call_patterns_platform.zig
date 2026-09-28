@@ -15,10 +15,11 @@ pub fn main(init: std.process.Init) !void {
     const directory = args.next() orelse return error.Directory;
     const mode = args.next();
     const variants = if (mode) |name| std.mem.eql(u8, name, "variants") else false;
-    if ((mode != null and !variants) or args.next() != null) return error.Arguments;
-    const names: []const []const u8 = if (variants) &.{ "variant-fallback-checked", "variant-fallback-shared", "variant-fallback-linked", "variant-total-checked", "variant-total-shared", "variant-total-linked", "variant-overwritten-checked", "variant-overwritten-shared", "variant-overwritten-linked" } else &.{ "callable-checked", "callable-shared", "callable-linked" };
+    const constants = if (mode) |name| std.mem.eql(u8, name, "constants") else false;
+    if ((mode != null and !variants and !constants) or args.next() != null) return error.Arguments;
+    const names: []const []const u8 = if (constants) &.{ "constant-checked", "constant-shared", "constant-linked" } else if (variants) &.{ "variant-fallback-checked", "variant-fallback-shared", "variant-fallback-linked", "variant-total-checked", "variant-total-shared", "variant-total-linked", "variant-overwritten-checked", "variant-overwritten-shared", "variant-overwritten-linked" } else &.{ "callable-checked", "callable-shared", "callable-linked" };
     for (names, 0..) |name, index| {
-        var original = if (variants) fixtures.tagged else fixtures.repeated;
+        var original = if (constants) fixtures.choice else if (variants) fixtures.tagged else fixtures.repeated;
         var blocks = fixtures.tagged.blocks[0..7].*;
         if (variants) {
             if (index / 3 == 1) blocks[4].instructions = fixtures.tagged.blocks[1].instructions;
@@ -29,7 +30,7 @@ pub fn main(init: std.process.Init) !void {
         defer baseline.deinit();
         try save(init, directory, name, "structural", baseline.program);
         if (index % 3 == 2) {
-            const object: data.component.Object = .{ .program = original, .exports = &.{.{ .name = "main", .reference = .{ .kind = .function, .id = 0 } }}, .borrows = if (variants) &.{ .{ .function = 0 }, .{ .function = 1 } } else &.{ .{ .function = 0 }, .{ .function = 1 }, .{ .function = 2 }, .{ .function = 3 } } };
+            const object: data.component.Object = .{ .program = original, .exports = &.{.{ .name = "main", .reference = .{ .kind = .function, .id = 0 } }}, .borrows = if (variants or constants) &.{ .{ .function = 0 }, .{ .function = 1 } } else &.{ .{ .function = 0 }, .{ .function = 1 }, .{ .function = 2 }, .{ .function = 3 } } };
             const bytes = try init.gpa.alloc(u8, try data.component.encodedLength(object));
             defer init.gpa.free(bytes);
             _ = try data.component.encode(init.gpa, object, bytes);

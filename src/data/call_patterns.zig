@@ -15,11 +15,11 @@ const image = @import("program_image.zig");
 const p01 = @import("coalescing.zig");
 pub const Error = facts.Error || p01.Error || error{ InvalidCallPattern, CallPatternLimit };
 pub const Options = struct { work_limit: u64 = 1_000_000, max_variants: usize = 16, max_added_blocks: usize = 256, max_added_bytes: usize = 4096, coalescing: p01.Options = .{} };
-pub const Static = union(enum) { constructor: p.Id, variant: p.Id };
+pub const Static = union(enum) { constructor: p.Id, variant: p.Id, boolean: bool };
 pub const Key = struct { epoch: [32]u8, function: p.Id, parameter: usize, schema: p.Id, value: Static };
 pub const Variant = struct { key: Key, function: p.Id, first_block: usize };
 pub const Site = struct { block: usize, variant: usize, payload: ?p.Id = null };
-pub const Statistics = struct { variants: usize = 0, rewritten_calls: usize = 0, direct_applications: usize = 0, variant_projections: usize = 0, variant_switches: usize = 0, retained_calls: usize = 0, generic_fallback_calls: usize = 0, work_limit: bool = false };
+pub const Statistics = struct { variants: usize = 0, rewritten_calls: usize = 0, direct_applications: usize = 0, variant_projections: usize = 0, variant_switches: usize = 0, constant_branches: usize = 0, retained_calls: usize = 0, generic_fallback_calls: usize = 0, work_limit: bool = false };
 pub const Candidate = struct {
     arena: std.heap.ArenaAllocator,
     program: ir.Program,
@@ -62,6 +62,7 @@ fn parameterEligible(program: ir.Program, function_id: p.Id, parameter: usize, v
     const slot = function.inputs[parameter];
     const schema = program.schemas[@intCast(function.layout.slots[@intCast(slot)])];
     switch (value) {
+        .boolean => if (schema != .boolean) return false,
         .constructor => |id| {
             if (schema != .internal or schema.internal != .computation or schema.internal.computation.use != .reusable or !try closedLeaf(program, id, budget)) return false;
         },
@@ -93,7 +94,13 @@ fn parameterEligible(program: ir.Program, function_id: p.Id, parameter: usize, v
                 if (value != .variant or branch.value != slot or usage.reads != 1) return false;
                 uses += 1;
             },
-            .return_value, .fail, .jump, .branch => if (usage.reads != 0) return false,
+            .branch => |branch| {
+                if (value == .boolean and branch.condition == slot) {
+                    if (usage.reads != 1) return false;
+                    uses += 1;
+                } else if (usage.reads != 0) return false;
+            },
+            .return_value, .fail, .jump => if (usage.reads != 0) return false,
             else => return false,
         }
     }
@@ -105,7 +112,7 @@ pub fn possible(program: ir.Program) bool {
         if (function.effects.len != 0 or function.regions.len != 0) continue;
         for (function.inputs) |slot| {
             const schema = program.schemas[@intCast(function.layout.slots[@intCast(slot)])];
-            if (schema == .sum or (schema == .internal and schema.internal == .computation and schema.internal.computation.use == .reusable)) return true;
+            if (schema == .boolean or schema == .sum or (schema == .internal and schema.internal == .computation and schema.internal.computation.use == .reusable)) return true;
         }
     }
     return false;
@@ -186,7 +193,7 @@ pub fn construct(allocator: std.mem.Allocator, original: ir.Program, options: Op
         for (call.arguments, 0..) |argument, parameter| {
             try budget.tick();
             const value = block_facts.definitions[block_facts.exit[@intCast(argument)]].value;
-            const known: Static = if (value.constructor) |id| .{ .constructor = id } else if (value.variants.singleton()) |tag| .{ .variant = tag } else continue;
+            const known: Static = if (value.constructor) |id| .{ .constructor = id } else if (value.variants.singleton()) |tag| .{ .variant = tag } else if (value.boolean) |flag| .{ .boolean = flag } else continue;
             if (!try parameterEligible(original, call.function, parameter, known, permissions, &budget)) continue;
             const payload: ?p.Id = if (known == .variant) (try discoveredPayload(block, block_facts, argument, known.variant, &budget)) orelse continue else null;
             const callee = original.functions[@intCast(call.function)];
@@ -221,7 +228,7 @@ pub fn construct(allocator: std.mem.Allocator, original: ir.Program, options: Op
         const before = original.functions[@intCast(variant.key.function)];
         var worker = before;
         worker.entry = translated(original, variant, before.entry);
-        if (variant.key.value == .constructor) {
+        if (variant.key.value != .variant) {
             worker.inputs = try without(a, before.inputs, variant.key.parameter);
         } else {
             const slots = try a.dupe(p.Id, before.layout.slots);
@@ -247,8 +254,12 @@ pub fn construct(allocator: std.mem.Allocator, original: ir.Program, options: Op
                 .switch_variant => |branch| copy.terminator = .{ .jump = translatedEdge(original, variant, branch.cases[@intCast(variant.key.value.variant)]) },
                 .jump => |edge| copy.terminator.jump = translatedEdge(original, variant, edge),
                 .branch => |branch| {
-                    copy.terminator.branch.when_true = translatedEdge(original, variant, branch.when_true);
-                    copy.terminator.branch.when_false = translatedEdge(original, variant, branch.when_false);
+                    if (variant.key.value == .boolean and branch.condition == before.inputs[variant.key.parameter]) {
+                        copy.terminator = .{ .jump = translatedEdge(original, variant, if (variant.key.value.boolean) branch.when_true else branch.when_false) };
+                    } else {
+                        copy.terminator.branch.when_true = translatedEdge(original, variant, branch.when_true);
+                        copy.terminator.branch.when_false = translatedEdge(original, variant, branch.when_false);
+                    }
                 },
                 .return_value, .fail => {},
                 else => unreachable,
@@ -262,7 +273,7 @@ pub fn construct(allocator: std.mem.Allocator, original: ir.Program, options: Op
         const variant = variants.items[site.variant];
         const call = &blocks[site.block].terminator.call;
         call.function = variant.function;
-        if (variant.key.value == .constructor) {
+        if (variant.key.value != .variant) {
             call.arguments = try without(a, call.arguments, variant.key.parameter);
         } else {
             const arguments = try a.dupe(p.Id, call.arguments);
@@ -325,7 +336,7 @@ pub fn validate(allocator: std.mem.Allocator, original: ir.Program, candidate: i
         metadata.inputs = function.inputs;
         if (variant.key.value == .variant) metadata.layout = function.layout;
         if (!equal(ir.Function, function, metadata)) return error.InvalidCallPattern;
-        if (variant.key.value == .constructor) {
+        if (variant.key.value != .variant) {
             if (worker.inputs.len + 1 != function.inputs.len) return error.InvalidCallPattern;
             var index: usize = 0;
             for (function.inputs, 0..) |input, position| {
@@ -373,9 +384,15 @@ pub fn validate(allocator: std.mem.Allocator, original: ir.Program, candidate: i
                     term = block.terminator;
                 },
                 .branch => |branch| {
-                    if (term != .branch or !edgeCorresponds(original, variant, branch.when_true, term.branch.when_true) or !edgeCorresponds(original, variant, branch.when_false, term.branch.when_false)) return error.InvalidCallPattern;
-                    term.branch.when_true = branch.when_true;
-                    term.branch.when_false = branch.when_false;
+                    if (variant.key.value == .boolean and branch.condition == slot) {
+                        const selected = if (variant.key.value.boolean) branch.when_true else branch.when_false;
+                        if (term != .jump or !edgeCorresponds(original, variant, selected, term.jump)) return error.InvalidCallPattern;
+                        term = block.terminator;
+                    } else {
+                        if (term != .branch or !edgeCorresponds(original, variant, branch.when_true, term.branch.when_true) or !edgeCorresponds(original, variant, branch.when_false, term.branch.when_false)) return error.InvalidCallPattern;
+                        term.branch.when_true = branch.when_true;
+                        term.branch.when_false = branch.when_false;
+                    }
                 },
                 .return_value, .fail => {},
                 else => return error.InvalidCallPattern,
@@ -402,8 +419,13 @@ pub fn validate(allocator: std.mem.Allocator, original: ir.Program, candidate: i
                 if (proof.exhausted) return error.CallPatternLimit;
                 return error.InvalidCallPattern;
             };
-            if (variant.key.value == .constructor) {
-                if (known != .constructor or known.constructor != variant.key.value.constructor or item.payload != null or new.terminator.call.arguments.len + 1 != call.arguments.len) return error.InvalidCallPattern;
+            if (variant.key.value != .variant) {
+                const matches = switch (variant.key.value) {
+                    .constructor => |id| known == .constructor and known.constructor == id,
+                    .boolean => |flag| known == .boolean and known.boolean == flag,
+                    .variant => unreachable,
+                };
+                if (!matches or item.payload != null or new.terminator.call.arguments.len + 1 != call.arguments.len) return error.InvalidCallPattern;
                 var index: usize = 0;
                 for (call.arguments, 0..) |argument, position| {
                     if (position == variant.key.parameter) continue;
@@ -453,6 +475,7 @@ pub fn run(allocator: std.mem.Allocator, original: ir.Program, statistics: ?*Sta
     stats.rewritten_calls = candidate.sites.len;
     for (candidate.variants) |variant| for (original.blocks) |block| if (block.function == variant.key.function) {
         if (block.terminator == .apply) stats.direct_applications += 1;
+        if (variant.key.value == .boolean and block.terminator == .branch and block.terminator.branch.condition == original.functions[@intCast(variant.key.function)].inputs[variant.key.parameter]) stats.constant_branches += 1;
         if (variant.key.value == .variant) {
             if (block.terminator == .switch_variant) stats.variant_switches += 1;
             const slot = original.functions[@intCast(variant.key.function)].inputs[variant.key.parameter];

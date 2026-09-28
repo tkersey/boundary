@@ -182,3 +182,65 @@ test "World preserves variant payload specialization and failing fallback after 
         };
     }
 }
+
+pub const choice: ir.Program = .{
+    .roots = .{ .entry = 0, .result = 0, .failure = 2 },
+    .schemas = &.{ .u64, .boolean, .unit },
+    .constants = &.{ .{ .schema = 1, .bytes = &.{1} }, .{ .schema = 1, .bytes = &.{0} } },
+    .effects = &.{},
+    .functions = &.{
+        .{ .entry = 0, .inputs = &.{ 0, 1, 2 }, .layout = .{ .slots = &.{ 0, 0, 1, 1, 0 } }, .result = 0 },
+        .{ .entry = 4, .inputs = &.{ 0, 1, 2 }, .layout = .{ .slots = &.{ 1, 0, 0 } }, .result = 0 },
+    },
+    .blocks = &.{
+        .{ .function = 0, .instructions = &.{}, .terminator = .{ .branch = .{ .condition = 2, .when_true = .{ .block = 1 }, .when_false = .{ .block = 2 } } } },
+        .{ .function = 0, .instructions = &.{.{ .destination = 3, .opcode = .constant, .immediate = 0 }}, .terminator = .{ .call = .{ .function = 1, .arguments = &.{ 3, 0, 1 }, .next = .{ .block = 3, .assignments = &.{.{ .destination = 4, .source = .returned }} } } } },
+        .{ .function = 0, .instructions = &.{.{ .destination = 3, .opcode = .constant, .immediate = 1 }}, .terminator = .{ .call = .{ .function = 1, .arguments = &.{ 3, 0, 1 }, .next = .{ .block = 3, .assignments = &.{.{ .destination = 4, .source = .returned }} } } } },
+        .{ .function = 0, .instructions = &.{}, .terminator = .{ .return_value = 4 } },
+        .{ .function = 1, .instructions = &.{}, .terminator = .{ .branch = .{ .condition = 0, .when_true = .{ .block = 5 }, .when_false = .{ .block = 6 } } } },
+        .{ .function = 1, .instructions = &.{}, .terminator = .{ .return_value = 1 } },
+        .{ .function = 1, .instructions = &.{}, .terminator = .{ .return_value = 2 } },
+    },
+};
+
+test "World executes proved Boolean workers and unknown fallback through closed linking" {
+    for (0..2) |fixture| {
+        var original = choice;
+        var blocks = choice.blocks[0..7].*;
+        var functions = choice.functions[0..2].*;
+        if (fixture == 1) {
+            functions[0].inputs = &.{ 0, 1, 2, 3 };
+            blocks[1].instructions = &.{};
+        }
+        original.blocks = &blocks;
+        original.functions = &functions;
+        var checked = try patterns.run(a, original, null, .{});
+        defer checked.deinit();
+        var compiled = try data.closed_compilation.run(a, original, .{ .contract = .semantic });
+        defer compiled.deinit();
+        const object: data.component.Object = .{ .program = original, .exports = &.{.{ .name = "main", .reference = .{ .kind = .function, .id = 0 } }}, .borrows = &.{ .{ .function = 0 }, .{ .function = 1 } } };
+        const encoded = try a.alloc(u8, try data.component.encodedLength(object));
+        defer a.free(encoded);
+        _ = try data.component.encode(a, object, encoded);
+        var linked = try data.linker.linkWithCompilation(a, &.{.{ .key = "constants", .object = encoded }}, &.{}, .{ .instance = "constants", .symbol = "main" }, .{ .contract = .semantic });
+        defer linked.deinit();
+        @memset(encoded, 0xff);
+        for ([_][2]u64{ .{ 0, 1 }, .{ 7, 11 }, .{ std.math.maxInt(u64), 0 } }) |words| for ([_]bool{ false, true }) |branch| for ([_]bool{ false, true }) |unknown| {
+            var args: [18]u8 = undefined;
+            std.mem.writeInt(u64, args[0..8], words[0], .little);
+            std.mem.writeInt(u64, args[8..16], words[1], .little);
+            args[16] = @intFromBool(branch);
+            args[17] = @intFromBool(unknown);
+            const expected = if (branch and (fixture == 0 or unknown)) words[0] else words[1];
+            for ([_]ir.Program{ original, checked.program, compiled.program, linked.program }) |program| {
+                const bytes = try a.alloc(u8, try data.program_image.encodedLength(program));
+                defer a.free(bytes);
+                _ = try data.program_image.encode(a, program, bytes);
+                var result = try world.invocation.invoke(a, .{ .image = bytes, .instance = .{ .initial_args = args[0..if (fixture == 0) @as(usize, 17) else 18] } });
+                defer result.deinit();
+                try std.testing.expect(result.record == .completed);
+                try std.testing.expectEqual(expected, std.mem.readInt(u64, result.record.completed[0..8], .little));
+            }
+        };
+    }
+}

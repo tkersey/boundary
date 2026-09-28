@@ -1,0 +1,138 @@
+{
+  "scope": "Native fresh invocation and three fresh WASM quantum-one cycles per path; working payload excludes host buffers/RSS",
+  "fixture": "constant",
+  "kernelSha256": "7d31effb1d4e32523d0fcbd5b4d5f5a8a2289fbd4c731173a33b1c174524282f",
+  "nativeSha256": "0d7b616711edf08fdbc7c97e32ce1547340ed093570fa753ba30ae25cae9278e",
+  "runnerSha256": "43d2552776d8d289347f3a7a3305e3452846c99713c1eef9b47240d5af08da48",
+  "rows": [
+    {
+      "name": "first",
+      "control": {
+        "imageSha256": "92dc1b0403aa3caa5ddcb7025cc45e8059ac791968c14461a64f4e90d1b2ac8f",
+        "native": {
+          "multiTemplates": 0,
+          "branchActivations": 0,
+          "transitions": 5,
+          "peakWorkingBytes": 9678,
+          "addedNodes": 1,
+          "copiedBlobBytes": 0
+        },
+        "wasmFreshPeak": 7891,
+        "wasmCycles": [
+          {
+            "peak": 9004,
+            "checkpointMax": 104,
+            "invocations": 5
+          },
+          {
+            "peak": 9004,
+            "checkpointMax": 104,
+            "invocations": 5
+          },
+          {
+            "peak": 9004,
+            "checkpointMax": 104,
+            "invocations": 5
+          }
+        ]
+      },
+      "candidate": {
+        "imageSha256": "73d45377ce2b510e098ec8270c2059f058ca69b1bbe7d2b6e60d14062707cccd",
+        "native": {
+          "multiTemplates": 0,
+          "branchActivations": 0,
+          "transitions": 4,
+          "peakWorkingBytes": 8168,
+          "addedNodes": 1,
+          "copiedBlobBytes": 0
+        },
+        "wasmFreshPeak": 6519,
+        "wasmCycles": [
+          {
+            "peak": 7770,
+            "checkpointMax": 82,
+            "invocations": 4
+          },
+          {
+            "peak": 7770,
+            "checkpointMax": 82,
+            "invocations": 4
+          },
+          {
+            "peak": 7770,
+            "checkpointMax": 82,
+            "invocations": 4
+          }
+        ]
+      }
+    },
+    {
+      "name": "second",
+      "control": {
+        "imageSha256": "92dc1b0403aa3caa5ddcb7025cc45e8059ac791968c14461a64f4e90d1b2ac8f",
+        "native": {
+          "multiTemplates": 0,
+          "branchActivations": 0,
+          "transitions": 5,
+          "peakWorkingBytes": 9678,
+          "addedNodes": 1,
+          "copiedBlobBytes": 0
+        },
+        "wasmFreshPeak": 7891,
+        "wasmCycles": [
+          {
+            "peak": 9004,
+            "checkpointMax": 104,
+            "invocations": 5
+          },
+          {
+            "peak": 9004,
+            "checkpointMax": 104,
+            "invocations": 5
+          },
+          {
+            "peak": 9004,
+            "checkpointMax": 104,
+            "invocations": 5
+          }
+        ]
+      },
+      "candidate": {
+        "imageSha256": "73d45377ce2b510e098ec8270c2059f058ca69b1bbe7d2b6e60d14062707cccd",
+        "native": {
+          "multiTemplates": 0,
+          "branchActivations": 0,
+          "transitions": 4,
+          "peakWorkingBytes": 8168,
+          "addedNodes": 1,
+          "copiedBlobBytes": 0
+        },
+        "wasmFreshPeak": 6519,
+        "wasmCycles": [
+          {
+            "peak": 7770,
+            "checkpointMax": 82,
+            "invocations": 4
+          },
+          {
+            "peak": 7770,
+            "checkpointMax": 82,
+            "invocations": 4
+          },
+          {
+            "peak": 7770,
+            "checkpointMax": 82,
+            "invocations": 4
+          }
+        ]
+      }
+    }
+  ],
+  "sourceFiles": {
+    "src/data/call_patterns.zig": "bce696edda34b2bb12d9b82a71fb080b12322e558fba304e1708997a78030eeb",
+    "src/data/closed_compilation.zig": "dbc6636b189c60652db6a73f915cd640f18a453881743152626cf31045ca848f",
+    "src/data/root.zig": "89481dd3a2ceb82140c56c0d89e4b699578ff2ffab4d75b0fa8de0deb3266ceb",
+    "test/v2/call_patterns.zig": "30d52d1da6523c807e9198a3619358cda3fb4d25b38349e46510c9f3c2893c7f",
+    "test/v2/call_patterns_platform.zig": "939e8cb8435707bfc491c10743b48126e9861b9159f40baa038e19a8fd36697c"
+  }
+}

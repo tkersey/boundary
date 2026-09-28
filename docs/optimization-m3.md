@@ -194,3 +194,41 @@ checkpoint. Its unresolved 6.8% WASM cost is preserved, not reclassified as a wi
 from the separate variant fixture. Broader constant/schema/evidence specializations,
 recursive generalization, cumulative consumer qualification and later programme
 requirements remain open. This is not full P09 or M3 closure.
+
+## P09 proved Boolean branch arguments
+
+The same specialization key now carries a proved Boolean value. This first
+constant slice removes a read-only Boolean parameter used to choose private
+branches, substitutes the exact selected edges in each worker, and preserves
+the order of every remaining argument. Unknown inputs retain the generic worker.
+Instructions and unrelated branches remain unchanged; parameter overwrites,
+escapes and privileged entries remain ineligible. No runtime observation is
+promoted into a static constant.
+
+Forward facts discover the constant; the independent backwards origin checker
+must prove the same value at every rewritten call. The full program epoch and
+exact schema remain part of the key. Wrong selected edges, forged Boolean values
+and changed constant bytes reject. Growth/work exhaustion returns the mandatory
+P01 baseline, and allocation-failure coverage checks temporary ownership.
+
+The shared pipeline selects the constant-worker candidate and leaves only the
+host-selected branch in its witness. Native World covers both Boolean values
+and an unknown-argument fallback through original, checked, semantic and
+source-free linked programs. The cumulative native suite now passes 300
+executions. Other scalar constants, schema/evidence specializations and recursive
+generalization remain open; this slice does not narrow the full P09 obligation.
+
+Platform validation adds 72 cross-engine comparisons, three same-image restores,
+three wrong-image rejections and six malformed inputs. Final ReleaseSafe
+validation passes 319/319 steps and 627/627 tests; focused constant validation
+passes 37/37 tests. Ten paired timing cells
+against 824a01b complete without a confirmed slowdown. The selected image is
+102 bytes versus 129 for the structural fixture. Native/WASM admission peak
+falls 388/1032 bytes, retained storage falls 1486/1230 bytes, and fresh invocation
+peak falls 1510/1372 bytes. Maximum checkpoints fall from 104 to 82 bytes on
+both paths. Raw observations and source/image/tool identities are retained in
+`performance/m3-p09-constant-*.json`.
+
+Twenty-four previously qualified callable and variant images remain byte-identical.
+Their existing evidence is reused only for those exact inputs and the unchanged
+runtime; the earlier unaccepted costs remain unresolved.
