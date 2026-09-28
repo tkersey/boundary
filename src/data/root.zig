@@ -1,6 +1,10 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
 //! Portable definitions and pure admission. This module never executes programs.
 pub const wire = @import("wire.zig");
+pub const affine_capture = @import("affine_capture.zig");
+/// Candidate construction only; does not certify transformation equivalence.
+pub const affine_candidate = @import("affine_emit.zig");
+pub const affine_state = @import("affine_state.zig");
 pub const program = @import("program.zig");
 pub const activation = @import("activation.zig");
 pub const total_clause = @import("total_clause.zig");
