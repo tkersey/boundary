@@ -1,0 +1,2412 @@
+{
+  "status": "complete",
+  "scope": "Selected captures fixture; exact images and tool hashes below. Complete cycle includes quantum-one checkpoint/restore.",
+  "controlSource": "5ec2d565edff5d39e4bf182d46da07d8182be30f",
+  "environment": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "os": "27.2.0",
+    "cpu": "Apple M2 Pro",
+    "node": "v26.10.0"
+  },
+  "kernelSha256": "7d31effb1d4e32523d0fcbd5b4d5f5a8a2289fbd4c731173a33b1c174524282f",
+  "imageHashes": {
+    "control": "705d0de89a9d414fe66dc88815e5a2449246865493c138fd348faff10b432b60",
+    "candidate": "b7458ad40360fef1a9886ce27e9a02f6abcbd03e6151d1a4a63807653d417396"
+  },
+  "executables": {
+    "admission": {
+      "file": "m2-admission-timing",
+      "sha256": "de1efbaa5fc1f6e8be5d56aea4f1abbe7c96a9d8a7c02f7992ecbc336dc8b931"
+    },
+    "fresh": {
+      "file": "replay-bench",
+      "sha256": "af226bdcf394aada1f415016ced537d57da0927c1625bec67d39ee7fc84669bd"
+    },
+    "cycle": {
+      "file": "m25-cycle-timing",
+      "sha256": "6a3a08989049ae57bc47cbd6d27e73c5bcf51e9af70f289c12c5855769db8da8"
+    },
+    "memory": {
+      "file": "m2-admission-memory",
+      "sha256": "2edfd4edfac856babcd6236c0d262ceb3676ba2c12469d473f21a28a78366d3e"
+    }
+  },
+  "memory": {
+    "control": {
+      "native": {
+        "samplesNs": [
+          7709,
+          7667,
+          7458,
+          7458,
+          7458,
+          7959,
+          9625,
+          9000,
+          7708
+        ],
+        "peakBytes": 10152,
+        "retainedBytes": 9242
+      },
+      "wasmAdmission": {
+        "peak": 9688,
+        "retained": 7748,
+        "capacity": 1179648
+      }
+    },
+    "candidate": {
+      "native": {
+        "samplesNs": [
+          9084,
+          9000,
+          8833,
+          8875,
+          8875,
+          8875,
+          8792,
+          8791,
+          8875
+        ],
+        "peakBytes": 11116,
+        "retainedBytes": 10180
+      },
+      "wasmAdmission": {
+        "peak": 11226,
+        "retained": 8818,
+        "capacity": 1179648
+      }
+    }
+  },
+  "protocol": "Three alternating windows; three warmups/nine samples; two extra windows if an initial median ratio exceeds 1.05. No exclusive-host claim.",
+  "cells": [
+    {
+      "engine": "native",
+      "phase": "admission",
+      "path": "identity-first",
+      "windows": [
+        {
+          "order": [
+            "control",
+            "candidate"
+          ],
+          "control": {
+            "samplesNs": [
+              7319,
+              7322,
+              7335,
+              7333,
+              7569,
+              7311,
+              7384,
+              7286,
+              7357
+            ],
+            "peakBytes": 10152,
+            "retainedBytes": 9242
+          },
+          "candidate": {
+            "samplesNs": [
+              8837,
+              8788,
+              8752,
+              9024,
+              8822,
+              8751,
+              8876,
+              8740,
+              8765
+            ],
+            "peakBytes": 11116,
+            "retainedBytes": 10180
+          },
+          "ratio": 1.198418109914087
+        },
+        {
+          "order": [
+            "candidate",
+            "control"
+          ],
+          "control": {
+            "samplesNs": [
+              7295,
+              7287,
+              7376,
+              7319,
+              7320,
+              7324,
+              7296,
+              7315,
+              7308
+            ],
+            "peakBytes": 10152,
+            "retainedBytes": 9242
+          },
+          "candidate": {
+            "samplesNs": [
+              8906,
+              8776,
+              9390,
+              9153,
+              9035,
+              9474,
+              9226,
+              8741,
+              8735
+            ],
+            "peakBytes": 11116,
+            "retainedBytes": 10180
+          },
+          "ratio": 1.2351332877648666
+        },
+        {
+          "order": [
+            "control",
+            "candidate"
+          ],
+          "control": {
+            "samplesNs": [
+              7385,
+              7361,
+              7357,
+              7350,
+              7366,
+              7324,
+              7349,
+              7489,
+              7346
+            ],
+            "peakBytes": 10152,
+            "retainedBytes": 9242
+          },
+          "candidate": {
+            "samplesNs": [
+              8719,
+              8738,
+              8811,
+              8719,
+              8737,
+              8747,
+              8748,
+              8781,
+              8763
+            ],
+            "peakBytes": 11116,
+            "retainedBytes": 10180
+          },
+          "ratio": 1.1889357074894658
+        },
+        {
+          "order": [
+            "candidate",
+            "control"
+          ],
+          "control": {
+            "samplesNs": [
+              7304,
+              7399,
+              7484,
+              7516,
+              7306,
+              7326,
+              7368,
+              7336,
+              7344
+            ],
+            "peakBytes": 10152,
+            "retainedBytes": 9242
+          },
+          "candidate": {
+            "samplesNs": [
+              8752,
+              8918,
+              8726,
+              8760,
+              9170,
+              8731,
+              8728,
+              8746,
+              8720
+            ],
+            "peakBytes": 11116,
+            "retainedBytes": 10180
+          },
+          "ratio": 1.1909041394335511
+        },
+        {
+          "order": [
+            "control",
+            "candidate"
+          ],
+          "control": {
+            "samplesNs": [
+              7470,
+              7364,
+              7326,
+              7423,
+              7649,
+              8171,
+              7389,
+              7596,
+              7341
+            ],
+            "peakBytes": 10152,
+            "retainedBytes": 9242
+          },
+          "candidate": {
+            "samplesNs": [
+              9012,
+              8725,
+              8737,
+              8734,
+              8745,
+              8850,
+              8772,
+              8757,
+              8755
+            ],
+            "peakBytes": 11116,
+            "retainedBytes": 10180
+          },
+          "ratio": 1.1794422740132022
+        }
+      ],
+      "medianRatio": 1.1909041394335511,
+      "pairedMedianDeltaNs": 1402,
+      "confirmedSlowdown": true
+    },
+    {
+      "engine": "native",
+      "phase": "fresh",
+      "path": "identity-first",
+      "windows": [
+        {
+          "order": [
+            "control",
+            "candidate"
+          ],
+          "control": {
+            "inputBytes": 278,
+            "inputSha256": "d72724ac345819ffdfd520c3cfb3536027ea84bce21a15d09485d581aa3b83b5",
+            "outputBytes": 30,
+            "outputSha256": "b2e89ef8a8e8e60dbe0de40f06e47db8b2c65dd3de5df82076368ec4ccbddcb9",
+            "samplesNs": [
+              11458,
+              10958,
+              10834,
+              10792,
+              10667,
+              10667,
+              10667,
+              10708,
+              10709
+            ],
+            "peakWorkingBytes": 12953,
+            "allocationCalls": 51,
+            "allocatedBytes": 21899
+          },
+          "candidate": {
+            "inputBytes": 304,
+            "inputSha256": "6ba13931742eab9a1dae42f7de6796136c6617c83924234462236754d4df99dd",
+            "outputBytes": 30,
+            "outputSha256": "b2e89ef8a8e8e60dbe0de40f06e47db8b2c65dd3de5df82076368ec4ccbddcb9",
+            "samplesNs": [
+              12459,
+              11958,
+              11917,
+              11834,
+              11625,
+              11584,
+              11708,
+              11666,
+              11667
+            ],
+            "peakWorkingBytes": 13853,
+            "allocationCalls": 47,
+            "allocatedBytes": 21987
+          },
+          "ratio": 1.0932860211037445
+        },
+        {
+          "order": [
+            "candidate",
+            "control"
+          ],
+          "control": {
+            "inputBytes": 278,
+            "inputSha256": "d72724ac345819ffdfd520c3cfb3536027ea84bce21a15d09485d581aa3b83b5",
+            "outputBytes": 30,
+            "outputSha256": "b2e89ef8a8e8e60dbe0de40f06e47db8b2c65dd3de5df82076368ec4ccbddcb9",
+            "samplesNs": [
+              11750,
+              11291,
+              11208,
+              11000,
+              10916,
+              10875,
+              10833,
+              10750,
+              10792
+            ],
+            "peakWorkingBytes": 12953,
+            "allocationCalls": 51,
+            "allocatedBytes": 21899
+          },
+          "candidate": {
+            "inputBytes": 304,
+            "inputSha256": "6ba13931742eab9a1dae42f7de6796136c6617c83924234462236754d4df99dd",
+            "outputBytes": 30,
+            "outputSha256": "b2e89ef8a8e8e60dbe0de40f06e47db8b2c65dd3de5df82076368ec4ccbddcb9",
+            "samplesNs": [
+              12334,
+              11958,
+              11875,
+              11542,
+              11667,
+              11666,
+              11667,
+              11625,
+              11542
+            ],
+            "peakWorkingBytes": 13853,
+            "allocationCalls": 47,
+            "allocatedBytes": 21987
+          },
+          "ratio": 1.0687980945401245
+        },
+        {
+          "order": [
+            "control",
+            "candidate"
+          ],
+          "control": {
+            "inputBytes": 278,
+            "inputSha256": "d72724ac345819ffdfd520c3cfb3536027ea84bce21a15d09485d581aa3b83b5",
+            "outputBytes": 30,
+            "outputSha256": "b2e89ef8a8e8e60dbe0de40f06e47db8b2c65dd3de5df82076368ec4ccbddcb9",
+            "samplesNs": [
+              14792,
+              12916,
+              11125,
+              10959,
+              11167,
+              11041,
+              10792,
+              10833,
+              10791
+            ],
+            "peakWorkingBytes": 12953,
+            "allocationCalls": 51,
+            "allocatedBytes": 21899
+          },
+          "candidate": {
+            "inputBytes": 304,
+            "inputSha256": "6ba13931742eab9a1dae42f7de6796136c6617c83924234462236754d4df99dd",
+            "outputBytes": 30,
+            "outputSha256": "b2e89ef8a8e8e60dbe0de40f06e47db8b2c65dd3de5df82076368ec4ccbddcb9",
+            "samplesNs": [
+              12291,
+              12042,
+              11750,
+              11834,
+              21000,
+              11708,
+              11542,
+              11667,
+              11708
+            ],
+            "peakWorkingBytes": 13853,
+            "allocationCalls": 47,
+            "allocatedBytes": 21987
+          },
+          "ratio": 1.064215197898741
+        },
+        {
+          "order": [
+            "candidate",
+            "control"
+          ],
+          "control": {
+            "inputBytes": 278,
+            "inputSha256": "d72724ac345819ffdfd520c3cfb3536027ea84bce21a15d09485d581aa3b83b5",
+            "outputBytes": 30,
+            "outputSha256": "b2e89ef8a8e8e60dbe0de40f06e47db8b2c65dd3de5df82076368ec4ccbddcb9",
+            "samplesNs": [
+              11334,
+              11084,
+              10917,
+              10833,
+              10791,
+              10916,
+              10834,
+              10875,
+              10833
+            ],
+            "peakWorkingBytes": 12953,
+            "allocationCalls": 51,
+            "allocatedBytes": 21899
+          },
+          "candidate": {
+            "inputBytes": 304,
+            "inputSha256": "6ba13931742eab9a1dae42f7de6796136c6617c83924234462236754d4df99dd",
+            "outputBytes": 30,
+            "outputSha256": "b2e89ef8a8e8e60dbe0de40f06e47db8b2c65dd3de5df82076368ec4ccbddcb9",
+            "samplesNs": [
+              12458,
+              12208,
+              11875,
+              11666,
+              11500,
+              11625,
+              11333,
+              11625,
+              11458
+            ],
+            "peakWorkingBytes": 13853,
+            "allocationCalls": 47,
+            "allocatedBytes": 21987
+          },
+          "ratio": 1.0689655172413792
+        },
+        {
+          "order": [
+            "control",
+            "candidate"
+          ],
+          "control": {
+            "inputBytes": 278,
+            "inputSha256": "d72724ac345819ffdfd520c3cfb3536027ea84bce21a15d09485d581aa3b83b5",
+            "outputBytes": 30,
+            "outputSha256": "b2e89ef8a8e8e60dbe0de40f06e47db8b2c65dd3de5df82076368ec4ccbddcb9",
+            "samplesNs": [
+              11375,
+              11000,
+              10958,
+              10792,
+              11000,
+              10667,
+              10834,
+              10750,
+              10625
+            ],
+            "peakWorkingBytes": 12953,
+            "allocationCalls": 51,
+            "allocatedBytes": 21899
+          },
+          "candidate": {
+            "inputBytes": 304,
+            "inputSha256": "6ba13931742eab9a1dae42f7de6796136c6617c83924234462236754d4df99dd",
+            "outputBytes": 30,
+            "outputSha256": "b2e89ef8a8e8e60dbe0de40f06e47db8b2c65dd3de5df82076368ec4ccbddcb9",
+            "samplesNs": [
+              12375,
+              12000,
+              11833,
+              11666,
+              11917,
+              11500,
+              11583,
+              19292,
+              11625
+            ],
+            "peakWorkingBytes": 13853,
+            "allocationCalls": 47,
+            "allocatedBytes": 21987
+          },
+          "ratio": 1.0922097101716817
+        }
+      ],
+      "medianRatio": 1.0689655172413792,
+      "pairedMedianDeltaNs": 751,
+      "confirmedSlowdown": true
+    },
+    {
+      "engine": "native",
+      "phase": "fresh",
+      "path": "identity-second",
+      "windows": [
+        {
+          "order": [
+            "control",
+            "candidate"
+          ],
+          "control": {
+            "inputBytes": 278,
+            "inputSha256": "6a492ca6d6336ae8f7f78faefccbf5068226d6be5f7650dbf410321bd05523c2",
+            "outputBytes": 30,
+            "outputSha256": "87f65b3cecef81ef779716de4850655dd2da6fb4f037db7f9a3e8009f5531c26",
+            "samplesNs": [
+              11375,
+              11125,
+              10959,
+              10833,
+              10791,
+              10833,
+              10666,
+              10833,
+              10833
+            ],
+            "peakWorkingBytes": 12953,
+            "allocationCalls": 51,
+            "allocatedBytes": 21899
+          },
+          "candidate": {
+            "inputBytes": 304,
+            "inputSha256": "2423eb4f87c68fddd5244993b2c16283c26e282c30b3a020ff23a9aebfe54eb0",
+            "outputBytes": 30,
+            "outputSha256": "87f65b3cecef81ef779716de4850655dd2da6fb4f037db7f9a3e8009f5531c26",
+            "samplesNs": [
+              13083,
+              12458,
+              12250,
+              12042,
+              12167,
+              12042,
+              12041,
+              12167,
+              12000
+            ],
+            "peakWorkingBytes": 13853,
+            "allocationCalls": 47,
+            "allocatedBytes": 21987
+          },
+          "ratio": 1.1231422505307855
+        },
+        {
+          "order": [
+            "candidate",
+            "control"
+          ],
+          "control": {
+            "inputBytes": 278,
+            "inputSha256": "6a492ca6d6336ae8f7f78faefccbf5068226d6be5f7650dbf410321bd05523c2",
+            "outputBytes": 30,
+            "outputSha256": "87f65b3cecef81ef779716de4850655dd2da6fb4f037db7f9a3e8009f5531c26",
+            "samplesNs": [
+              11541,
+              11209,
+              11000,
+              11125,
+              10833,
+              10833,
+              10834,
+              10917,
+              10666
+            ],
+            "peakWorkingBytes": 12953,
+            "allocationCalls": 51,
+            "allocatedBytes": 21899
+          },
+          "candidate": {
+            "inputBytes": 304,
+            "inputSha256": "2423eb4f87c68fddd5244993b2c16283c26e282c30b3a020ff23a9aebfe54eb0",
+            "outputBytes": 30,
+            "outputSha256": "87f65b3cecef81ef779716de4850655dd2da6fb4f037db7f9a3e8009f5531c26",
+            "samplesNs": [
+              14875,
+              15459,
+              15209,
+              13500,
+              11667,
+              11750,
+              11625,
+              11500,
+              11666
+            ],
+            "peakWorkingBytes": 13853,
+            "allocationCalls": 47,
+            "allocatedBytes": 21987
+          },
+          "ratio": 1.0763030136484382
+        },
+        {
+          "order": [
+            "control",
+            "candidate"
+          ],
+          "control": {
+            "inputBytes": 278,
+            "inputSha256": "6a492ca6d6336ae8f7f78faefccbf5068226d6be5f7650dbf410321bd05523c2",
+            "outputBytes": 30,
+            "outputSha256": "87f65b3cecef81ef779716de4850655dd2da6fb4f037db7f9a3e8009f5531c26",
+            "samplesNs": [
+              11625,
+              11250,
+              11125,
+              11166,
+              11083,
+              10958,
+              10708,
+              10834,
+              10708
+            ],
+            "peakWorkingBytes": 12953,
+            "allocationCalls": 51,
+            "allocatedBytes": 21899
+          },
+          "candidate": {
+            "inputBytes": 304,
+            "inputSha256": "2423eb4f87c68fddd5244993b2c16283c26e282c30b3a020ff23a9aebfe54eb0",
+            "outputBytes": 30,
+            "outputSha256": "87f65b3cecef81ef779716de4850655dd2da6fb4f037db7f9a3e8009f5531c26",
+            "samplesNs": [
+              12458,
+              12083,
+              11875,
+              11792,
+              11833,
+              11750,
+              11791,
+              11666,
+              11708
+            ],
+            "peakWorkingBytes": 13853,
+            "allocationCalls": 47,
+            "allocatedBytes": 21987
+          },
+          "ratio": 1.0639718487774068
+        },
+        {
+          "order": [
+            "candidate",
+            "control"
+          ],
+          "control": {
+            "inputBytes": 278,
+            "inputSha256": "6a492ca6d6336ae8f7f78faefccbf5068226d6be5f7650dbf410321bd05523c2",
+            "outputBytes": 30,
+            "outputSha256": "87f65b3cecef81ef779716de4850655dd2da6fb4f037db7f9a3e8009f5531c26",
+            "samplesNs": [
+              11291,
+              11083,
+              11041,
+              12500,
+              11209,
+              11000,
+              10834,
+              10792,
+              10750
+            ],
+            "peakWorkingBytes": 12953,
+            "allocationCalls": 51,
+            "allocatedBytes": 21899
+          },
+          "candidate": {
+            "inputBytes": 304,
+            "inputSha256": "2423eb4f87c68fddd5244993b2c16283c26e282c30b3a020ff23a9aebfe54eb0",
+            "outputBytes": 30,
+            "outputSha256": "87f65b3cecef81ef779716de4850655dd2da6fb4f037db7f9a3e8009f5531c26",
+            "samplesNs": [
+              12458,
+              12042,
+              11750,
+              11708,
+              11625,
+              11667,
+              11625,
+              11584,
+              17459
+            ],
+            "peakWorkingBytes": 13853,
+            "allocationCalls": 47,
+            "allocatedBytes": 21987
+          },
+          "ratio": 1.060411194638167
+        },
+        {
+          "order": [
+            "control",
+            "candidate"
+          ],
+          "control": {
+            "inputBytes": 278,
+            "inputSha256": "6a492ca6d6336ae8f7f78faefccbf5068226d6be5f7650dbf410321bd05523c2",
+            "outputBytes": 30,
+            "outputSha256": "87f65b3cecef81ef779716de4850655dd2da6fb4f037db7f9a3e8009f5531c26",
+            "samplesNs": [
+              11375,
+              11208,
+              11167,
+              10958,
+              10958,
+              10917,
+              10875,
+              10750,
+              10667
+            ],
+            "peakWorkingBytes": 12953,
+            "allocationCalls": 51,
+            "allocatedBytes": 21899
+          },
+          "candidate": {
+            "inputBytes": 304,
+            "inputSha256": "2423eb4f87c68fddd5244993b2c16283c26e282c30b3a020ff23a9aebfe54eb0",
+            "outputBytes": 30,
+            "outputSha256": "87f65b3cecef81ef779716de4850655dd2da6fb4f037db7f9a3e8009f5531c26",
+            "samplesNs": [
+              12458,
+              12250,
+              12125,
+              11917,
+              11833,
+              11791,
+              12000,
+              11750,
+              11875
+            ],
+            "peakWorkingBytes": 13853,
+            "allocationCalls": 47,
+            "allocatedBytes": 21987
+          },
+          "ratio": 1.0875159700675305
+        }
+      ],
+      "medianRatio": 1.0763030136484382,
+      "pairedMedianDeltaNs": 833,
+      "confirmedSlowdown": true
+    },
+    {
+      "engine": "native",
+      "phase": "fresh",
+      "path": "third",
+      "windows": [
+        {
+          "order": [
+            "control",
+            "candidate"
+          ],
+          "control": {
+            "inputBytes": 278,
+            "inputSha256": "7545d652d137ed037939c8173a198402bb2ae278255f53635a47848244f941a7",
+            "outputBytes": 30,
+            "outputSha256": "b635b0c31a82e3639540b6dfc0a27b7399308bb0e01487d365986b30b144b200",
+            "samplesNs": [
+              11166,
+              10708,
+              10708,
+              10583,
+              10541,
+              10500,
+              10500,
+              10458,
+              10375
+            ],
+            "peakWorkingBytes": 12929,
+            "allocationCalls": 50,
+            "allocatedBytes": 21755
+          },
+          "candidate": {
+            "inputBytes": 304,
+            "inputSha256": "f1395d04a063f9b1357cfa6addfc3c47904fb55f763e21c03e505fa7b87de56a",
+            "outputBytes": 30,
+            "outputSha256": "b635b0c31a82e3639540b6dfc0a27b7399308bb0e01487d365986b30b144b200",
+            "samplesNs": [
+              53708,
+              39417,
+              16041,
+              12292,
+              11791,
+              11459,
+              11417,
+              11125,
+              11084
+            ],
+            "peakWorkingBytes": 13591,
+            "allocationCalls": 45,
+            "allocatedBytes": 21161
+          },
+          "ratio": 1.1185845745185465
+        },
+        {
+          "order": [
+            "candidate",
+            "control"
+          ],
+          "control": {
+            "inputBytes": 278,
+            "inputSha256": "7545d652d137ed037939c8173a198402bb2ae278255f53635a47848244f941a7",
+            "outputBytes": 30,
+            "outputSha256": "b635b0c31a82e3639540b6dfc0a27b7399308bb0e01487d365986b30b144b200",
+            "samplesNs": [
+              11500,
+              10959,
+              10792,
+              10625,
+              10459,
+              10417,
+              10458,
+              10583,
+              10500
+            ],
+            "peakWorkingBytes": 12929,
+            "allocationCalls": 50,
+            "allocatedBytes": 21755
+          },
+          "candidate": {
+            "inputBytes": 304,
+            "inputSha256": "f1395d04a063f9b1357cfa6addfc3c47904fb55f763e21c03e505fa7b87de56a",
+            "outputBytes": 30,
+            "outputSha256": "b635b0c31a82e3639540b6dfc0a27b7399308bb0e01487d365986b30b144b200",
+            "samplesNs": [
+              16584,
+              11625,
+              14917,
+              11584,
+              11500,
+              11250,
+              11250,
+              11250,
+              11250
+            ],
+            "peakWorkingBytes": 13591,
+            "allocationCalls": 45,
+            "allocatedBytes": 21161
+          },
+          "ratio": 1.086648398374752
+        },
+        {
+          "order": [
+            "control",
+            "candidate"
+          ],
+          "control": {
+            "inputBytes": 278,
+            "inputSha256": "7545d652d137ed037939c8173a198402bb2ae278255f53635a47848244f941a7",
+            "outputBytes": 30,
+            "outputSha256": "b635b0c31a82e3639540b6dfc0a27b7399308bb0e01487d365986b30b144b200",
+            "samplesNs": [
+              11208,
+              10875,
+              10542,
+              10541,
+              10458,
+              10417,
+              10417,
+              10583,
+              10375
+            ],
+            "peakWorkingBytes": 12929,
+            "allocationCalls": 50,
+            "allocatedBytes": 21755
+          },
+          "candidate": {
+            "inputBytes": 304,
+            "inputSha256": "f1395d04a063f9b1357cfa6addfc3c47904fb55f763e21c03e505fa7b87de56a",
+            "outputBytes": 30,
+            "outputSha256": "b635b0c31a82e3639540b6dfc0a27b7399308bb0e01487d365986b30b144b200",
+            "samplesNs": [
+              11625,
+              11250,
+              11291,
+              11167,
+              11209,
+              11084,
+              11167,
+              11000,
+              11167
+            ],
+            "peakWorkingBytes": 13591,
+            "allocationCalls": 45,
+            "allocatedBytes": 21161
+          },
+          "ratio": 1.0593871549188882
+        },
+        {
+          "order": [
+            "candidate",
+            "control"
+          ],
+          "control": {
+            "inputBytes": 278,
+            "inputSha256": "7545d652d137ed037939c8173a198402bb2ae278255f53635a47848244f941a7",
+            "outputBytes": 30,
+            "outputSha256": "b635b0c31a82e3639540b6dfc0a27b7399308bb0e01487d365986b30b144b200",
+            "samplesNs": [
+              11041,
+              10708,
+              10666,
+              10542,
+              10584,
+              10500,
+              10375,
+              10542,
+              10417
+            ],
+            "peakWorkingBytes": 12929,
+            "allocationCalls": 50,
+            "allocatedBytes": 21755
+          },
+          "candidate": {
+            "inputBytes": 304,
+            "inputSha256": "f1395d04a063f9b1357cfa6addfc3c47904fb55f763e21c03e505fa7b87de56a",
+            "outputBytes": 30,
+            "outputSha256": "b635b0c31a82e3639540b6dfc0a27b7399308bb0e01487d365986b30b144b200",
+            "samplesNs": [
+              12334,
+              11792,
+              11792,
+              11583,
+              11583,
+              11584,
+              11458,
+              11667,
+              11500
+            ],
+            "peakWorkingBytes": 13591,
+            "allocationCalls": 45,
+            "allocatedBytes": 21161
+          },
+          "ratio": 1.0988427243407324
+        },
+        {
+          "order": [
+            "control",
+            "candidate"
+          ],
+          "control": {
+            "inputBytes": 278,
+            "inputSha256": "7545d652d137ed037939c8173a198402bb2ae278255f53635a47848244f941a7",
+            "outputBytes": 30,
+            "outputSha256": "b635b0c31a82e3639540b6dfc0a27b7399308bb0e01487d365986b30b144b200",
+            "samplesNs": [
+              11084,
+              10750,
+              10792,
+              10625,
+              10375,
+              10458,
+              10458,
+              10458,
+              10291
+            ],
+            "peakWorkingBytes": 12929,
+            "allocationCalls": 50,
+            "allocatedBytes": 21755
+          },
+          "candidate": {
+            "inputBytes": 304,
+            "inputSha256": "f1395d04a063f9b1357cfa6addfc3c47904fb55f763e21c03e505fa7b87de56a",
+            "outputBytes": 30,
+            "outputSha256": "b635b0c31a82e3639540b6dfc0a27b7399308bb0e01487d365986b30b144b200",
+            "samplesNs": [
+              11959,
+              11500,
+              11375,
+              11250,
+              11167,
+              11125,
+              11000,
+              11000,
+              10917
+            ],
+            "peakWorkingBytes": 13591,
+            "allocationCalls": 45,
+            "allocatedBytes": 21161
+          },
+          "ratio": 1.0677949894817365
+        }
+      ],
+      "medianRatio": 1.086648398374752,
+      "pairedMedianDeltaNs": 917,
+      "confirmedSlowdown": true
+    },
+    {
+      "engine": "native",
+      "phase": "cycle",
+      "path": "identity-first",
+      "windows": [
+        {
+          "order": [
+            "control",
+            "candidate"
+          ],
+          "control": {
+            "samplesNs": [
+              173417,
+              179000,
+              170375,
+              170542,
+              182958,
+              168459,
+              168500,
+              168333,
+              177542
+            ],
+            "transitions": 13,
+            "scope": "Complete quantum-one fresh invocation/checkpoint/restore cycle; not isolated phase latency"
+          },
+          "candidate": {
+            "samplesNs": [
+              150542,
+              148708,
+              149958,
+              150792,
+              147833,
+              147958,
+              147417,
+              147334,
+              151041
+            ],
+            "transitions": 11,
+            "scope": "Complete quantum-one fresh invocation/checkpoint/restore cycle; not isolated phase latency"
+          },
+          "ratio": 0.871972886444395
+        },
+        {
+          "order": [
+            "candidate",
+            "control"
+          ],
+          "control": {
+            "samplesNs": [
+              172958,
+              171500,
+              169625,
+              170541,
+              168209,
+              168500,
+              167875,
+              168458,
+              168333
+            ],
+            "transitions": 13,
+            "scope": "Complete quantum-one fresh invocation/checkpoint/restore cycle; not isolated phase latency"
+          },
+          "candidate": {
+            "samplesNs": [
+              152958,
+              150208,
+              149000,
+              151750,
+              147958,
+              148208,
+              148042,
+              148334,
+              147500
+            ],
+            "transitions": 11,
+            "scope": "Complete quantum-one fresh invocation/checkpoint/restore cycle; not isolated phase latency"
+          },
+          "ratio": 0.8803204747774481
+        },
+        {
+          "order": [
+            "control",
+            "candidate"
+          ],
+          "control": {
+            "samplesNs": [
+              175125,
+              173459,
+              170500,
+              171792,
+              170125,
+              170709,
+              169250,
+              170167,
+              169917
+            ],
+            "transitions": 13,
+            "scope": "Complete quantum-one fresh invocation/checkpoint/restore cycle; not isolated phase latency"
+          },
+          "candidate": {
+            "samplesNs": [
+              153333,
+              149167,
+              148250,
+              151875,
+              147750,
+              147792,
+              147625,
+              154208,
+              147625
+            ],
+            "transitions": 11,
+            "scope": "Complete quantum-one fresh invocation/checkpoint/restore cycle; not isolated phase latency"
+          },
+          "ratio": 0.8695014662756598
+        }
+      ],
+      "medianRatio": 0.871972886444395,
+      "pairedMedianDeltaNs": -21834,
+      "confirmedSlowdown": false
+    },
+    {
+      "engine": "native",
+      "phase": "cycle",
+      "path": "identity-second",
+      "windows": [
+        {
+          "order": [
+            "control",
+            "candidate"
+          ],
+          "control": {
+            "samplesNs": [
+              187750,
+              184042,
+              182166,
+              183625,
+              181916,
+              181292,
+              182000,
+              181500,
+              181541
+            ],
+            "transitions": 14,
+            "scope": "Complete quantum-one fresh invocation/checkpoint/restore cycle; not isolated phase latency"
+          },
+          "candidate": {
+            "samplesNs": [
+              162417,
+              162625,
+              162208,
+              164875,
+              161125,
+              161750,
+              160541,
+              165500,
+              160958
+            ],
+            "transitions": 12,
+            "scope": "Complete quantum-one fresh invocation/checkpoint/restore cycle; not isolated phase latency"
+          },
+          "ratio": 0.8912527472527473
+        },
+        {
+          "order": [
+            "candidate",
+            "control"
+          ],
+          "control": {
+            "samplesNs": [
+              186167,
+              184125,
+              193375,
+              182584,
+              193750,
+              202459,
+              209542,
+              185875,
+              180833
+            ],
+            "transitions": 14,
+            "scope": "Complete quantum-one fresh invocation/checkpoint/restore cycle; not isolated phase latency"
+          },
+          "candidate": {
+            "samplesNs": [
+              163584,
+              163875,
+              168583,
+              180959,
+              161166,
+              161792,
+              161833,
+              161334,
+              162875
+            ],
+            "transitions": 12,
+            "scope": "Complete quantum-one fresh invocation/checkpoint/restore cycle; not isolated phase latency"
+          },
+          "ratio": 0.8748865266132021
+        },
+        {
+          "order": [
+            "control",
+            "candidate"
+          ],
+          "control": {
+            "samplesNs": [
+              187959,
+              184917,
+              188833,
+              189500,
+              195250,
+              209708,
+              190458,
+              197292,
+              197250
+            ],
+            "transitions": 14,
+            "scope": "Complete quantum-one fresh invocation/checkpoint/restore cycle; not isolated phase latency"
+          },
+          "candidate": {
+            "samplesNs": [
+              200542,
+              169000,
+              164500,
+              167208,
+              163125,
+              163959,
+              162791,
+              163583,
+              162917
+            ],
+            "transitions": 12,
+            "scope": "Complete quantum-one fresh invocation/checkpoint/restore cycle; not isolated phase latency"
+          },
+          "ratio": 0.8608669627949469
+        }
+      ],
+      "medianRatio": 0.8748865266132021,
+      "pairedMedianDeltaNs": -23292,
+      "confirmedSlowdown": false
+    },
+    {
+      "engine": "native",
+      "phase": "cycle",
+      "path": "third",
+      "windows": [
+        {
+          "order": [
+            "control",
+            "candidate"
+          ],
+          "control": {
+            "samplesNs": [
+              168292,
+              159917,
+              166375,
+              153291,
+              156250,
+              151875,
+              151667,
+              164708,
+              151417
+            ],
+            "transitions": 12,
+            "scope": "Complete quantum-one fresh invocation/checkpoint/restore cycle; not isolated phase latency"
+          },
+          "candidate": {
+            "samplesNs": [
+              130209,
+              120833,
+              123875,
+              124833,
+              119541,
+              120208,
+              119667,
+              120584,
+              120125
+            ],
+            "transitions": 9,
+            "scope": "Complete quantum-one fresh invocation/checkpoint/restore cycle; not isolated phase latency"
+          },
+          "ratio": 0.7717376
+        },
+        {
+          "order": [
+            "candidate",
+            "control"
+          ],
+          "control": {
+            "samplesNs": [
+              156708,
+              157375,
+              174125,
+              154500,
+              161875,
+              152333,
+              164417,
+              157625,
+              153167
+            ],
+            "transitions": 12,
+            "scope": "Complete quantum-one fresh invocation/checkpoint/restore cycle; not isolated phase latency"
+          },
+          "candidate": {
+            "samplesNs": [
+              125625,
+              128125,
+              141792,
+              120417,
+              130000,
+              120334,
+              120333,
+              119833,
+              119583
+            ],
+            "transitions": 9,
+            "scope": "Complete quantum-one fresh invocation/checkpoint/restore cycle; not isolated phase latency"
+          },
+          "ratio": 0.7651596505162828
+        },
+        {
+          "order": [
+            "control",
+            "candidate"
+          ],
+          "control": {
+            "samplesNs": [
+              170459,
+              156041,
+              168375,
+              158041,
+              169166,
+              158958,
+              158084,
+              158667,
+              164875
+            ],
+            "transitions": 12,
+            "scope": "Complete quantum-one fresh invocation/checkpoint/restore cycle; not isolated phase latency"
+          },
+          "candidate": {
+            "samplesNs": [
+              152583,
+              126375,
+              119708,
+              120375,
+              126125,
+              137333,
+              119458,
+              120416,
+              128292
+            ],
+            "transitions": 9,
+            "scope": "Complete quantum-one fresh invocation/checkpoint/restore cycle; not isolated phase latency"
+          },
+          "ratio": 0.7934485839026661
+        }
+      ],
+      "medianRatio": 0.7717376,
+      "pairedMedianDeltaNs": -35666,
+      "confirmedSlowdown": false
+    },
+    {
+      "engine": "wasm",
+      "phase": "admission",
+      "path": "identity-first",
+      "windows": [
+        {
+          "order": [
+            "control",
+            "candidate"
+          ],
+          "control": {
+            "samplesNs": [
+              49167.296875,
+              48307.265625,
+              31579.453125,
+              25796.859375,
+              24608.71875,
+              25422.515625,
+              23651.734375,
+              23462.21875,
+              24854.828125
+            ]
+          },
+          "candidate": {
+            "samplesNs": [
+              52166.65625,
+              45639.984375,
+              42456.375,
+              28931,
+              27441.4375,
+              27419.921875,
+              28111.984375,
+              27367.15625,
+              27549.515625
+            ]
+          },
+          "ratio": 1.1057908190389794
+        },
+        {
+          "order": [
+            "candidate",
+            "control"
+          ],
+          "control": {
+            "samplesNs": [
+              47098.296875,
+              47828.09375,
+              28211.53125,
+              25712.25,
+              25547.5625,
+              24401.828125,
+              23268.953125,
+              23266.90625,
+              22933.59375
+            ]
+          },
+          "candidate": {
+            "samplesNs": [
+              49485.609375,
+              46531.828125,
+              45007.203125,
+              30458.390625,
+              28520.296875,
+              30640.546875,
+              27860.765625,
+              28259.140625,
+              28190.6875
+            ]
+          },
+          "ratio": 1.1922229615839084
+        },
+        {
+          "order": [
+            "control",
+            "candidate"
+          ],
+          "control": {
+            "samplesNs": [
+              48082.015625,
+              48098.328125,
+              30233.75,
+              25903.625,
+              24175.84375,
+              24009.171875,
+              23459.03125,
+              25034.515625,
+              24942.109375
+            ]
+          },
+          "candidate": {
+            "samplesNs": [
+              54986.984375,
+              43567.84375,
+              42704.484375,
+              29926.453125,
+              29995.453125,
+              29211.53125,
+              26686.84375,
+              26924.484375,
+              27016.34375
+            ]
+          },
+          "ratio": 1.19540771522317
+        },
+        {
+          "order": [
+            "candidate",
+            "control"
+          ],
+          "control": {
+            "samplesNs": [
+              49410.859375,
+              46878.25,
+              26808.6875,
+              27700.53125,
+              25606.8125,
+              27170.59375,
+              24436.203125,
+              24942.578125,
+              25100.234375
+            ]
+          },
+          "candidate": {
+            "samplesNs": [
+              42635.390625,
+              33664.71875,
+              33501.34375,
+              32697.1875,
+              29935.609375,
+              31204.96875,
+              26445.328125,
+              26656.234375,
+              26553.40625
+            ]
+          },
+          "ratio": 1.1639871869892922
+        },
+        {
+          "order": [
+            "control",
+            "candidate"
+          ],
+          "control": {
+            "samplesNs": [
+              49942.75,
+              47128.859375,
+              28069,
+              26710.21875,
+              24541.640625,
+              24873.046875,
+              23819.609375,
+              23671.203125,
+              22680.9375
+            ]
+          },
+          "candidate": {
+            "samplesNs": [
+              51841.0625,
+              44061.84375,
+              44420.578125,
+              30190.046875,
+              30279.90625,
+              29720.03125,
+              26593.046875,
+              27458.9375,
+              28719.421875
+            ]
+          },
+          "ratio": 1.213765528072242
+        }
+      ],
+      "medianRatio": 1.1922229615839084,
+      "pairedMedianDeltaNs": 4891.9375,
+      "confirmedSlowdown": true
+    },
+    {
+      "engine": "wasm",
+      "phase": "fresh",
+      "path": "identity-first",
+      "windows": [
+        {
+          "order": [
+            "control",
+            "candidate"
+          ],
+          "control": {
+            "samplesNs": [
+              66041.6875,
+              63604.1875,
+              48723.90625,
+              41406.890625,
+              34401.09375,
+              33812.53125,
+              32127.640625,
+              34044.921875,
+              34851.65625
+            ]
+          },
+          "candidate": {
+            "samplesNs": [
+              77226.5625,
+              57287.0625,
+              41585.1875,
+              40652.25,
+              39108.625,
+              36455.078125,
+              34502.0625,
+              35089.8125,
+              34654.265625
+            ]
+          },
+          "ratio": 1.1221453786719247
+        },
+        {
+          "order": [
+            "candidate",
+            "control"
+          ],
+          "control": {
+            "samplesNs": [
+              63953.140625,
+              68600.921875,
+              45576.71875,
+              37106.765625,
+              36194.046875,
+              35150.4375,
+              34297.609375,
+              34501.296875,
+              35240.90625
+            ]
+          },
+          "candidate": {
+            "samplesNs": [
+              67013.609375,
+              63438.140625,
+              41932.921875,
+              38345.046875,
+              37709.703125,
+              37599.03125,
+              35804.71875,
+              35981.15625,
+              35459.609375
+            ]
+          },
+          "ratio": 1.0418758437053055
+        },
+        {
+          "order": [
+            "control",
+            "candidate"
+          ],
+          "control": {
+            "samplesNs": [
+              63833.921875,
+              63193.328125,
+              44758.390625,
+              38762.3125,
+              34762.375,
+              34260.34375,
+              35069.09375,
+              34524.140625,
+              36408.15625
+            ]
+          },
+          "candidate": {
+            "samplesNs": [
+              70309.25,
+              63750.671875,
+              46329.96875,
+              37971.4375,
+              39243.421875,
+              34774.734375,
+              37108.09375,
+              37100.25,
+              34999.375
+            ]
+          },
+          "ratio": 1.0429376659247884
+        },
+        {
+          "order": [
+            "candidate",
+            "control"
+          ],
+          "control": {
+            "samplesNs": [
+              63923.25,
+              64046.21875,
+              46127.59375,
+              37555.359375,
+              35734.328125,
+              35192.609375,
+              36671.90625,
+              34352.875,
+              32943.96875
+            ]
+          },
+          "candidate": {
+            "samplesNs": [
+              64081.328125,
+              63391.96875,
+              38654.859375,
+              37286.484375,
+              37039.15625,
+              36954.40625,
+              36475.84375,
+              34015.625,
+              37942.71875
+            ]
+          },
+          "ratio": 1.0167588267926486
+        },
+        {
+          "order": [
+            "control",
+            "candidate"
+          ],
+          "control": {
+            "samplesNs": [
+              63262.984375,
+              63401.640625,
+              50481.0625,
+              36910.765625,
+              34493.5,
+              33611.375,
+              35528.65625,
+              33237.65625,
+              33225.90625
+            ]
+          },
+          "candidate": {
+            "samplesNs": [
+              68464.875,
+              68171.25,
+              40159.515625,
+              36647.8125,
+              36662.171875,
+              38909.484375,
+              34404.953125,
+              33776.015625,
+              34740.21875
+            ]
+          },
+          "ratio": 1.0319042638996514
+        }
+      ],
+      "medianRatio": 1.0418758437053055,
+      "pairedMedianDeltaNs": 1515.65625,
+      "confirmedSlowdown": false
+    },
+    {
+      "engine": "wasm",
+      "phase": "fresh",
+      "path": "identity-second",
+      "windows": [
+        {
+          "order": [
+            "control",
+            "candidate"
+          ],
+          "control": {
+            "samplesNs": [
+              64732.4375,
+              64037.09375,
+              47565.71875,
+              39050.109375,
+              35672.484375,
+              36655.59375,
+              34490.890625,
+              32771.4375,
+              38108.703125
+            ]
+          },
+          "candidate": {
+            "samplesNs": [
+              67313.78125,
+              65098.921875,
+              42197.234375,
+              36663.359375,
+              36130.875,
+              38719.4375,
+              35009.71875,
+              34542.96875,
+              38424.5
+            ]
+          },
+          "ratio": 1.0082867389625976
+        },
+        {
+          "order": [
+            "candidate",
+            "control"
+          ],
+          "control": {
+            "samplesNs": [
+              66213.5,
+              63651.109375,
+              47149.703125,
+              37326.171875,
+              35712.21875,
+              34470.671875,
+              34847.65625,
+              32769.59375,
+              32271.375
+            ]
+          },
+          "candidate": {
+            "samplesNs": [
+              68724.53125,
+              62933.609375,
+              44281.84375,
+              39043.5625,
+              38632.84375,
+              36402.34375,
+              34575.5,
+              34141.265625,
+              34789
+            ]
+          },
+          "ratio": 1.0817822331467433
+        },
+        {
+          "order": [
+            "control",
+            "candidate"
+          ],
+          "control": {
+            "samplesNs": [
+              62436.859375,
+              51108.75,
+              44669.90625,
+              42833.25,
+              35705.734375,
+              35366.546875,
+              34348.921875,
+              32709.578125,
+              36167.390625
+            ]
+          },
+          "candidate": {
+            "samplesNs": [
+              69697.875,
+              62062.484375,
+              45283.171875,
+              37913.484375,
+              40893.140625,
+              35883.46875,
+              34511.171875,
+              35176.46875,
+              38972.65625
+            ]
+          },
+          "ratio": 1.0775633955483899
+        },
+        {
+          "order": [
+            "candidate",
+            "control"
+          ],
+          "control": {
+            "samplesNs": [
+              68203.78125,
+              65714.171875,
+              42919.28125,
+              39798.78125,
+              38273.453125,
+              35500.609375,
+              34613.96875,
+              32911.484375,
+              32234.390625
+            ]
+          },
+          "candidate": {
+            "samplesNs": [
+              72188.71875,
+              64078.8125,
+              46390.65625,
+              38074.890625,
+              37774.03125,
+              36512.40625,
+              34926.46875,
+              35727.8125,
+              36366.59375
+            ]
+          },
+          "ratio": 0.9869512198606981
+        },
+        {
+          "order": [
+            "control",
+            "candidate"
+          ],
+          "control": {
+            "samplesNs": [
+              65672.578125,
+              64843.0625,
+              43024.65625,
+              36656.9375,
+              36909.53125,
+              33688.734375,
+              36358.75,
+              34121.828125,
+              33078.171875
+            ]
+          },
+          "candidate": {
+            "samplesNs": [
+              70737.078125,
+              63244.765625,
+              45998.796875,
+              38335.328125,
+              37671.25,
+              36957.078125,
+              35387.984375,
+              34444.6875,
+              34654.875
+            ]
+          },
+          "ratio": 1.0276704102736351
+        }
+      ],
+      "medianRatio": 1.0276704102736351,
+      "pairedMedianDeltaNs": 1014.3125,
+      "confirmedSlowdown": false
+    },
+    {
+      "engine": "wasm",
+      "phase": "fresh",
+      "path": "third",
+      "windows": [
+        {
+          "order": [
+            "control",
+            "candidate"
+          ],
+          "control": {
+            "samplesNs": [
+              65953.078125,
+              65002.5,
+              51076.84375,
+              37529.890625,
+              34743.46875,
+              32844.484375,
+              31903.046875,
+              33863.953125,
+              34406.265625
+            ]
+          },
+          "candidate": {
+            "samplesNs": [
+              66605.46875,
+              63617.890625,
+              53590.515625,
+              35449.890625,
+              35080.6875,
+              34223.21875,
+              36282.46875,
+              34486.953125,
+              34125.6875
+            ]
+          },
+          "ratio": 1.0203325085380255
+        },
+        {
+          "order": [
+            "candidate",
+            "control"
+          ],
+          "control": {
+            "samplesNs": [
+              61246.65625,
+              61506.625,
+              54440.828125,
+              38165.9375,
+              33835.890625,
+              32684.21875,
+              31836.59375,
+              33114.625,
+              31179
+            ]
+          },
+          "candidate": {
+            "samplesNs": [
+              66984.984375,
+              55263.03125,
+              49180.953125,
+              38232.5,
+              36958.359375,
+              35729.171875,
+              34582.03125,
+              33447.953125,
+              33188.84375
+            ]
+          },
+          "ratio": 1.0922827415600207
+        },
+        {
+          "order": [
+            "control",
+            "candidate"
+          ],
+          "control": {
+            "samplesNs": [
+              60803.953125,
+              60471.359375,
+              55773.46875,
+              36796.90625,
+              34653,
+              34120.390625,
+              33494.203125,
+              32869.796875,
+              31985.625
+            ]
+          },
+          "candidate": {
+            "samplesNs": [
+              68330.65625,
+              58448.609375,
+              48681.65625,
+              39735.03125,
+              37685.578125,
+              38918.671875,
+              36308.53125,
+              35074.890625,
+              35384.015625
+            ]
+          },
+          "ratio": 1.1230967556921478
+        },
+        {
+          "order": [
+            "candidate",
+            "control"
+          ],
+          "control": {
+            "samplesNs": [
+              60887.34375,
+              62390.640625,
+              56216.8125,
+              34860.0625,
+              34931.640625,
+              34018.296875,
+              34625.640625,
+              32223.375,
+              30846.953125
+            ]
+          },
+          "candidate": {
+            "samplesNs": [
+              69268.828125,
+              57007.78125,
+              43252.625,
+              41561.09375,
+              38873.734375,
+              36263.03125,
+              34618.53125,
+              35281.265625,
+              37479.84375
+            ]
+          },
+          "ratio": 1.1151366804061238
+        },
+        {
+          "order": [
+            "control",
+            "candidate"
+          ],
+          "control": {
+            "samplesNs": [
+              62264.96875,
+              63212.265625,
+              51891.953125,
+              36787.78125,
+              35605.5,
+              34906.171875,
+              33432.34375,
+              31884.75,
+              32995.40625
+            ]
+          },
+          "candidate": {
+            "samplesNs": [
+              69435.46875,
+              64044.921875,
+              40973.296875,
+              37472.578125,
+              36610.765625,
+              35655.5625,
+              33808.640625,
+              33083.390625,
+              32905.6875
+            ]
+          },
+          "ratio": 1.0282334365477244
+        }
+      ],
+      "medianRatio": 1.0922827415600207,
+      "pairedMedianDeltaNs": 3122.46875,
+      "confirmedSlowdown": false
+    },
+    {
+      "engine": "wasm",
+      "phase": "cycle",
+      "path": "identity-first",
+      "windows": [
+        {
+          "order": [
+            "control",
+            "candidate"
+          ],
+          "control": {
+            "samplesNs": [
+              1149125,
+              1180791,
+              1168750,
+              1158167,
+              1145833,
+              1381959,
+              1214708,
+              1265375,
+              1151000
+            ]
+          },
+          "candidate": {
+            "samplesNs": [
+              956542,
+              1197125,
+              1011792,
+              968833,
+              959583,
+              978042,
+              955792,
+              1093500,
+              914500
+            ]
+          },
+          "ratio": 0.8289480213903744
+        },
+        {
+          "order": [
+            "candidate",
+            "control"
+          ],
+          "control": {
+            "samplesNs": [
+              1128084,
+              1156625,
+              1151417,
+              1167209,
+              1148167,
+              1510792,
+              1179625,
+              1116292,
+              1111958
+            ]
+          },
+          "candidate": {
+            "samplesNs": [
+              944583,
+              910167,
+              923625,
+              956250,
+              932916,
+              938417,
+              1055875,
+              909917,
+              925292
+            ]
+          },
+          "ratio": 0.8102329564354183
+        },
+        {
+          "order": [
+            "control",
+            "candidate"
+          ],
+          "control": {
+            "samplesNs": [
+              1148750,
+              1166458,
+              1152459,
+              1158625,
+              1146625,
+              1528042,
+              1151125,
+              1249833,
+              1143416
+            ]
+          },
+          "candidate": {
+            "samplesNs": [
+              970792,
+              938459,
+              994541,
+              946791,
+              943291,
+              1089042,
+              1156375,
+              956291,
+              924667
+            ]
+          },
+          "ratio": 0.8297830985744395
+        }
+      ],
+      "medianRatio": 0.8289480213903744,
+      "pairedMedianDeltaNs": -199917,
+      "confirmedSlowdown": false
+    },
+    {
+      "engine": "wasm",
+      "phase": "cycle",
+      "path": "identity-second",
+      "windows": [
+        {
+          "order": [
+            "control",
+            "candidate"
+          ],
+          "control": {
+            "samplesNs": [
+              1224542,
+              1249166,
+              1244959,
+              1232167,
+              1386125,
+              1427833,
+              1247084,
+              1240125,
+              1399375
+            ]
+          },
+          "candidate": {
+            "samplesNs": [
+              1100750,
+              1137208,
+              1100000,
+              1082375,
+              1077584,
+              1074917,
+              1273541,
+              1086292,
+              1097500
+            ]
+          },
+          "ratio": 0.8800529876094955
+        },
+        {
+          "order": [
+            "candidate",
+            "control"
+          ],
+          "control": {
+            "samplesNs": [
+              1229292,
+              1207166,
+              1215541,
+              1213292,
+              1396125,
+              1209750,
+              1103625,
+              1106167,
+              1172125
+            ]
+          },
+          "candidate": {
+            "samplesNs": [
+              1094542,
+              1102541,
+              1107875,
+              1101917,
+              1121750,
+              1261125,
+              1272291,
+              1056208,
+              1016542
+            ]
+          },
+          "ratio": 0.9113792105806985
+        },
+        {
+          "order": [
+            "control",
+            "candidate"
+          ],
+          "control": {
+            "samplesNs": [
+              1260083,
+              1237917,
+              1236833,
+              1195709,
+              1372833,
+              1211000,
+              1192666,
+              1212292,
+              1339209
+            ]
+          },
+          "candidate": {
+            "samplesNs": [
+              1076125,
+              1073917,
+              1080459,
+              1064083,
+              1112209,
+              1281500,
+              1067584,
+              1074542,
+              1069583
+            ]
+          },
+          "ratio": 0.8687850340345059
+        }
+      ],
+      "medianRatio": 0.8800529876094955,
+      "pairedMedianDeltaNs": -149584,
+      "confirmedSlowdown": false
+    },
+    {
+      "engine": "wasm",
+      "phase": "cycle",
+      "path": "third",
+      "windows": [
+        {
+          "order": [
+            "control",
+            "candidate"
+          ],
+          "control": {
+            "samplesNs": [
+              1090333,
+              1068625,
+              1035709,
+              1043500,
+              1054209,
+              1182375,
+              1336625,
+              1060042,
+              1067875
+            ]
+          },
+          "candidate": {
+            "samplesNs": [
+              868333,
+              790250,
+              746667,
+              788667,
+              784334,
+              754041,
+              809333,
+              769292,
+              1032917
+            ]
+          },
+          "ratio": 0.7385386866440361
+        },
+        {
+          "order": [
+            "candidate",
+            "control"
+          ],
+          "control": {
+            "samplesNs": [
+              1041125,
+              1066833,
+              1029375,
+              1050000,
+              1031834,
+              1176875,
+              1003791,
+              1269000,
+              1044209
+            ]
+          },
+          "candidate": {
+            "samplesNs": [
+              816916,
+              762000,
+              754833,
+              786667,
+              780666,
+              764625,
+              1074000,
+              799000,
+              777792
+            ]
+          },
+          "ratio": 0.7476147016545538
+        },
+        {
+          "order": [
+            "control",
+            "candidate"
+          ],
+          "control": {
+            "samplesNs": [
+              1093625,
+              1106042,
+              1061542,
+              1078792,
+              1006875,
+              1025875,
+              1133583,
+              997375,
+              971916
+            ]
+          },
+          "candidate": {
+            "samplesNs": [
+              836291,
+              993583,
+              806417,
+              800500,
+              806125,
+              775291,
+              792667,
+              766333,
+              793709
+            ]
+          },
+          "ratio": 0.7540916892595865
+        }
+      ],
+      "medianRatio": 0.7476147016545538,
+      "pairedMedianDeltaNs": -263543,
+      "confirmedSlowdown": false
+    }
+  ],
+  "sourceFiles": {
+    "src/data/call_patterns.zig": "0713f4b12c83252b9b1bb9177bbb4f817b6d417418f5421a05abd60e3327f698",
+    "src/data/closed_compilation.zig": "4a3bfb019794d11f0489af7ed66d53e81d49d81e8a2f35808423ebfe34807753",
+    "src/data/root.zig": "a4e7e53e6e38ca560a2ff74db458265781868b0556756abd55fbd460ae1d161d",
+    "test/v2/call_patterns.zig": "76d739dbd4aa79b8648c545bb7548b3f30329d13fe9e91b24cbed1a5a141b96b",
+    "test/v2/call_patterns_platform.zig": "8cef06a7801ed9c1a4bda7005bf1274f3df993cf0169ef8d4b50375ab961d5c6"
+  },
+  "disposition": "Measured admission/fresh-invocation and WASM memory increases pending explicit \u00a79.5 acceptance or correction; not performance closure."
+}

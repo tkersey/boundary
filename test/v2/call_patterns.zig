@@ -315,3 +315,59 @@ test "World executes width-correct unsigned workers and preserves a preceding ar
         };
     }
 }
+
+pub const captured: ir.Program = blk: {
+    var functions = repeated.functions[0..4].*;
+    functions[2].inputs = &.{ 0, 1, 2 };
+    functions[2].layout.slots = &.{ 0, 0, 0, 0, 0 };
+    var blocks = repeated.blocks[0..11].*;
+    blocks[1].instructions = &.{.{ .destination = 4, .opcode = .computation, .operands = &.{ 0, 1 }, .immediate = 0 }};
+    blocks[3].instructions = &.{.{ .destination = 4, .opcode = .computation, .operands = &.{ 1, 0 }, .immediate = 0 }};
+    blocks[9].instructions = &.{ .{ .destination = 3, .opcode = .integer_bit_xor, .operands = &.{ 0, 2 } }, .{ .destination = 4, .opcode = .integer_bit_and, .operands = &.{ 3, 1 } } };
+    blocks[9].terminator.return_value = 4;
+    const frozen_functions = functions;
+    const frozen_blocks = blocks;
+    var program = repeated;
+    program.functions = &frozen_functions;
+    program.blocks = &frozen_blocks;
+    program.scopes.captures = &.{ repeated.scopes.captures[0], .{ .fields = &.{ 0, 0 }, .use = .reusable } };
+    program.constructors = &.{ .{ .function = 2, .capture = 1, .schema = 3 }, repeated.constructors[1] };
+    break :blk program;
+};
+
+test "World preserves runtime captures and original captured values after source-free linking" {
+    for (0..2) |fixture| {
+        var original = captured;
+        var blocks = captured.blocks[0..11].*;
+        if (fixture == 1) blocks[1].instructions = &.{ captured.blocks[1].instructions[0], .{ .destination = 0, .opcode = .integer_bit_not, .operands = &.{0} } };
+        original.blocks = &blocks;
+        var checked = try patterns.run(a, original, null, .{});
+        defer checked.deinit();
+        var compiled = try data.closed_compilation.run(a, original, .{ .contract = .semantic });
+        defer compiled.deinit();
+        const object: data.component.Object = .{ .program = original, .exports = &.{.{ .name = "main", .reference = .{ .kind = .function, .id = 0 } }}, .borrows = &.{ .{ .function = 0 }, .{ .function = 1 }, .{ .function = 2 }, .{ .function = 3 } } };
+        const encoded = try a.alloc(u8, try data.component.encodedLength(object));
+        defer a.free(encoded);
+        _ = try data.component.encode(a, object, encoded);
+        var linked = try data.linker.linkWithCompilation(a, &.{.{ .key = "captured", .object = encoded }}, &.{}, .{ .instance = "captured", .symbol = "main" }, .{ .contract = .semantic });
+        defer linked.deinit();
+        @memset(encoded, 0xff);
+        for ([_][2]u64{ .{ 0, 1 }, .{ 7, 11 }, .{ std.math.maxInt(u64), 0 } }) |words| for ([_]bool{ false, true }) |first| for ([_]bool{ false, true }) |second| {
+            var args: [18]u8 = undefined;
+            std.mem.writeInt(u64, args[0..8], words[0], .little);
+            std.mem.writeInt(u64, args[8..16], words[1], .little);
+            args[16] = @intFromBool(first);
+            args[17] = @intFromBool(second);
+            const expected = if (first) (if (fixture == 1) words[1] else (~words[0]) & words[1]) else if (second) words[0] & (~words[1]) else (~words[0]) | (~words[1]);
+            for ([_]ir.Program{ original, checked.program, compiled.program, linked.program }) |program| {
+                const bytes = try a.alloc(u8, try data.program_image.encodedLength(program));
+                defer a.free(bytes);
+                _ = try data.program_image.encode(a, program, bytes);
+                var result = try world.invocation.invoke(a, .{ .image = bytes, .instance = .{ .initial_args = &args } });
+                defer result.deinit();
+                try std.testing.expect(result.record == .completed);
+                try std.testing.expectEqual(expected, std.mem.readInt(u64, result.record.completed[0..8], .little));
+            }
+        };
+    }
+}

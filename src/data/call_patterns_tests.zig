@@ -152,7 +152,7 @@ test "runtime captures remain outside static constructor keys" {
     original.functions = &functions;
     var blocks = repeated.blocks[0..11].*;
     blocks[1].instructions = &.{.{ .destination = 4, .opcode = .computation, .operands = &.{0}, .immediate = 0 }};
-    blocks[3].instructions = blocks[1].instructions;
+    blocks[3].instructions = &.{.{ .destination = 4, .opcode = .computation, .operands = &.{1}, .immediate = 0 }};
     blocks[9].terminator.return_value = 1;
     original.blocks = &blocks;
     var admitted = try @import("activation_ownership.zig").analyze(a, original);
@@ -160,10 +160,11 @@ test "runtime captures remain outside static constructor keys" {
     var candidate = (try patterns.construct(a, original, .{})).?;
     defer candidate.deinit();
     try patterns.validate(a, original, candidate.program, candidate.variants, candidate.sites, 1000000);
-    try std.testing.expectEqual(@as(usize, 1), candidate.variants.len);
-    try std.testing.expectEqual(@as(u64, 1), candidate.variants[0].key.value.constructor);
-    try std.testing.expectEqual(@as(u64, 1), candidate.program.blocks[1].terminator.call.function);
-    try std.testing.expectEqual(@as(u64, 1), candidate.program.blocks[3].terminator.call.function);
+    try std.testing.expectEqual(@as(usize, 2), candidate.variants.len);
+    try std.testing.expectEqual(@as(u64, 0), candidate.variants[0].key.value.constructor);
+    try std.testing.expectEqual(candidate.program.blocks[1].terminator.call.function, candidate.program.blocks[3].terminator.call.function);
+    try std.testing.expectEqualSlices(u64, &.{ 0, 1, 0 }, candidate.program.blocks[1].terminator.call.arguments);
+    try std.testing.expectEqualSlices(u64, &.{ 0, 1, 1 }, candidate.program.blocks[3].terminator.call.arguments);
 }
 test "configuration changes cannot relabel an old specialization epoch" {
     var candidate = (try patterns.construct(a, repeated, .{})).?;

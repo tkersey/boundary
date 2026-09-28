@@ -17,10 +17,11 @@ pub fn main(init: std.process.Init) !void {
     const variants = if (mode) |name| std.mem.eql(u8, name, "variants") else false;
     const constants = if (mode) |name| std.mem.eql(u8, name, "constants") else false;
     const word_mode = if (mode) |name| std.mem.eql(u8, name, "words") else false;
-    if ((mode != null and !variants and !constants and !word_mode) or args.next() != null) return error.Arguments;
-    const names: []const []const u8 = if (word_mode) &.{ "word-checked", "word-shared", "word-linked" } else if (constants) &.{ "constant-checked", "constant-shared", "constant-linked" } else if (variants) &.{ "variant-fallback-checked", "variant-fallback-shared", "variant-fallback-linked", "variant-total-checked", "variant-total-shared", "variant-total-linked", "variant-overwritten-checked", "variant-overwritten-shared", "variant-overwritten-linked" } else &.{ "callable-checked", "callable-shared", "callable-linked" };
+    const captures = if (mode) |name| std.mem.eql(u8, name, "captures") else false;
+    if ((mode != null and !variants and !constants and !word_mode and !captures) or args.next() != null) return error.Arguments;
+    const names: []const []const u8 = if (captures) &.{ "capture-checked", "capture-shared", "capture-linked" } else if (word_mode) &.{ "word-checked", "word-shared", "word-linked" } else if (constants) &.{ "constant-checked", "constant-shared", "constant-linked" } else if (variants) &.{ "variant-fallback-checked", "variant-fallback-shared", "variant-fallback-linked", "variant-total-checked", "variant-total-shared", "variant-total-linked", "variant-overwritten-checked", "variant-overwritten-shared", "variant-overwritten-linked" } else &.{ "callable-checked", "callable-shared", "callable-linked" };
     for (names, 0..) |name, index| {
-        var original = if (word_mode) fixtures.word_constants else if (constants) fixtures.choice else if (variants) fixtures.tagged else fixtures.repeated;
+        var original = if (captures) fixtures.captured else if (word_mode) fixtures.word_constants else if (constants) fixtures.choice else if (variants) fixtures.tagged else fixtures.repeated;
         var blocks = fixtures.tagged.blocks[0..7].*;
         if (variants) {
             if (index / 3 == 1) blocks[4].instructions = fixtures.tagged.blocks[1].instructions;

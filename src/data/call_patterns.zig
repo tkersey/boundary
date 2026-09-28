@@ -18,7 +18,7 @@ pub const Options = struct { work_limit: u64 = 1_000_000, max_variants: usize = 
 pub const Static = union(enum) { constructor: p.Id, variant: p.Id, boolean: bool, unsigned: u64 };
 pub const Key = struct { epoch: [32]u8, function: p.Id, parameter: usize, schema: p.Id, value: Static };
 pub const Variant = struct { key: Key, function: p.Id, first_block: usize, literal: ?p.Id = null };
-pub const Site = struct { block: usize, variant: usize, payload: ?p.Id = null };
+pub const Site = struct { block: usize, variant: usize, payload: ?p.Id = null, captures: []const p.Id = &.{} };
 pub const Statistics = struct { variants: usize = 0, rewritten_calls: usize = 0, direct_applications: usize = 0, variant_projections: usize = 0, variant_switches: usize = 0, constant_branches: usize = 0, constants_materialized: usize = 0, retained_calls: usize = 0, generic_fallback_calls: usize = 0, work_limit: bool = false };
 pub const Candidate = struct {
     arena: std.heap.ArenaAllocator,
@@ -37,14 +37,18 @@ const Budget = struct {
         self.remaining -= 1;
     }
 };
-fn closedLeaf(program: ir.Program, constructor_id: p.Id, budget: *Budget) Error!bool {
+fn closedLeaf(program: ir.Program, constructor_id: p.Id, permissions: traits.Facts, budget: *Budget) Error!bool {
     try budget.tick();
     if (constructor_id >= program.constructors.len or !privacy.privateWorker(program, @intCast(constructor_id))) return false;
     const constructor = program.constructors[@intCast(constructor_id)];
     const capture = program.scopes.captures[@intCast(constructor.capture)];
     const callable = program.schemas[@intCast(constructor.schema)].internal.computation;
     const function = program.functions[@intCast(constructor.function)];
-    if (capture.fields.len != 0 or capture.owned_regions.len != 0 or capture.borrowed_regions.len != 0 or capture.use != .reusable or callable.use != .reusable or function.regions.len != 0 or function.effects.len != 0) return false;
+    if (capture.owned_regions.len != 0 or capture.borrowed_regions.len != 0 or capture.use != .reusable or callable.use != .reusable or function.regions.len != 0 or function.effects.len != 0) return false;
+    for (capture.fields) |schema| {
+        try budget.tick();
+        if (!permissions.copy[@intCast(schema)] or !permissions.drop[@intCast(schema)]) return false;
+    }
     for (program.blocks) |block| {
         try budget.tick();
         if (block.function == constructor.function) switch (block.terminator) {
@@ -74,7 +78,7 @@ fn parameterEligible(program: ir.Program, function_id: p.Id, parameter: usize, v
             if (number > maximum) return false;
         },
         .constructor => |id| {
-            if (schema != .internal or schema.internal != .computation or schema.internal.computation.use != .reusable or !try closedLeaf(program, id, budget)) return false;
+            if (schema != .internal or schema.internal != .computation or schema.internal.computation.use != .reusable or !try closedLeaf(program, id, permissions, budget)) return false;
         },
         .variant => |tag| {
             const sid = function.layout.slots[@intCast(slot)];
@@ -183,6 +187,54 @@ fn discoveredPayload(block: ir.Block, state: facts.Block, argument: p.Id, tag: p
     }
     return null;
 }
+fn captureFields(program: ir.Program, key: Key) []const p.Id {
+    if (key.value != .constructor) return &.{};
+    return program.scopes.captures[@intCast(program.constructors[@intCast(key.value.constructor)].capture)].fields;
+}
+fn concat(a: std.mem.Allocator, left: []const p.Id, right: []const p.Id) Error![]const p.Id {
+    if (right.len == 0) return left;
+    return std.mem.concat(a, p.Id, &.{ left, right });
+}
+fn discoveredCaptures(block: ir.Block, state: facts.Block, argument: p.Id, constructor: p.Id, budget: *Budget) Error!?[]const p.Id {
+    var version = state.exit[@intCast(argument)];
+    while (state.definitions[version].instruction) |index| {
+        try budget.tick();
+        const op = block.instructions[index];
+        const definition = state.definitions[version];
+        if (op.opcode == .move) {
+            version = definition.operands[0];
+            continue;
+        }
+        if (op.opcode != .computation or op.immediate != constructor) return null;
+        for (op.operands, definition.operands) |slot, captured| {
+            try budget.tick();
+            if (state.exit[@intCast(slot)] != captured) return null;
+        }
+        return op.operands;
+    }
+    return null;
+}
+fn capturesAt(block: ir.Block, before: usize, slot: p.Id, constructor: p.Id, budget: *Budget) Error!?[]const p.Id {
+    var cursor = before;
+    var queried = slot;
+    while (cursor != 0) {
+        try budget.tick();
+        cursor -= 1;
+        const op = block.instructions[cursor];
+        if (op.destination != queried) continue;
+        if (op.opcode == .move) {
+            queried = op.operands[0];
+            continue;
+        }
+        if (op.opcode != .computation or op.immediate != constructor) return null;
+        for (op.operands) |captured| for (block.instructions[cursor..]) |later| {
+            try budget.tick();
+            if (later.destination == captured) return null;
+        };
+        return op.operands;
+    }
+    return null;
+}
 fn translated(program: ir.Program, variant: Variant, block_id: p.Id) p.Id {
     var index = variant.first_block;
     for (program.blocks, 0..) |block, old| if (block.function == variant.key.function) {
@@ -255,6 +307,8 @@ pub fn construct(allocator: std.mem.Allocator, original: ir.Program, options: Op
             if (!matches(known, certified)) continue;
             const callee = original.functions[@intCast(call.function)];
             const key: Key = .{ .epoch = discovered.epoch, .function = call.function, .parameter = parameter, .schema = callee.layout.slots[@intCast(callee.inputs[parameter])], .value = known };
+            const fields = captureFields(original, key);
+            const captures: []const p.Id = if (fields.len != 0) (try discoveredCaptures(block, block_facts, argument, known.constructor, &budget)) orelse continue else &.{};
             const literal: ?p.Id = if (known == .unsigned) (try findLiteral(original, key.schema, known.unsigned, &budget)) orelse continue else null;
             var selected: ?usize = null;
             for (variants.items, 0..) |variant, index| if (std.meta.eql(variant.key, key)) {
@@ -272,7 +326,7 @@ pub fn construct(allocator: std.mem.Allocator, original: ir.Program, options: Op
                 try variants.append(a, .{ .key = key, .function = original.functions.len + variants.items.len, .first_block = original.blocks.len + added_blocks, .literal = literal });
                 added_blocks += count;
             }
-            try sites.append(a, .{ .block = bid, .variant = selected.?, .payload = payload });
+            try sites.append(a, .{ .block = bid, .variant = selected.?, .payload = payload, .captures = captures });
             break;
         }
     }
@@ -284,10 +338,18 @@ pub fn construct(allocator: std.mem.Allocator, original: ir.Program, options: Op
     for (variants.items) |variant| {
         try budget.tick();
         const before = original.functions[@intCast(variant.key.function)];
+        const fields = captureFields(original, variant.key);
+        const capture_inputs = try a.alloc(p.Id, fields.len);
+        for (capture_inputs, 0..) |*slot, index| slot.* = if (index == 0) before.inputs[variant.key.parameter] else before.layout.slots.len + index - 1;
         var worker = before;
         worker.entry = translated(original, variant, before.entry);
         if (variant.key.value != .variant) {
-            worker.inputs = try without(a, before.inputs, variant.key.parameter);
+            worker.inputs = try concat(a, try without(a, before.inputs, variant.key.parameter), capture_inputs);
+            if (fields.len != 0) {
+                const layout = try a.dupe(p.Id, before.layout.slots);
+                layout[@intCast(before.inputs[variant.key.parameter])] = fields[0];
+                worker.layout.slots = try concat(a, layout, fields[1..]);
+            }
         } else {
             const slots = try a.dupe(p.Id, before.layout.slots);
             slots[@intCast(before.inputs[variant.key.parameter])] = original.schemas[@intCast(variant.key.schema)].sum[@intCast(variant.key.value.variant)];
@@ -314,7 +376,7 @@ pub fn construct(allocator: std.mem.Allocator, original: ir.Program, options: Op
                 copy.instructions = instructions;
             }
             switch (block.terminator) {
-                .apply => |apply| copy.terminator = .{ .call = .{ .function = original.constructors[@intCast(variant.key.value.constructor)].function, .arguments = apply.arguments, .next = translatedEdge(original, variant, apply.next) } },
+                .apply => |apply| copy.terminator = .{ .call = .{ .function = original.constructors[@intCast(variant.key.value.constructor)].function, .arguments = try concat(a, capture_inputs, apply.arguments), .next = translatedEdge(original, variant, apply.next) } },
                 .switch_variant => |branch| copy.terminator = .{ .jump = translatedEdge(original, variant, branch.cases[@intCast(variant.key.value.variant)]) },
                 .jump => |edge| copy.terminator.jump = translatedEdge(original, variant, edge),
                 .branch => |branch| {
@@ -338,7 +400,7 @@ pub fn construct(allocator: std.mem.Allocator, original: ir.Program, options: Op
         const call = &blocks[site.block].terminator.call;
         call.function = variant.function;
         if (variant.key.value != .variant) {
-            call.arguments = try without(a, call.arguments, variant.key.parameter);
+            call.arguments = try concat(a, try without(a, call.arguments, variant.key.parameter), site.captures);
         } else {
             const arguments = try a.dupe(p.Id, call.arguments);
             arguments[variant.key.parameter] = site.payload.?;
@@ -398,19 +460,27 @@ pub fn validate(allocator: std.mem.Allocator, original: ir.Program, candidate: i
             const literal = variant.literal orelse return error.InvalidCallPattern;
             if (literal >= original.constants.len or original.constants[@intCast(literal)].schema != variant.key.schema or literalValue(original, literal) != variant.key.value.unsigned) return error.InvalidCallPattern;
         } else if (variant.literal != null) return error.InvalidCallPattern;
+        const fields = captureFields(original, variant.key);
         const worker = candidate.functions[@intCast(variant.function)];
         var metadata = worker;
         metadata.entry = function.entry;
         metadata.inputs = function.inputs;
-        if (variant.key.value == .variant) metadata.layout = function.layout;
+        if (variant.key.value == .variant or fields.len != 0) metadata.layout = function.layout;
         if (!equal(ir.Function, function, metadata)) return error.InvalidCallPattern;
         if (variant.key.value != .variant) {
-            if (worker.inputs.len + 1 != function.inputs.len) return error.InvalidCallPattern;
+            if (worker.inputs.len + 1 != function.inputs.len + fields.len) return error.InvalidCallPattern;
             var index: usize = 0;
             for (function.inputs, 0..) |input, position| {
                 if (position == variant.key.parameter) continue;
                 if (worker.inputs[index] != input) return error.InvalidCallPattern;
                 index += 1;
+            }
+            if (fields.len != 0) {
+                if (worker.layout.slots.len != function.layout.slots.len + fields.len - 1 or !std.mem.eql(p.Id, worker.layout.slots[function.layout.slots.len..], fields[1..])) return error.InvalidCallPattern;
+                for (function.layout.slots, worker.layout.slots[0..function.layout.slots.len], 0..) |old_schema, new_schema, position| {
+                    if (new_schema != (if (position == slot) fields[0] else old_schema)) return error.InvalidCallPattern;
+                }
+                for (fields, 0..) |_, captured| if (worker.inputs[index + captured] != (if (captured == 0) slot else function.layout.slots.len + captured - 1)) return error.InvalidCallPattern;
             }
         } else {
             if (!std.mem.eql(p.Id, worker.inputs, function.inputs) or worker.layout.slots.len != function.layout.slots.len) return error.InvalidCallPattern;
@@ -445,7 +515,8 @@ pub fn validate(allocator: std.mem.Allocator, original: ir.Program, candidate: i
             var term = replacement.terminator;
             switch (block.terminator) {
                 .apply => |apply| {
-                    if (term != .call or term.call.function != original.constructors[@intCast(variant.key.value.constructor)].function or !std.mem.eql(p.Id, term.call.arguments, apply.arguments) or !edgeCorresponds(original, variant, apply.next, term.call.next)) return error.InvalidCallPattern;
+                    if (term != .call or term.call.function != original.constructors[@intCast(variant.key.value.constructor)].function or term.call.arguments.len != fields.len + apply.arguments.len or !std.mem.eql(p.Id, term.call.arguments[fields.len..], apply.arguments) or !edgeCorresponds(original, variant, apply.next, term.call.next)) return error.InvalidCallPattern;
+                    for (fields, 0..) |_, captured| if (term.call.arguments[captured] != (if (captured == 0) slot else function.layout.slots.len + captured - 1)) return error.InvalidCallPattern;
                     term = block.terminator;
                 },
                 .switch_variant => |branch| {
@@ -492,13 +563,19 @@ pub fn validate(allocator: std.mem.Allocator, original: ir.Program, candidate: i
                 if (proof.exhausted) return error.CallPatternLimit;
                 return error.InvalidCallPattern;
             };
+            const fields = captureFields(original, variant.key);
+            if (item.captures.len != fields.len) return error.InvalidCallPattern;
             if (variant.key.value != .variant) {
-                if (!matches(variant.key.value, known) or item.payload != null or new.terminator.call.arguments.len + 1 != call.arguments.len) return error.InvalidCallPattern;
+                if (!matches(variant.key.value, known) or item.payload != null or new.terminator.call.arguments.len + 1 != call.arguments.len + fields.len) return error.InvalidCallPattern;
                 var index: usize = 0;
                 for (call.arguments, 0..) |argument, position| {
                     if (position == variant.key.parameter) continue;
                     if (new.terminator.call.arguments[index] != argument) return error.InvalidCallPattern;
                     index += 1;
+                }
+                if (fields.len != 0) {
+                    const captures = (try capturesAt(old, old.instructions.len, call.arguments[variant.key.parameter], variant.key.value.constructor, &budget)) orelse return error.InvalidCallPattern;
+                    if (!std.mem.eql(p.Id, captures, item.captures) or !std.mem.eql(p.Id, new.terminator.call.arguments[index..], captures)) return error.InvalidCallPattern;
                 }
             } else {
                 if (known != .variant or known.variant != variant.key.value.variant or new.terminator.call.arguments.len != call.arguments.len) return error.InvalidCallPattern;

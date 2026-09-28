@@ -483,3 +483,39 @@ programme obligations are still open.
 
 Final outlining qualification: 319/319 ReleaseSafe steps and 673/673 tests;
 37 focused tests and 24 native executions pass. Sixty prior images are byte-identical.
+
+## P09 runtime capture arguments
+
+Known reusable callables may now specialize with copyable/droppable runtime
+captures, provided they have no owned/borrowed regions and the existing private
+leaf/effect restrictions hold. The worker key remains the program epoch,
+constructor, schema and parameter—not captured values. Fresh worker inputs carry
+capture fields in descriptor order; each direct application passes those fields
+before its explicit arguments.
+
+Discovery follows local construction versions and requires each captured operand
+to remain available at the call. The independent checker traces the original
+construction and later writes, checks the appended layout and every capture/argument
+position, and rejects forged capture order even when its site witness is also
+changed. Unavailable or overwritten captures retain the original closure.
+
+The earlier runtime-capture test is strengthened from expecting conservative
+refusal to requiring one shared static worker with different runtime arguments.
+A two-field witness distinguishes capture order in its output; native execution
+also verifies the original captured value after a source slot is overwritten.
+Original capture admission and nominal/ownership distinctions remain unchanged.
+
+The first capture now reuses the original callable slot, whose only permitted
+uses have all become direct calls; later capture fields append slots. This removes
+one unnecessary layout entry, but does not close the measured cost gate. The
+updated fixture has confirmed native admission +1.40 microseconds (19.1%), native
+fresh invocation +0.75–0.92 microseconds (6.9–8.7%), and WASM admission +4.89
+microseconds (19.2%). WASM admission/retained/checkpoint-cycle peaks grow
+1538/1070/1086 bytes. These costs await explicit §9.5 acceptance or correction.
+Checkpoint maxima fall from 158 to 115 bytes on captured paths, and no complete
+cycle slowdown is confirmed. Initial and retained measurements are kept separate.
+
+Capture correctness qualification: 319/319 ReleaseSafe steps and 678/678 tests;
+48 focused tests, 516 cumulative native executions, 72 cross-engine comparisons,
+three same-image restores, three wrong-image rejections and six malformed inputs
+pass. All 66 preceding images remain byte-identical. Performance acceptance is pending.
