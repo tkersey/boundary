@@ -3,6 +3,7 @@ test {
     _ = @import("call_patterns_tests.zig");
     _ = @import("call_pattern_variant_tests.zig");
     _ = @import("call_pattern_constant_tests.zig");
+    _ = @import("call_pattern_word_tests.zig");
     _ = @import("leaf_inlining_tests.zig");
     _ = @import("partial_redundancy_tests.zig");
     _ = @import("affine_extract.zig");

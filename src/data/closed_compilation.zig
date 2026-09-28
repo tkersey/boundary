@@ -60,7 +60,7 @@ pub const Options = struct {
     }
 };
 pub const Error = branch.Error || applications.Error || aggregates.Error || expressions.Error || cells.Error || dead.Error || arguments.Error || captures.Error || projections.Error || summaries.Error || affine.Error || unpack.Error || pre.Error || patterns.Error || leaves.Error;
-const schedule = [_]Stage{ .branch, .capture_unpack, .aggregates, .dead_computation, .affine_state, .call_patterns, .applications, .leaf_inlining, .aggregates, .expressions, .partial_redundancy, .cells, .dead_computation, .dead_arguments, .dead_captures, .capture_projection, .capture_summary, .dead_computation, .dead_arguments, .applications, .dead_computation };
+const schedule = [_]Stage{ .branch, .capture_unpack, .aggregates, .dead_computation, .affine_state, .call_patterns, .branch, .applications, .leaf_inlining, .aggregates, .expressions, .partial_redundancy, .cells, .dead_computation, .dead_arguments, .dead_captures, .capture_projection, .capture_summary, .dead_computation, .dead_arguments, .applications, .dead_computation };
 fn notify(options: Options, stage: Stage) void {
     if (options.observer) |observer| observer.enter(observer.context, stage);
 }

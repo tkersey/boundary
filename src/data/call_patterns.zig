@@ -1,5 +1,5 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
-//! Bounded private workers for proved closed callables and variant tags.
+//! Epoch-keyed specialization of proved private-call arguments.
 const std = @import("std");
 const ir = @import("activation.zig");
 const p = @import("program.zig");
@@ -15,11 +15,11 @@ const image = @import("program_image.zig");
 const p01 = @import("coalescing.zig");
 pub const Error = facts.Error || p01.Error || error{ InvalidCallPattern, CallPatternLimit };
 pub const Options = struct { work_limit: u64 = 1_000_000, max_variants: usize = 16, max_added_blocks: usize = 256, max_added_bytes: usize = 4096, coalescing: p01.Options = .{} };
-pub const Static = union(enum) { constructor: p.Id, variant: p.Id, boolean: bool };
+pub const Static = union(enum) { constructor: p.Id, variant: p.Id, boolean: bool, unsigned: u64 };
 pub const Key = struct { epoch: [32]u8, function: p.Id, parameter: usize, schema: p.Id, value: Static };
-pub const Variant = struct { key: Key, function: p.Id, first_block: usize };
+pub const Variant = struct { key: Key, function: p.Id, first_block: usize, literal: ?p.Id = null };
 pub const Site = struct { block: usize, variant: usize, payload: ?p.Id = null };
-pub const Statistics = struct { variants: usize = 0, rewritten_calls: usize = 0, direct_applications: usize = 0, variant_projections: usize = 0, variant_switches: usize = 0, constant_branches: usize = 0, retained_calls: usize = 0, generic_fallback_calls: usize = 0, work_limit: bool = false };
+pub const Statistics = struct { variants: usize = 0, rewritten_calls: usize = 0, direct_applications: usize = 0, variant_projections: usize = 0, variant_switches: usize = 0, constant_branches: usize = 0, constants_materialized: usize = 0, retained_calls: usize = 0, generic_fallback_calls: usize = 0, work_limit: bool = false };
 pub const Candidate = struct {
     arena: std.heap.ArenaAllocator,
     program: ir.Program,
@@ -63,6 +63,16 @@ fn parameterEligible(program: ir.Program, function_id: p.Id, parameter: usize, v
     const schema = program.schemas[@intCast(function.layout.slots[@intCast(slot)])];
     switch (value) {
         .boolean => if (schema != .boolean) return false,
+        .unsigned => |number| {
+            const maximum: u64 = switch (schema) {
+                .u8 => std.math.maxInt(u8),
+                .u16 => std.math.maxInt(u16),
+                .u32 => std.math.maxInt(u32),
+                .u64 => std.math.maxInt(u64),
+                else => return false,
+            };
+            if (number > maximum) return false;
+        },
         .constructor => |id| {
             if (schema != .internal or schema.internal != .computation or schema.internal.computation.use != .reusable or !try closedLeaf(program, id, budget)) return false;
         },
@@ -79,6 +89,10 @@ fn parameterEligible(program: ir.Program, function_id: p.Id, parameter: usize, v
             try budget.tick();
             if (op.destination == slot) return false;
             if (std.mem.indexOfScalar(p.Id, op.operands, slot) != null) {
+                if (value == .unsigned) {
+                    uses += 1;
+                    continue;
+                }
                 if (value != .variant or op.opcode != .variant_payload or op.operands.len != 1 or op.immediate != value.variant) return false;
                 uses += 1;
             }
@@ -98,9 +112,13 @@ fn parameterEligible(program: ir.Program, function_id: p.Id, parameter: usize, v
                 if (value == .boolean and branch.condition == slot) {
                     if (usage.reads != 1) return false;
                     uses += 1;
+                } else if (value == .unsigned) {
+                    uses += usage.reads;
                 } else if (usage.reads != 0) return false;
             },
-            .return_value, .fail, .jump => if (usage.reads != 0) return false,
+            .return_value, .fail, .jump => if (value == .unsigned) {
+                uses += usage.reads;
+            } else if (usage.reads != 0) return false,
             else => return false,
         }
     }
@@ -108,11 +126,15 @@ fn parameterEligible(program: ir.Program, function_id: p.Id, parameter: usize, v
 }
 /// Admitted-program opportunity filter; eligibility is rechecked under budget.
 pub fn possible(program: ir.Program) bool {
-    for (program.functions) |function| {
+    for (program.blocks) |block| {
+        if (block.terminator != .call) continue;
+        const target = block.terminator.call.function;
+        if (contexts.unknownEntry(program, target)) continue;
+        const function = program.functions[@intCast(target)];
         if (function.effects.len != 0 or function.regions.len != 0) continue;
         for (function.inputs) |slot| {
             const schema = program.schemas[@intCast(function.layout.slots[@intCast(slot)])];
-            if (schema == .boolean or schema == .sum or (schema == .internal and schema.internal == .computation and schema.internal.computation.use == .reusable)) return true;
+            if (schema == .u8 or schema == .u16 or schema == .u32 or schema == .u64 or schema == .boolean or schema == .sum or (schema == .internal and schema.internal == .computation and schema.internal.computation.use == .reusable)) return true;
         }
     }
     return false;
@@ -174,6 +196,32 @@ fn translatedEdge(program: ir.Program, variant: Variant, edge: ir.Edge) ir.Edge 
     result.block = translated(program, variant, edge.block);
     return result;
 }
+fn matches(value: Static, certified: origin.Constant) bool {
+    return switch (value) {
+        .constructor => |id| certified == .constructor and certified.constructor == id,
+        .variant => |tag| certified == .variant and certified.variant == tag,
+        .boolean => |flag| certified == .boolean and certified.boolean == flag,
+        .unsigned => |number| certified == .unsigned and certified.unsigned == number,
+    };
+}
+fn literalValue(program: ir.Program, id: p.Id) ?u64 {
+    if (id >= program.constants.len) return null;
+    const literal = program.constants[@intCast(id)];
+    return switch (program.schemas[@intCast(literal.schema)]) {
+        .u8 => literal.bytes[0],
+        .u16 => std.mem.readInt(u16, literal.bytes[0..2], .little),
+        .u32 => std.mem.readInt(u32, literal.bytes[0..4], .little),
+        .u64 => std.mem.readInt(u64, literal.bytes[0..8], .little),
+        else => null,
+    };
+}
+fn findLiteral(program: ir.Program, schema: p.Id, value: u64, budget: *Budget) Error!?p.Id {
+    for (program.constants, 0..) |literal, id| {
+        try budget.tick();
+        if (literal.schema == schema and literalValue(program, id) == value) return id;
+    }
+    return null;
+}
 pub fn construct(allocator: std.mem.Allocator, original: ir.Program, options: Options) Error!?Candidate {
     var discovered = try facts.analyzeWithLimit(allocator, original, options.work_limit);
     defer discovered.deinit();
@@ -183,6 +231,8 @@ pub fn construct(allocator: std.mem.Allocator, original: ir.Program, options: Op
     const a = arena.allocator();
     const permissions = try traits.derive(a, original.schemas);
     var budget: Budget = .{ .remaining = options.work_limit };
+    var proof: origin.Prover = .{ .allocator = a, .program = original, .work_limit = options.work_limit };
+    defer proof.deinit();
     var variants: std.ArrayList(Variant) = .empty;
     var sites: std.ArrayList(Site) = .empty;
     var added_blocks: usize = 0;
@@ -193,11 +243,19 @@ pub fn construct(allocator: std.mem.Allocator, original: ir.Program, options: Op
         for (call.arguments, 0..) |argument, parameter| {
             try budget.tick();
             const value = block_facts.definitions[block_facts.exit[@intCast(argument)]].value;
-            const known: Static = if (value.constructor) |id| .{ .constructor = id } else if (value.variants.singleton()) |tag| .{ .variant = tag } else if (value.boolean) |flag| .{ .boolean = flag } else continue;
+            const known: Static = if (value.constructor) |id| .{ .constructor = id } else if (value.variants.singleton()) |tag| .{ .variant = tag } else if (value.boolean) |flag| .{ .boolean = flag } else if (value.unsigned) |number| .{ .unsigned = number } else continue;
             if (!try parameterEligible(original, call.function, parameter, known, permissions, &budget)) continue;
             const payload: ?p.Id = if (known == .variant) (try discoveredPayload(block, block_facts, argument, known.variant, &budget)) orelse continue else null;
+            // Forward discovery can be stronger than the independent prover.
+            // Missing proof leaves this call intact; it is not a compile error.
+            const certified = (try proof.resolve(bid, block.instructions.len, argument)) orelse {
+                if (proof.exhausted) return error.CallPatternLimit;
+                continue;
+            };
+            if (!matches(known, certified)) continue;
             const callee = original.functions[@intCast(call.function)];
             const key: Key = .{ .epoch = discovered.epoch, .function = call.function, .parameter = parameter, .schema = callee.layout.slots[@intCast(callee.inputs[parameter])], .value = known };
+            const literal: ?p.Id = if (known == .unsigned) (try findLiteral(original, key.schema, known.unsigned, &budget)) orelse continue else null;
             var selected: ?usize = null;
             for (variants.items, 0..) |variant, index| if (std.meta.eql(variant.key, key)) {
                 selected = index;
@@ -211,7 +269,7 @@ pub fn construct(allocator: std.mem.Allocator, original: ir.Program, options: Op
                 };
                 if (count > options.max_added_blocks -| added_blocks) return error.CallPatternLimit;
                 selected = variants.items.len;
-                try variants.append(a, .{ .key = key, .function = original.functions.len + variants.items.len, .first_block = original.blocks.len + added_blocks });
+                try variants.append(a, .{ .key = key, .function = original.functions.len + variants.items.len, .first_block = original.blocks.len + added_blocks, .literal = literal });
                 added_blocks += count;
             }
             try sites.append(a, .{ .block = bid, .variant = selected.?, .payload = payload });
@@ -237,11 +295,17 @@ pub fn construct(allocator: std.mem.Allocator, original: ir.Program, options: Op
         }
         functions[@intCast(variant.function)] = worker;
         var next = variant.first_block;
-        for (original.blocks) |block| {
+        for (original.blocks, 0..) |block, bid| {
             if (block.function != variant.key.function) continue;
             try budget.tick();
             var copy = block;
             copy.function = variant.function;
+            if (variant.key.value == .unsigned and bid == before.entry) {
+                const instructions = try a.alloc(ir.Instruction, block.instructions.len + 1);
+                instructions[0] = .{ .destination = before.inputs[variant.key.parameter], .opcode = .constant, .immediate = variant.literal.? };
+                @memcpy(instructions[1..], block.instructions);
+                copy.instructions = instructions;
+            }
             if (variant.key.value == .variant) {
                 const instructions = try a.dupe(ir.Instruction, block.instructions);
                 for (instructions) |*op| if (op.opcode == .variant_payload and op.operands[0] == before.inputs[variant.key.parameter]) {
@@ -330,6 +394,10 @@ pub fn validate(allocator: std.mem.Allocator, original: ir.Program, candidate: i
         const function = original.functions[@intCast(variant.key.function)];
         const slot = function.inputs[variant.key.parameter];
         if (variant.key.schema != function.layout.slots[@intCast(slot)]) return error.InvalidCallPattern;
+        if (variant.key.value == .unsigned) {
+            const literal = variant.literal orelse return error.InvalidCallPattern;
+            if (literal >= original.constants.len or original.constants[@intCast(literal)].schema != variant.key.schema or literalValue(original, literal) != variant.key.value.unsigned) return error.InvalidCallPattern;
+        } else if (variant.literal != null) return error.InvalidCallPattern;
         const worker = candidate.functions[@intCast(variant.function)];
         var metadata = worker;
         metadata.entry = function.entry;
@@ -363,8 +431,13 @@ pub fn validate(allocator: std.mem.Allocator, original: ir.Program, candidate: i
             const replacement = candidate.blocks[next_block];
             if (bid == function.entry and worker.entry != next_block) return error.InvalidCallPattern;
             next_block += 1;
-            if (replacement.function != variant.function or replacement.custody != block.custody or block.instructions.len != replacement.instructions.len) return error.InvalidCallPattern;
-            for (block.instructions, replacement.instructions) |old_op, new_op| {
+            const prefix: usize = @intFromBool(variant.key.value == .unsigned and bid == function.entry);
+            if (replacement.function != variant.function or replacement.custody != block.custody or block.instructions.len + prefix != replacement.instructions.len) return error.InvalidCallPattern;
+            if (prefix != 0) {
+                const initialization: ir.Instruction = .{ .destination = slot, .opcode = .constant, .immediate = variant.literal.? };
+                if (!equal(ir.Instruction, initialization, replacement.instructions[0])) return error.InvalidCallPattern;
+            }
+            for (block.instructions, replacement.instructions[prefix..]) |old_op, new_op| {
                 var expected = old_op;
                 if (variant.key.value == .variant and old_op.opcode == .variant_payload and old_op.operands[0] == slot) expected = .{ .destination = old_op.destination, .opcode = .move, .operands = old_op.operands };
                 if (!equal(ir.Instruction, expected, new_op)) return error.InvalidCallPattern;
@@ -420,12 +493,7 @@ pub fn validate(allocator: std.mem.Allocator, original: ir.Program, candidate: i
                 return error.InvalidCallPattern;
             };
             if (variant.key.value != .variant) {
-                const matches = switch (variant.key.value) {
-                    .constructor => |id| known == .constructor and known.constructor == id,
-                    .boolean => |flag| known == .boolean and known.boolean == flag,
-                    .variant => unreachable,
-                };
-                if (!matches or item.payload != null or new.terminator.call.arguments.len + 1 != call.arguments.len) return error.InvalidCallPattern;
+                if (!matches(variant.key.value, known) or item.payload != null or new.terminator.call.arguments.len + 1 != call.arguments.len) return error.InvalidCallPattern;
                 var index: usize = 0;
                 for (call.arguments, 0..) |argument, position| {
                     if (position == variant.key.parameter) continue;
@@ -472,6 +540,9 @@ pub fn run(allocator: std.mem.Allocator, original: ir.Program, statistics: ?*Sta
         else => return err,
     };
     stats.variants = candidate.variants.len;
+    for (candidate.variants) |variant| if (variant.key.value == .unsigned) {
+        stats.constants_materialized += 1;
+    };
     stats.rewritten_calls = candidate.sites.len;
     for (candidate.variants) |variant| for (original.blocks) |block| if (block.function == variant.key.function) {
         if (block.terminator == .apply) stats.direct_applications += 1;

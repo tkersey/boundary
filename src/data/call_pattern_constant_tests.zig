@@ -97,3 +97,17 @@ test "shared pipeline selects constant argument specialization" {
     }
     try std.testing.expectEqual(@as(usize, 1), branches);
 }
+
+test "selected constants without an origin proof retain a valid generic call" {
+    var original = choice;
+    var blocks = choice.blocks[0..7].*;
+    blocks[1].instructions = &.{ choice.blocks[1].instructions[0], .{ .destination = 3, .opcode = .select, .operands = &.{ 2, 3, 3 } } };
+    original.blocks = &blocks;
+    var stats: patterns.Statistics = .{};
+    var result = try patterns.run(a, original, &stats, .{});
+    defer result.deinit();
+    try std.testing.expectEqual(@as(usize, 1), stats.rewritten_calls);
+    try std.testing.expectEqual(@as(usize, 1), stats.generic_fallback_calls);
+    var compiled = try @import("closed_compilation.zig").run(a, original, .{ .contract = .semantic });
+    defer compiled.deinit();
+}

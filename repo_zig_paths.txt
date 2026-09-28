@@ -54,6 +54,7 @@ src/data/branch_reduction.zig
 src/data/call_contexts.zig
 src/data/call_pattern_constant_tests.zig
 src/data/call_pattern_variant_tests.zig
+src/data/call_pattern_word_tests.zig
 src/data/call_patterns.zig
 src/data/call_patterns_tests.zig
 src/data/capture_projection.zig

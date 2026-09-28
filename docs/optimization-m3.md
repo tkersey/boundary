@@ -232,3 +232,44 @@ both paths. Raw observations and source/image/tool identities are retained in
 Twenty-four previously qualified callable and variant images remain byte-identical.
 Their existing evidence is reused only for those exact inputs and the unchanged
 runtime; the earlier unaccepted costs remain unresolved.
+
+## P09 unsigned literals and proof-availability repair
+
+Unsigned u8/u16/u32/u64 parameters can now be removed from a private worker's
+interface when their exact value is proved and a matching schema-specific literal
+already exists in the original catalog. The worker initializes the old parameter
+slot at entry, then preserves the original instructions and failure mappings.
+Parameter overwrites and recursive calls remain outside this fragment. A second
+existing branch-reduction step consumes the exposed constant comparisons; it
+does not rely on stale pre-specialization facts. No new literal pool or evaluator
+is introduced. The cheap opportunity filter now requires an actual private call.
+
+A regression test also exposed a concrete proof-availability gap: forward facts
+could infer a Boolean through `select`, while the backwards prover could not
+certify it. The old standalone pass returned `InvalidCallPattern` for that valid
+program. Discovery now checks proof availability before constructing a worker,
+retains unsupported calls, and rolls back on proof-budget exhaustion. The final
+independent validator still rederives every proof and rejects wrong candidates.
+The regression covers both standalone and shared semantic compilation.
+
+Width-specific literals, wrong literal initialization, an out-of-width forged
+certificate, unknown arguments and allocation failures have focused coverage.
+Native World now passes 420 cumulative executions, including four scalar widths
+and a division-by-zero path that must fail before the subsequent comparison.
+Original, checked, semantic and source-free linked records agree. Final
+ReleaseSafe validation passes 319/319 steps and 635/635 tests; focused word
+validation passes 38/38 tests.
+
+The new u64 fixture passes 36 cross-engine comparisons, three same-image restores,
+three wrong-image rejections and six malformed inputs. Ten paired timing cells
+against 2551b63 complete without a confirmed slowdown. Admission peak changes
+by +524 bytes native and -370 bytes WASM; retained storage grows 184/156 bytes;
+fresh invocation peak grows 184/111 bytes. These increases remain below 1 KiB.
+Maximum checkpoints fall from 104 to 82 bytes on both paths. Raw observations,
+the failed/passing proof-gap witness and exact identities are retained in
+`performance/m3-p09-word-*.json`.
+
+Thirty earlier callable, variant and Boolean images remain byte-identical. Their
+proofs and outstanding cost decisions retain their original inputs. Broader
+schema/evidence and recursive-specialization obligations remain explicit; this
+does not close P09, M3 or the full programme.

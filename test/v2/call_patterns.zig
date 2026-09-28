@@ -244,3 +244,74 @@ test "World executes proved Boolean workers and unknown fallback through closed 
         };
     }
 }
+
+pub const word_constants: ir.Program = .{
+    .roots = .{ .entry = 0, .result = 0, .failure = 2 },
+    .schemas = &.{ .u64, .boolean, .unit },
+    .constants = &.{ .{ .schema = 0, .bytes = &.{ 0, 0, 0, 0, 0, 0, 0, 0 } }, .{ .schema = 0, .bytes = &.{ 1, 0, 0, 0, 0, 0, 0, 0 } } },
+    .effects = &.{},
+    .functions = &.{
+        .{ .entry = 0, .inputs = &.{ 0, 1 }, .layout = .{ .slots = &.{ 0, 1, 0, 0 } }, .result = 0 },
+        .{ .entry = 4, .inputs = &.{ 0, 1 }, .layout = .{ .slots = &.{ 0, 0, 0, 1 } }, .result = 0 },
+    },
+    .blocks = &.{
+        .{ .function = 0, .instructions = &.{}, .terminator = .{ .branch = .{ .condition = 1, .when_true = .{ .block = 1 }, .when_false = .{ .block = 2 } } } },
+        .{ .function = 0, .instructions = &.{.{ .destination = 2, .opcode = .constant, .immediate = 0 }}, .terminator = .{ .call = .{ .function = 1, .arguments = &.{ 0, 2 }, .next = .{ .block = 3, .assignments = &.{.{ .destination = 3, .source = .returned }} } } } },
+        .{ .function = 0, .instructions = &.{.{ .destination = 2, .opcode = .constant, .immediate = 1 }}, .terminator = .{ .call = .{ .function = 1, .arguments = &.{ 0, 2 }, .next = .{ .block = 3, .assignments = &.{.{ .destination = 3, .source = .returned }} } } } },
+        .{ .function = 0, .instructions = &.{}, .terminator = .{ .return_value = 3 } },
+        .{ .function = 1, .instructions = &.{ .{ .destination = 2, .opcode = .constant, .immediate = 0 }, .{ .destination = 3, .opcode = .equal, .operands = &.{ 1, 2 } } }, .terminator = .{ .branch = .{ .condition = 3, .when_true = .{ .block = 5 }, .when_false = .{ .block = 6 } } } },
+        .{ .function = 1, .instructions = &.{}, .terminator = .{ .return_value = 0 } },
+        .{ .function = 1, .instructions = &.{.{ .destination = 2, .opcode = .integer_bit_not, .operands = &.{0} }}, .terminator = .{ .return_value = 2 } },
+    },
+};
+
+test "World executes width-correct unsigned workers and preserves a preceding arithmetic fault" {
+    for (0..5) |fixture| {
+        const width: usize = if (fixture == 4) 8 else (@as(usize, 1) << @intCast(fixture));
+        const schema: data.program.Schema = switch (width) {
+            1 => .u8,
+            2 => .u16,
+            4 => .u32,
+            else => .u64,
+        };
+        var original = word_constants;
+        original.schemas = &.{ schema, .boolean, .unit };
+        const literals = [_]data.program.Literal{ .{ .schema = 0, .bytes = word_constants.constants[0].bytes[0..width] }, .{ .schema = 0, .bytes = word_constants.constants[1].bytes[0..width] }, .{ .schema = 2, .bytes = &.{} } };
+        original.constants = &literals;
+        var blocks = word_constants.blocks[0..7].*;
+        if (fixture == 4) blocks[4].instructions = &.{ .{ .destination = 0, .opcode = .integer_div, .operands = &.{ 0, 1 }, .failures = &.{ .{ .kind = .arithmetic_overflow, .value = 2 }, .{ .kind = .division_by_zero, .value = 2 } } }, word_constants.blocks[4].instructions[0], word_constants.blocks[4].instructions[1] };
+        original.blocks = &blocks;
+        var checked = try patterns.run(a, original, null, .{});
+        defer checked.deinit();
+        var compiled = try data.closed_compilation.run(a, original, .{ .contract = .semantic });
+        defer compiled.deinit();
+        const object: data.component.Object = .{ .program = original, .exports = &.{.{ .name = "main", .reference = .{ .kind = .function, .id = 0 } }}, .borrows = &.{ .{ .function = 0 }, .{ .function = 1 } } };
+        const encoded = try a.alloc(u8, try data.component.encodedLength(object));
+        defer a.free(encoded);
+        _ = try data.component.encode(a, object, encoded);
+        var linked = try data.linker.linkWithCompilation(a, &.{.{ .key = "words", .object = encoded }}, &.{}, .{ .instance = "words", .symbol = "main" }, .{ .contract = .semantic });
+        defer linked.deinit();
+        @memset(encoded, 0xff);
+        for ([_]u64{ 0, 1, std.math.maxInt(u64) }) |value| for ([_]bool{ false, true }) |first| {
+            var args: [9]u8 = undefined;
+            std.mem.writeInt(u64, args[0..8], value, .little);
+            args[width] = @intFromBool(first);
+            var expected: [8]u8 = undefined;
+            std.mem.writeInt(u64, &expected, if (first) value else ~value, .little);
+            for ([_]ir.Program{ original, checked.program, compiled.program, linked.program }) |program| {
+                const bytes = try a.alloc(u8, try data.program_image.encodedLength(program));
+                defer a.free(bytes);
+                _ = try data.program_image.encode(a, program, bytes);
+                var result = try world.invocation.invoke(a, .{ .image = bytes, .instance = .{ .initial_args = args[0 .. width + 1] } });
+                defer result.deinit();
+                if (fixture == 4 and first) {
+                    try std.testing.expect(result.record == .failed);
+                    try std.testing.expectEqualSlices(u8, &.{}, result.record.failed.value);
+                } else {
+                    try std.testing.expect(result.record == .completed);
+                    try std.testing.expectEqualSlices(u8, expected[0..width], result.record.completed);
+                }
+            }
+        };
+    }
+}
