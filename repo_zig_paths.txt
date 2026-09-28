@@ -133,6 +133,8 @@ src/data/scalar.zig
 src/data/schema.zig
 src/data/schema_partition.zig
 src/data/slot_access.zig
+src/data/slot_packing.zig
+src/data/slot_packing_tests.zig
 src/data/state_admission.zig
 src/data/state_effects.zig
 src/data/state_image.zig
@@ -254,6 +256,8 @@ test/v2/outlining.zig
 test/v2/outlining_platform.zig
 test/v2/partial_redundancy.zig
 test/v2/pre_platform.zig
+test/v2/slot_packing.zig
+test/v2/slot_packing_platform.zig
 test/v2/snapshot_retention.zig
 test/v2/tail_duplication.zig
 test/v2/tail_duplication_platform.zig

@@ -519,3 +519,49 @@ Capture correctness qualification: 319/319 ReleaseSafe steps and 678/678 tests;
 48 focused tests, 516 cumulative native executions, 72 cross-engine comparisons,
 three same-image restores, three wrong-image rejections and six malformed inputs
 pass. All 66 preceding images remain byte-identical. Performance acceptance is pending.
+
+## P22 activation-local logical slot packing
+
+Inspection of the capture fixture found only one completely unreferenced layout
+entry. The retained correction therefore packs disjoint live ranges, rather than
+launching an unused-slot cleanup. `slot_packing.zig` derives interference from
+original admission/liveness, instruction writes and parallel edge transfers.
+Inputs remain distinct, ordered and reserved; only instruction temporaries share
+their storage. Merged slots require exact schema identity.
+The independent checker rederives live-state/write constraints and checks every
+instruction, edge, input and schema mapping without trusting the discovery graph.
+
+The first domain is pure, non-suspending, one-custody, copyable/exportable code
+without calls, owned regions or internal state. Unreachable edge destinations
+still remain distinct. The existing selective source slot-order pass is unchanged;
+this pass runs only under the semantic compiler contract and retains P01. It does
+not alter World backing storage or reinterpret existing saved images.
+
+Witnesses cover disjoint temporary reuse, an admissible bad interference map,
+parallel swaps around 63/64/65/66 slots, suspension/internal-state exclusion,
+allocation/work limits and a stable compiler fixed point. Native execution checks
+the original, packed, compiled and source-free linked images at every quantum-one
+checkpoint, preserving results and transition counts. General retained-activation
+and physical-packing cases remain outside this initial fragment.
+
+Initial aggressive coloring reused input slots and retained mapped identity
+transfers. Removing identities preserved real swaps, but recursive and outlining
+fixtures still showed regressions. Those attempts remain separately recorded.
+The retained policy reserves input storage and packs only temporaries; targeted
+reruns clear those two families' measured regressions. This follows the supplied
+warning that fewer slots alone do not establish a runtime improvement.
+
+The user explicitly accepts the bounded input-preserving candidate costs under
+§9.5: cumulative captured-callable admission +1.06 microseconds native (14.5%)
+and +3.11 microseconds WASM (12.7%); WASM admission/retained/checkpoint-cycle
+memory +1500/+1032/+1043 bytes; and one recursive fresh WASM path +3.34 microseconds
+(10.8%) in the final matrix, despite an earlier targeted run not confirming it.
+This supersedes the earlier capture-cost question, not other unrelated cost gates.
+
+Final qualification passes 319/319 ReleaseSafe steps and 686/686 tests, 46 focused
+packing tests, 84 applicability tests, 756 cross-engine comparisons and 36 native
+checkpointed cases, including saves/restores midway through a loop. The final local
+cost matrix contains 104 measured cells; byte-identical tails/duplication images
+reuse their exact evidence. Initial rejected allocation policies and the retained
+policy are separate in `performance/m3-p22-*.json`. Full consumer/package and
+remaining programme qualification stay open.

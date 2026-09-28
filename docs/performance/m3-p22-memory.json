@@ -1,0 +1,1616 @@
+{
+  "sourceFiles": {
+    "src/data/slot_packing.zig": "f74cc721568e995b19b8c8848c928b2654e86ea1ccaa2d0914aa06bfbd17426b",
+    "src/data/closed_compilation.zig": "3be40b5ea1c48da2a1b03b2aa6a58efd193366dbc797d371ae026520b1bca0e9",
+    "src/data/root.zig": "5627ae5f41b409b045b2b8c916fb6d5fc19a1de85f1d5272d095819d7c851f93",
+    "test/v2/slot_packing.zig": "5ed4b999b4d8dc0fa9e8aee7f809f9ba22418f12e8c8b4595a2a542a35cb8111"
+  },
+  "reports": {
+    "variants": {
+      "scope": "Native fresh invocation and three fresh WASM quantum-one cycles per path; working payload excludes host buffers/RSS",
+      "fixture": "variant-total",
+      "kernelSha256": "7d31effb1d4e32523d0fcbd5b4d5f5a8a2289fbd4c731173a33b1c174524282f",
+      "nativeSha256": "0d7b616711edf08fdbc7c97e32ce1547340ed093570fa753ba30ae25cae9278e",
+      "runnerSha256": "7239a257e2ee9633a942397ff34021cb55ebac9c1f4c81bdbf076711477ca765",
+      "rows": [
+        {
+          "name": "first",
+          "control": {
+            "imageSha256": "90f10410d1e372f5c26fd15c8cf79cf6fbc64445970497a596bf5fb07ab88876",
+            "native": {
+              "multiTemplates": 0,
+              "branchActivations": 0,
+              "transitions": 4,
+              "peakWorkingBytes": 9139,
+              "addedNodes": 1,
+              "copiedBlobBytes": 0
+            },
+            "wasmFreshPeak": 8162,
+            "wasmCycles": [
+              {
+                "peak": 9284,
+                "checkpointMax": 82,
+                "invocations": 4
+              },
+              {
+                "peak": 9284,
+                "checkpointMax": 82,
+                "invocations": 4
+              },
+              {
+                "peak": 9284,
+                "checkpointMax": 82,
+                "invocations": 4
+              }
+            ]
+          },
+          "candidate": {
+            "imageSha256": "195a3a362f8cc960f49710d623aad3ca32655bd9a659ccfdfae51c1d29684f9d",
+            "native": {
+              "multiTemplates": 0,
+              "branchActivations": 0,
+              "transitions": 4,
+              "peakWorkingBytes": 8505,
+              "addedNodes": 1,
+              "copiedBlobBytes": 0
+            },
+            "wasmFreshPeak": 6903,
+            "wasmCycles": [
+              {
+                "peak": 8333,
+                "checkpointMax": 82,
+                "invocations": 4
+              },
+              {
+                "peak": 8333,
+                "checkpointMax": 82,
+                "invocations": 4
+              },
+              {
+                "peak": 8333,
+                "checkpointMax": 82,
+                "invocations": 4
+              }
+            ]
+          }
+        },
+        {
+          "name": "second",
+          "control": {
+            "imageSha256": "90f10410d1e372f5c26fd15c8cf79cf6fbc64445970497a596bf5fb07ab88876",
+            "native": {
+              "multiTemplates": 0,
+              "branchActivations": 0,
+              "transitions": 5,
+              "peakWorkingBytes": 9139,
+              "addedNodes": 1,
+              "copiedBlobBytes": 0
+            },
+            "wasmFreshPeak": 8162,
+            "wasmCycles": [
+              {
+                "peak": 9338,
+                "checkpointMax": 104,
+                "invocations": 5
+              },
+              {
+                "peak": 9338,
+                "checkpointMax": 104,
+                "invocations": 5
+              },
+              {
+                "peak": 9338,
+                "checkpointMax": 104,
+                "invocations": 5
+              }
+            ]
+          },
+          "candidate": {
+            "imageSha256": "195a3a362f8cc960f49710d623aad3ca32655bd9a659ccfdfae51c1d29684f9d",
+            "native": {
+              "multiTemplates": 0,
+              "branchActivations": 0,
+              "transitions": 5,
+              "peakWorkingBytes": 8505,
+              "addedNodes": 1,
+              "copiedBlobBytes": 0
+            },
+            "wasmFreshPeak": 6903,
+            "wasmCycles": [
+              {
+                "peak": 8333,
+                "checkpointMax": 104,
+                "invocations": 5
+              },
+              {
+                "peak": 8333,
+                "checkpointMax": 104,
+                "invocations": 5
+              },
+              {
+                "peak": 8333,
+                "checkpointMax": 104,
+                "invocations": 5
+              }
+            ]
+          }
+        },
+        {
+          "name": "third",
+          "control": {
+            "imageSha256": "90f10410d1e372f5c26fd15c8cf79cf6fbc64445970497a596bf5fb07ab88876",
+            "native": {
+              "multiTemplates": 0,
+              "branchActivations": 0,
+              "transitions": 5,
+              "peakWorkingBytes": 9139,
+              "addedNodes": 1,
+              "copiedBlobBytes": 0
+            },
+            "wasmFreshPeak": 8162,
+            "wasmCycles": [
+              {
+                "peak": 9338,
+                "checkpointMax": 104,
+                "invocations": 5
+              },
+              {
+                "peak": 9338,
+                "checkpointMax": 104,
+                "invocations": 5
+              },
+              {
+                "peak": 9338,
+                "checkpointMax": 104,
+                "invocations": 5
+              }
+            ]
+          },
+          "candidate": {
+            "imageSha256": "195a3a362f8cc960f49710d623aad3ca32655bd9a659ccfdfae51c1d29684f9d",
+            "native": {
+              "multiTemplates": 0,
+              "branchActivations": 0,
+              "transitions": 5,
+              "peakWorkingBytes": 8505,
+              "addedNodes": 1,
+              "copiedBlobBytes": 0
+            },
+            "wasmFreshPeak": 6903,
+            "wasmCycles": [
+              {
+                "peak": 8333,
+                "checkpointMax": 104,
+                "invocations": 5
+              },
+              {
+                "peak": 8333,
+                "checkpointMax": 104,
+                "invocations": 5
+              },
+              {
+                "peak": 8333,
+                "checkpointMax": 104,
+                "invocations": 5
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "booleans": {
+      "scope": "Native fresh invocation and three fresh WASM quantum-one cycles per path; working payload excludes host buffers/RSS",
+      "fixture": "constant",
+      "kernelSha256": "7d31effb1d4e32523d0fcbd5b4d5f5a8a2289fbd4c731173a33b1c174524282f",
+      "nativeSha256": "0d7b616711edf08fdbc7c97e32ce1547340ed093570fa753ba30ae25cae9278e",
+      "runnerSha256": "7239a257e2ee9633a942397ff34021cb55ebac9c1f4c81bdbf076711477ca765",
+      "rows": [
+        {
+          "name": "first",
+          "control": {
+            "imageSha256": "f071c0c360ce3207df7c6732b3b9ad2760c94cdb99a675ef8999606e89e889d6",
+            "native": {
+              "multiTemplates": 0,
+              "branchActivations": 0,
+              "transitions": 4,
+              "peakWorkingBytes": 7838,
+              "addedNodes": 1,
+              "copiedBlobBytes": 0
+            },
+            "wasmFreshPeak": 6204,
+            "wasmCycles": [
+              {
+                "peak": 7358,
+                "checkpointMax": 82,
+                "invocations": 4
+              },
+              {
+                "peak": 7358,
+                "checkpointMax": 82,
+                "invocations": 4
+              },
+              {
+                "peak": 7358,
+                "checkpointMax": 82,
+                "invocations": 4
+              }
+            ]
+          },
+          "candidate": {
+            "imageSha256": "3f948e171ac255a281a0d825cb5011787ef522cc8d75ed252a517c849ecb8b4a",
+            "native": {
+              "multiTemplates": 0,
+              "branchActivations": 0,
+              "transitions": 4,
+              "peakWorkingBytes": 7818,
+              "addedNodes": 1,
+              "copiedBlobBytes": 0
+            },
+            "wasmFreshPeak": 6181,
+            "wasmCycles": [
+              {
+                "peak": 7335,
+                "checkpointMax": 82,
+                "invocations": 4
+              },
+              {
+                "peak": 7335,
+                "checkpointMax": 82,
+                "invocations": 4
+              },
+              {
+                "peak": 7335,
+                "checkpointMax": 82,
+                "invocations": 4
+              }
+            ]
+          }
+        },
+        {
+          "name": "second",
+          "control": {
+            "imageSha256": "f071c0c360ce3207df7c6732b3b9ad2760c94cdb99a675ef8999606e89e889d6",
+            "native": {
+              "multiTemplates": 0,
+              "branchActivations": 0,
+              "transitions": 4,
+              "peakWorkingBytes": 7838,
+              "addedNodes": 1,
+              "copiedBlobBytes": 0
+            },
+            "wasmFreshPeak": 6204,
+            "wasmCycles": [
+              {
+                "peak": 7358,
+                "checkpointMax": 82,
+                "invocations": 4
+              },
+              {
+                "peak": 7358,
+                "checkpointMax": 82,
+                "invocations": 4
+              },
+              {
+                "peak": 7358,
+                "checkpointMax": 82,
+                "invocations": 4
+              }
+            ]
+          },
+          "candidate": {
+            "imageSha256": "3f948e171ac255a281a0d825cb5011787ef522cc8d75ed252a517c849ecb8b4a",
+            "native": {
+              "multiTemplates": 0,
+              "branchActivations": 0,
+              "transitions": 4,
+              "peakWorkingBytes": 7818,
+              "addedNodes": 1,
+              "copiedBlobBytes": 0
+            },
+            "wasmFreshPeak": 6181,
+            "wasmCycles": [
+              {
+                "peak": 7335,
+                "checkpointMax": 82,
+                "invocations": 4
+              },
+              {
+                "peak": 7335,
+                "checkpointMax": 82,
+                "invocations": 4
+              },
+              {
+                "peak": 7335,
+                "checkpointMax": 82,
+                "invocations": 4
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "words": {
+      "scope": "Native fresh invocation and three fresh WASM quantum-one cycles per path; working payload excludes host buffers/RSS",
+      "fixture": "word",
+      "kernelSha256": "7d31effb1d4e32523d0fcbd5b4d5f5a8a2289fbd4c731173a33b1c174524282f",
+      "nativeSha256": "0d7b616711edf08fdbc7c97e32ce1547340ed093570fa753ba30ae25cae9278e",
+      "runnerSha256": "7239a257e2ee9633a942397ff34021cb55ebac9c1f4c81bdbf076711477ca765",
+      "rows": [
+        {
+          "name": "first",
+          "control": {
+            "imageSha256": "695ecfbc4ef9b3be209245194e59a1f40f39548139477ae0235bad91c6c48729",
+            "native": {
+              "multiTemplates": 0,
+              "branchActivations": 0,
+              "transitions": 4,
+              "peakWorkingBytes": 9572,
+              "addedNodes": 1,
+              "copiedBlobBytes": 0
+            },
+            "wasmFreshPeak": 7775,
+            "wasmCycles": [
+              {
+                "peak": 9010,
+                "checkpointMax": 82,
+                "invocations": 4
+              },
+              {
+                "peak": 9010,
+                "checkpointMax": 82,
+                "invocations": 4
+              },
+              {
+                "peak": 9010,
+                "checkpointMax": 82,
+                "invocations": 4
+              }
+            ]
+          },
+          "candidate": {
+            "imageSha256": "4173be2c60854cb629a9051401c8fdeb9c0bec285960382ef838a583a0463835",
+            "native": {
+              "multiTemplates": 0,
+              "branchActivations": 0,
+              "transitions": 4,
+              "peakWorkingBytes": 9554,
+              "addedNodes": 1,
+              "copiedBlobBytes": 0
+            },
+            "wasmFreshPeak": 7753,
+            "wasmCycles": [
+              {
+                "peak": 8950,
+                "checkpointMax": 82,
+                "invocations": 4
+              },
+              {
+                "peak": 8950,
+                "checkpointMax": 82,
+                "invocations": 4
+              },
+              {
+                "peak": 8950,
+                "checkpointMax": 82,
+                "invocations": 4
+              }
+            ]
+          }
+        },
+        {
+          "name": "second",
+          "control": {
+            "imageSha256": "695ecfbc4ef9b3be209245194e59a1f40f39548139477ae0235bad91c6c48729",
+            "native": {
+              "multiTemplates": 0,
+              "branchActivations": 0,
+              "transitions": 5,
+              "peakWorkingBytes": 9572,
+              "addedNodes": 1,
+              "copiedBlobBytes": 0
+            },
+            "wasmFreshPeak": 7775,
+            "wasmCycles": [
+              {
+                "peak": 9010,
+                "checkpointMax": 82,
+                "invocations": 5
+              },
+              {
+                "peak": 9010,
+                "checkpointMax": 82,
+                "invocations": 5
+              },
+              {
+                "peak": 9010,
+                "checkpointMax": 82,
+                "invocations": 5
+              }
+            ]
+          },
+          "candidate": {
+            "imageSha256": "4173be2c60854cb629a9051401c8fdeb9c0bec285960382ef838a583a0463835",
+            "native": {
+              "multiTemplates": 0,
+              "branchActivations": 0,
+              "transitions": 5,
+              "peakWorkingBytes": 9554,
+              "addedNodes": 1,
+              "copiedBlobBytes": 0
+            },
+            "wasmFreshPeak": 7753,
+            "wasmCycles": [
+              {
+                "peak": 8950,
+                "checkpointMax": 82,
+                "invocations": 5
+              },
+              {
+                "peak": 8950,
+                "checkpointMax": 82,
+                "invocations": 5
+              },
+              {
+                "peak": 8950,
+                "checkpointMax": 82,
+                "invocations": 5
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "join": {
+      "scope": "Native fresh invocation and three fresh WASM quantum-one cycles per path; working payload excludes host buffers/RSS",
+      "fixture": "join",
+      "kernelSha256": "7d31effb1d4e32523d0fcbd5b4d5f5a8a2289fbd4c731173a33b1c174524282f",
+      "nativeSha256": "0d7b616711edf08fdbc7c97e32ce1547340ed093570fa753ba30ae25cae9278e",
+      "runnerSha256": "7239a257e2ee9633a942397ff34021cb55ebac9c1f4c81bdbf076711477ca765",
+      "rows": [
+        {
+          "name": "first",
+          "control": {
+            "imageSha256": "d7efe859b8ffdccf0cdb7b0cae61003f101e833a32e09943bdb1394e19da4887",
+            "native": {
+              "multiTemplates": 0,
+              "branchActivations": 0,
+              "transitions": 5,
+              "peakWorkingBytes": 8931,
+              "addedNodes": 1,
+              "copiedBlobBytes": 0
+            },
+            "wasmFreshPeak": 7391,
+            "wasmCycles": [
+              {
+                "peak": 8604,
+                "checkpointMax": 104,
+                "invocations": 5
+              },
+              {
+                "peak": 8604,
+                "checkpointMax": 104,
+                "invocations": 5
+              },
+              {
+                "peak": 8604,
+                "checkpointMax": 104,
+                "invocations": 5
+              }
+            ]
+          },
+          "candidate": {
+            "imageSha256": "054478a3304eb00f094a51c12ab922f020fed0b1fa898c0562fa7982f0d3a5ee",
+            "native": {
+              "multiTemplates": 0,
+              "branchActivations": 0,
+              "transitions": 5,
+              "peakWorkingBytes": 8923,
+              "addedNodes": 1,
+              "copiedBlobBytes": 0
+            },
+            "wasmFreshPeak": 7378,
+            "wasmCycles": [
+              {
+                "peak": 8591,
+                "checkpointMax": 104,
+                "invocations": 5
+              },
+              {
+                "peak": 8591,
+                "checkpointMax": 104,
+                "invocations": 5
+              },
+              {
+                "peak": 8591,
+                "checkpointMax": 104,
+                "invocations": 5
+              }
+            ]
+          }
+        },
+        {
+          "name": "first-swap",
+          "control": {
+            "imageSha256": "d7efe859b8ffdccf0cdb7b0cae61003f101e833a32e09943bdb1394e19da4887",
+            "native": {
+              "multiTemplates": 0,
+              "branchActivations": 0,
+              "transitions": 5,
+              "peakWorkingBytes": 8931,
+              "addedNodes": 1,
+              "copiedBlobBytes": 0
+            },
+            "wasmFreshPeak": 7391,
+            "wasmCycles": [
+              {
+                "peak": 8604,
+                "checkpointMax": 104,
+                "invocations": 5
+              },
+              {
+                "peak": 8604,
+                "checkpointMax": 104,
+                "invocations": 5
+              },
+              {
+                "peak": 8604,
+                "checkpointMax": 104,
+                "invocations": 5
+              }
+            ]
+          },
+          "candidate": {
+            "imageSha256": "054478a3304eb00f094a51c12ab922f020fed0b1fa898c0562fa7982f0d3a5ee",
+            "native": {
+              "multiTemplates": 0,
+              "branchActivations": 0,
+              "transitions": 5,
+              "peakWorkingBytes": 8923,
+              "addedNodes": 1,
+              "copiedBlobBytes": 0
+            },
+            "wasmFreshPeak": 7378,
+            "wasmCycles": [
+              {
+                "peak": 8591,
+                "checkpointMax": 104,
+                "invocations": 5
+              },
+              {
+                "peak": 8591,
+                "checkpointMax": 104,
+                "invocations": 5
+              },
+              {
+                "peak": 8591,
+                "checkpointMax": 104,
+                "invocations": 5
+              }
+            ]
+          }
+        },
+        {
+          "name": "second",
+          "control": {
+            "imageSha256": "d7efe859b8ffdccf0cdb7b0cae61003f101e833a32e09943bdb1394e19da4887",
+            "native": {
+              "multiTemplates": 0,
+              "branchActivations": 0,
+              "transitions": 5,
+              "peakWorkingBytes": 8931,
+              "addedNodes": 1,
+              "copiedBlobBytes": 0
+            },
+            "wasmFreshPeak": 7391,
+            "wasmCycles": [
+              {
+                "peak": 8604,
+                "checkpointMax": 104,
+                "invocations": 5
+              },
+              {
+                "peak": 8604,
+                "checkpointMax": 104,
+                "invocations": 5
+              },
+              {
+                "peak": 8604,
+                "checkpointMax": 104,
+                "invocations": 5
+              }
+            ]
+          },
+          "candidate": {
+            "imageSha256": "054478a3304eb00f094a51c12ab922f020fed0b1fa898c0562fa7982f0d3a5ee",
+            "native": {
+              "multiTemplates": 0,
+              "branchActivations": 0,
+              "transitions": 5,
+              "peakWorkingBytes": 8923,
+              "addedNodes": 1,
+              "copiedBlobBytes": 0
+            },
+            "wasmFreshPeak": 7378,
+            "wasmCycles": [
+              {
+                "peak": 8591,
+                "checkpointMax": 104,
+                "invocations": 5
+              },
+              {
+                "peak": 8591,
+                "checkpointMax": 104,
+                "invocations": 5
+              },
+              {
+                "peak": 8591,
+                "checkpointMax": 104,
+                "invocations": 5
+              }
+            ]
+          }
+        },
+        {
+          "name": "second-swap",
+          "control": {
+            "imageSha256": "d7efe859b8ffdccf0cdb7b0cae61003f101e833a32e09943bdb1394e19da4887",
+            "native": {
+              "multiTemplates": 0,
+              "branchActivations": 0,
+              "transitions": 5,
+              "peakWorkingBytes": 8931,
+              "addedNodes": 1,
+              "copiedBlobBytes": 0
+            },
+            "wasmFreshPeak": 7391,
+            "wasmCycles": [
+              {
+                "peak": 8604,
+                "checkpointMax": 104,
+                "invocations": 5
+              },
+              {
+                "peak": 8604,
+                "checkpointMax": 104,
+                "invocations": 5
+              },
+              {
+                "peak": 8604,
+                "checkpointMax": 104,
+                "invocations": 5
+              }
+            ]
+          },
+          "candidate": {
+            "imageSha256": "054478a3304eb00f094a51c12ab922f020fed0b1fa898c0562fa7982f0d3a5ee",
+            "native": {
+              "multiTemplates": 0,
+              "branchActivations": 0,
+              "transitions": 5,
+              "peakWorkingBytes": 8923,
+              "addedNodes": 1,
+              "copiedBlobBytes": 0
+            },
+            "wasmFreshPeak": 7378,
+            "wasmCycles": [
+              {
+                "peak": 8591,
+                "checkpointMax": 104,
+                "invocations": 5
+              },
+              {
+                "peak": 8591,
+                "checkpointMax": 104,
+                "invocations": 5
+              },
+              {
+                "peak": 8591,
+                "checkpointMax": 104,
+                "invocations": 5
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "recursive": {
+      "scope": "Native fresh invocation and three fresh WASM quantum-one cycles per path; working payload excludes host buffers/RSS",
+      "fixture": "recursive",
+      "kernelSha256": "7d31effb1d4e32523d0fcbd5b4d5f5a8a2289fbd4c731173a33b1c174524282f",
+      "nativeSha256": "0d7b616711edf08fdbc7c97e32ce1547340ed093570fa753ba30ae25cae9278e",
+      "runnerSha256": "7239a257e2ee9633a942397ff34021cb55ebac9c1f4c81bdbf076711477ca765",
+      "rows": [
+        {
+          "name": "first",
+          "control": {
+            "imageSha256": "03c84391d58789f10b5b0b2cdcc44bc01c669caac3c9d71ba3159c8b4492369c",
+            "native": {
+              "multiTemplates": 0,
+              "branchActivations": 0,
+              "transitions": 5,
+              "peakWorkingBytes": 11143,
+              "addedNodes": 1,
+              "copiedBlobBytes": 0
+            },
+            "wasmFreshPeak": 9082,
+            "wasmCycles": [
+              {
+                "peak": 10359,
+                "checkpointMax": 104,
+                "invocations": 5
+              },
+              {
+                "peak": 10359,
+                "checkpointMax": 104,
+                "invocations": 5
+              },
+              {
+                "peak": 10359,
+                "checkpointMax": 104,
+                "invocations": 5
+              }
+            ]
+          },
+          "candidate": {
+            "imageSha256": "1db46a8400732ca8cb065ae23cf18627f10371f3d3a12ca2d1075bc112a9f351",
+            "native": {
+              "multiTemplates": 0,
+              "branchActivations": 0,
+              "transitions": 5,
+              "peakWorkingBytes": 11131,
+              "addedNodes": 1,
+              "copiedBlobBytes": 0
+            },
+            "wasmFreshPeak": 9075,
+            "wasmCycles": [
+              {
+                "peak": 10352,
+                "checkpointMax": 104,
+                "invocations": 5
+              },
+              {
+                "peak": 10352,
+                "checkpointMax": 104,
+                "invocations": 5
+              },
+              {
+                "peak": 10352,
+                "checkpointMax": 104,
+                "invocations": 5
+              }
+            ]
+          }
+        },
+        {
+          "name": "first-swap",
+          "control": {
+            "imageSha256": "03c84391d58789f10b5b0b2cdcc44bc01c669caac3c9d71ba3159c8b4492369c",
+            "native": {
+              "multiTemplates": 0,
+              "branchActivations": 0,
+              "transitions": 10,
+              "peakWorkingBytes": 11143,
+              "addedNodes": 1,
+              "copiedBlobBytes": 0
+            },
+            "wasmFreshPeak": 9082,
+            "wasmCycles": [
+              {
+                "peak": 10359,
+                "checkpointMax": 104,
+                "invocations": 10
+              },
+              {
+                "peak": 10359,
+                "checkpointMax": 104,
+                "invocations": 10
+              },
+              {
+                "peak": 10359,
+                "checkpointMax": 104,
+                "invocations": 10
+              }
+            ]
+          },
+          "candidate": {
+            "imageSha256": "1db46a8400732ca8cb065ae23cf18627f10371f3d3a12ca2d1075bc112a9f351",
+            "native": {
+              "multiTemplates": 0,
+              "branchActivations": 0,
+              "transitions": 10,
+              "peakWorkingBytes": 11131,
+              "addedNodes": 1,
+              "copiedBlobBytes": 0
+            },
+            "wasmFreshPeak": 9075,
+            "wasmCycles": [
+              {
+                "peak": 10352,
+                "checkpointMax": 104,
+                "invocations": 10
+              },
+              {
+                "peak": 10352,
+                "checkpointMax": 104,
+                "invocations": 10
+              },
+              {
+                "peak": 10352,
+                "checkpointMax": 104,
+                "invocations": 10
+              }
+            ]
+          }
+        },
+        {
+          "name": "second",
+          "control": {
+            "imageSha256": "03c84391d58789f10b5b0b2cdcc44bc01c669caac3c9d71ba3159c8b4492369c",
+            "native": {
+              "multiTemplates": 0,
+              "branchActivations": 0,
+              "transitions": 5,
+              "peakWorkingBytes": 11143,
+              "addedNodes": 1,
+              "copiedBlobBytes": 0
+            },
+            "wasmFreshPeak": 9082,
+            "wasmCycles": [
+              {
+                "peak": 10359,
+                "checkpointMax": 104,
+                "invocations": 5
+              },
+              {
+                "peak": 10359,
+                "checkpointMax": 104,
+                "invocations": 5
+              },
+              {
+                "peak": 10359,
+                "checkpointMax": 104,
+                "invocations": 5
+              }
+            ]
+          },
+          "candidate": {
+            "imageSha256": "1db46a8400732ca8cb065ae23cf18627f10371f3d3a12ca2d1075bc112a9f351",
+            "native": {
+              "multiTemplates": 0,
+              "branchActivations": 0,
+              "transitions": 5,
+              "peakWorkingBytes": 11131,
+              "addedNodes": 1,
+              "copiedBlobBytes": 0
+            },
+            "wasmFreshPeak": 9075,
+            "wasmCycles": [
+              {
+                "peak": 10352,
+                "checkpointMax": 104,
+                "invocations": 5
+              },
+              {
+                "peak": 10352,
+                "checkpointMax": 104,
+                "invocations": 5
+              },
+              {
+                "peak": 10352,
+                "checkpointMax": 104,
+                "invocations": 5
+              }
+            ]
+          }
+        },
+        {
+          "name": "second-swap",
+          "control": {
+            "imageSha256": "03c84391d58789f10b5b0b2cdcc44bc01c669caac3c9d71ba3159c8b4492369c",
+            "native": {
+              "multiTemplates": 0,
+              "branchActivations": 0,
+              "transitions": 8,
+              "peakWorkingBytes": 11143,
+              "addedNodes": 1,
+              "copiedBlobBytes": 0
+            },
+            "wasmFreshPeak": 9082,
+            "wasmCycles": [
+              {
+                "peak": 10359,
+                "checkpointMax": 104,
+                "invocations": 8
+              },
+              {
+                "peak": 10359,
+                "checkpointMax": 104,
+                "invocations": 8
+              },
+              {
+                "peak": 10359,
+                "checkpointMax": 104,
+                "invocations": 8
+              }
+            ]
+          },
+          "candidate": {
+            "imageSha256": "1db46a8400732ca8cb065ae23cf18627f10371f3d3a12ca2d1075bc112a9f351",
+            "native": {
+              "multiTemplates": 0,
+              "branchActivations": 0,
+              "transitions": 8,
+              "peakWorkingBytes": 11131,
+              "addedNodes": 1,
+              "copiedBlobBytes": 0
+            },
+            "wasmFreshPeak": 9075,
+            "wasmCycles": [
+              {
+                "peak": 10352,
+                "checkpointMax": 104,
+                "invocations": 8
+              },
+              {
+                "peak": 10352,
+                "checkpointMax": 104,
+                "invocations": 8
+              },
+              {
+                "peak": 10352,
+                "checkpointMax": 104,
+                "invocations": 8
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "outline": {
+      "scope": "Native fresh invocation and three fresh WASM quantum-one cycles per path; working payload excludes host buffers/RSS",
+      "fixture": "outline",
+      "kernelSha256": "7d31effb1d4e32523d0fcbd5b4d5f5a8a2289fbd4c731173a33b1c174524282f",
+      "nativeSha256": "0d7b616711edf08fdbc7c97e32ce1547340ed093570fa753ba30ae25cae9278e",
+      "runnerSha256": "7239a257e2ee9633a942397ff34021cb55ebac9c1f4c81bdbf076711477ca765",
+      "rows": [
+        {
+          "name": "first",
+          "control": {
+            "imageSha256": "7a5cba25ea165a64c7c096b07244830211457522911d7d2968e7809bf04d8f5d",
+            "native": {
+              "multiTemplates": 0,
+              "branchActivations": 0,
+              "transitions": 28,
+              "peakWorkingBytes": 15379,
+              "addedNodes": 1,
+              "copiedBlobBytes": 0
+            },
+            "wasmFreshPeak": 13659,
+            "wasmCycles": [
+              {
+                "peak": 14574,
+                "checkpointMax": 93,
+                "invocations": 28
+              },
+              {
+                "peak": 14574,
+                "checkpointMax": 93,
+                "invocations": 28
+              },
+              {
+                "peak": 14574,
+                "checkpointMax": 93,
+                "invocations": 28
+              }
+            ]
+          },
+          "candidate": {
+            "imageSha256": "76f1cc14df6816cf82b78f102cfacbca10ad4698e9b90ed0c5a119016ac8f663",
+            "native": {
+              "multiTemplates": 0,
+              "branchActivations": 0,
+              "transitions": 28,
+              "peakWorkingBytes": 9920,
+              "addedNodes": 1,
+              "copiedBlobBytes": 0
+            },
+            "wasmFreshPeak": 8445,
+            "wasmCycles": [
+              {
+                "peak": 9806,
+                "checkpointMax": 93,
+                "invocations": 28
+              },
+              {
+                "peak": 9806,
+                "checkpointMax": 93,
+                "invocations": 28
+              },
+              {
+                "peak": 9806,
+                "checkpointMax": 93,
+                "invocations": 28
+              }
+            ]
+          }
+        },
+        {
+          "name": "second",
+          "control": {
+            "imageSha256": "7a5cba25ea165a64c7c096b07244830211457522911d7d2968e7809bf04d8f5d",
+            "native": {
+              "multiTemplates": 0,
+              "branchActivations": 0,
+              "transitions": 28,
+              "peakWorkingBytes": 15379,
+              "addedNodes": 1,
+              "copiedBlobBytes": 0
+            },
+            "wasmFreshPeak": 13659,
+            "wasmCycles": [
+              {
+                "peak": 14574,
+                "checkpointMax": 93,
+                "invocations": 28
+              },
+              {
+                "peak": 14574,
+                "checkpointMax": 93,
+                "invocations": 28
+              },
+              {
+                "peak": 14574,
+                "checkpointMax": 93,
+                "invocations": 28
+              }
+            ]
+          },
+          "candidate": {
+            "imageSha256": "76f1cc14df6816cf82b78f102cfacbca10ad4698e9b90ed0c5a119016ac8f663",
+            "native": {
+              "multiTemplates": 0,
+              "branchActivations": 0,
+              "transitions": 28,
+              "peakWorkingBytes": 9920,
+              "addedNodes": 1,
+              "copiedBlobBytes": 0
+            },
+            "wasmFreshPeak": 8445,
+            "wasmCycles": [
+              {
+                "peak": 9806,
+                "checkpointMax": 93,
+                "invocations": 28
+              },
+              {
+                "peak": 9806,
+                "checkpointMax": 93,
+                "invocations": 28
+              },
+              {
+                "peak": 9806,
+                "checkpointMax": 93,
+                "invocations": 28
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "threshold": {
+      "scope": "Native fresh invocation and three fresh WASM quantum-one cycles per path; working payload excludes host buffers/RSS",
+      "fixture": "packing",
+      "kernelSha256": "7d31effb1d4e32523d0fcbd5b4d5f5a8a2289fbd4c731173a33b1c174524282f",
+      "nativeSha256": "0d7b616711edf08fdbc7c97e32ce1547340ed093570fa753ba30ae25cae9278e",
+      "runnerSha256": "7239a257e2ee9633a942397ff34021cb55ebac9c1f4c81bdbf076711477ca765",
+      "rows": [
+        {
+          "name": "first",
+          "control": {
+            "imageSha256": "0a7a3b588221dcc76be3420c049586d463c2ec54ef58df603d04956312fda127",
+            "native": {
+              "multiTemplates": 0,
+              "branchActivations": 0,
+              "transitions": 5,
+              "peakWorkingBytes": 8634,
+              "addedNodes": 1,
+              "copiedBlobBytes": 0
+            },
+            "wasmFreshPeak": 7276,
+            "wasmCycles": [
+              {
+                "peak": 7689,
+                "checkpointMax": 104,
+                "invocations": 5
+              },
+              {
+                "peak": 7689,
+                "checkpointMax": 104,
+                "invocations": 5
+              },
+              {
+                "peak": 7689,
+                "checkpointMax": 104,
+                "invocations": 5
+              }
+            ]
+          },
+          "candidate": {
+            "imageSha256": "8b11e0e855e8bc8afa6096049699b4125296c8fc5545cb2ab6ff16d630ccc895",
+            "native": {
+              "multiTemplates": 0,
+              "branchActivations": 0,
+              "transitions": 5,
+              "peakWorkingBytes": 7308,
+              "addedNodes": 1,
+              "copiedBlobBytes": 0
+            },
+            "wasmFreshPeak": 5779,
+            "wasmCycles": [
+              {
+                "peak": 6578,
+                "checkpointMax": 104,
+                "invocations": 5
+              },
+              {
+                "peak": 6578,
+                "checkpointMax": 104,
+                "invocations": 5
+              },
+              {
+                "peak": 6578,
+                "checkpointMax": 104,
+                "invocations": 5
+              }
+            ]
+          }
+        },
+        {
+          "name": "second",
+          "control": {
+            "imageSha256": "0a7a3b588221dcc76be3420c049586d463c2ec54ef58df603d04956312fda127",
+            "native": {
+              "multiTemplates": 0,
+              "branchActivations": 0,
+              "transitions": 5,
+              "peakWorkingBytes": 8634,
+              "addedNodes": 1,
+              "copiedBlobBytes": 0
+            },
+            "wasmFreshPeak": 7276,
+            "wasmCycles": [
+              {
+                "peak": 7689,
+                "checkpointMax": 104,
+                "invocations": 5
+              },
+              {
+                "peak": 7689,
+                "checkpointMax": 104,
+                "invocations": 5
+              },
+              {
+                "peak": 7689,
+                "checkpointMax": 104,
+                "invocations": 5
+              }
+            ]
+          },
+          "candidate": {
+            "imageSha256": "8b11e0e855e8bc8afa6096049699b4125296c8fc5545cb2ab6ff16d630ccc895",
+            "native": {
+              "multiTemplates": 0,
+              "branchActivations": 0,
+              "transitions": 5,
+              "peakWorkingBytes": 7308,
+              "addedNodes": 1,
+              "copiedBlobBytes": 0
+            },
+            "wasmFreshPeak": 5779,
+            "wasmCycles": [
+              {
+                "peak": 6578,
+                "checkpointMax": 104,
+                "invocations": 5
+              },
+              {
+                "peak": 6578,
+                "checkpointMax": 104,
+                "invocations": 5
+              },
+              {
+                "peak": 6578,
+                "checkpointMax": 104,
+                "invocations": 5
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "captures": {
+      "scope": "Native fresh invocation and three fresh WASM quantum-one cycles per path; working payload excludes host buffers/RSS",
+      "fixture": "capture",
+      "kernelSha256": "7d31effb1d4e32523d0fcbd5b4d5f5a8a2289fbd4c731173a33b1c174524282f",
+      "nativeSha256": "0d7b616711edf08fdbc7c97e32ce1547340ed093570fa753ba30ae25cae9278e",
+      "runnerSha256": "7239a257e2ee9633a942397ff34021cb55ebac9c1f4c81bdbf076711477ca765",
+      "rows": [
+        {
+          "name": "first",
+          "control": {
+            "imageSha256": "b7458ad40360fef1a9886ce27e9a02f6abcbd03e6151d1a4a63807653d417396",
+            "native": {
+              "multiTemplates": 0,
+              "branchActivations": 0,
+              "transitions": 11,
+              "peakWorkingBytes": 13549,
+              "addedNodes": 3,
+              "copiedBlobBytes": 0
+            },
+            "wasmFreshPeak": 11881,
+            "wasmCycles": [
+              {
+                "peak": 12873,
+                "checkpointMax": 115,
+                "invocations": 11
+              },
+              {
+                "peak": 12873,
+                "checkpointMax": 115,
+                "invocations": 11
+              },
+              {
+                "peak": 12873,
+                "checkpointMax": 115,
+                "invocations": 11
+              }
+            ]
+          },
+          "candidate": {
+            "imageSha256": "0795386075aa13e9cbf04228942f35fa41b511a5a92fd5f313899545581e9817",
+            "native": {
+              "multiTemplates": 0,
+              "branchActivations": 0,
+              "transitions": 11,
+              "peakWorkingBytes": 13511,
+              "addedNodes": 3,
+              "copiedBlobBytes": 0
+            },
+            "wasmFreshPeak": 11838,
+            "wasmCycles": [
+              {
+                "peak": 12830,
+                "checkpointMax": 115,
+                "invocations": 11
+              },
+              {
+                "peak": 12830,
+                "checkpointMax": 115,
+                "invocations": 11
+              },
+              {
+                "peak": 12830,
+                "checkpointMax": 115,
+                "invocations": 11
+              }
+            ]
+          }
+        },
+        {
+          "name": "second",
+          "control": {
+            "imageSha256": "b7458ad40360fef1a9886ce27e9a02f6abcbd03e6151d1a4a63807653d417396",
+            "native": {
+              "multiTemplates": 0,
+              "branchActivations": 0,
+              "transitions": 12,
+              "peakWorkingBytes": 13549,
+              "addedNodes": 3,
+              "copiedBlobBytes": 0
+            },
+            "wasmFreshPeak": 11881,
+            "wasmCycles": [
+              {
+                "peak": 12873,
+                "checkpointMax": 115,
+                "invocations": 12
+              },
+              {
+                "peak": 12873,
+                "checkpointMax": 115,
+                "invocations": 12
+              },
+              {
+                "peak": 12873,
+                "checkpointMax": 115,
+                "invocations": 12
+              }
+            ]
+          },
+          "candidate": {
+            "imageSha256": "0795386075aa13e9cbf04228942f35fa41b511a5a92fd5f313899545581e9817",
+            "native": {
+              "multiTemplates": 0,
+              "branchActivations": 0,
+              "transitions": 12,
+              "peakWorkingBytes": 13511,
+              "addedNodes": 3,
+              "copiedBlobBytes": 0
+            },
+            "wasmFreshPeak": 11838,
+            "wasmCycles": [
+              {
+                "peak": 12830,
+                "checkpointMax": 115,
+                "invocations": 12
+              },
+              {
+                "peak": 12830,
+                "checkpointMax": 115,
+                "invocations": 12
+              },
+              {
+                "peak": 12830,
+                "checkpointMax": 115,
+                "invocations": 12
+              }
+            ]
+          }
+        },
+        {
+          "name": "third",
+          "control": {
+            "imageSha256": "b7458ad40360fef1a9886ce27e9a02f6abcbd03e6151d1a4a63807653d417396",
+            "native": {
+              "multiTemplates": 0,
+              "branchActivations": 0,
+              "transitions": 9,
+              "peakWorkingBytes": 13287,
+              "addedNodes": 1,
+              "copiedBlobBytes": 0
+            },
+            "wasmFreshPeak": 11530,
+            "wasmCycles": [
+              {
+                "peak": 12873,
+                "checkpointMax": 104,
+                "invocations": 9
+              },
+              {
+                "peak": 12873,
+                "checkpointMax": 104,
+                "invocations": 9
+              },
+              {
+                "peak": 12873,
+                "checkpointMax": 104,
+                "invocations": 9
+              }
+            ]
+          },
+          "candidate": {
+            "imageSha256": "0795386075aa13e9cbf04228942f35fa41b511a5a92fd5f313899545581e9817",
+            "native": {
+              "multiTemplates": 0,
+              "branchActivations": 0,
+              "transitions": 9,
+              "peakWorkingBytes": 13249,
+              "addedNodes": 1,
+              "copiedBlobBytes": 0
+            },
+            "wasmFreshPeak": 11487,
+            "wasmCycles": [
+              {
+                "peak": 12830,
+                "checkpointMax": 104,
+                "invocations": 9
+              },
+              {
+                "peak": 12830,
+                "checkpointMax": 104,
+                "invocations": 9
+              },
+              {
+                "peak": 12830,
+                "checkpointMax": 104,
+                "invocations": 9
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "captureCumulative": {
+    "scope": "Native fresh invocation and three fresh WASM quantum-one cycles per path; working payload excludes host buffers/RSS",
+    "fixture": "capture",
+    "kernelSha256": "7d31effb1d4e32523d0fcbd5b4d5f5a8a2289fbd4c731173a33b1c174524282f",
+    "nativeSha256": "0d7b616711edf08fdbc7c97e32ce1547340ed093570fa753ba30ae25cae9278e",
+    "runnerSha256": "7239a257e2ee9633a942397ff34021cb55ebac9c1f4c81bdbf076711477ca765",
+    "rows": [
+      {
+        "name": "first",
+        "control": {
+          "imageSha256": "705d0de89a9d414fe66dc88815e5a2449246865493c138fd348faff10b432b60",
+          "native": {
+            "multiTemplates": 0,
+            "branchActivations": 0,
+            "transitions": 13,
+            "peakWorkingBytes": 12675,
+            "addedNodes": 5,
+            "copiedBlobBytes": 0
+          },
+          "wasmFreshPeak": 11315,
+          "wasmCycles": [
+            {
+              "peak": 11787,
+              "checkpointMax": 158,
+              "invocations": 13
+            },
+            {
+              "peak": 11787,
+              "checkpointMax": 158,
+              "invocations": 13
+            },
+            {
+              "peak": 11787,
+              "checkpointMax": 158,
+              "invocations": 13
+            }
+          ]
+        },
+        "candidate": {
+          "imageSha256": "0795386075aa13e9cbf04228942f35fa41b511a5a92fd5f313899545581e9817",
+          "native": {
+            "multiTemplates": 0,
+            "branchActivations": 0,
+            "transitions": 11,
+            "peakWorkingBytes": 13511,
+            "addedNodes": 3,
+            "copiedBlobBytes": 0
+          },
+          "wasmFreshPeak": 11838,
+          "wasmCycles": [
+            {
+              "peak": 12830,
+              "checkpointMax": 115,
+              "invocations": 11
+            },
+            {
+              "peak": 12830,
+              "checkpointMax": 115,
+              "invocations": 11
+            },
+            {
+              "peak": 12830,
+              "checkpointMax": 115,
+              "invocations": 11
+            }
+          ]
+        }
+      },
+      {
+        "name": "second",
+        "control": {
+          "imageSha256": "705d0de89a9d414fe66dc88815e5a2449246865493c138fd348faff10b432b60",
+          "native": {
+            "multiTemplates": 0,
+            "branchActivations": 0,
+            "transitions": 14,
+            "peakWorkingBytes": 12675,
+            "addedNodes": 5,
+            "copiedBlobBytes": 0
+          },
+          "wasmFreshPeak": 11315,
+          "wasmCycles": [
+            {
+              "peak": 11787,
+              "checkpointMax": 158,
+              "invocations": 14
+            },
+            {
+              "peak": 11787,
+              "checkpointMax": 158,
+              "invocations": 14
+            },
+            {
+              "peak": 11787,
+              "checkpointMax": 158,
+              "invocations": 14
+            }
+          ]
+        },
+        "candidate": {
+          "imageSha256": "0795386075aa13e9cbf04228942f35fa41b511a5a92fd5f313899545581e9817",
+          "native": {
+            "multiTemplates": 0,
+            "branchActivations": 0,
+            "transitions": 12,
+            "peakWorkingBytes": 13511,
+            "addedNodes": 3,
+            "copiedBlobBytes": 0
+          },
+          "wasmFreshPeak": 11838,
+          "wasmCycles": [
+            {
+              "peak": 12830,
+              "checkpointMax": 115,
+              "invocations": 12
+            },
+            {
+              "peak": 12830,
+              "checkpointMax": 115,
+              "invocations": 12
+            },
+            {
+              "peak": 12830,
+              "checkpointMax": 115,
+              "invocations": 12
+            }
+          ]
+        }
+      },
+      {
+        "name": "third",
+        "control": {
+          "imageSha256": "705d0de89a9d414fe66dc88815e5a2449246865493c138fd348faff10b432b60",
+          "native": {
+            "multiTemplates": 0,
+            "branchActivations": 0,
+            "transitions": 12,
+            "peakWorkingBytes": 12627,
+            "addedNodes": 5,
+            "copiedBlobBytes": 0
+          },
+          "wasmFreshPeak": 11267,
+          "wasmCycles": [
+            {
+              "peak": 11787,
+              "checkpointMax": 116,
+              "invocations": 12
+            },
+            {
+              "peak": 11787,
+              "checkpointMax": 116,
+              "invocations": 12
+            },
+            {
+              "peak": 11787,
+              "checkpointMax": 116,
+              "invocations": 12
+            }
+          ]
+        },
+        "candidate": {
+          "imageSha256": "0795386075aa13e9cbf04228942f35fa41b511a5a92fd5f313899545581e9817",
+          "native": {
+            "multiTemplates": 0,
+            "branchActivations": 0,
+            "transitions": 9,
+            "peakWorkingBytes": 13249,
+            "addedNodes": 1,
+            "copiedBlobBytes": 0
+          },
+          "wasmFreshPeak": 11487,
+          "wasmCycles": [
+            {
+              "peak": 12830,
+              "checkpointMax": 104,
+              "invocations": 9
+            },
+            {
+              "peak": 12830,
+              "checkpointMax": 104,
+              "invocations": 9
+            },
+            {
+              "peak": 12830,
+              "checkpointMax": 104,
+              "invocations": 9
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

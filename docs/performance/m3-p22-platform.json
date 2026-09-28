@@ -1,0 +1,772 @@
+{
+  "sourceFiles": {
+    "src/data/slot_packing.zig": "f74cc721568e995b19b8c8848c928b2654e86ea1ccaa2d0914aa06bfbd17426b",
+    "src/data/closed_compilation.zig": "3be40b5ea1c48da2a1b03b2aa6a58efd193366dbc797d371ae026520b1bca0e9",
+    "src/data/root.zig": "5627ae5f41b409b045b2b8c916fb6d5fc19a1de85f1d5272d095819d7c851f93",
+    "test/v2/slot_packing.zig": "5ed4b999b4d8dc0fa9e8aee7f809f9ba22418f12e8c8b4595a2a542a35cb8111"
+  },
+  "reports": {
+    "variants": {
+      "sourceBaseCommit": "d903382cc631180cb48f472e14782553400264b1",
+      "unpublishedWorkingTree": true,
+      "kernelSha256": "7d31effb1d4e32523d0fcbd5b4d5f5a8a2289fbd4c731173a33b1c174524282f",
+      "emitterSha256": "dc16ada3f1ae9c67b7b6067407520ee6bdea06fc19899bd93974a1d34fe3264c",
+      "runnerSha256": "db6d976f0760e01158ac07e1e50c85b0e2410850b8772106ec70ce896dacd719",
+      "rows": [
+        {
+          "name": "variant-fallback-checked",
+          "route": "standalone checked call patterns",
+          "comparisons": 24,
+          "malformedInputsRejected": 2,
+          "sameImageRestore": true,
+          "wrongImageRejected": true,
+          "images": {
+            "structural": {
+              "bytes": 137,
+              "sha256": "1b6ed3687141fcb96f2d92ecf6858a0b5685dc98dde0a5de0711b38a0aecf06f"
+            },
+            "semantic": {
+              "bytes": 153,
+              "sha256": "49653268151b2c1beff0b22ae5d079b1487dbd1ee85bb43082bbdf07ec4d34f3"
+            }
+          }
+        },
+        {
+          "name": "variant-fallback-shared",
+          "route": "shared semantic compiler",
+          "comparisons": 24,
+          "malformedInputsRejected": 2,
+          "sameImageRestore": true,
+          "wrongImageRejected": true,
+          "images": {
+            "structural": {
+              "bytes": 137,
+              "sha256": "1b6ed3687141fcb96f2d92ecf6858a0b5685dc98dde0a5de0711b38a0aecf06f"
+            },
+            "semantic": {
+              "bytes": 133,
+              "sha256": "4f22420a6587adf74026106034ffb82219185e87d2a315da8ef7e76023ae2b9d"
+            }
+          }
+        },
+        {
+          "name": "variant-fallback-linked",
+          "route": "source-free semantic link",
+          "comparisons": 24,
+          "malformedInputsRejected": 2,
+          "sameImageRestore": true,
+          "wrongImageRejected": true,
+          "images": {
+            "structural": {
+              "bytes": 137,
+              "sha256": "1b6ed3687141fcb96f2d92ecf6858a0b5685dc98dde0a5de0711b38a0aecf06f"
+            },
+            "semantic": {
+              "bytes": 133,
+              "sha256": "4f22420a6587adf74026106034ffb82219185e87d2a315da8ef7e76023ae2b9d"
+            }
+          }
+        },
+        {
+          "name": "variant-total-checked",
+          "route": "standalone checked call patterns",
+          "comparisons": 24,
+          "malformedInputsRejected": 2,
+          "sameImageRestore": true,
+          "wrongImageRejected": true,
+          "images": {
+            "structural": {
+              "bytes": 136,
+              "sha256": "2e322c81d329379693e346b2a6952b0737740e7176c1ee99ce9aa4e0ebd992b2"
+            },
+            "semantic": {
+              "bytes": 132,
+              "sha256": "152beb03ca1679d1b8cc50ba8fbb7d764bb3dfc2a916cb2b68416752faf86a9a"
+            }
+          }
+        },
+        {
+          "name": "variant-total-shared",
+          "route": "shared semantic compiler",
+          "comparisons": 24,
+          "malformedInputsRejected": 2,
+          "sameImageRestore": true,
+          "wrongImageRejected": true,
+          "images": {
+            "structural": {
+              "bytes": 136,
+              "sha256": "2e322c81d329379693e346b2a6952b0737740e7176c1ee99ce9aa4e0ebd992b2"
+            },
+            "semantic": {
+              "bytes": 93,
+              "sha256": "195a3a362f8cc960f49710d623aad3ca32655bd9a659ccfdfae51c1d29684f9d"
+            }
+          }
+        },
+        {
+          "name": "variant-total-linked",
+          "route": "source-free semantic link",
+          "comparisons": 24,
+          "malformedInputsRejected": 2,
+          "sameImageRestore": true,
+          "wrongImageRejected": true,
+          "images": {
+            "structural": {
+              "bytes": 136,
+              "sha256": "2e322c81d329379693e346b2a6952b0737740e7176c1ee99ce9aa4e0ebd992b2"
+            },
+            "semantic": {
+              "bytes": 93,
+              "sha256": "195a3a362f8cc960f49710d623aad3ca32655bd9a659ccfdfae51c1d29684f9d"
+            }
+          }
+        },
+        {
+          "name": "variant-overwritten-checked",
+          "route": "standalone checked call patterns",
+          "comparisons": 24,
+          "malformedInputsRejected": 2,
+          "sameImageRestore": true,
+          "wrongImageRejected": true,
+          "images": {
+            "structural": {
+              "bytes": 140,
+              "sha256": "1cd93ca8f25fa05d50b0ba7359e126c7d2a3ab6df957c22ecda9e6a1de748696"
+            },
+            "semantic": {
+              "bytes": 156,
+              "sha256": "40bc04933accef678459c2fb9e3c867f535605771e82f05d00c6eba71aabf647"
+            }
+          }
+        },
+        {
+          "name": "variant-overwritten-shared",
+          "route": "shared semantic compiler",
+          "comparisons": 24,
+          "malformedInputsRejected": 2,
+          "sameImageRestore": true,
+          "wrongImageRejected": true,
+          "images": {
+            "structural": {
+              "bytes": 140,
+              "sha256": "1cd93ca8f25fa05d50b0ba7359e126c7d2a3ab6df957c22ecda9e6a1de748696"
+            },
+            "semantic": {
+              "bytes": 133,
+              "sha256": "4f22420a6587adf74026106034ffb82219185e87d2a315da8ef7e76023ae2b9d"
+            }
+          }
+        },
+        {
+          "name": "variant-overwritten-linked",
+          "route": "source-free semantic link",
+          "comparisons": 24,
+          "malformedInputsRejected": 2,
+          "sameImageRestore": true,
+          "wrongImageRejected": true,
+          "images": {
+            "structural": {
+              "bytes": 140,
+              "sha256": "1cd93ca8f25fa05d50b0ba7359e126c7d2a3ab6df957c22ecda9e6a1de748696"
+            },
+            "semantic": {
+              "bytes": 133,
+              "sha256": "4f22420a6587adf74026106034ffb82219185e87d2a315da8ef7e76023ae2b9d"
+            }
+          }
+        }
+      ]
+    },
+    "booleans": {
+      "sourceBaseCommit": "d903382cc631180cb48f472e14782553400264b1",
+      "unpublishedWorkingTree": true,
+      "kernelSha256": "7d31effb1d4e32523d0fcbd5b4d5f5a8a2289fbd4c731173a33b1c174524282f",
+      "emitterSha256": "dc16ada3f1ae9c67b7b6067407520ee6bdea06fc19899bd93974a1d34fe3264c",
+      "runnerSha256": "db6d976f0760e01158ac07e1e50c85b0e2410850b8772106ec70ce896dacd719",
+      "rows": [
+        {
+          "name": "constant-checked",
+          "route": "standalone checked call patterns",
+          "comparisons": 24,
+          "malformedInputsRejected": 2,
+          "sameImageRestore": true,
+          "wrongImageRejected": true,
+          "images": {
+            "structural": {
+              "bytes": 129,
+              "sha256": "92dc1b0403aa3caa5ddcb7025cc45e8059ac791968c14461a64f4e90d1b2ac8f"
+            },
+            "semantic": {
+              "bytes": 137,
+              "sha256": "2ae310cdf3a62bbe007149a137fcdefd9d27b63ef38d7d10018bd6e8eae9dcfd"
+            }
+          }
+        },
+        {
+          "name": "constant-shared",
+          "route": "shared semantic compiler",
+          "comparisons": 24,
+          "malformedInputsRejected": 2,
+          "sameImageRestore": true,
+          "wrongImageRejected": true,
+          "images": {
+            "structural": {
+              "bytes": 129,
+              "sha256": "92dc1b0403aa3caa5ddcb7025cc45e8059ac791968c14461a64f4e90d1b2ac8f"
+            },
+            "semantic": {
+              "bytes": 83,
+              "sha256": "3f948e171ac255a281a0d825cb5011787ef522cc8d75ed252a517c849ecb8b4a"
+            }
+          }
+        },
+        {
+          "name": "constant-linked",
+          "route": "source-free semantic link",
+          "comparisons": 24,
+          "malformedInputsRejected": 2,
+          "sameImageRestore": true,
+          "wrongImageRejected": true,
+          "images": {
+            "structural": {
+              "bytes": 129,
+              "sha256": "92dc1b0403aa3caa5ddcb7025cc45e8059ac791968c14461a64f4e90d1b2ac8f"
+            },
+            "semantic": {
+              "bytes": 83,
+              "sha256": "3f948e171ac255a281a0d825cb5011787ef522cc8d75ed252a517c849ecb8b4a"
+            }
+          }
+        }
+      ]
+    },
+    "words": {
+      "sourceBaseCommit": "d903382cc631180cb48f472e14782553400264b1",
+      "unpublishedWorkingTree": true,
+      "kernelSha256": "7d31effb1d4e32523d0fcbd5b4d5f5a8a2289fbd4c731173a33b1c174524282f",
+      "emitterSha256": "dc16ada3f1ae9c67b7b6067407520ee6bdea06fc19899bd93974a1d34fe3264c",
+      "runnerSha256": "db6d976f0760e01158ac07e1e50c85b0e2410850b8772106ec70ce896dacd719",
+      "rows": [
+        {
+          "name": "word-checked",
+          "route": "standalone checked call patterns",
+          "comparisons": 12,
+          "malformedInputsRejected": 2,
+          "sameImageRestore": true,
+          "wrongImageRejected": true,
+          "images": {
+            "structural": {
+              "bytes": 132,
+              "sha256": "0b9d9b0e5bfcc6f0eee89c341d9b039ad2bc6ff7e974b5098b8adebb66abe68a"
+            },
+            "semantic": {
+              "bytes": 171,
+              "sha256": "0c193060aad37cb495d467caa159c711d2673a3c9538ebfd6939bf4d802c6f3e"
+            }
+          }
+        },
+        {
+          "name": "word-shared",
+          "route": "shared semantic compiler",
+          "comparisons": 12,
+          "malformedInputsRejected": 2,
+          "sameImageRestore": true,
+          "wrongImageRejected": true,
+          "images": {
+            "structural": {
+              "bytes": 132,
+              "sha256": "0b9d9b0e5bfcc6f0eee89c341d9b039ad2bc6ff7e974b5098b8adebb66abe68a"
+            },
+            "semantic": {
+              "bytes": 122,
+              "sha256": "4173be2c60854cb629a9051401c8fdeb9c0bec285960382ef838a583a0463835"
+            }
+          }
+        },
+        {
+          "name": "word-linked",
+          "route": "source-free semantic link",
+          "comparisons": 12,
+          "malformedInputsRejected": 2,
+          "sameImageRestore": true,
+          "wrongImageRejected": true,
+          "images": {
+            "structural": {
+              "bytes": 132,
+              "sha256": "0b9d9b0e5bfcc6f0eee89c341d9b039ad2bc6ff7e974b5098b8adebb66abe68a"
+            },
+            "semantic": {
+              "bytes": 122,
+              "sha256": "4173be2c60854cb629a9051401c8fdeb9c0bec285960382ef838a583a0463835"
+            }
+          }
+        }
+      ]
+    },
+    "join": {
+      "sourceBaseCommit": "d903382cc631180cb48f472e14782553400264b1",
+      "unpublishedWorkingTree": true,
+      "kernelSha256": "7d31effb1d4e32523d0fcbd5b4d5f5a8a2289fbd4c731173a33b1c174524282f",
+      "emitterSha256": "ff1215ffc425a986f9165523b5d444cbbe2ba1899511f4fa9155f4c667b8a419",
+      "runnerSha256": "db6d976f0760e01158ac07e1e50c85b0e2410850b8772106ec70ce896dacd719",
+      "rows": [
+        {
+          "name": "join-checked",
+          "route": "standalone checked call patterns",
+          "comparisons": 24,
+          "malformedInputsRejected": 2,
+          "sameImageRestore": true,
+          "wrongImageRejected": true,
+          "images": {
+            "structural": {
+              "bytes": 128,
+              "sha256": "2f9267d87f867d35db67cef9446f0f5a98099f675c3f2f948b8062c7f86912e3"
+            },
+            "semantic": {
+              "bytes": 111,
+              "sha256": "d7efe859b8ffdccf0cdb7b0cae61003f101e833a32e09943bdb1394e19da4887"
+            }
+          }
+        },
+        {
+          "name": "join-shared",
+          "route": "shared semantic compiler",
+          "comparisons": 24,
+          "malformedInputsRejected": 2,
+          "sameImageRestore": true,
+          "wrongImageRejected": true,
+          "images": {
+            "structural": {
+              "bytes": 128,
+              "sha256": "2f9267d87f867d35db67cef9446f0f5a98099f675c3f2f948b8062c7f86912e3"
+            },
+            "semantic": {
+              "bytes": 110,
+              "sha256": "054478a3304eb00f094a51c12ab922f020fed0b1fa898c0562fa7982f0d3a5ee"
+            }
+          }
+        },
+        {
+          "name": "join-linked",
+          "route": "source-free semantic link",
+          "comparisons": 24,
+          "malformedInputsRejected": 2,
+          "sameImageRestore": true,
+          "wrongImageRejected": true,
+          "images": {
+            "structural": {
+              "bytes": 128,
+              "sha256": "2f9267d87f867d35db67cef9446f0f5a98099f675c3f2f948b8062c7f86912e3"
+            },
+            "semantic": {
+              "bytes": 110,
+              "sha256": "054478a3304eb00f094a51c12ab922f020fed0b1fa898c0562fa7982f0d3a5ee"
+            }
+          }
+        }
+      ]
+    },
+    "recursive": {
+      "sourceBaseCommit": "d903382cc631180cb48f472e14782553400264b1",
+      "unpublishedWorkingTree": true,
+      "kernelSha256": "7d31effb1d4e32523d0fcbd5b4d5f5a8a2289fbd4c731173a33b1c174524282f",
+      "emitterSha256": "ff1215ffc425a986f9165523b5d444cbbe2ba1899511f4fa9155f4c667b8a419",
+      "runnerSha256": "db6d976f0760e01158ac07e1e50c85b0e2410850b8772106ec70ce896dacd719",
+      "rows": [
+        {
+          "name": "recursive-checked",
+          "route": "standalone checked call patterns",
+          "comparisons": 24,
+          "malformedInputsRejected": 2,
+          "sameImageRestore": true,
+          "wrongImageRejected": true,
+          "images": {
+            "structural": {
+              "bytes": 191,
+              "sha256": "fd5bd1335ff7eff4cb116b2ebbc9a680dc994cb0f1e03804e365948fd926438a"
+            },
+            "semantic": {
+              "bytes": 141,
+              "sha256": "03c84391d58789f10b5b0b2cdcc44bc01c669caac3c9d71ba3159c8b4492369c"
+            }
+          }
+        },
+        {
+          "name": "recursive-shared",
+          "route": "shared semantic compiler",
+          "comparisons": 24,
+          "malformedInputsRejected": 2,
+          "sameImageRestore": true,
+          "wrongImageRejected": true,
+          "images": {
+            "structural": {
+              "bytes": 191,
+              "sha256": "fd5bd1335ff7eff4cb116b2ebbc9a680dc994cb0f1e03804e365948fd926438a"
+            },
+            "semantic": {
+              "bytes": 140,
+              "sha256": "1db46a8400732ca8cb065ae23cf18627f10371f3d3a12ca2d1075bc112a9f351"
+            }
+          }
+        },
+        {
+          "name": "recursive-linked",
+          "route": "source-free semantic link",
+          "comparisons": 24,
+          "malformedInputsRejected": 2,
+          "sameImageRestore": true,
+          "wrongImageRejected": true,
+          "images": {
+            "structural": {
+              "bytes": 191,
+              "sha256": "fd5bd1335ff7eff4cb116b2ebbc9a680dc994cb0f1e03804e365948fd926438a"
+            },
+            "semantic": {
+              "bytes": 140,
+              "sha256": "1db46a8400732ca8cb065ae23cf18627f10371f3d3a12ca2d1075bc112a9f351"
+            }
+          }
+        }
+      ]
+    },
+    "tails": {
+      "sourceBaseCommit": "d903382cc631180cb48f472e14782553400264b1",
+      "unpublishedWorkingTree": true,
+      "kernelSha256": "7d31effb1d4e32523d0fcbd5b4d5f5a8a2289fbd4c731173a33b1c174524282f",
+      "emitterSha256": "6c6301c78b1b5bd263b5b752b983b353cbd3371cc49af361083fe76d7c7ce3ec",
+      "runnerSha256": "db6d976f0760e01158ac07e1e50c85b0e2410850b8772106ec70ce896dacd719",
+      "rows": [
+        {
+          "name": "tails-checked",
+          "route": "standalone checked call patterns",
+          "comparisons": 12,
+          "malformedInputsRejected": 2,
+          "sameImageRestore": true,
+          "wrongImageRejected": true,
+          "images": {
+            "structural": {
+              "bytes": 69,
+              "sha256": "14044054d377912277041900fe5aaf7d0f35cc3fae5db25634a63ddaf1a1fad2"
+            },
+            "semantic": {
+              "bytes": 59,
+              "sha256": "832b17fafc562bb8a9342ea50b10f43338d65b1df7eb9383f932cd45cdbeaad0"
+            }
+          }
+        },
+        {
+          "name": "tails-shared",
+          "route": "shared semantic compiler",
+          "comparisons": 12,
+          "malformedInputsRejected": 2,
+          "sameImageRestore": true,
+          "wrongImageRejected": true,
+          "images": {
+            "structural": {
+              "bytes": 69,
+              "sha256": "14044054d377912277041900fe5aaf7d0f35cc3fae5db25634a63ddaf1a1fad2"
+            },
+            "semantic": {
+              "bytes": 59,
+              "sha256": "832b17fafc562bb8a9342ea50b10f43338d65b1df7eb9383f932cd45cdbeaad0"
+            }
+          }
+        },
+        {
+          "name": "tails-linked",
+          "route": "source-free semantic link",
+          "comparisons": 12,
+          "malformedInputsRejected": 2,
+          "sameImageRestore": true,
+          "wrongImageRejected": true,
+          "images": {
+            "structural": {
+              "bytes": 69,
+              "sha256": "14044054d377912277041900fe5aaf7d0f35cc3fae5db25634a63ddaf1a1fad2"
+            },
+            "semantic": {
+              "bytes": 59,
+              "sha256": "832b17fafc562bb8a9342ea50b10f43338d65b1df7eb9383f932cd45cdbeaad0"
+            }
+          }
+        }
+      ]
+    },
+    "dup": {
+      "sourceBaseCommit": "d903382cc631180cb48f472e14782553400264b1",
+      "unpublishedWorkingTree": true,
+      "kernelSha256": "7d31effb1d4e32523d0fcbd5b4d5f5a8a2289fbd4c731173a33b1c174524282f",
+      "emitterSha256": "f7e1f00c06ef24982082f9ef4b60a4228b5354886d3d113851dc6d1f4ef0e7f1",
+      "runnerSha256": "db6d976f0760e01158ac07e1e50c85b0e2410850b8772106ec70ce896dacd719",
+      "rows": [
+        {
+          "name": "duplicate-checked",
+          "route": "standalone checked call patterns",
+          "comparisons": 12,
+          "malformedInputsRejected": 2,
+          "sameImageRestore": true,
+          "wrongImageRejected": true,
+          "images": {
+            "structural": {
+              "bytes": 96,
+              "sha256": "a9ce94d8937dab39500d98d4c67e9efcbe48f96da2c58194341f732c4319c7ee"
+            },
+            "semantic": {
+              "bytes": 101,
+              "sha256": "bcc8d51a7bc53bdb9a7dbbde29f497f81f95c2bd5d141d487ca6152eb6f3cfff"
+            }
+          }
+        },
+        {
+          "name": "duplicate-shared",
+          "route": "shared semantic compiler",
+          "comparisons": 12,
+          "malformedInputsRejected": 2,
+          "sameImageRestore": true,
+          "wrongImageRejected": true,
+          "images": {
+            "structural": {
+              "bytes": 96,
+              "sha256": "a9ce94d8937dab39500d98d4c67e9efcbe48f96da2c58194341f732c4319c7ee"
+            },
+            "semantic": {
+              "bytes": 87,
+              "sha256": "d9188cd19f70b9d8b52788f2496d9ea082a6bbd1e7d33eef26f8867582b8c5a2"
+            }
+          }
+        },
+        {
+          "name": "duplicate-linked",
+          "route": "source-free semantic link",
+          "comparisons": 12,
+          "malformedInputsRejected": 2,
+          "sameImageRestore": true,
+          "wrongImageRejected": true,
+          "images": {
+            "structural": {
+              "bytes": 96,
+              "sha256": "a9ce94d8937dab39500d98d4c67e9efcbe48f96da2c58194341f732c4319c7ee"
+            },
+            "semantic": {
+              "bytes": 87,
+              "sha256": "d9188cd19f70b9d8b52788f2496d9ea082a6bbd1e7d33eef26f8867582b8c5a2"
+            }
+          }
+        }
+      ]
+    },
+    "outline": {
+      "sourceBaseCommit": "d903382cc631180cb48f472e14782553400264b1",
+      "unpublishedWorkingTree": true,
+      "kernelSha256": "7d31effb1d4e32523d0fcbd5b4d5f5a8a2289fbd4c731173a33b1c174524282f",
+      "emitterSha256": "5f77098d1c65e5185a2d39a6161030435ba014f5d5f7e18819ef616605b08b95",
+      "runnerSha256": "db6d976f0760e01158ac07e1e50c85b0e2410850b8772106ec70ce896dacd719",
+      "rows": [
+        {
+          "name": "outline-checked",
+          "route": "standalone checked call patterns",
+          "comparisons": 24,
+          "malformedInputsRejected": 2,
+          "sameImageRestore": true,
+          "wrongImageRejected": true,
+          "images": {
+            "structural": {
+              "bytes": 261,
+              "sha256": "1bf6c6ac9e38d376b544410cbdd6546435b9ef61bf220a26b4b0392d63d91a46"
+            },
+            "semantic": {
+              "bytes": 205,
+              "sha256": "7a5cba25ea165a64c7c096b07244830211457522911d7d2968e7809bf04d8f5d"
+            }
+          }
+        },
+        {
+          "name": "outline-shared",
+          "route": "shared semantic compiler",
+          "comparisons": 24,
+          "malformedInputsRejected": 2,
+          "sameImageRestore": true,
+          "wrongImageRejected": true,
+          "images": {
+            "structural": {
+              "bytes": 261,
+              "sha256": "1bf6c6ac9e38d376b544410cbdd6546435b9ef61bf220a26b4b0392d63d91a46"
+            },
+            "semantic": {
+              "bytes": 205,
+              "sha256": "76f1cc14df6816cf82b78f102cfacbca10ad4698e9b90ed0c5a119016ac8f663"
+            }
+          }
+        },
+        {
+          "name": "outline-linked",
+          "route": "source-free semantic link",
+          "comparisons": 24,
+          "malformedInputsRejected": 2,
+          "sameImageRestore": true,
+          "wrongImageRejected": true,
+          "images": {
+            "structural": {
+              "bytes": 261,
+              "sha256": "1bf6c6ac9e38d376b544410cbdd6546435b9ef61bf220a26b4b0392d63d91a46"
+            },
+            "semantic": {
+              "bytes": 205,
+              "sha256": "76f1cc14df6816cf82b78f102cfacbca10ad4698e9b90ed0c5a119016ac8f663"
+            }
+          }
+        }
+      ]
+    },
+    "threshold": {
+      "sourceBaseCommit": "d903382cc631180cb48f472e14782553400264b1",
+      "unpublishedWorkingTree": true,
+      "kernelSha256": "7d31effb1d4e32523d0fcbd5b4d5f5a8a2289fbd4c731173a33b1c174524282f",
+      "emitterSha256": "7c90475fb932f3bb13a5d0051eb75dfda52ef2dcfa1b6031515fcb8e1e900a66",
+      "runnerSha256": "db6d976f0760e01158ac07e1e50c85b0e2410850b8772106ec70ce896dacd719",
+      "rows": [
+        {
+          "name": "packing-checked",
+          "route": "standalone checked call patterns",
+          "comparisons": 24,
+          "malformedInputsRejected": 2,
+          "sameImageRestore": true,
+          "wrongImageRejected": true,
+          "images": {
+            "structural": {
+              "bytes": 92,
+              "sha256": "0a7a3b588221dcc76be3420c049586d463c2ec54ef58df603d04956312fda127"
+            },
+            "semantic": {
+              "bytes": 87,
+              "sha256": "8b11e0e855e8bc8afa6096049699b4125296c8fc5545cb2ab6ff16d630ccc895"
+            }
+          }
+        },
+        {
+          "name": "packing-shared",
+          "route": "shared semantic compiler",
+          "comparisons": 24,
+          "malformedInputsRejected": 2,
+          "sameImageRestore": true,
+          "wrongImageRejected": true,
+          "images": {
+            "structural": {
+              "bytes": 92,
+              "sha256": "0a7a3b588221dcc76be3420c049586d463c2ec54ef58df603d04956312fda127"
+            },
+            "semantic": {
+              "bytes": 87,
+              "sha256": "8b11e0e855e8bc8afa6096049699b4125296c8fc5545cb2ab6ff16d630ccc895"
+            }
+          }
+        },
+        {
+          "name": "packing-linked",
+          "route": "source-free semantic link",
+          "comparisons": 24,
+          "malformedInputsRejected": 2,
+          "sameImageRestore": true,
+          "wrongImageRejected": true,
+          "images": {
+            "structural": {
+              "bytes": 92,
+              "sha256": "0a7a3b588221dcc76be3420c049586d463c2ec54ef58df603d04956312fda127"
+            },
+            "semantic": {
+              "bytes": 87,
+              "sha256": "8b11e0e855e8bc8afa6096049699b4125296c8fc5545cb2ab6ff16d630ccc895"
+            }
+          }
+        }
+      ]
+    },
+    "captures": {
+      "sourceBaseCommit": "d903382cc631180cb48f472e14782553400264b1",
+      "unpublishedWorkingTree": true,
+      "kernelSha256": "7d31effb1d4e32523d0fcbd5b4d5f5a8a2289fbd4c731173a33b1c174524282f",
+      "emitterSha256": "dc16ada3f1ae9c67b7b6067407520ee6bdea06fc19899bd93974a1d34fe3264c",
+      "runnerSha256": "db6d976f0760e01158ac07e1e50c85b0e2410850b8772106ec70ce896dacd719",
+      "rows": [
+        {
+          "name": "capture-checked",
+          "route": "standalone checked call patterns",
+          "comparisons": 24,
+          "malformedInputsRejected": 2,
+          "sameImageRestore": true,
+          "wrongImageRejected": true,
+          "images": {
+            "structural": {
+              "bytes": 234,
+              "sha256": "705d0de89a9d414fe66dc88815e5a2449246865493c138fd348faff10b432b60"
+            },
+            "semantic": {
+              "bytes": 279,
+              "sha256": "e2586ecf813ff695429a797b45c9724ded51a5d7d7a9505393039b65310106c6"
+            }
+          }
+        },
+        {
+          "name": "capture-shared",
+          "route": "shared semantic compiler",
+          "comparisons": 24,
+          "malformedInputsRejected": 2,
+          "sameImageRestore": true,
+          "wrongImageRejected": true,
+          "images": {
+            "structural": {
+              "bytes": 234,
+              "sha256": "705d0de89a9d414fe66dc88815e5a2449246865493c138fd348faff10b432b60"
+            },
+            "semantic": {
+              "bytes": 255,
+              "sha256": "0795386075aa13e9cbf04228942f35fa41b511a5a92fd5f313899545581e9817"
+            }
+          }
+        },
+        {
+          "name": "capture-linked",
+          "route": "source-free semantic link",
+          "comparisons": 24,
+          "malformedInputsRejected": 2,
+          "sameImageRestore": true,
+          "wrongImageRejected": true,
+          "images": {
+            "structural": {
+              "bytes": 234,
+              "sha256": "705d0de89a9d414fe66dc88815e5a2449246865493c138fd348faff10b432b60"
+            },
+            "semantic": {
+              "bytes": 255,
+              "sha256": "0795386075aa13e9cbf04228942f35fa41b511a5a92fd5f313899545581e9817"
+            }
+          }
+        }
+      ]
+    }
+  },
+  "integrated": {
+    "steps": 319,
+    "tests": 686,
+    "exitCode": 0,
+    "logSha256": "60555b7710bb381680421084c3e05eb8c3361fa8c1b76443e3c5157b3c048b28"
+  },
+  "focused": {
+    "tests": 46,
+    "exitCode": 0,
+    "logSha256": "6925fcff9a1739c7459e417ffec66c170e3ee409b4775a4d27b7c594aea94136"
+  },
+  "applicability": {
+    "tests": 84,
+    "exitCode": 0,
+    "logSha256": "43d4f7771cea64f7814f435a99cb27a04cdffb279f0db8a7c6d6a09818f14bec",
+    "note": "No-op fixture pins all ABI input slots; original packing opportunity retained as a new positive test."
+  },
+  "native": {
+    "tests": 2,
+    "cases": 36,
+    "scope": "24 original/packed/compiled/source-free threshold cases plus 12 original/packed loop cases, checkpointed and restored after every logical step",
+    "exitCode": 0,
+    "logSha256": "a81ae9b0b3e6bf7f50659aa40ebfc593266a44786cda32aff485532834c3b511"
+  }
+}
