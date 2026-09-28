@@ -304,3 +304,11 @@ boundary and one-scratch assertions, completed **319/319 steps and 570/570 tests
 and its user-accepted costs are historical inputs, not qualification of this change.
 General coupled multi-worker synthesis and the remaining L01–L20/runtime economic
 obligations remain open; this extends the actual production transformation domain.
+
+The expanded unchanged-kernel platform run completed **21 cases, 94 explicit
+expected-output/Wasmtime agreements, 42 malformed-input rejections, 21 same-image
+restores and 21 wrong-image rejections**. It includes direct-parameter parity at
+8, 32, 64 and 128 words and requires profitable 8/32-word opportunities to be
+selected. `performance/m25-direct-platform-qualification.json` binds this evidence
+to source 15c5356 and the unchanged authenticated kernel. Real-consumer rebinding
+and economics remain separate.
