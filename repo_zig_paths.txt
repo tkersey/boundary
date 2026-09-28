@@ -102,6 +102,8 @@ src/data/dead_arguments.zig
 src/data/dead_computation.zig
 src/data/diagnostic.zig
 src/data/effect_scope.zig
+src/data/evidence_forwarding.zig
+src/data/evidence_forwarding_tests.zig
 src/data/expression_reuse.zig
 src/data/expression_reuse_tests.zig
 src/data/function_inputs.zig
@@ -139,6 +141,7 @@ src/data/state_admission.zig
 src/data/state_effects.zig
 src/data/state_image.zig
 src/data/state_image_tests.zig
+src/data/tail_clauses.zig
 src/data/tail_duplication.zig
 src/data/tail_duplication_tests.zig
 src/data/test_root.zig
@@ -205,7 +208,6 @@ src/source/shallow_resume_example.zig
 src/source/slot_order.zig
 src/source/state_choice_example.zig
 src/source/successor_state_example.zig
-src/source/tail_clauses.zig
 src/source/tests.zig
 src/source/thread_jumps.zig
 src/source/unwind_example.zig
@@ -250,6 +252,8 @@ test/v2/emit_compact.zig
 test/v2/emit_economy.zig
 test/v2/emit_scalar.zig
 test/v2/emit_source.zig
+test/v2/evidence_forwarding.zig
+test/v2/evidence_forwarding_platform.zig
 test/v2/expression_reuse.zig
 test/v2/oracle_scopes.zig
 test/v2/outlining.zig
@@ -259,6 +263,8 @@ test/v2/pre_platform.zig
 test/v2/slot_packing.zig
 test/v2/slot_packing_platform.zig
 test/v2/snapshot_retention.zig
+test/v2/tail_clauses.zig
+test/v2/tail_clauses_platform.zig
 test/v2/tail_duplication.zig
 test/v2/tail_duplication_platform.zig
 tools/authoring_stats.zig

@@ -16,6 +16,8 @@ pub const affine_state = @import("affine_state.zig");
 pub const program = @import("program.zig");
 pub const activation = @import("activation.zig");
 pub const total_clause = @import("total_clause.zig");
+pub const tail_clauses = @import("tail_clauses.zig");
+pub const evidence_forwarding = @import("evidence_forwarding.zig");
 pub const analysis_sets = @import("analysis_sets.zig");
 pub const activation_structure = @import("activation_structure.zig");
 pub const activation_flow = @import("activation_flow.zig");
@@ -54,6 +56,7 @@ pub const cleanup_contract = @import("cleanup_contract.zig");
 
 test {
     _ = total_clause;
+    _ = tail_clauses;
     _ = wire;
     _ = graph_order;
     _ = scalar;

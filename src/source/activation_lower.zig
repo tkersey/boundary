@@ -124,7 +124,7 @@ fn lowerInternal(
     original_facts.deinit();
     options.stage(.direct_optimization);
     const threaded = try @import("thread_jumps.zig").optimize(a, program);
-    const selected = try @import("tail_clauses.zig").optimize(a, threaded, traits);
+    const selected = try data.tail_clauses.optimize(a, threaded, traits);
     const ordered = try @import("slot_order.zig").optimize(a, selected);
     if (!component) return coalesce(allocator, ordered, &compiler, options);
     if (options.semantic_statistics) |stats| stats.outcome = .deferred_open_component;

@@ -47,3 +47,7 @@ test {
     _ = @import("state_image_tests.zig");
     _ = @import("invocation_tests.zig");
 }
+
+test {
+    _ = @import("evidence_forwarding_tests.zig");
+}
