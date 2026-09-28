@@ -1,0 +1,260 @@
+{
+  "scope": "Native fresh invocation and three fresh WASM quantum-one cycles per path; working payload excludes host buffers/RSS",
+  "fixture": "recursive",
+  "kernelSha256": "7d31effb1d4e32523d0fcbd5b4d5f5a8a2289fbd4c731173a33b1c174524282f",
+  "nativeSha256": "0d7b616711edf08fdbc7c97e32ce1547340ed093570fa753ba30ae25cae9278e",
+  "runnerSha256": "9fa75f776c4af0fc699474c7b16d384163681ba3eb49dc2bdee1aca2ceed809a",
+  "rows": [
+    {
+      "name": "first",
+      "control": {
+        "imageSha256": "fd5bd1335ff7eff4cb116b2ebbc9a680dc994cb0f1e03804e365948fd926438a",
+        "native": {
+          "multiTemplates": 0,
+          "branchActivations": 0,
+          "transitions": 5,
+          "peakWorkingBytes": 12017,
+          "addedNodes": 1,
+          "copiedBlobBytes": 0
+        },
+        "wasmFreshPeak": 9922,
+        "wasmCycles": [
+          {
+            "peak": 11337,
+            "checkpointMax": 104,
+            "invocations": 5
+          },
+          {
+            "peak": 11337,
+            "checkpointMax": 104,
+            "invocations": 5
+          },
+          {
+            "peak": 11337,
+            "checkpointMax": 104,
+            "invocations": 5
+          }
+        ]
+      },
+      "candidate": {
+        "imageSha256": "03c84391d58789f10b5b0b2cdcc44bc01c669caac3c9d71ba3159c8b4492369c",
+        "native": {
+          "multiTemplates": 0,
+          "branchActivations": 0,
+          "transitions": 5,
+          "peakWorkingBytes": 11143,
+          "addedNodes": 1,
+          "copiedBlobBytes": 0
+        },
+        "wasmFreshPeak": 9082,
+        "wasmCycles": [
+          {
+            "peak": 10359,
+            "checkpointMax": 104,
+            "invocations": 5
+          },
+          {
+            "peak": 10359,
+            "checkpointMax": 104,
+            "invocations": 5
+          },
+          {
+            "peak": 10359,
+            "checkpointMax": 104,
+            "invocations": 5
+          }
+        ]
+      }
+    },
+    {
+      "name": "first-swap",
+      "control": {
+        "imageSha256": "fd5bd1335ff7eff4cb116b2ebbc9a680dc994cb0f1e03804e365948fd926438a",
+        "native": {
+          "multiTemplates": 0,
+          "branchActivations": 0,
+          "transitions": 10,
+          "peakWorkingBytes": 12017,
+          "addedNodes": 1,
+          "copiedBlobBytes": 0
+        },
+        "wasmFreshPeak": 9922,
+        "wasmCycles": [
+          {
+            "peak": 11337,
+            "checkpointMax": 104,
+            "invocations": 10
+          },
+          {
+            "peak": 11337,
+            "checkpointMax": 104,
+            "invocations": 10
+          },
+          {
+            "peak": 11337,
+            "checkpointMax": 104,
+            "invocations": 10
+          }
+        ]
+      },
+      "candidate": {
+        "imageSha256": "03c84391d58789f10b5b0b2cdcc44bc01c669caac3c9d71ba3159c8b4492369c",
+        "native": {
+          "multiTemplates": 0,
+          "branchActivations": 0,
+          "transitions": 10,
+          "peakWorkingBytes": 11143,
+          "addedNodes": 1,
+          "copiedBlobBytes": 0
+        },
+        "wasmFreshPeak": 9082,
+        "wasmCycles": [
+          {
+            "peak": 10359,
+            "checkpointMax": 104,
+            "invocations": 10
+          },
+          {
+            "peak": 10359,
+            "checkpointMax": 104,
+            "invocations": 10
+          },
+          {
+            "peak": 10359,
+            "checkpointMax": 104,
+            "invocations": 10
+          }
+        ]
+      }
+    },
+    {
+      "name": "second",
+      "control": {
+        "imageSha256": "fd5bd1335ff7eff4cb116b2ebbc9a680dc994cb0f1e03804e365948fd926438a",
+        "native": {
+          "multiTemplates": 0,
+          "branchActivations": 0,
+          "transitions": 5,
+          "peakWorkingBytes": 12017,
+          "addedNodes": 1,
+          "copiedBlobBytes": 0
+        },
+        "wasmFreshPeak": 9922,
+        "wasmCycles": [
+          {
+            "peak": 11337,
+            "checkpointMax": 104,
+            "invocations": 5
+          },
+          {
+            "peak": 11337,
+            "checkpointMax": 104,
+            "invocations": 5
+          },
+          {
+            "peak": 11337,
+            "checkpointMax": 104,
+            "invocations": 5
+          }
+        ]
+      },
+      "candidate": {
+        "imageSha256": "03c84391d58789f10b5b0b2cdcc44bc01c669caac3c9d71ba3159c8b4492369c",
+        "native": {
+          "multiTemplates": 0,
+          "branchActivations": 0,
+          "transitions": 5,
+          "peakWorkingBytes": 11143,
+          "addedNodes": 1,
+          "copiedBlobBytes": 0
+        },
+        "wasmFreshPeak": 9082,
+        "wasmCycles": [
+          {
+            "peak": 10359,
+            "checkpointMax": 104,
+            "invocations": 5
+          },
+          {
+            "peak": 10359,
+            "checkpointMax": 104,
+            "invocations": 5
+          },
+          {
+            "peak": 10359,
+            "checkpointMax": 104,
+            "invocations": 5
+          }
+        ]
+      }
+    },
+    {
+      "name": "second-swap",
+      "control": {
+        "imageSha256": "fd5bd1335ff7eff4cb116b2ebbc9a680dc994cb0f1e03804e365948fd926438a",
+        "native": {
+          "multiTemplates": 0,
+          "branchActivations": 0,
+          "transitions": 8,
+          "peakWorkingBytes": 12017,
+          "addedNodes": 1,
+          "copiedBlobBytes": 0
+        },
+        "wasmFreshPeak": 9922,
+        "wasmCycles": [
+          {
+            "peak": 11337,
+            "checkpointMax": 104,
+            "invocations": 8
+          },
+          {
+            "peak": 11337,
+            "checkpointMax": 104,
+            "invocations": 8
+          },
+          {
+            "peak": 11337,
+            "checkpointMax": 104,
+            "invocations": 8
+          }
+        ]
+      },
+      "candidate": {
+        "imageSha256": "03c84391d58789f10b5b0b2cdcc44bc01c669caac3c9d71ba3159c8b4492369c",
+        "native": {
+          "multiTemplates": 0,
+          "branchActivations": 0,
+          "transitions": 8,
+          "peakWorkingBytes": 11143,
+          "addedNodes": 1,
+          "copiedBlobBytes": 0
+        },
+        "wasmFreshPeak": 9082,
+        "wasmCycles": [
+          {
+            "peak": 10359,
+            "checkpointMax": 104,
+            "invocations": 8
+          },
+          {
+            "peak": 10359,
+            "checkpointMax": 104,
+            "invocations": 8
+          },
+          {
+            "peak": 10359,
+            "checkpointMax": 104,
+            "invocations": 8
+          }
+        ]
+      }
+    }
+  ],
+  "sourceFiles": {
+    "src/data/contification.zig": "ff34c26b95461e6e72db636ac7057f1386f3debbda37bf901dfb69679282cc86",
+    "src/data/closed_compilation.zig": "ca92334a955f35a07a436031a0093bb88a9cd7bcf0bbe517bf84a2871df1c717",
+    "src/data/root.zig": "17fa61781f756fe605610f6e0f8f116fd793582473f485e168e5dd6f0653e70b",
+    "test/v2/contification.zig": "d2315ee78e66dfd155314b9bf13b442f6d92a21d70848723ccfc35481075c4cf",
+    "test/v2/contification_platform.zig": "b6db32e476de4ad30db8e15a18047e9cfaaf8fb64b38d2a4354b93fb9e70abc6"
+  }
+}

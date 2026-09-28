@@ -91,6 +91,7 @@ src/data/component.zig
 src/data/component_tests.zig
 src/data/constant_origin.zig
 src/data/contification.zig
+src/data/contification_recursive_tests.zig
 src/data/contification_tests.zig
 src/data/contracts.zig
 src/data/dead_arguments.zig

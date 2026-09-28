@@ -328,3 +328,47 @@ The required mutually recursive eligible pair and additional escaping/retained
 control witnesses remain open. This slice does not close P10 or M3. P09 residuals,
 P21, cumulative consumer qualification and the full later programme remain in scope;
 the earlier P06 and repeated-callable cost decisions are not waived by these gains.
+
+## P10 mutually recursive tail groups
+
+The same owner now discovers direct-call strongly connected components with an
+iterative, work-bounded graph walk. It replaces the single-helper restriction.
+Every member must remain private and in the pure, non-suspending domain; every
+internal call must have an empty continuation returning the callee result.
+External calls must still share one caller and continuation. Validation rebuilds
+the complete use census and certifies a closed tail-call group independently of
+the discovery graph. Non-tail work, omitted members, escaping constructor entries
+and wrong recursive targets reject.
+
+Equal-schema helper layouts share a caller-local slot bank. Identity tail returns
+leave no previous helper values observable, and internal control values are
+excluded; parallel argument transfer preserves swaps at the handoff. Caller slots
+remain disjoint. Unequal layouts retain separate banks. This is a bounded logical
+slot-reuse case, not general physical packing or completion of P22.
+
+The initial separate-bank candidate passed correspondence but failed the existing
+admission-growth guard. Sharing equal layouts allowed production selection without
+weakening that guard. Initial emission still carried redundant identity transfers
+and showed two fresh WASM slowdowns (7.8% and 32.6%); those measurements remain in
+`performance/m3-p10-recursive-initial-timing.json`. Removing only identity transfers
+preserved real swaps and cleared both measured regressions on the same inputs.
+
+The positive fixture executes A → B → A before returning, through original,
+checked, shared and source-free linked records. A separate cyclic near-example
+remains progressed after a bounded execution prefix; this is finite-prefix
+evidence, with the control mapping supplying the divergence argument. The native
+join suite passes 96 completed executions and two nonterminating prefixes.
+Focused recursive validation passes 39/39 tests. Final ReleaseSafe validation
+passes 319/319 steps and 652/652 tests. Platform checks pass 72
+cross-engine comparisons, three same-image restores, three wrong-image rejections
+and six malformed inputs.
+
+All 18 final paired timing comparisons against 592a375 complete without confirmed
+slowdown. Native/WASM admission peak falls 1486/928 bytes, retained storage falls
+874/790 bytes, and invocation peak falls 874/840 bytes. Checkpoint maxima remain
+104 bytes. Forty-two earlier images are byte-identical. Exact evidence and the
+initial guard rejection are in `performance/m3-p10-recursive-*.json`.
+
+The required mutually recursive positive case is implemented. Additional concrete
+escaping/handler-retention witnesses, P09 residuals, P21, full consumer qualification
+and the remaining programme stay open; this is not full M3 closure.

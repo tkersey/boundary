@@ -9,10 +9,10 @@ const runtime=verifyRuntime(runtimePath),world=await import(pathToFileURL(runtim
 const {wasmtime}=await import(pathToFileURL(join(agentRoot,'test/agent4/independent/execute.mjs')));
 const kernelBytes=readFileSync(runtime.kernelPath);
 const fresh=async()=>{const k=await world.Kernel.create({bytes:kernelBytes,expectedSha256:runtime.kernelSha256});k.setLimits({input:256<<20,working:256<<20,output:256<<20});return k;};
-const variants=mode==='variants',constants=mode==='constants',wordMode=mode==='words',joins=mode==='joins';assert(!mode||variants||constants||wordMode||joins);
-const names=joins?['join-checked','join-shared','join-linked']:wordMode?['word-checked','word-shared','word-linked']:constants?['constant-checked','constant-shared','constant-linked']:variants?['fallback','total','overwritten'].flatMap(kind=>['checked','shared','linked'].map(route=>`variant-${kind}-${route}`)):['callable-checked','callable-shared','callable-linked'];
+const variants=mode==='variants',constants=mode==='constants',wordMode=mode==='words',joins=mode==='joins'||mode==='recursive',recursive=mode==='recursive';assert(!mode||variants||constants||wordMode||joins);
+const names=recursive?['recursive-checked','recursive-shared','recursive-linked']:joins?['join-checked','join-shared','join-linked']:wordMode?['word-checked','word-shared','word-linked']:constants?['constant-checked','constant-shared','constant-linked']:variants?['fallback','total','overwritten'].flatMap(kind=>['checked','shared','linked'].map(route=>`variant-${kind}-${route}`)):['callable-checked','callable-shared','callable-linked'];
 function expectedOutcome(name,words,first,second){
- if(joins){const bytes=Buffer.alloc(16);bytes.writeBigUInt64LE(words[+(first===second)]);bytes.writeBigUInt64LE(words[+(first!==second)],8);return{kind:'completed',value:bytes};}
+ if(joins){const swapped=recursive?(!first||second):(first===second);const bytes=Buffer.alloc(16);bytes.writeBigUInt64LE(words[+swapped]);bytes.writeBigUInt64LE(words[+!swapped],8);return{kind:'completed',value:bytes};}
  if(variants&&!name.includes('-total-')&&!first&&!second)return{kind:'failed',value:Buffer.alloc(0)};
  const value=wordMode?BigInt.asUintN(64,first?words[0]:~words[0]):constants?(first?words[0]:words[1]):variants?(first||!second?words[0]:words[1]):BigInt.asUintN(64,first||second?words[0]|words[1]:(~words[0])|(~words[1]));
  const bytes=Buffer.alloc(8);bytes.writeBigUInt64LE(value);return{kind:'completed',value:bytes};

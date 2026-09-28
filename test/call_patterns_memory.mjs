@@ -9,7 +9,7 @@ const {verifyRuntime,sha256}=await import(pathToFileURL(join(agent,'tools/agent4
 const runtime=verifyRuntime(runtimePath),world=await import(pathToFileURL(runtime.entrypoint));
 const fresh=async()=>{const k=await world.Kernel.create({bytes:readFileSync(runtime.kernelPath),expectedSha256:runtime.kernelSha256});k.setLimits({input:256<<20,working:256<<20,output:256<<20});return k;};
 const rows=[];
-for(const [name,first,second] of (fixture==='join'?[['first',true,false],['first-swap',true,true],['second',false,false],['second-swap',false,true]]:(fixture==='constant'||fixture==='word')?[['first',true,false],['second',false,false]]:[['first',true,false],['second',false,true],['third',false,false]])){
+for(const [name,first,second] of ((fixture==='join'||fixture==='recursive')?[['first',true,false],['first-swap',true,true],['second',false,false],['second-swap',false,true]]:(fixture==='constant'||fixture==='word')?[['first',true,false],['second',false,false]]:[['first',true,false],['second',false,true],['third',false,false]])){
  const args=Buffer.alloc(fixture==='word'?9:fixture==='constant'?17:18);args.writeBigUInt64LE(7n);if(fixture==='word'){args[8]=+first;}else{args.writeBigUInt64LE(11n,8);args[16]=+first;if(fixture!=='constant')args[17]=+second;}
  const row={name};let reference;
  for(const [arm,directory] of Object.entries({control,candidate})){
