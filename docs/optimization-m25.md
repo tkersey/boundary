@@ -225,3 +225,22 @@ The updated product/generated-case ReleaseSafe data aggregate completes with
 terminal exit zero: **3/3 steps and 280/280 tests**. The product-capture slice is
 qualified at this local level; final platform, consumer and economic validation
 remains outstanding.
+
+## Independent basis candidates
+
+The pass now emits both the observation-seeded echelon basis and a canonical
+reduced-row-echelon basis when they differ. Each distinct candidate is checked
+against the original records independently. Statistics retain actual pre-P01
+encoded bytes and separate emitted worker/construction instruction counts.
+Selection prefers fewer worker instructions, then construction instructions,
+then bytes; it is a deterministic cost heuristic, not a runtime-speed theorem.
+The shared pipeline's existing final image and admission-cost guards still apply.
+The reservation accounts for both candidate constructions and checks; exhaustion
+retains the exact P01 baseline.
+
+The rotating witness has genuinely distinct bases; both pass independent
+acceptance and native World expected-output checks. The observation-favoring
+candidate emits fewer worker instructions and is selected. The focused harness
+passes 44/44, the native suite 10/10, and the ReleaseSafe data aggregate completes
+with terminal exit zero: **3/3 steps and 281/281 tests**. Prior timing observations
+retain their original candidate labels; final economic qualification is outstanding.

@@ -385,3 +385,21 @@ test "unseen admitted affine matrices use record semantics rather than fixture n
         try std.testing.expect(stats.reduced_words <= 2);
     }
 }
+
+test "distinct canonical and observation bases both validate with actual emitted costs" {
+    const emit = @import("affine_emit.zig");
+    const check = @import("affine_validate.zig");
+    var observation = (try emit.constructBasis(a, rotating, 0, 1000000, .observations)).?;
+    defer observation.deinit();
+    var canonical = (try emit.constructBasis(a, rotating, 0, 1000000, .canonical)).?;
+    defer canonical.deinit();
+    try std.testing.expect(!std.mem.eql(u128, observation.basis, canonical.basis));
+    try check.validate(a, rotating, observation.program, 0, observation.basis, observation.input_bias, 1000000);
+    try check.validate(a, rotating, canonical.program, 0, canonical.basis, canonical.input_bias, 1000000);
+    var stats: @import("affine_state.zig").Statistics = .{};
+    var result = try @import("affine_state.zig").run(a, rotating, 0, &stats, 1000000, .{});
+    defer result.deinit();
+    try std.testing.expect(stats.observation_cost != null and stats.canonical_cost != null);
+    try std.testing.expectEqual(.observations, stats.selected_basis);
+    try std.testing.expect(stats.observation_cost.?.worker_instructions < stats.canonical_cost.?.worker_instructions);
+}

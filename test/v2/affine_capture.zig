@@ -515,3 +515,26 @@ test "World executes private product capture through scalar and affine reduction
         }
     }
 }
+
+test "World preserves both independently checked affine bases" {
+    const a = std.testing.allocator;
+    for ([_]data.affine_candidate.Basis{ .observations, .canonical }) |basis| {
+        var candidate = (try data.affine_candidate.constructBasis(a, fixture, 0, 1000000, basis)).?;
+        defer candidate.deinit();
+        try affine.validate(a, fixture, candidate.program, 0, candidate.basis, candidate.input_bias, 1000000);
+        const bytes = try a.alloc(u8, try image.encodedLength(candidate.program));
+        defer a.free(bytes);
+        _ = try image.encode(a, candidate.program, bytes);
+        for ([_]bool{ false, true }) |rotate| {
+            var args: [33]u8 = undefined;
+            for ([_]u64{ 1, 2, 4, 8 }, 0..) |value, i| std.mem.writeInt(u64, args[i * 8 ..][0..8], value, .little);
+            args[32] = @intFromBool(rotate);
+            var expected: [8]u8 = undefined;
+            std.mem.writeInt(u64, &expected, if (rotate) 2 ^ 4 else 1 ^ 2, .little);
+            var outcome = try world.invocation.invoke(a, .{ .image = bytes, .instance = .{ .initial_args = &args } });
+            defer outcome.deinit();
+            try std.testing.expect(outcome.record == .completed);
+            try std.testing.expectEqualSlices(u8, &expected, outcome.record.completed);
+        }
+    }
+}

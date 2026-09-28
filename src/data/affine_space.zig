@@ -66,6 +66,21 @@ pub const Space = struct {
         }
         return if (row == 0) coefficients_row else null;
     }
+    /// Unique reduced row-echelon basis; the represented row space is unchanged.
+    pub fn canonical(self: Space, budget: *Budget) Error!Space {
+        var result = self;
+        var pivot = self.dimension;
+        while (pivot != 0) {
+            pivot -= 1;
+            const row = result.pivots[pivot];
+            if (row == 0) continue;
+            for (0..pivot) |prior| {
+                try budget.charge();
+                if (result.pivots[prior] & coordinate(pivot) != 0) result.pivots[prior] ^= row;
+            }
+        }
+        return result;
+    }
     pub fn rows(self: *const Space, output: *[max_dimension]Row) []const Row {
         var count: usize = 0;
         for (self.pivots[0..self.dimension]) |row| if (row != 0) {

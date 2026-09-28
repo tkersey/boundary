@@ -140,7 +140,7 @@ fn reservation(program: ir.Program, stage: Stage) Error!u64 {
     const facts: u64 = switch (stage) {
         .branch, .applications, .aggregates => 22_000_000,
         .expressions => 1_000_000,
-        .affine_state => std.math.mul(u64, program.constructors.len, 2_000_000) catch return error.Capacity,
+        .affine_state => std.math.mul(u64, program.constructors.len, 6_000_000) catch return error.Capacity,
         else => 0,
     };
     return std.math.add(u64, std.math.add(u64, scans, byte_work) catch return error.Capacity, facts) catch return error.Capacity;

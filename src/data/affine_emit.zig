@@ -104,7 +104,11 @@ fn appliesConstructor(program: ir.Program, function: p.Id, slot: p.Id, construct
     return false;
 }
 
+pub const Basis = enum { observations, canonical };
 pub fn construct(allocator: std.mem.Allocator, original: ir.Program, constructor_id: usize, work_limit: u64) Error!?Candidate {
+    return constructBasis(allocator, original, constructor_id, work_limit, .observations);
+}
+pub fn constructBasis(allocator: std.mem.Allocator, original: ir.Program, constructor_id: usize, work_limit: u64, choice: Basis) Error!?Candidate {
     var plan = (try census.analyze(allocator, original, constructor_id, work_limit)) orelse return null;
     defer plan.deinit();
     if (plan.basis.len == plan.dimension) return null;
@@ -114,6 +118,11 @@ pub fn construct(allocator: std.mem.Allocator, original: ir.Program, constructor
     var budget: space.Budget = .{ .remaining = work_limit };
     var basis = try space.Space.init(plan.dimension);
     for (plan.basis) |row| _ = try basis.insert(row, &budget);
+    if (choice == .canonical) {
+        basis = try basis.canonical(&budget);
+        var buffer: [space.max_dimension]space.Row = undefined;
+        plan.basis = try plan.arena.allocator().dupe(space.Row, basis.rows(&buffer));
+    }
     const functions = try a.dupe(ir.Function, original.functions);
     const blocks = try a.dupe(ir.Block, original.blocks);
     const constructors = try a.dupe(p.Constructor, original.constructors);
