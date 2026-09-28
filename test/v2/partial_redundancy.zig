@@ -4,7 +4,7 @@ const world = @import("world");
 const ir = data.activation;
 const pre = data.partial_redundancy;
 const a = std.testing.allocator;
-const diamond: ir.Program = .{
+pub const diamond: ir.Program = .{
     .roots = .{ .entry = 0, .result = 0, .failure = 2 },
     .schemas = &.{ .u64, .boolean, .unit },
     .constants = &.{},
@@ -86,7 +86,7 @@ test "World executes PRE with one expression per join path and none on early ret
     }
 }
 
-fn liveDiamond() ir.Program {
+pub fn liveDiamond() ir.Program {
     var program = diamond;
     program.roots.result = 1;
     program.functions = &.{.{ .entry = 0, .inputs = &.{ 0, 1, 2, 3 }, .layout = .{ .slots = &.{ 0, 0, 1, 1, 1, 1 } }, .result = 1 }};

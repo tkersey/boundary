@@ -178,3 +178,40 @@ test "PRE rejects an admissible speculative evaluation on an early-return predec
     defer admitted.deinit();
     try std.testing.expectError(error.InvalidPartialRedundancy, pre.validate(a, original, wrong, candidate.witness, 100000));
 }
+
+test "PRE cannot move a region-owned read before its owner exists on a predecessor" {
+    const original: ir.Program = .{
+        .roots = .{ .entry = 0, .result = 0, .failure = 5 },
+        .schemas = &.{ .u64, .boolean, .{ .internal = .{ .region = 0 } }, .{ .internal = .{ .cell = .{ .element = 0, .region = 0 } } }, .{ .internal = .{ .computation = .{ .parameters = &.{ 2, 0, 0, 1 }, .result = 0, .use = .reusable, .regions = &.{0} } } }, .unit },
+        .constants = &.{},
+        .effects = &.{},
+        .functions = &.{
+            .{ .entry = 0, .inputs = &.{ 0, 1, 2 }, .layout = .{ .slots = &.{ 0, 0, 1, 4, 0 } }, .result = 0 },
+            .{ .entry = 2, .inputs = &.{ 0, 1, 2, 3 }, .layout = .{ .slots = &.{ 2, 0, 0, 1, 3, 0, 0 } }, .result = 0, .regions = &.{0} },
+        },
+        .blocks = &.{
+            .{ .function = 0, .instructions = &.{.{ .destination = 3, .opcode = .computation }}, .terminator = .{ .with_region = .{ .region = 0, .body = 3, .arguments = &.{ 0, 1, 2 }, .next = .{ .block = 1, .assignments = &.{.{ .destination = 4, .source = .returned }} } } } },
+            .{ .function = 0, .instructions = &.{}, .terminator = .{ .return_value = 4 } },
+            .{ .function = 1, .instructions = &.{}, .terminator = .{ .branch = .{ .condition = 3, .when_true = .{ .block = 3 }, .when_false = .{ .block = 4 } } } },
+            .{ .function = 1, .instructions = &.{ .{ .destination = 4, .opcode = .cell_new, .operands = &.{ 0, 1 } }, .{ .destination = 5, .opcode = .cell_get, .operands = &.{4} } }, .terminator = .{ .jump = .{ .block = 5 } } },
+            .{ .function = 1, .instructions = &.{}, .terminator = .{ .jump = .{ .block = 5 } } },
+            .{ .function = 1, .instructions = &.{ .{ .destination = 4, .opcode = .cell_new, .operands = &.{ 0, 2 } }, .{ .destination = 6, .opcode = .cell_get, .operands = &.{4} } }, .terminator = .{ .return_value = 6 } },
+        },
+        .scopes = .{ .region_count = 1, .captures = &.{.{ .fields = &.{}, .use = .reusable }} },
+        .constructors = &.{.{ .function = 1, .capture = 0, .schema = 4 }},
+    };
+    var admitted = try @import("activation_ownership.zig").analyze(a, original);
+    defer admitted.deinit();
+    var candidate = try pre.construct(a, original, 100000);
+    defer if (candidate) |*value| value.deinit();
+    try std.testing.expect(candidate == null);
+    var misplaced = original;
+    var blocks = original.blocks[0..6].*;
+    blocks[4].instructions = &.{original.blocks[5].instructions[1]};
+    misplaced.blocks = &blocks;
+    if (@import("activation_ownership.zig").analyze(a, misplaced)) |owner| {
+        var unexpected = owner;
+        unexpected.deinit();
+        return error.ExpectedUnavailableOwner;
+    } else |_| {}
+}

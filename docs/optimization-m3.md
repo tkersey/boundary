@@ -48,7 +48,7 @@ the early-return path. These are path-specific evaluations, not a claimed speedu
 
 Focused tests, the data aggregate and native execution have passed for the initial
 slice. Final proof counts and remaining qualification are recorded with delivery.
-Broader placement, a dedicated borrowed-owner negative witness, platform/economic
+Broader placement, platform/economic
 qualification, P09 specialization/inlining, P10 contification and P21 remain open.
 No new branch, PR, persistence infrastructure or intermediate review gate is added.
 
@@ -57,3 +57,30 @@ tests** before the last mutation-only addition, and **2/2 native World tests**.
 The focused result covers that addition. `performance/m3-pre-initial.json`
 records exact scope and raw-log identities. No full M3 or performance acceptance
 is claimed.
+
+## P06 ownership, platform and costs
+
+The dedicated region-owner witness is now separately admitted. One predecessor
+has no cell owner before the join creates it; PRE leaves the read in place, and
+a forged read on that predecessor fails original ownership admission. The
+focused suite passes **42/42 tests**. Full ReleaseSafe validation completes
+**319/319 steps and 592/592 tests**.
+
+Production Node/WASM and independent Wasmtime pass **72 comparisons** over the
+checked critical-edge, shared-pipeline and source-free linked images. Three
+same-image restores, three wrong-image rejections and six malformed-input
+rejections pass. The checked-pass route is explicitly distinguished from
+shared-pipeline selection.
+
+The frozen 15c5356 semantic compiler supplies the cost control; 77892fb supplies
+the candidate. All 14 paired admission/fresh/cycle comparisons completed. One
+confirmed increase remains: WASM admission +1.54 microseconds (7.4%), pending
+explicit user acceptance under §9.5. No fresh invocation or complete
+checkpoint/restore-cycle slowdown was confirmed. Native invocation peak grows
+98 bytes; WASM cycle peak falls on reuse/early paths and grows 102 bytes on the
+missing-definition path. Admission/retention increases remain under 1 KiB;
+maximum checkpoints do not grow. These are bounded fixture measurements, not
+a general speedup claim. Exact identities and raw windows are retained in
+`performance/m3-pre-platform.json`, `m3-pre-timing.json` and `m3-pre-memory.json`.
+
+Remaining P09/P10/P21 work and the full later programme remain mandatory.

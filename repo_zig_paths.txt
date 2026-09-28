@@ -227,6 +227,7 @@ test/v2/emit_source.zig
 test/v2/expression_reuse.zig
 test/v2/oracle_scopes.zig
 test/v2/partial_redundancy.zig
+test/v2/pre_platform.zig
 test/v2/snapshot_retention.zig
 tools/authoring_stats.zig
 tools/component_example.zig
