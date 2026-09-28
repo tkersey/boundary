@@ -90,6 +90,8 @@ src/data/compact_sequence_tests.zig
 src/data/component.zig
 src/data/component_tests.zig
 src/data/constant_origin.zig
+src/data/contification.zig
+src/data/contification_tests.zig
 src/data/contracts.zig
 src/data/dead_arguments.zig
 src/data/dead_computation.zig
@@ -225,6 +227,8 @@ test/v2/closed_compilation.zig
 test/v2/compact_fixtures.zig
 test/v2/compact_wasm.zig
 test/v2/compare_activation_flow.zig
+test/v2/contification.zig
+test/v2/contification_platform.zig
 test/v2/decode_retention.zig
 test/v2/economy_v1.zig
 test/v2/economy_v2.zig

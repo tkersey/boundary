@@ -5,6 +5,7 @@ test {
     _ = @import("call_pattern_constant_tests.zig");
     _ = @import("call_pattern_word_tests.zig");
     _ = @import("leaf_inlining_tests.zig");
+    _ = @import("contification_tests.zig");
     _ = @import("partial_redundancy_tests.zig");
     _ = @import("affine_extract.zig");
     _ = @import("affine_capture_tests.zig");

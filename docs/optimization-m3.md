@@ -273,3 +273,58 @@ Thirty earlier callable, variant and Boolean images remain byte-identical. Their
 proofs and outstanding cost decisions retain their original inputs. Broader
 schema/evidence and recursive-specialization obligations remain explicit; this
 does not close P09, M3 or the full programme.
+
+## P10 shared local joins — first nonrecursive slice
+
+`contification.zig` owns the call-to-edge rewrite. A private helper whose raw
+callers all belong to one function and share an identical continuation is moved
+once into that caller. Ordered arguments enter fresh, disjoint local slots by
+simultaneous assignment; internal edges and returns preserve their source views.
+Original caller instructions remain unchanged. Independent validation enumerates
+the original callers and checks the complete slot, block, custody, instruction
+and return correspondence. Final P01 retires the now-unreferenced helper.
+
+This first domain requires non-suspending pure code, one custody scope and
+copyable/droppable exportable values. Constructor-addressable helpers, differing
+continuations, nested custody and suspension retain their original calls. The
+two-predecessor witness keeps one product-building body and exercises both
+incoming argument order and a simultaneous internal swap. Wrong argument, swap
+and return mappings reject even when independently admissible. Allocation and
+work/block/slot/byte bounds preserve deterministic P01 rollback.
+
+Leaf inlining precedes join conversion so the existing local product-cancellation
+witness remains available. Of 36 preceding P09 images, 34 remain byte-identical;
+the shared and linked Boolean images change and receive fresh qualification.
+
+### Return transitions and measured correction
+
+Initial emission replaced every helper return with a jump to the caller's
+continuation. For an empty return-only continuation this added one logical
+transition: the shared-join fixture went from five to six quantum-one invocations.
+Native/WASM complete checkpoint cycles regressed about 20–31%; the affected
+Boolean fixture regressed about 28–30%. The raw rejected observations and exact
+inputs remain in `performance/m3-p10-initial-costs.json`.
+
+The retained construction directly returns the value selected by a proved empty
+return-only continuation. The checker independently reconstructs whether this is
+the helper result or an original caller value. Continuations containing real
+work retain their explicit transfers; an attempted bypass is a negative witness.
+This removes the added transition without changing World or inventing an opcode.
+
+Both image groups pass 72 cross-engine comparisons each, with six total same-image
+restores, six wrong-image rejections and twelve malformed-input rejections. The
+shared-join native witness passes 48 executions, and the prior native P09 suite
+passes another 420 on the new source. Final ReleaseSafe validation completes
+319/319 steps and 644/644 tests; focused join validation passes 40/40 tests.
+All 28 paired timing cells against
+c5da88e complete without confirmed slowdown after the correction. Shared-join
+transitions are again five; checkpoint maxima remain 104 bytes. Native/WASM
+admission peak falls 536/64 bytes; retained storage changes -38/+42 bytes and
+fresh invocation peak changes -38/+24 bytes. The changed Boolean fixture improves
+admission, retention and invocation memory, with unchanged 82-byte checkpoints.
+Final evidence is in `performance/m3-p10-{platform,timing,memory}.json`.
+
+The required mutually recursive eligible pair and additional escaping/retained
+control witnesses remain open. This slice does not close P10 or M3. P09 residuals,
+P21, cumulative consumer qualification and the full later programme remain in scope;
+the earlier P06 and repeated-callable cost decisions are not waived by these gains.
