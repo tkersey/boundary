@@ -5,6 +5,7 @@ const ir = @import("activation.zig");
 const p = @import("program.zig");
 const extract = @import("affine_extract.zig");
 const space = @import("affine_space.zig");
+const edge_state = @import("affine_edges.zig");
 const privacy = @import("capture_reduction.zig");
 const ownership = @import("activation_ownership.zig");
 pub const Error = ownership.Error || space.Error;
@@ -55,20 +56,33 @@ pub fn analyze(allocator: std.mem.Allocator, program: ir.Program, constructor_id
     // A returned value is an opaque boundary result, not a hidden state copy.
     for (program.blocks) |block| {
         if (block.function != constructor.function) continue;
-        const edge: ?ir.Edge = switch (block.terminator) {
-            .call => |call| call.next,
-            .jump => |edge| edge,
-            else => null,
+        var edges: [2]ir.Edge = undefined;
+        const count: usize = switch (block.terminator) {
+            .call => |call| blk: {
+                edges[0] = call.next;
+                break :blk 1;
+            },
+            .jump => |edge| blk: {
+                edges[0] = edge;
+                break :blk 1;
+            },
+            .branch => |branch| blk: {
+                edges[0] = branch.when_true;
+                edges[1] = branch.when_false;
+                break :blk 2;
+            },
+            else => 0,
         };
-        if (edge) |e| for (e.assignments) |assignment| {
+        for (edges[0..count]) |edge| for (edge.assignments) |assignment| {
+            const input = std.mem.indexOfScalar(p.Id, worker.inputs, assignment.destination);
             switch (assignment.source) {
-                .returned => returned[@intCast(assignment.destination)] = true,
-                .slot => return null,
+                .returned => {
+                    if (input != null) return null;
+                    returned[@intCast(assignment.destination)] = true;
+                },
+                .slot => if (input == null) return null,
             }
         };
-        if (block.terminator == .branch) {
-            if (block.terminator.branch.when_true.assignments.len != 0 or block.terminator.branch.when_false.assignments.len != 0) return null;
-        }
     }
     for (program.blocks, 0..) |block, block_id| {
         if (block.function != constructor.function) continue;
@@ -88,6 +102,44 @@ pub fn analyze(allocator: std.mem.Allocator, program: ir.Program, constructor_id
             if (expression == null) for (op.operands) |slot| try observe(&seed, values[@intCast(slot)], &budget);
             values[@intCast(op.destination)] = expression;
             defined[@intCast(op.destination)] = true;
+        }
+        var edges: [2]ir.Edge = undefined;
+        const edge_count: usize = switch (block.terminator) {
+            .call => |call| blk: {
+                edges[0] = call.next;
+                break :blk 1;
+            },
+            .jump => |edge| blk: {
+                edges[0] = edge;
+                break :blk 1;
+            },
+            .branch => |branch| blk: {
+                edges[0] = branch.when_true;
+                edges[1] = branch.when_false;
+                break :blk 2;
+            },
+            else => 0,
+        };
+        for (edges[0..edge_count]) |edge| {
+            if (edge.assignments.len == 0) continue;
+            for (edge.assignments) |assignment| switch (assignment.source) {
+                .slot => |slot| {
+                    if (!defined[@intCast(slot)]) return null;
+                    if (std.mem.indexOfScalar(p.Id, worker.inputs[0..n], assignment.destination) == null)
+                        try observe(&seed, values[@intCast(slot)], &budget);
+                },
+                .returned => {},
+            };
+            var captures_changed = false;
+            for (edge.assignments) |assignment| if (std.mem.indexOfScalar(p.Id, worker.inputs[0..n], assignment.destination) != null) {
+                captures_changed = true;
+            };
+            if (!captures_changed) continue;
+            const state = (try edge_state.state(a, worker.inputs[0..n], values, edge, &budget)) orelse return null;
+            const matrix = try a.alloc(space.Row, n);
+            for (state, matrix) |value, *row| row.* = value.state;
+            try rows.append(a, matrix);
+            try transitions.append(a, .{ .block = block_id, .values = state });
         }
         switch (block.terminator) {
             .return_value => |slot| {
@@ -116,7 +168,7 @@ pub fn analyze(allocator: std.mem.Allocator, program: ir.Program, constructor_id
     if (transitions.items.len == 0) return null;
     var observation_buffer: [space.max_dimension]space.Row = undefined;
     const observations = try a.dupe(space.Row, seed.rows(&observation_buffer));
-    const closed = try space.close(seed, rows.items, &budget);
+    const closed = try space.close(a, seed, rows.items, &budget);
     var basis_buffer: [space.max_dimension]space.Row = undefined;
     const basis = try a.dupe(space.Row, closed.rows(&basis_buffer));
     const owned_transitions = try transitions.toOwnedSlice(a);

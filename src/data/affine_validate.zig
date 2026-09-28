@@ -11,10 +11,13 @@ const space = @import("affine_space.zig");
 pub const Error = ownership.Error || space.Error || error{InvalidAffineCandidate};
 const Word = struct {
     state: u128 = 0,
-    atoms: u128 = 0,
+    // Independent entry/opaque-result symbols are not capture coordinates.
+    atoms: [4]u128 = @splat(0),
     constant: u64 = 0,
     fn xor(a: Word, b: Word) Word {
-        return .{ .state = a.state ^ b.state, .atoms = a.atoms ^ b.atoms, .constant = a.constant ^ b.constant };
+        var result: Word = .{ .state = a.state ^ b.state, .constant = a.constant ^ b.constant };
+        for (&result.atoms, a.atoms, b.atoms) |*out, left, right| out.* = left ^ right;
+        return result;
     }
 };
 const Value = union(enum) { word: Word, token: usize };
@@ -25,8 +28,9 @@ fn word(value: ?Value) Error!Word {
     return if (value != null and value.? == .word) value.?.word else error.InvalidAffineCandidate;
 }
 fn atom(next: *usize) Error!Value {
-    if (next.* >= 128) return error.WorkLimit;
-    const result: Value = .{ .word = .{ .atoms = @as(u128, 1) << @intCast(next.*) } };
+    if (next.* >= 512) return error.WorkLimit;
+    var result: Value = .{ .word = .{} };
+    result.word.atoms[next.* / 128] = @as(u128, 1) << @intCast(next.* % 128);
     next.* += 1;
     return result;
 }
@@ -82,6 +86,48 @@ fn drain(program: ir.Program, block: ir.Block, index: *usize, values: []?Value, 
         try budget.charge();
         values[@intCast(op.destination)] = .{ .word = value };
         index.* += 1;
+    }
+}
+
+fn edgeSource(edge: ir.Edge, destination: p.Id) ir.Source {
+    for (edge.assignments) |assignment| if (assignment.destination == destination) return assignment.source;
+    return .{ .slot = destination };
+}
+fn edgeValue(edge: ir.Edge, destination: p.Id, values: []const ?Value) Error!?Value {
+    return switch (edgeSource(edge, destination)) {
+        .slot => |slot| values[@intCast(slot)],
+        .returned => error.InvalidAffineCandidate,
+    };
+}
+fn checkEdge(before: ir.Edge, after: ir.Edge, old: []const ?Value, new: []const ?Value, captures: []const p.Id, summary: []const p.Id, basis: []const u128, inputs: []const p.Id, budget: *space.Budget) Error!void {
+    if (before.block != after.block) return error.InvalidAffineCandidate;
+    for (basis, summary) |row, destination| {
+        var expected: Word = .{};
+        for (captures, 0..) |slot, i| {
+            try budget.charge();
+            if (row & space.coordinate(i) != 0) expected = expected.xor(try word(try edgeValue(before, slot, old)));
+        }
+        if (!equal(Word, expected, try word(try edgeValue(after, destination, new)))) return error.InvalidAffineCandidate;
+    }
+    for (before.assignments) |assignment| {
+        try budget.charge();
+        if (std.mem.indexOfScalar(p.Id, captures, assignment.destination) != null) continue;
+        const actual = edgeSource(after, assignment.destination);
+        if (assignment.source == .returned) {
+            if (actual != .returned or std.mem.indexOfScalar(p.Id, inputs, assignment.destination) != null) return error.InvalidAffineCandidate;
+        } else {
+            if (std.mem.indexOfScalar(p.Id, inputs, assignment.destination) == null or actual != .slot or !same(old[@intCast(assignment.source.slot)], new[@intCast(actual.slot)])) return error.InvalidAffineCandidate;
+        }
+    }
+    for (after.assignments) |assignment| {
+        if (std.mem.indexOfScalar(p.Id, summary, assignment.destination) != null) continue;
+        if (std.mem.indexOfScalar(p.Id, captures, assignment.destination) != null) return error.InvalidAffineCandidate;
+        var present = false;
+        for (before.assignments) |prior| if (prior.destination == assignment.destination) {
+            present = true;
+            break;
+        };
+        if (!present) return error.InvalidAffineCandidate;
     }
 }
 
@@ -141,18 +187,7 @@ pub fn validate(allocator: std.mem.Allocator, original: ir.Program, candidate: i
         const new_function = candidate.functions[@intCast(before.function)];
         const is_worker = before.function == ctor.function;
         if (is_worker) switch (before.terminator) {
-            .jump => |edge| {
-                if (edge.assignments.len != 0) return error.InvalidAffineCandidate;
-            },
-            .branch => |branch| {
-                if (branch.when_true.assignments.len != 0 or branch.when_false.assignments.len != 0) return error.InvalidAffineCandidate;
-            },
-            .call => |call| {
-                for (call.next.assignments) |assignment| {
-                    if (assignment.source != .returned or std.mem.indexOfScalar(p.Id, worker.inputs, assignment.destination) != null) return error.InvalidAffineCandidate;
-                }
-            },
-            .return_value => {},
+            .jump, .branch, .call, .return_value => {},
             else => return error.InvalidAffineCandidate,
         };
         const old = try a.alloc(?Value, old_function.layout.slots.len);
@@ -161,7 +196,7 @@ pub fn validate(allocator: std.mem.Allocator, original: ir.Program, candidate: i
         @memset(new, null);
         var next_atom: usize = 0;
         for (old_function.layout.slots, 0..) |field, slot| {
-            if (is_worker and std.mem.indexOfScalar(p.Id, old_function.inputs, slot) == null) continue;
+            if (is_worker and (std.mem.indexOfScalar(p.Id, old_function.inputs, slot) == null or std.mem.indexOfScalar(p.Id, worker.inputs[0..n], slot) != null)) continue;
             const value: Value = if (field == schema) try atom(&next_atom) else .{ .token = slot };
             old[slot] = value;
             new[slot] = value;
@@ -178,7 +213,11 @@ pub fn validate(allocator: std.mem.Allocator, original: ir.Program, candidate: i
                 const edge = predecessor.terminator.call.next;
                 if (edge.block != block_index) continue;
                 for (edge.assignments) |assignment| {
-                    if (assignment.source != .returned) return error.InvalidAffineCandidate;
+                    if (assignment.source != .returned) {
+                        if (std.mem.indexOfScalar(p.Id, worker.inputs, assignment.destination) == null) return error.InvalidAffineCandidate;
+                        continue;
+                    }
+                    if (std.mem.indexOfScalar(p.Id, worker.inputs, assignment.destination) != null) return error.InvalidAffineCandidate;
                     const slot: usize = @intCast(assignment.destination);
                     const value: Value = if (old_function.layout.slots[slot] == schema) try atom(&next_atom) else .{ .token = slot };
                     old[slot] = value;
@@ -225,6 +264,10 @@ pub fn validate(allocator: std.mem.Allocator, original: ir.Program, candidate: i
                     for (call.arguments, arguments) |left, right| if (!same(old[@intCast(left)], new[@intCast(right)])) return error.InvalidAffineCandidate;
                 }
                 terminator.call.arguments = call.arguments;
+                if (is_worker) {
+                    try checkEdge(call.next, terminator.call.next, old, new, worker.inputs[0..n], new_function.inputs[0..basis.len], basis, worker.inputs, &budget);
+                    terminator.call.next = call.next;
+                }
             },
             .return_value => |slot| if (is_worker) {
                 if (terminator != .return_value or !same(old[@intCast(slot)], new[@intCast(terminator.return_value)])) return error.InvalidAffineCandidate;
@@ -233,6 +276,15 @@ pub fn validate(allocator: std.mem.Allocator, original: ir.Program, candidate: i
             .branch => |branch| if (is_worker) {
                 if (terminator != .branch or !same(old[@intCast(branch.condition)], new[@intCast(terminator.branch.condition)])) return error.InvalidAffineCandidate;
                 terminator.branch.condition = branch.condition;
+                try checkEdge(branch.when_true, terminator.branch.when_true, old, new, worker.inputs[0..n], new_function.inputs[0..basis.len], basis, worker.inputs, &budget);
+                try checkEdge(branch.when_false, terminator.branch.when_false, old, new, worker.inputs[0..n], new_function.inputs[0..basis.len], basis, worker.inputs, &budget);
+                terminator.branch.when_true = branch.when_true;
+                terminator.branch.when_false = branch.when_false;
+            },
+            .jump => |edge| if (is_worker) {
+                if (terminator != .jump) return error.InvalidAffineCandidate;
+                try checkEdge(edge, terminator.jump, old, new, worker.inputs[0..n], new_function.inputs[0..basis.len], basis, worker.inputs, &budget);
+                terminator.jump = edge;
             },
             else => {},
         }

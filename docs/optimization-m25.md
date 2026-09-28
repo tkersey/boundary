@@ -86,3 +86,61 @@ original image (input 1,2,4,8; two updates). The oracle now snapshots predecesso
 scalars before assignment, implementing the specified simultaneous update. Both
 original and reduced programs match it; no optimizer or runtime change was needed.
 These are correctness witnesses, not runtime cost measurements.
+
+## Shared pipeline and expanded witnesses
+
+Semantic closed compilation now schedules affine state synthesis before direct
+application specialization, using the existing deterministic reservation, rollback,
+image and admission-cost guards. Structural compilation remains unchanged. The
+same stage is reached through final source-free component linking. The native
+closed-link test destroys its original component bytes before executing output.
+
+Production parity fixtures at 2, 3, 8, 32, 64 and 128 words all emit one-word
+captures after independent validation. Their permutations are generated rather
+than matched by a name. The 128-word test exposed a verifier scratch-symbol limit;
+entry/opaque-result symbols now have a separate 512-symbol bounded representation,
+while capture coordinates retain their 128-word limit. Exhaustion still rolls back;
+this is not a claim of unbounded analysis. Multiple recursive modes, a new reset
+that requires full state, stale-candidate rejection, rank-zero emission and
+full-rank no-op are tested.
+
+The closure kernel now uses an indexed predecessor worklist. Its location test
+retains two coordinates at full inspection and one in the parity loop; adding a
+return edge propagates full requirements back into the loop. Actual record tests
+preserve full external inspection before a reduced private loop and reject state
+loss when that loop can call a full observer. The native World request/resume test
+checks the original pair payload and the resumed parity result for each image.
+
+Current results: 41/41 focused tests; 5/5 native World tests; the preceding data
+aggregate passed 269/269 before the final location additions. A fresh full
+ReleaseSafe aggregate is running. No latency, total-memory or checkpoint reduction
+is inferred from captured word counts.
+
+General multi-worker location synthesis is still incomplete: the current record
+recognizer gives each selected recursive worker one fixed layout and treats
+unresolved worker calls as full argument observations. The predecessor kernel can
+represent varying locations, but this does not by itself establish the full
+production location-sensitive transformation. That remaining extractor/emitter
+integration, full L01–L20 mapping, source-free multi-component coverage, platform
+and economic qualification remain required.
+
+## Parallel capture transfers
+
+The pre-edge integrated slice completed ReleaseSafe with **319/319 steps and
+554/554 tests**. Its result is not relabeled as qualification of later edge changes.
+The newly added admitted CFG-loop witness initially returned a legal no-op,
+identifying a missing M2.5 capability. It now emits a two-coordinate loop state.
+
+Extraction reads every edge source from the predecessor view. Emission computes
+reduced state assignments and preserves non-state transfers, and the independent
+checker verifies the emitted edge equations separately from the extractor.
+Branch/jump applicability reaches the shared semantic compiler; recursive calls
+remain supported. A wrong parallel transfer still passes ordinary admission but
+fails transformation acceptance. The focused harness passes **44/44 tests**, and
+all **6 native World tests** pass, including the shared-pipeline CFG back-edge
+witness. A fresh data aggregate is running for the edge changes.
+
+The post-edge ReleaseSafe data aggregate now completes with terminal exit zero:
+**3/3 steps and 275/275 tests**. The integrated compiler/linker, scale, mode and
+parallel-edge slice is ready for the existing draft. This does not close M2.5's
+remaining representation, platform, consumer and economic obligations.

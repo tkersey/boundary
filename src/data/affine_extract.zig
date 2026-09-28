@@ -119,7 +119,7 @@ test "record extraction preserves overwritten operands and parallel predecessor 
     var seed = try space.Space.init(3);
     _ = try seed.insert(3, &budget);
     _ = try seed.insert(6, &budget);
-    const closed = try space.close(seed, &.{&rows}, &budget);
+    const closed = try space.close(a, seed, &.{&rows}, &budget);
     try std.testing.expectEqual(@as(usize, 2), closed.rank);
     try std.testing.expectEqual(@as(space.Row, 1), extracted[2].input);
     try std.testing.expectEqual(@as(space.Row, 2), extracted[0].state);

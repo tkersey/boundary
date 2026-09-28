@@ -66,6 +66,27 @@ fn remap(builder: *Builder, slot: p.Id, values: []const ?extract.Expression, bas
     return if (values[@intCast(slot)]) |value| builder.expression(value, basis, summary, inputs) else slot;
 }
 
+fn rewriteEdge(builder: *Builder, edge: ir.Edge, worker: ir.Function, values: []const ?extract.Expression, basis: *const space.Space, basis_rows: []const space.Row, dimension: usize, summary: []const p.Id) Error!ir.Edge {
+    if (edge.assignments.len == 0) return edge;
+    const state = (try @import("affine_edges.zig").state(builder.a, worker.inputs[0..dimension], values, edge, builder.budget)) orelse return error.UnrepresentableAffineObservation;
+    var assignments: std.ArrayList(ir.Assignment) = .empty;
+    for (basis_rows, summary) |row, destination| {
+        var expression: extract.Expression = .{};
+        for (state, 0..) |value, i| if (row & space.coordinate(i) != 0) {
+            expression = expression.xor(value);
+        };
+        const slot = try builder.expression(expression, basis, summary, worker.inputs[dimension..]);
+        if (slot != destination) try assignments.append(builder.a, .{ .destination = destination, .source = .{ .slot = slot } });
+    }
+    for (edge.assignments) |assignment| {
+        if (std.mem.indexOfScalar(p.Id, worker.inputs[0..dimension], assignment.destination) != null) continue;
+        var replacement = assignment;
+        if (assignment.source == .slot) replacement.source.slot = try remap(builder, assignment.source.slot, values, basis, summary, worker.inputs[dimension..]);
+        try assignments.append(builder.a, replacement);
+    }
+    return .{ .block = edge.block, .assignments = try assignments.toOwnedSlice(builder.a) };
+}
+
 pub fn construct(allocator: std.mem.Allocator, original: ir.Program, constructor_id: usize, work_limit: u64) Error!?Candidate {
     var plan = (try census.analyze(allocator, original, constructor_id, work_limit)) orelse return null;
     defer plan.deinit();
@@ -140,8 +161,13 @@ pub fn construct(allocator: std.mem.Allocator, original: ir.Program, constructor
             }
             switch (block.terminator) {
                 .return_value => |slot| out.terminator.return_value = try remap(&builder, slot, values, &basis, summary, dynamic),
-                .branch => |branch| out.terminator.branch.condition = try remap(&builder, branch.condition, values, &basis, summary, dynamic),
+                .branch => |branch| {
+                    out.terminator.branch.condition = try remap(&builder, branch.condition, values, &basis, summary, dynamic);
+                    out.terminator.branch.when_true = try rewriteEdge(&builder, branch.when_true, worker, values, &basis, plan.basis, plan.dimension, summary);
+                    out.terminator.branch.when_false = try rewriteEdge(&builder, branch.when_false, worker, values, &basis, plan.basis, plan.dimension, summary);
+                },
                 .call => |call| {
+                    out.terminator.call.next = try rewriteEdge(&builder, call.next, worker, values, &basis, plan.basis, plan.dimension, summary);
                     if (call.function == plan.worker) {
                         const arguments = try a.alloc(p.Id, input_slots.len);
                         for (plan.basis, arguments[0..plan.basis.len]) |row, *argument| {
@@ -159,7 +185,7 @@ pub fn construct(allocator: std.mem.Allocator, original: ir.Program, constructor
                         out.terminator.call.arguments = arguments;
                     }
                 },
-                .jump => {},
+                .jump => |edge| out.terminator.jump = try rewriteEdge(&builder, edge, worker, values, &basis, plan.basis, plan.dimension, summary),
                 else => unreachable,
             }
         }

@@ -16,9 +16,10 @@ const arguments = @import("dead_arguments.zig");
 const captures = @import("capture_reduction.zig");
 const projections = @import("capture_projection.zig");
 const summaries = @import("capture_summary.zig");
+const affine = @import("affine_state.zig");
 pub const Contract = enum { structural, semantic };
 pub const Objective = enum { size, balanced, speed };
-pub const Stage = enum { p01, branch, applications, aggregates, expressions, cells, dead_computation, dead_arguments, dead_captures, capture_projection, capture_summary };
+pub const Stage = enum { p01, branch, applications, aggregates, expressions, cells, dead_computation, dead_arguments, dead_captures, capture_projection, capture_summary, affine_state };
 pub const default_work_limit: u64 = 100_000_000_000;
 pub const Outcome = enum { not_run, structural, deferred_open_component, no_change, applied, work_limit, size_guard };
 pub const Statistics = struct {
@@ -54,8 +55,8 @@ pub const Options = struct {
         if (self.statistics) |stats| stats.* = .{};
     }
 };
-pub const Error = branch.Error || applications.Error || aggregates.Error || expressions.Error || cells.Error || dead.Error || arguments.Error || captures.Error || projections.Error || summaries.Error;
-const schedule = [_]Stage{ .branch, .applications, .aggregates, .expressions, .cells, .dead_computation, .dead_arguments, .dead_captures, .capture_projection, .capture_summary, .dead_computation, .dead_arguments, .applications, .dead_computation };
+pub const Error = branch.Error || applications.Error || aggregates.Error || expressions.Error || cells.Error || dead.Error || arguments.Error || captures.Error || projections.Error || summaries.Error || affine.Error;
+const schedule = [_]Stage{ .branch, .affine_state, .applications, .aggregates, .expressions, .cells, .dead_computation, .dead_arguments, .dead_captures, .capture_projection, .capture_summary, .dead_computation, .dead_arguments, .applications, .dead_computation };
 fn notify(options: Options, stage: Stage) void {
     if (options.observer) |observer| observer.enter(observer.context, stage);
 }
@@ -130,7 +131,7 @@ fn reservation(program: ir.Program, stage: Stage) Error!u64 {
         .cells => std.math.mul(u64, try sumWork(&.{ cells_count, 1 }), shape.records) catch return error.Capacity,
         .dead_computation => std.math.mul(u64, try sumWork(&.{ instructions, max_slots, program.blocks.len, 1 }), shape.records) catch return error.Capacity,
         .dead_arguments => std.math.mul(u64, try sumWork(&.{ program.functions.len, max_inputs, 1 }), shape.records) catch return error.Capacity,
-        .dead_captures, .capture_projection, .capture_summary => std.math.mul(u64, try sumWork(&.{ program.constructors.len, constructions, 1 }), shape.records) catch return error.Capacity,
+        .dead_captures, .capture_projection, .capture_summary, .affine_state => std.math.mul(u64, try sumWork(&.{ program.constructors.len, constructions, 1 }), shape.records) catch return error.Capacity,
         .p01 => 0,
     };
     const scans = std.math.mul(u64, std.math.add(u64, comparisons, shape.records) catch return error.Capacity, 64) catch return error.Capacity;
@@ -138,6 +139,7 @@ fn reservation(program: ir.Program, stage: Stage) Error!u64 {
     const facts: u64 = switch (stage) {
         .branch, .applications, .aggregates => 22_000_000,
         .expressions => 1_000_000,
+        .affine_state => std.math.mul(u64, program.constructors.len, 2_000_000) catch return error.Capacity,
         else => 0,
     };
     return std.math.add(u64, std.math.add(u64, scans, byte_work) catch return error.Capacity, facts) catch return error.Capacity;
@@ -275,6 +277,19 @@ fn possible(allocator: std.mem.Allocator, owned: *const p01.Owned, stage: Stage)
             } else if (stage == .capture_projection) {
                 if (capture.fields.len == 1 and program.schemas[@intCast(capture.fields[0])] == .product) return true;
             } else if (capture.fields.len == 2 and program.schemas[@intCast(capture.fields[0])] == .u64 and capture.fields[0] == capture.fields[1]) return true;
+        },
+        .affine_state => for (program.constructors) |constructor| {
+            const capture = program.scopes.captures[@intCast(constructor.capture)];
+            if (capture.fields.len == 0 or capture.fields.len > 128) continue;
+            for (program.blocks) |block| {
+                if (block.function != constructor.function) continue;
+                switch (block.terminator) {
+                    .call => |call| if (call.function == constructor.function) return true,
+                    .jump => |edge| if (edge.assignments.len != 0) return true,
+                    .branch => |choice| if (choice.when_true.assignments.len != 0 or choice.when_false.assignments.len != 0) return true,
+                    else => {},
+                }
+            }
         },
         .p01 => return true,
     }
@@ -472,6 +487,19 @@ fn apply(a: std.mem.Allocator, program: ir.Program, stage: Stage, options: p01.O
         .dead_captures => captures.run(a, program, null, options),
         .capture_projection => projections.run(a, program, null, options),
         .capture_summary => summaries.run(a, program, null, options),
+        .affine_state => blk: {
+            for (program.constructors, 0..) |_, id| {
+                var stats: affine.Statistics = .{};
+                var result = try affine.run(a, program, id, &stats, 1_000_000, options);
+                if (stats.outcome == .work_limit) {
+                    exhausted.* = true;
+                    break :blk result;
+                }
+                if (stats.outcome == .applied) break :blk result;
+                result.deinit();
+            }
+            break :blk try p01.run(a, program, options);
+        },
     };
 }
 

@@ -89,24 +89,64 @@ pub fn pull(row: Row, transition: []const Row, source_dimension: usize, budget: 
     return result;
 }
 
-/// Close one control location under every admitted transition. The input space
-/// is copied: budget failure cannot expose a partially closed result.
-pub fn close(seed: Space, transitions: []const []const Row, budget: *Budget) Error!Space {
-    var result = seed;
-    var changed = true;
-    while (changed) {
-        changed = false;
+pub const Edge = struct { source: usize, target: usize, matrix: []const Row };
+
+/// Propagate changed successor requirements through indexed predecessor edges.
+/// The caller owns the returned spaces; failures release every partial owner.
+pub fn closeLocations(allocator: std.mem.Allocator, seeds: []const Space, edges: []const Edge, budget: *Budget) (Error || std.mem.Allocator.Error)![]Space {
+    const result = try allocator.dupe(Space, seeds);
+    errdefer allocator.free(result);
+    const none = std.math.maxInt(usize);
+    const heads = try allocator.alloc(usize, seeds.len);
+    defer allocator.free(heads);
+    @memset(heads, none);
+    const next = try allocator.alloc(usize, edges.len);
+    defer allocator.free(next);
+    for (edges, 0..) |edge, index| {
+        try budget.charge();
+        if (edge.source >= seeds.len or edge.target >= seeds.len or edge.matrix.len != seeds[edge.target].dimension) return error.InvalidAffineSpace;
+        for (edge.matrix) |row| if (row & ~mask(seeds[edge.source].dimension) != 0) return error.InvalidAffineSpace;
+        next[index] = heads[edge.target];
+        heads[edge.target] = index;
+    }
+    const pending = try allocator.alloc(bool, seeds.len);
+    defer allocator.free(pending);
+    @memset(pending, true);
+    var queue: std.ArrayList(usize) = .empty;
+    defer queue.deinit(allocator);
+    for (seeds, 0..) |_, index| try queue.append(allocator, index);
+    var cursor: usize = 0;
+    while (cursor < queue.items.len) : (cursor += 1) {
+        try budget.charge();
+        const target = queue.items[cursor];
+        pending[target] = false;
         var buffer: [max_dimension]Row = undefined;
-        const basis = result.rows(&buffer);
-        for (transitions) |transition| {
-            if (transition.len != seed.dimension) return error.InvalidAffineSpace;
-            for (basis) |row| {
-                const predecessor = try pull(row, transition, seed.dimension, budget);
-                changed = try result.insert(predecessor, budget) or changed;
+        const observations = result[target].rows(&buffer);
+        var index = heads[target];
+        while (index != none) : (index = next[index]) {
+            const edge = edges[index];
+            var changed = false;
+            for (observations) |row| {
+                const predecessor = try pull(row, edge.matrix, result[edge.source].dimension, budget);
+                changed = try result[edge.source].insert(predecessor, budget) or changed;
+            }
+            if (changed and !pending[edge.source]) {
+                try queue.append(allocator, edge.source);
+                pending[edge.source] = true;
             }
         }
     }
     return result;
+}
+
+/// Single-location adapter uses the same predecessor-worklist implementation.
+pub fn close(allocator: std.mem.Allocator, seed: Space, transitions: []const []const Row, budget: *Budget) (Error || std.mem.Allocator.Error)!Space {
+    const edges = try allocator.alloc(Edge, transitions.len);
+    defer allocator.free(edges);
+    for (transitions, edges) |matrix, *edge| edge.* = .{ .source = 0, .target = 0, .matrix = matrix };
+    const result = try closeLocations(allocator, &.{seed}, edges, budget);
+    defer allocator.free(result);
+    return result[0];
 }
 
 /// Independent certificate primitive: reconstruct an equation from supplied
@@ -127,7 +167,7 @@ test "rotating three-word future observations close at rank two" {
     var seed = try Space.init(3);
     _ = try seed.insert(0b011, &budget);
     _ = try seed.insert(0b110, &budget);
-    const closed = try close(seed, &.{&.{ 0b010, 0b100, 0b001 }}, &budget);
+    const closed = try close(std.testing.allocator, seed, &.{&.{ 0b010, 0b100, 0b001 }}, &budget);
     try std.testing.expectEqual(@as(usize, 2), closed.rank);
     var buffer: [max_dimension]Row = undefined;
     const basis = closed.rows(&buffer);
@@ -142,10 +182,10 @@ test "future reset distinguishes currently equal parity and budgets do not publi
     var budget: Budget = .{ .remaining = 10000 };
     var seed = try Space.init(2);
     _ = try seed.insert(0b11, &budget);
-    const closed = try close(seed, &.{&.{ 0, 0b10 }}, &budget);
+    const closed = try close(std.testing.allocator, seed, &.{&.{ 0, 0b10 }}, &budget);
     try std.testing.expectEqual(@as(usize, 2), closed.rank);
     var exhausted: Budget = .{ .remaining = 0 };
-    try std.testing.expectError(error.WorkLimit, close(seed, &.{&.{ 0, 0b10 }}, &exhausted));
+    try std.testing.expectError(error.WorkLimit, close(std.testing.allocator, seed, &.{&.{ 0, 0b10 }}, &exhausted));
     try std.testing.expectEqual(@as(usize, 1), seed.rank);
 }
 
@@ -156,7 +196,26 @@ test "generated permutation parity closes at all specified dimensions" {
         _ = try seed.insert(mask(n), &budget);
         var transition: [max_dimension]Row = undefined;
         for (0..n) |i| transition[i] = coordinate((i + n - 1) % n);
-        const closed = try close(seed, &.{transition[0..n]}, &budget);
+        const closed = try close(std.testing.allocator, seed, &.{transition[0..n]}, &budget);
         try std.testing.expectEqual(@as(usize, 1), closed.rank);
     }
+}
+
+test "location closure retains full entry inspection and compresses future parity loop" {
+    const a = std.testing.allocator;
+    var budget: Budget = .{ .remaining = 10000 };
+    var entry = try Space.init(2);
+    _ = try entry.insert(1, &budget);
+    _ = try entry.insert(2, &budget);
+    var loop = try Space.init(2);
+    _ = try loop.insert(3, &budget);
+    const forward: Edge = .{ .source = 0, .target = 1, .matrix = &.{ 1, 2 } };
+    const swap: Edge = .{ .source = 1, .target = 1, .matrix = &.{ 2, 1 } };
+    const spaces = try closeLocations(a, &.{ entry, loop }, &.{ forward, swap }, &budget);
+    defer a.free(spaces);
+    try std.testing.expectEqual(@as(usize, 2), spaces[0].rank);
+    try std.testing.expectEqual(@as(usize, 1), spaces[1].rank);
+    const returned = try closeLocations(a, &.{ entry, loop }, &.{ forward, swap, .{ .source = 1, .target = 0, .matrix = &.{ 1, 2 } } }, &budget);
+    defer a.free(returned);
+    try std.testing.expectEqual(@as(usize, 2), returned[1].rank);
 }
