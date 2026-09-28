@@ -566,3 +566,24 @@ zig test -O ReleaseSafe --dep boundary_data --dep world \
   -Mboundary_data=src/data/root.zig --dep boundary_data \
   -Mworld=/absolute/world/src/root.zig
 ```
+
+## First review sequence and statistics repair
+
+The initial six-lens serial sequence at `77a5555` is terminal. Soundness,
+footgun and fresh-eyes independently reported the same defect: reused semantic
+statistics retained an earlier success when final linking rejected an object or
+binding before closed compilation. The remaining lenses reported no findings.
+The accepted defect invalidated that candidate; no clean-review credit survives.
+Review Fold's definition-bound projection/doctor returned `InvalidStoreBinding`,
+so the accepted witness remains in the task context without a corpus-admission
+claim or a complete historical horizon.
+
+The linker now resets semantic statistics at entry, matching source lowering.
+One focused regression reuses the output after successful structural and semantic
+links, then rejects invalid symbols, truncated objects, duplicate instances and
+missing exports. Every failure leaves the complete default statistics value.
+The focused harness passes 4/4 tests. The full ReleaseSafe aggregate terminates
+with exit zero: **319/319 steps and 528/528 tests**. Its log SHA-256 is
+`18b3a05169f9720ed1533add78077582a796e23f28a0a9218ff75b66e88d429e`.
+This repair changes diagnostic reset behavior, not record transformations or the
+World runtime. Agent package rebinding and a fresh review sequence remain open.

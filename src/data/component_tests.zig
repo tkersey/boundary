@@ -24,6 +24,30 @@ const golden = "ABL_BMO1".* ++ [_]u8{
     'a', 'i', 'n', 3, 0,  1, 0, 0, 0, 0,
 };
 
+test "link statistics describe the current invocation after early rejection" {
+    const compilation = data.closed_compilation;
+    for ([_]compilation.Contract{ .structural, .semantic }) |contract| {
+        var stats: compilation.Statistics = .{};
+        const options: compilation.Options = .{ .contract = contract, .statistics = &stats };
+        const entry: data.linker.Endpoint = .{ .instance = "case", .symbol = "main" };
+        const instance: data.linker.Instance = .{ .key = "case", .object = &golden };
+        for (0..4) |failure| {
+            var linked = try data.linker.linkWithCompilation(testing.allocator, &.{instance}, &.{}, entry, options);
+            linked.deinit();
+            try testing.expect(stats.outcome != .not_run);
+            try testing.expect(stats.final_bytes != 0);
+            switch (failure) {
+                0 => try testing.expectError(error.InvalidSymbol, data.linker.linkWithCompilation(testing.allocator, &.{.{ .key = "", .object = &golden }}, &.{}, entry, options)),
+                1 => try testing.expectError(error.Truncated, data.linker.linkWithCompilation(testing.allocator, &.{.{ .key = "case", .object = &.{} }}, &.{}, entry, options)),
+                2 => try testing.expectError(error.DuplicateInstance, data.linker.linkWithCompilation(testing.allocator, &.{ instance, instance }, &.{}, entry, options)),
+                3 => try testing.expectError(error.MissingSymbol, data.linker.linkWithCompilation(testing.allocator, &.{instance}, &.{}, .{ .instance = "case", .symbol = "absent" }, options)),
+                else => unreachable,
+            }
+            try testing.expectEqualDeep(compilation.Statistics{}, stats);
+        }
+    }
+}
+
 test "BMO1 golden framing and canonical owned decode" {
     var buffer: [256]u8 = undefined;
     try testing.expectEqualSlices(u8, &golden, try data.component.encode(testing.allocator, example, &buffer));
