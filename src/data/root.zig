@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
 //! Portable definitions and pure admission. This module never executes programs.
 pub const wire = @import("wire.zig");
+pub const tail_duplication = @import("tail_duplication.zig");
 pub const common_tails = @import("common_tails.zig");
 pub const contification = @import("contification.zig");
 pub const leaf_inlining = @import("leaf_inlining.zig");

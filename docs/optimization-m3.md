@@ -415,3 +415,38 @@ images remain byte-identical. Raw observations are retained in
 `performance/m3-p21-tails-*.json`. Final ReleaseSafe validation passes
 319/319 steps and 660/660 tests; the new native tail suite covers 48 executions,
 including the preserved preceding failure.
+
+## P21 bounded tail duplication
+
+`tail_duplication.zig` copies a small shared branch tail for an incoming jump only
+when the original edge establishes an independently proved Boolean condition.
+The tail must keep that condition unchanged and remain in the predecessor's
+function and custody. Incoming simultaneous assignments are preserved verbatim.
+The checker rederives the condition, checks every original record and exact copy,
+and rejects added instructions or extra execution. Original admission and fresh
+candidate admission remain mandatory.
+
+Copies immediately feed the existing branch reducer with fresh facts and its
+independent origin proof, before common-tail sharing runs. The known branches are
+therefore consumed without a duplication/sharing cycle. Copy count, instruction
+count, added bytes and work are bounded; exhaustion retains the mandatory P01
+baseline. Unknown/overwritten conditions and mismatched custody decline.
+
+The region-cell witness inverts a live cell once on either path. A separately
+admitted mutant performing that mutation twice rejects. Native World compares
+the original, checked, shared and source-free linked records for both this effectful
+witness and the constant-branch witness. Outlining and remaining P21 obligations
+stay open; this is not full P21 or M3 closure.
+
+The duplication fixture passes 36 cross-engine comparisons, three same-image
+restores, three wrong-image rejections and six malformed inputs. Ten paired
+timing comparisons against d23d16a complete without confirmed slowdown. Admission
+peak grows 340 bytes native and 184 bytes WASM; retained storage grows 100/76 bytes
+and invocation peak grows 100/67 bytes. These increases remain below 1 KiB.
+Maximum checkpoints fall from 104 to 82 bytes on both paths. Raw observations
+are retained in `performance/m3-p21-dup-*.json`.
+Fifty-four earlier images remain byte-identical; their existing runtime evidence
+and unresolved cost dispositions retain their original subjects.
+
+Final duplication qualification: 319/319 ReleaseSafe steps and 667/667 tests;
+38 focused tests and 48 native executions pass.

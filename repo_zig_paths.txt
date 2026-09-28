@@ -134,6 +134,8 @@ src/data/state_admission.zig
 src/data/state_effects.zig
 src/data/state_image.zig
 src/data/state_image_tests.zig
+src/data/tail_duplication.zig
+src/data/tail_duplication_tests.zig
 src/data/test_root.zig
 src/data/tests.zig
 src/data/total_clause.zig
@@ -248,6 +250,8 @@ test/v2/oracle_scopes.zig
 test/v2/partial_redundancy.zig
 test/v2/pre_platform.zig
 test/v2/snapshot_retention.zig
+test/v2/tail_duplication.zig
+test/v2/tail_duplication_platform.zig
 tools/authoring_stats.zig
 tools/component_example.zig
 tools/component_link.zig
