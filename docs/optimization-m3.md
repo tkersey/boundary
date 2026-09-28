@@ -146,6 +146,51 @@ slowdown is confirmed. One WASM fresh-complement cell remains +2.44 microseconds
 are in `performance/m3-p09-leaf-*.json`; these do not establish whole-consumer
 qualification or a general speedup.
 
-Known-variant decomposition and the other required specialization facts remain
-open, as do the rest of P09/P10/P21 and the full programme. Final code reviews
-remain deferred under the user's scheduling correction.
+The other required specialization facts remain open, as do the rest of
+P09/P10/P21 and the full programme. Final code reviews remain deferred under
+the user's scheduling correction.
+
+## P09 known-variant payload workers
+
+The worker owner and independent substitution boundary are retained. The static
+key now distinguishes a constructor identity from a variant tag, while preserving
+the full program epoch, function, parameter and exact schema. This extends the
+private worker ABI to accept the runtime payload directly; payload values never
+enter the static key. Existing callers of the shared compiler and final linker
+need no new API or sequencing.
+
+Forward definition versions discover a local variant construction whose payload
+is still available. The checker independently scans raw instructions backwards
+through aliases and rejects an overwritten payload. A copyable/droppable sum
+parameter may be used only for matching payload projections and selected-tag
+switches, without overwrites, escape or authority-sensitive uses. Matching
+projections become moves; selected switches become exact predecessor-view edges.
+Different tags, unknown origins, unmatched projections and privileged entries
+retain their generic implementation. Original evaluation and admission still
+precede the rewrite; fresh candidate admission and final P01 remain mandatory.
+
+Two caller sites with different payload values reuse one worker. A separately
+admitted wrong-payload mutation rejects even when its site witness is also forged;
+wrong tag, schema and switch-target mutations reject. The original failing-tag
+fallback and a payload overwritten after construction retain their behavior.
+Native World passes 204 executions over the cumulative P09 fixtures, including
+144 variant executions through original, checked, shared and source-free linked
+records. Variant platform qualification passes 216 comparisons, nine same-image
+restores, nine wrong-image rejections and eighteen malformed inputs. Final
+ReleaseSafe validation passes 319/319 steps and 621/621 tests; focused variant
+validation passes 38/38 tests.
+
+The total selected variant witness shrinks from 136 to 110 image bytes; the
+failure-bearing witness shrinks from 137 to 133. Fourteen paired timing cells
+against published ba87362 complete without a confirmed slowdown. Native/WASM
+admission peak falls 382/406 bytes and retained storage falls 1190/74 bytes.
+Fresh invocation peak falls 1482 bytes native and 347 bytes WASM. Checkpoint
+maxima fall from 86 to 82 bytes on the first path and remain 104 on the other two.
+These results are specific to this fixture; raw windows and identities are in
+`performance/m3-p09-variant-*.json`.
+
+All six repeated-callable images remain byte-identical to the preceding leaf
+checkpoint. Its unresolved 6.8% WASM cost is preserved, not reclassified as a win
+from the separate variant fixture. Broader constant/schema/evidence specializations,
+recursive generalization, cumulative consumer qualification and later programme
+requirements remain open. This is not full P09 or M3 closure.

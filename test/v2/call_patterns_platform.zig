@@ -13,14 +13,23 @@ pub fn main(init: std.process.Init) !void {
     var args = init.minimal.args.iterate();
     _ = args.next();
     const directory = args.next() orelse return error.Directory;
-    if (args.next() != null) return error.Arguments;
-    for ([_][]const u8{ "callable-checked", "callable-shared", "callable-linked" }, 0..) |name, index| {
-        const original = fixtures.repeated;
+    const mode = args.next();
+    const variants = if (mode) |name| std.mem.eql(u8, name, "variants") else false;
+    if ((mode != null and !variants) or args.next() != null) return error.Arguments;
+    const names: []const []const u8 = if (variants) &.{ "variant-fallback-checked", "variant-fallback-shared", "variant-fallback-linked", "variant-total-checked", "variant-total-shared", "variant-total-linked", "variant-overwritten-checked", "variant-overwritten-shared", "variant-overwritten-linked" } else &.{ "callable-checked", "callable-shared", "callable-linked" };
+    for (names, 0..) |name, index| {
+        var original = if (variants) fixtures.tagged else fixtures.repeated;
+        var blocks = fixtures.tagged.blocks[0..7].*;
+        if (variants) {
+            if (index / 3 == 1) blocks[4].instructions = fixtures.tagged.blocks[1].instructions;
+            if (index / 3 == 2) blocks[1].instructions = &.{ fixtures.tagged.blocks[1].instructions[0], .{ .destination = 0, .opcode = .integer_bit_not, .operands = &.{0} } };
+            original.blocks = &blocks;
+        }
         var baseline = try data.coalescing.run(init.gpa, original, .{});
         defer baseline.deinit();
         try save(init, directory, name, "structural", baseline.program);
-        if (index == 2) {
-            const object: data.component.Object = .{ .program = original, .exports = &.{.{ .name = "main", .reference = .{ .kind = .function, .id = 0 } }}, .borrows = &.{ .{ .function = 0 }, .{ .function = 1 }, .{ .function = 2 }, .{ .function = 3 } } };
+        if (index % 3 == 2) {
+            const object: data.component.Object = .{ .program = original, .exports = &.{.{ .name = "main", .reference = .{ .kind = .function, .id = 0 } }}, .borrows = if (variants) &.{ .{ .function = 0 }, .{ .function = 1 } } else &.{ .{ .function = 0 }, .{ .function = 1 }, .{ .function = 2 }, .{ .function = 3 } } };
             const bytes = try init.gpa.alloc(u8, try data.component.encodedLength(object));
             defer init.gpa.free(bytes);
             _ = try data.component.encode(init.gpa, object, bytes);
@@ -29,7 +38,7 @@ pub fn main(init: std.process.Init) !void {
             @memset(bytes, 0xff);
             try save(init, directory, name, "semantic", linked.program);
         } else {
-            var candidate = if (index == 0) blk: {
+            var candidate = if (index % 3 == 0) blk: {
                 if (@hasDecl(data, "call_patterns")) break :blk try data.call_patterns.run(init.gpa, original, null, .{});
                 break :blk try data.coalescing.run(init.gpa, original, .{});
             } else try data.closed_compilation.run(init.gpa, original, .{ .contract = .semantic });

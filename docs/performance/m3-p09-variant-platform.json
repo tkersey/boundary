@@ -1,0 +1,222 @@
+{
+  "sourceBaseCommit": "ba87362388854b177bfaff91549b4608f5cf28c8",
+  "unpublishedWorkingTree": true,
+  "kernelSha256": "7d31effb1d4e32523d0fcbd5b4d5f5a8a2289fbd4c731173a33b1c174524282f",
+  "emitterSha256": "6b75ebfad6bfb25b7cfa81a11cfc220926b8833f17256e44e404d87a346c3094",
+  "runnerSha256": "33d08b3f71c26a9f4f0762488a9a5dde7bb91f2a26b02590dd5a6973e7aa780a",
+  "rows": [
+    {
+      "name": "variant-fallback-checked",
+      "route": "standalone checked call patterns",
+      "comparisons": 24,
+      "malformedInputsRejected": 2,
+      "sameImageRestore": true,
+      "wrongImageRejected": true,
+      "images": {
+        "structural": {
+          "bytes": 137,
+          "sha256": "1b6ed3687141fcb96f2d92ecf6858a0b5685dc98dde0a5de0711b38a0aecf06f"
+        },
+        "semantic": {
+          "bytes": 153,
+          "sha256": "49653268151b2c1beff0b22ae5d079b1487dbd1ee85bb43082bbdf07ec4d34f3"
+        }
+      }
+    },
+    {
+      "name": "variant-fallback-shared",
+      "route": "shared semantic compiler",
+      "comparisons": 24,
+      "malformedInputsRejected": 2,
+      "sameImageRestore": true,
+      "wrongImageRejected": true,
+      "images": {
+        "structural": {
+          "bytes": 137,
+          "sha256": "1b6ed3687141fcb96f2d92ecf6858a0b5685dc98dde0a5de0711b38a0aecf06f"
+        },
+        "semantic": {
+          "bytes": 133,
+          "sha256": "4f22420a6587adf74026106034ffb82219185e87d2a315da8ef7e76023ae2b9d"
+        }
+      }
+    },
+    {
+      "name": "variant-fallback-linked",
+      "route": "source-free semantic link",
+      "comparisons": 24,
+      "malformedInputsRejected": 2,
+      "sameImageRestore": true,
+      "wrongImageRejected": true,
+      "images": {
+        "structural": {
+          "bytes": 137,
+          "sha256": "1b6ed3687141fcb96f2d92ecf6858a0b5685dc98dde0a5de0711b38a0aecf06f"
+        },
+        "semantic": {
+          "bytes": 133,
+          "sha256": "4f22420a6587adf74026106034ffb82219185e87d2a315da8ef7e76023ae2b9d"
+        }
+      }
+    },
+    {
+      "name": "variant-total-checked",
+      "route": "standalone checked call patterns",
+      "comparisons": 24,
+      "malformedInputsRejected": 2,
+      "sameImageRestore": true,
+      "wrongImageRejected": true,
+      "images": {
+        "structural": {
+          "bytes": 136,
+          "sha256": "2e322c81d329379693e346b2a6952b0737740e7176c1ee99ce9aa4e0ebd992b2"
+        },
+        "semantic": {
+          "bytes": 132,
+          "sha256": "152beb03ca1679d1b8cc50ba8fbb7d764bb3dfc2a916cb2b68416752faf86a9a"
+        }
+      }
+    },
+    {
+      "name": "variant-total-shared",
+      "route": "shared semantic compiler",
+      "comparisons": 24,
+      "malformedInputsRejected": 2,
+      "sameImageRestore": true,
+      "wrongImageRejected": true,
+      "images": {
+        "structural": {
+          "bytes": 136,
+          "sha256": "2e322c81d329379693e346b2a6952b0737740e7176c1ee99ce9aa4e0ebd992b2"
+        },
+        "semantic": {
+          "bytes": 110,
+          "sha256": "90f10410d1e372f5c26fd15c8cf79cf6fbc64445970497a596bf5fb07ab88876"
+        }
+      }
+    },
+    {
+      "name": "variant-total-linked",
+      "route": "source-free semantic link",
+      "comparisons": 24,
+      "malformedInputsRejected": 2,
+      "sameImageRestore": true,
+      "wrongImageRejected": true,
+      "images": {
+        "structural": {
+          "bytes": 136,
+          "sha256": "2e322c81d329379693e346b2a6952b0737740e7176c1ee99ce9aa4e0ebd992b2"
+        },
+        "semantic": {
+          "bytes": 110,
+          "sha256": "90f10410d1e372f5c26fd15c8cf79cf6fbc64445970497a596bf5fb07ab88876"
+        }
+      }
+    },
+    {
+      "name": "variant-overwritten-checked",
+      "route": "standalone checked call patterns",
+      "comparisons": 24,
+      "malformedInputsRejected": 2,
+      "sameImageRestore": true,
+      "wrongImageRejected": true,
+      "images": {
+        "structural": {
+          "bytes": 140,
+          "sha256": "1cd93ca8f25fa05d50b0ba7359e126c7d2a3ab6df957c22ecda9e6a1de748696"
+        },
+        "semantic": {
+          "bytes": 156,
+          "sha256": "40bc04933accef678459c2fb9e3c867f535605771e82f05d00c6eba71aabf647"
+        }
+      }
+    },
+    {
+      "name": "variant-overwritten-shared",
+      "route": "shared semantic compiler",
+      "comparisons": 24,
+      "malformedInputsRejected": 2,
+      "sameImageRestore": true,
+      "wrongImageRejected": true,
+      "images": {
+        "structural": {
+          "bytes": 140,
+          "sha256": "1cd93ca8f25fa05d50b0ba7359e126c7d2a3ab6df957c22ecda9e6a1de748696"
+        },
+        "semantic": {
+          "bytes": 133,
+          "sha256": "4f22420a6587adf74026106034ffb82219185e87d2a315da8ef7e76023ae2b9d"
+        }
+      }
+    },
+    {
+      "name": "variant-overwritten-linked",
+      "route": "source-free semantic link",
+      "comparisons": 24,
+      "malformedInputsRejected": 2,
+      "sameImageRestore": true,
+      "wrongImageRejected": true,
+      "images": {
+        "structural": {
+          "bytes": 140,
+          "sha256": "1cd93ca8f25fa05d50b0ba7359e126c7d2a3ab6df957c22ecda9e6a1de748696"
+        },
+        "semantic": {
+          "bytes": 133,
+          "sha256": "4f22420a6587adf74026106034ffb82219185e87d2a315da8ef7e76023ae2b9d"
+        }
+      }
+    }
+  ],
+  "sourceFiles": {
+    "src/data/call_patterns.zig": "d63ba2921cd879e9fb101c1f4916230d982a70cff16b93cdb5d73a2f33b335a4",
+    "src/data/closed_compilation.zig": "dbc6636b189c60652db6a73f915cd640f18a453881743152626cf31045ca848f",
+    "src/data/root.zig": "89481dd3a2ceb82140c56c0d89e4b699578ff2ffab4d75b0fa8de0deb3266ceb",
+    "test/v2/call_patterns.zig": "24d9e1ce634db7a470f853dc43ddf844e65d823fd4851b42c361f0428e095360",
+    "test/v2/call_patterns_platform.zig": "3448404678a6a993f970ca44268351cd48eacb6d417015d564878dc093b5e5c7"
+  },
+  "native": {
+    "tests": 3,
+    "executions": 204,
+    "exitCode": 0,
+    "logSha256": "2ee73253b78f2781ee76d921f1207ebe39ff3173d9805fba82f29b04324e3376"
+  },
+  "focused": {
+    "tests": 38,
+    "exitCode": 0,
+    "logSha256": "b8da1b8caab8b8169e103939c1c9a1f18aea02d8ac56e2f497de74b4fb64fe8b"
+  },
+  "unchangedCallableImages": [
+    {
+      "name": "callable-shared-structural.bpi3",
+      "sha256": "0a8a2096a0fd8659d88dfd3194f729d06044d7def08c3ddc41875e50709d9766"
+    },
+    {
+      "name": "callable-linked-semantic.bpi3",
+      "sha256": "0f412e886ed75baa1459ca97f8879c5d3ba69fd40161d304f830c857fe991395"
+    },
+    {
+      "name": "callable-checked-semantic.bpi3",
+      "sha256": "34d2de6c01207bea355e9565b4c31f1db0c4fc48b29e892c9f2d8d4073f90e74"
+    },
+    {
+      "name": "callable-checked-structural.bpi3",
+      "sha256": "0a8a2096a0fd8659d88dfd3194f729d06044d7def08c3ddc41875e50709d9766"
+    },
+    {
+      "name": "callable-shared-semantic.bpi3",
+      "sha256": "0f412e886ed75baa1459ca97f8879c5d3ba69fd40161d304f830c857fe991395"
+    },
+    {
+      "name": "callable-linked-structural.bpi3",
+      "sha256": "0a8a2096a0fd8659d88dfd3194f729d06044d7def08c3ddc41875e50709d9766"
+    }
+  ],
+  "reuse": "Prior repeated-callable platform/economic evidence retains exact image and runtime inputs; previous +6.8% fresh WASM cost remains unaccepted.",
+  "integrated": {
+    "steps": 319,
+    "tests": 621,
+    "exitCode": 0,
+    "logSha256": "692142f9b89ff4795ffe02fdf139b4399126384e179a09d5b9461500303de12e"
+  }
+}

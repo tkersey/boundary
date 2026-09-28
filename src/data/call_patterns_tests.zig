@@ -161,7 +161,7 @@ test "runtime captures remain outside static constructor keys" {
     defer candidate.deinit();
     try patterns.validate(a, original, candidate.program, candidate.variants, candidate.sites, 1000000);
     try std.testing.expectEqual(@as(usize, 1), candidate.variants.len);
-    try std.testing.expectEqual(@as(u64, 1), candidate.variants[0].key.constructor);
+    try std.testing.expectEqual(@as(u64, 1), candidate.variants[0].key.value.constructor);
     try std.testing.expectEqual(@as(u64, 1), candidate.program.blocks[1].terminator.call.function);
     try std.testing.expectEqual(@as(u64, 1), candidate.program.blocks[3].terminator.call.function);
 }
@@ -222,7 +222,7 @@ test "identical leaf code with a handler role is not interchangeable evidence" {
     var candidate = (try patterns.construct(a, original, .{})).?;
     defer candidate.deinit();
     try std.testing.expectEqual(@as(usize, 1), candidate.variants.len);
-    try std.testing.expectEqual(@as(u64, 0), candidate.variants[0].key.constructor);
+    try std.testing.expectEqual(@as(u64, 0), candidate.variants[0].key.value.constructor);
     try std.testing.expectEqual(@as(u64, 1), candidate.program.blocks[4].terminator.call.function);
     const changed = try a.dupe(ir.Block, candidate.program.blocks);
     defer a.free(changed);
