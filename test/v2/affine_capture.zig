@@ -4,7 +4,7 @@ const data = @import("boundary_data");
 const ir = data.activation;
 const image = data.program_image;
 const affine = data.affine_state;
-const fixture: ir.Program = .{
+pub const fixture: ir.Program = .{
     .roots = .{ .entry = 0, .result = 0, .failure = 1 },
     .schemas = &.{ .u64, .unit, .boolean, .{ .internal = .{ .computation = .{ .parameters = &.{ 0, 2 }, .result = 0, .capture_bound = &.{0}, .use = .reusable } } } },
     .constants = &.{.{ .schema = 2, .bytes = &.{0} }},
@@ -182,7 +182,7 @@ test "source-free closed link runs affine synthesis and preserves recurrent obse
     }
 }
 
-fn twoModes() ir.Program {
+pub fn twoModes() ir.Program {
     var program = fixture;
     program.constants = &.{ fixture.constants[0], .{ .schema = 0, .bytes = &.{ 0, 0, 0, 0, 0, 0, 0, 0 } } };
     program.blocks = &.{
@@ -316,7 +316,7 @@ test "full inspection request resumes into compressed private loop" {
     }
 }
 
-const cyclic: ir.Program = .{
+pub const cyclic: ir.Program = .{
     .roots = fixture.roots,
     .schemas = fixture.schemas,
     .constants = fixture.constants,
@@ -460,7 +460,7 @@ test "private affine input normalization rejects a missing caller conversion" {
     try std.testing.expectError(error.InvalidAffineCandidate, affine.validate(a, original, altered, 0, candidate.basis, candidate.input_bias, 1000000));
 }
 
-const product_cycle: ir.Program = .{
+pub const product_cycle: ir.Program = .{
     .roots = .{ .entry = 0, .result = 0, .failure = 1 },
     .schemas = &.{ .u64, .unit, .boolean, .{ .product = &.{ 0, 0, 0 } }, .{ .internal = .{ .computation = .{ .parameters = &.{ 0, 2 }, .result = 0, .capture_bound = &.{3}, .use = .reusable } } } },
     .constants = &.{.{ .schema = 2, .bytes = &.{0} }},
@@ -534,6 +534,103 @@ test "World preserves both independently checked affine bases" {
             var outcome = try world.invocation.invoke(a, .{ .image = bytes, .instance = .{ .initial_args = &args } });
             defer outcome.deinit();
             try std.testing.expect(outcome.record == .completed);
+            try std.testing.expectEqualSlices(u8, &expected, outcome.record.completed);
+        }
+    }
+}
+
+test "independent closed objects retain full inspection before a reduced parity location" {
+    const a = std.testing.allocator;
+    var source = std.heap.ArenaAllocator.init(a);
+    defer source.deinit();
+    const original = try inspectionThenLoop(source.allocator());
+    var caller_program = original;
+    caller_program.functions = &.{ original.functions[0], .{
+        .entry = data.relocation.missing,
+        .inputs = &.{ 0, 1, 2, 3 },
+        .layout = .{ .slots = &.{ 0, 0, 0, 2 } },
+        .result = 0,
+    } };
+    var caller_blocks = [_]ir.Block{ original.blocks[0], original.blocks[1], original.blocks[6] };
+    caller_blocks[0].terminator.perform.next.block = 2;
+    caller_program.blocks = &caller_blocks;
+    const caller: data.component.Object = .{
+        .program = caller_program,
+        .imports = &.{.{ .name = "parity-worker", .reference = .{ .kind = .function, .id = 1 } }},
+        .exports = &.{.{ .name = "inspect", .reference = .{ .kind = .function, .id = 0 } }},
+        .borrows = &.{ .{ .function = 0 }, .{ .function = 1 } },
+    };
+    var worker_program = original;
+    worker_program.roots.entry = 0;
+    var worker_function = original.functions[1];
+    worker_function.entry = 0;
+    worker_program.functions = &.{worker_function};
+    var worker_blocks = original.blocks[2..6].*;
+    for (&worker_blocks) |*block| {
+        block.function = 0;
+        switch (block.terminator) {
+            .branch => |*branch| {
+                branch.when_true.block -= 2;
+                branch.when_false.block -= 2;
+            },
+            .call => |*call| {
+                call.function = 0;
+                call.next.block -= 2;
+            },
+            else => {},
+        }
+    }
+    worker_program.blocks = &worker_blocks;
+    worker_program.constructors = &.{};
+    worker_program.scopes.captures = &.{};
+    const worker: data.component.Object = .{
+        .program = worker_program,
+        .exports = &.{.{ .name = "parity-worker", .reference = .{ .kind = .function, .id = 0 } }},
+        .borrows = &.{.{ .function = 0 }},
+    };
+    const caller_bytes = try a.alloc(u8, try data.component.encodedLength(caller));
+    defer a.free(caller_bytes);
+    const worker_bytes = try a.alloc(u8, try data.component.encodedLength(worker));
+    defer a.free(worker_bytes);
+    _ = try data.component.encode(a, caller, caller_bytes);
+    _ = try data.component.encode(a, worker, worker_bytes);
+    const instances = &.{ data.linker.Instance{ .key = "inspection", .object = caller_bytes }, data.linker.Instance{ .key = "loop", .object = worker_bytes } };
+    const bindings = &.{data.linker.Binding{ .required = .{ .instance = "inspection", .symbol = "parity-worker" }, .supplied = .{ .instance = "loop", .symbol = "parity-worker" } }};
+    const entry: data.linker.Endpoint = .{ .instance = "inspection", .symbol = "inspect" };
+    var structural = try data.linker.link(a, instances, bindings, entry);
+    defer structural.deinit();
+    var semantic = try data.linker.linkWithCompilation(a, instances, bindings, entry, .{ .contract = .semantic });
+    defer semantic.deinit();
+    var stats: affine.Statistics = .{};
+    var reduced = try affine.run(a, structural.program, 0, &stats, 1000000, .{});
+    defer reduced.deinit();
+    try std.testing.expectEqual(@as(usize, 2), stats.original_words);
+    try std.testing.expectEqual(@as(usize, 1), stats.reduced_words);
+    @memset(caller_bytes, 0xff);
+    @memset(worker_bytes, 0xff);
+    _ = source.reset(.free_all);
+    for ([_]ir.Program{ structural.program, semantic.program, reduced.program }) |program| {
+        const bytes = try a.alloc(u8, try image.encodedLength(program));
+        defer a.free(bytes);
+        _ = try image.encode(a, program, bytes);
+        for ([_][3]u64{ .{ 1, 2, 8 }, .{ 0, 0, 0 }, .{ 0xffff, 0x55aa, 0xa5 } }) |words| {
+            var args: [25]u8 = undefined;
+            for (words, 0..) |word, i| std.mem.writeInt(u64, args[i * 8 ..][0..8], word, .little);
+            args[24] = 1;
+            var pending = try world.invocation.invoke(a, .{ .image = bytes, .instance = .{ .initial_args = &args } });
+            defer pending.deinit();
+            try std.testing.expect(pending.record == .requested);
+            var request = try data.invocation.decode(data.invocation.Request, a, pending.record.requested.request);
+            defer request.deinit();
+            try std.testing.expectEqualSlices(u8, "affine/full-inspection", request.value.binding.semantic_identity);
+            try std.testing.expectEqualSlices(u8, args[0..16], request.value.binding.payload);
+            const reply = try data.invocation.encodeOwned(data.invocation.Result, a, .{ .request_identity = request.value.request_identity, .value = &.{} });
+            defer a.free(reply);
+            var outcome = try world.invocation.invoke(a, .{ .image = bytes, .instance = .{ .state = pending.record.requested.state.? }, .control = .{ .reply = reply } });
+            defer outcome.deinit();
+            try std.testing.expect(outcome.record == .completed);
+            var expected: [8]u8 = undefined;
+            std.mem.writeInt(u64, &expected, words[0] ^ words[1] ^ words[2], .little);
             try std.testing.expectEqualSlices(u8, &expected, outcome.record.completed);
         }
     }

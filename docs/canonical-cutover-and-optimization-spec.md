@@ -1,5 +1,7 @@
 # Boundary — Correct the In-flight Cutover, Then Execute the Optimization Program
 
+> Delivery override: **Use one active branch and one draft PR per repository for the remaining programme.** Continue successive milestones on the retained branch/PR; do not create additional worktrees or milestone branches/PRs. Preserve existing commits, PR history, uncommitted work and qualification provenance. Reconcile existing stacks without discarding work or rewriting shared history. This supersedes contrary successor-branch and per-milestone PR instructions below. Engineering requirements and the deferred review schedule remain unchanged.
+
 > Latest user instruction: **Complete the optimization programme, then review.** Full code-review campaigns are deferred until the remaining M2 work, M2.5 and M3–M8 implementation and required technical qualification are complete. Do not gate movement between milestones or draft PRs on code reviews, clean-review counts, or review-epoch freezes. Stage A's earlier pre-optimization review waiver remains in force. Correctness checks, independent transformation validation, package/runtime qualification and performance acceptance remain mandatory during implementation. This scheduling override takes precedence over contrary workflow, milestone, task or review-brief prose; do not change installed skills or global configuration.
 
 **Complete executable handoff · September 27, 2026**  
@@ -52,8 +54,8 @@ launch a comparison, or change global instructions/configuration.
 Keep the three correction drafts current and assigned to tkersey. Complete the required execution qualification on their corrected scope. Code
 review before optimization is waived by the latest user instruction. Preserve
 that qualified cutover as a distinct checkpoint. Then continue the complete Part II programme,
-using focused, unique successor branches/early draft PRs for the optimization
-work rather than burying all P02–P31 in the existing cutover diffs. Qualified
+using one active branch and draft PR per repository for the remaining
+optimization programme. Preserve milestone checkpoints in commits and evidence. Qualified
 unmerged input commits may be used as exact development dependencies; do not
 merge anything or require me to run scripts in order to continue.
 
@@ -262,7 +264,7 @@ Stage A ends once mandatory P01 and meaningful witnesses pass, the exact deletio
 
 ### Stage B — Continue Part II without recreating Phase 0
 
-Once Stage A has a coherent validated checkpoint, continue the full Part II programme. Preserve the corrected drafts as that independently reviewable checkpoint. Create unique, focused successor optimization branches and draft PRs in repositories that actually change; use the existing corrected commits as exact development dependencies when they are not yet merged. Use appropriate stacked bases/cross-links to avoid presenting inherited changes as new work. No automatic merges or another operator prompt are necessary.
+Once Stage A has a coherent validated checkpoint, continue the full Part II programme on one retained active branch and draft PR per changed repository. Preserve the cutover checkpoint and existing history. Reconcile already-created optimization stacks into that delivery without discarding commits or uncommitted work; do not create further milestone branches, PRs or worktrees. Qualified unmerged commits may remain exact development dependencies. No automatic merges or another operator prompt are necessary.
 
 #### Review schedule — implement the complete programme first
 
@@ -270,7 +272,7 @@ Continue the remaining M2 work, M2.5, and M3–M8 in dependency order without fu
 
 Apply this change to the current execution immediately: do not launch further intermediate review lenses, clean-confirmation attempts or review-recovery attempts. An already-running review may finish, but its completion and review-epoch freeze must not delay continued implementation. Preserve its actual findings and provenance; address concrete correctness defects in the affected implementation slice. Do not count an unfinished review as passed or reuse an old clean result as evidence for changed code.
 
-After the full specified optimization implementation and required technical qualification are complete, freeze the final repository/package/runtime tuple and run the currently installed Actuating serial-review contract on the completed scope. Resolve findings and follow that contract's convergence rules at this final review stage. Preserve the focused draft PRs and report their dependency relationships; do not merge automatically.
+After the full specified optimization implementation and required technical qualification are complete, freeze the final repository/package/runtime tuple and run the currently installed Actuating serial-review contract on the completed scope. Resolve findings and follow that contract's convergence rules at this final review stage. Maintain the single active draft PR per repository and report cross-repository dependency relationships; do not merge automatically.
 
 This changes review timing only. All P01–P31, T01–T42, G01–G45 and L01–L20 requirements, original and candidate admission, independent validators, focused and required integrated tests, cumulative cost comparisons, explicit performance-tradeoff decisions, authenticated bindings and existing effect restrictions remain in force. Review deferral is not permission to defer those engineering obligations or conceal known defects.
 

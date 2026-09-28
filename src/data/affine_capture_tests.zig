@@ -403,3 +403,24 @@ test "distinct canonical and observation bases both validate with actual emitted
     try std.testing.expectEqual(.observations, stats.selected_basis);
     try std.testing.expect(stats.observation_cost.?.worker_instructions < stats.canonical_cost.?.worker_instructions);
 }
+
+test "checked affine output survives decoded input and source buffer release" {
+    const image = @import("program_image.zig");
+    var result = blk: {
+        const bytes = try a.alloc(u8, try image.encodedLength(rotating));
+        defer a.free(bytes);
+        _ = try image.encode(a, rotating, bytes);
+        var decoded = try image.decode(a, bytes);
+        defer decoded.deinit();
+        const transformed = try @import("affine_state.zig").run(a, decoded.program, 0, null, 1000000, .{});
+        @memset(bytes, 0xff);
+        break :blk transformed;
+    };
+    defer result.deinit();
+    const encoded = try a.alloc(u8, try image.encodedLength(result.program));
+    defer a.free(encoded);
+    _ = try image.encode(a, result.program, encoded);
+    var decoded_result = try image.decode(a, encoded);
+    defer decoded_result.deinit();
+    try std.testing.expectEqual(try image.identity(a, result.program), decoded_result.identity);
+}

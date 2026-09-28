@@ -244,3 +244,25 @@ candidate emits fewer worker instructions and is selected. The focused harness
 passes 44/44, the native suite 10/10, and the ReleaseSafe data aggregate completes
 with terminal exit zero: **3/3 steps and 281/281 tests**. Prior timing observations
 retain their original candidate labels; final economic qualification is outstanding.
+
+## Source-free placement and platform qualification
+
+The additional placement witness independently encodes inspection and loop objects,
+binds the imported worker only at closed link, then destroys source storage and
+corrupts both object buffers. Structural linking, semantic linking and checked
+affine output preserve the two-word inspection request and resumed XOR result
+for three input vectors. The checked linked capture changes from two words to
+one. All **11/11 native tests** pass. This strengthens the existing bounded
+placement case; it does not establish general multi-worker synthesis.
+
+The preceding integrated ReleaseSafe check completed **319/319 steps and
+565/565 tests**, including output ownership after decoded input release. Its
+input preceded the new placement test; the native result covers that addition.
+The platform corpus completed 78 expected-output/Wasmtime comparisons,
+34 malformed-input rejections, 17 same-image restores and 13 wrong-image
+rejections against the unchanged authenticated World kernel. Exact input identities
+and scope are retained in `performance/m25-platform-qualification.json`.
+
+Delivery now continues on one active branch and draft PR per repository. Earlier
+stacked branches are historical checkpoints, not additional milestone work queues.
+Full optimization implementation and technical qualification precede code reviews.

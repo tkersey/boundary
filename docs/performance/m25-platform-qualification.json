@@ -1,0 +1,339 @@
+{
+  "productionSource": "8b900338818c084d0e752f191313a4535ee31699",
+  "integrated": {
+    "command": "zig build check -Doptimize=ReleaseSafe --summary all",
+    "steps": 319,
+    "tests": 565,
+    "exitCode": 0,
+    "logSha256": "fb73c31685ac0d0a18bb19adf1b2fc67b1e4765f1949bafd23095be9e5b75286",
+    "scope": "Includes decoded-input lifetime witness; precedes additional source-free placement test."
+  },
+  "native": {
+    "command": "zig test -O ReleaseSafe --dep world --dep boundary_data -Mroot=test/v2/affine_capture.zig -O ReleaseSafe --dep boundary_data -Mworld=<qualified-world>/src/root.zig -O ReleaseSafe -Mboundary_data=src/data/root.zig",
+    "tests": 11,
+    "exitCode": 0,
+    "logSha256": "c1dfa71882b00442f761db60287db23eed3112613a6f6325c1c4cdde4c214d52",
+    "worldSource": "f8a1597d4ff62ae691dfca12f7ce3a2b4e6c0727",
+    "scope": "Includes independent-object full inspection followed by reduced parity loop; three images and three input vectors, each with request/resume."
+  },
+  "platform": {
+    "scope": "Admitted-record shared closed-compiler structural/semantic pairs; unchanged authenticated production Node/WASM and independent Wasmtime; independent explicit value oracles and portable-State binding checks",
+    "boundary": "8b900338818c084d0e752f191313a4535ee31699",
+    "kernelSha256": "7d31effb1d4e32523d0fcbd5b4d5f5a8a2289fbd4c731173a33b1c174524282f",
+    "emitterSha256": "87a57983bbc66dd0c99a2df261a70cdae5ecf8764287c614dbc2fd7c50edc672",
+    "runnerSha256": "59e6570b9c2d2b33191348fc74890df1f4a7ffcc685202e0d1f0b9293fbc6eb9",
+    "rows": [
+      {
+        "name": "rotating",
+        "images": {
+          "structural": {
+            "bytes": 159,
+            "sha256": "fb7c07d1da120a86855b91a7bc728c148e177ac88a96d96bbc12ec6da8e6cd1e"
+          },
+          "semantic": {
+            "bytes": 156,
+            "sha256": "430c789d2524f16bb39b3ec9738c2db033b116e535196eff26f66fded432d3c8"
+          }
+        },
+        "executions": 4,
+        "wasmtimeAgreements": 4,
+        "malformedInputsRejected": 2,
+        "sameImageRestore": true,
+        "wrongImageRejected": true
+      },
+      {
+        "name": "parallel",
+        "images": {
+          "structural": {
+            "bytes": 154,
+            "sha256": "192129c8ab03db4209cae226f8839da5c0c87fc61d9b993375d7535c307920f4"
+          },
+          "semantic": {
+            "bytes": 150,
+            "sha256": "7b1f19a199ed516f66e00a072ee508c6e2c9cde89b61682ab88964325b53ffce"
+          }
+        },
+        "executions": 4,
+        "wasmtimeAgreements": 4,
+        "malformedInputsRejected": 2,
+        "sameImageRestore": true,
+        "wrongImageRejected": true
+      },
+      {
+        "name": "product",
+        "images": {
+          "structural": {
+            "bytes": 187,
+            "sha256": "580182b400e90feb2e88eea28a90ab0eaf2aaa6f46ab13e1779d3e12562d44e8"
+          },
+          "semantic": {
+            "bytes": 181,
+            "sha256": "7500e02e9616385d9e442666fdcce1c98fbb0c0b214e22ace07b1b1dcb054f9c"
+          }
+        },
+        "executions": 4,
+        "wasmtimeAgreements": 4,
+        "malformedInputsRejected": 2,
+        "sameImageRestore": true,
+        "wrongImageRejected": true
+      },
+      {
+        "name": "modes",
+        "images": {
+          "structural": {
+            "bytes": 194,
+            "sha256": "22c40d0d1e0100f3ef0776c3b0efc4396624dff63f497c8b266341428a0bfc4f"
+          },
+          "semantic": {
+            "bytes": 195,
+            "sha256": "4ebc277b2a2f46237d72cef02d6b4d0c3e9cd5e38ef5c0253a8468e7ac9607d9"
+          }
+        },
+        "executions": 6,
+        "wasmtimeAgreements": 6,
+        "malformedInputsRejected": 2,
+        "sameImageRestore": true,
+        "wrongImageRejected": true
+      },
+      {
+        "name": "recurrent",
+        "images": {
+          "structural": {
+            "bytes": 204,
+            "sha256": "ef63b04b25fd950274b0f151159d5d6d698d8e01c0d41917b83e2f46516df6f3"
+          },
+          "semantic": {
+            "bytes": 195,
+            "sha256": "662a50b95ca4aac7c1731724d815bc7de4e8f9fb4df1d28ed599e7a2a6606b8c"
+          }
+        },
+        "executions": 12,
+        "wasmtimeAgreements": 12,
+        "malformedInputsRejected": 2,
+        "sameImageRestore": true,
+        "wrongImageRejected": true
+      },
+      {
+        "name": "parity-2",
+        "images": {
+          "structural": {
+            "bytes": 152,
+            "sha256": "780a3ca77c2a1266fc4cb0385dd22ef0c6c2a1a9947d7c363cfa2d0816ee02b8"
+          },
+          "semantic": {
+            "bytes": 141,
+            "sha256": "3ad8eec59b0c1ce5916cb47d2a9ecf63fb1b870daf3d185319d0c9367bd9679d"
+          }
+        },
+        "executions": 4,
+        "wasmtimeAgreements": 4,
+        "malformedInputsRejected": 2,
+        "sameImageRestore": true,
+        "wrongImageRejected": true
+      },
+      {
+        "name": "parity-2-direct",
+        "images": {
+          "structural": {
+            "bytes": 152,
+            "sha256": "780a3ca77c2a1266fc4cb0385dd22ef0c6c2a1a9947d7c363cfa2d0816ee02b8"
+          },
+          "semantic": {
+            "bytes": 151,
+            "sha256": "0b938f82a28946ab96655856c2ba7f17397be91f9391951264a87ab9c8cfad24"
+          }
+        },
+        "executions": 4,
+        "wasmtimeAgreements": 4,
+        "malformedInputsRejected": 2,
+        "sameImageRestore": true,
+        "wrongImageRejected": true
+      },
+      {
+        "name": "parity-3",
+        "images": {
+          "structural": {
+            "bytes": 163,
+            "sha256": "8c56c8156106eda4629cfdc4e72156e0daaa1c3c714a896e1caf9fb1bd689bb7"
+          },
+          "semantic": {
+            "bytes": 148,
+            "sha256": "7e02d2e10287bf3d10f74857c709a458f2267bd831e8288c8ac47da68ca0526d"
+          }
+        },
+        "executions": 4,
+        "wasmtimeAgreements": 4,
+        "malformedInputsRejected": 2,
+        "sameImageRestore": true,
+        "wrongImageRejected": true
+      },
+      {
+        "name": "parity-3-direct",
+        "images": {
+          "structural": {
+            "bytes": 163,
+            "sha256": "8c56c8156106eda4629cfdc4e72156e0daaa1c3c714a896e1caf9fb1bd689bb7"
+          },
+          "semantic": {
+            "bytes": 158,
+            "sha256": "c6daad74b3d5cbff00056d50ec0c32da2296d1e06e5b525f284177b6aa23da8c"
+          }
+        },
+        "executions": 4,
+        "wasmtimeAgreements": 4,
+        "malformedInputsRejected": 2,
+        "sameImageRestore": true,
+        "wrongImageRejected": true
+      },
+      {
+        "name": "parity-8",
+        "images": {
+          "structural": {
+            "bytes": 190,
+            "sha256": "a58b6d4296fed792fe14ec54b24fdb9a827d2d463eb906cd523bb53e511c68b3"
+          },
+          "semantic": {
+            "bytes": 190,
+            "sha256": "a58b6d4296fed792fe14ec54b24fdb9a827d2d463eb906cd523bb53e511c68b3"
+          }
+        },
+        "executions": 4,
+        "wasmtimeAgreements": 4,
+        "malformedInputsRejected": 2,
+        "sameImageRestore": true,
+        "wrongImageRejected": false
+      },
+      {
+        "name": "parity-8-direct",
+        "images": {
+          "structural": {
+            "bytes": 190,
+            "sha256": "a58b6d4296fed792fe14ec54b24fdb9a827d2d463eb906cd523bb53e511c68b3"
+          },
+          "semantic": {
+            "bytes": 180,
+            "sha256": "f3c176dbb3c37a035f0579d3f9643554fe81e6728a7b879d5955c4d2712ccf8d"
+          }
+        },
+        "executions": 4,
+        "wasmtimeAgreements": 4,
+        "malformedInputsRejected": 2,
+        "sameImageRestore": true,
+        "wrongImageRejected": true
+      },
+      {
+        "name": "parity-32",
+        "images": {
+          "structural": {
+            "bytes": 310,
+            "sha256": "938a990e7fb841fe8ae844e7b3f1ecd739ebb54057a51eabfb1801a446b61426"
+          },
+          "semantic": {
+            "bytes": 310,
+            "sha256": "938a990e7fb841fe8ae844e7b3f1ecd739ebb54057a51eabfb1801a446b61426"
+          }
+        },
+        "executions": 4,
+        "wasmtimeAgreements": 4,
+        "malformedInputsRejected": 2,
+        "sameImageRestore": true,
+        "wrongImageRejected": false
+      },
+      {
+        "name": "parity-32-direct",
+        "images": {
+          "structural": {
+            "bytes": 310,
+            "sha256": "938a990e7fb841fe8ae844e7b3f1ecd739ebb54057a51eabfb1801a446b61426"
+          },
+          "semantic": {
+            "bytes": 276,
+            "sha256": "c7b913d96ff54352577e31d847b91cc444964a851fa571059e5c38c042cfa038"
+          }
+        },
+        "executions": 4,
+        "wasmtimeAgreements": 4,
+        "malformedInputsRejected": 2,
+        "sameImageRestore": true,
+        "wrongImageRejected": true
+      },
+      {
+        "name": "parity-64",
+        "images": {
+          "structural": {
+            "bytes": 470,
+            "sha256": "9f85f0f8f8b23b7a26b1387c866d34e28af9180cf38991a5b954beaab743f0bc"
+          },
+          "semantic": {
+            "bytes": 470,
+            "sha256": "9f85f0f8f8b23b7a26b1387c866d34e28af9180cf38991a5b954beaab743f0bc"
+          }
+        },
+        "executions": 4,
+        "wasmtimeAgreements": 4,
+        "malformedInputsRejected": 2,
+        "sameImageRestore": true,
+        "wrongImageRejected": false
+      },
+      {
+        "name": "parity-64-direct",
+        "images": {
+          "structural": {
+            "bytes": 470,
+            "sha256": "9f85f0f8f8b23b7a26b1387c866d34e28af9180cf38991a5b954beaab743f0bc"
+          },
+          "semantic": {
+            "bytes": 411,
+            "sha256": "193dbe04ffdc27d5158885acec14e42805bbdd3d1bf4fb13ae2db758e740440d"
+          }
+        },
+        "executions": 4,
+        "wasmtimeAgreements": 4,
+        "malformedInputsRejected": 2,
+        "sameImageRestore": true,
+        "wrongImageRejected": true
+      },
+      {
+        "name": "parity-128",
+        "images": {
+          "structural": {
+            "bytes": 1072,
+            "sha256": "75b9a9e52113840ad04c53392f4549e6c36b661ff14944b3aea14f77bd0ae806"
+          },
+          "semantic": {
+            "bytes": 1072,
+            "sha256": "75b9a9e52113840ad04c53392f4549e6c36b661ff14944b3aea14f77bd0ae806"
+          }
+        },
+        "executions": 4,
+        "wasmtimeAgreements": 4,
+        "malformedInputsRejected": 2,
+        "sameImageRestore": true,
+        "wrongImageRejected": false
+      },
+      {
+        "name": "parity-128-direct",
+        "images": {
+          "structural": {
+            "bytes": 1072,
+            "sha256": "75b9a9e52113840ad04c53392f4549e6c36b661ff14944b3aea14f77bd0ae806"
+          },
+          "semantic": {
+            "bytes": 939,
+            "sha256": "aff8889c2d22418502f4e58dc4bf7323d30b7cc872a81e99af76750a6de4c122"
+          }
+        },
+        "executions": 4,
+        "wasmtimeAgreements": 4,
+        "malformedInputsRejected": 2,
+        "sameImageRestore": true,
+        "wrongImageRejected": true
+      }
+    ]
+  },
+  "remaining": [
+    "General multi-worker location-sensitive extraction/emission remains incomplete.",
+    "Full L01–L20 mapping and final consumer/economic qualification remain open.",
+    "Later M3–M8 work and final serial reviews remain open."
+  ]
+}
