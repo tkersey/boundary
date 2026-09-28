@@ -1,0 +1,50 @@
+{
+  "status": "synthetic-memory-observation-not-final-qualification",
+  "scope": "Synthetic 31-update affine fixture. One-step fresh invocation accounting includes old/new checkpoint overlap; requested bytes exclude allocator metadata and RSS. Not a latency or real-Agent claim.",
+  "sourceCommit": "a0769162ab85726f8cc3293548e0aa19f21c01f5",
+  "probeSha256": "7e534ca57f241a5b9abb746b65fb54c48c8c3cff7f002f6745a167043d9c59ae",
+  "worldSource": "f8a1597d4ff62ae691dfca12f7ce3a2b4e6c0727",
+  "toolchain": "Zig 0.16.0 ReleaseSafe native",
+  "result": {
+    "scope": "synthetic repeated affine cycle; one-step fresh invocation includes checkpoint output overlap; no timing claim",
+    "rows": [
+      {
+        "mode": "p01-baseline",
+        "capture_words": 3,
+        "image_bytes": 204,
+        "construction_peak": 16886,
+        "construction_allocated": 27932,
+        "admission_peak": 8736,
+        "prepared_bytes": 8560,
+        "invocation_peak": 16326,
+        "checkpoint_max": 137,
+        "transitions": 289
+      },
+      {
+        "mode": "affine-only",
+        "capture_words": 2,
+        "image_bytes": 212,
+        "construction_peak": 48102,
+        "construction_allocated": 134126,
+        "admission_peak": 10066,
+        "prepared_bytes": 9072,
+        "invocation_peak": 17834,
+        "checkpoint_max": 126,
+        "transitions": 321
+      },
+      {
+        "mode": "semantic-pipeline",
+        "capture_words": 0,
+        "image_bytes": 201,
+        "construction_peak": 107942,
+        "construction_allocated": 673790,
+        "admission_peak": 8784,
+        "prepared_bytes": 8494,
+        "invocation_peak": 16248,
+        "checkpoint_max": 126,
+        "transitions": 320
+      }
+    ]
+  },
+  "disposition": "Standalone affine-only output increases admission/invocation peak above the supplied memory threshold. Full semantic pipeline output is within the admission threshold and reduces invocation peak/checkpoints versus P01 baseline. An isolated same-contract C1 comparison, repeated timing and platform/consumer qualification remain required."
+}

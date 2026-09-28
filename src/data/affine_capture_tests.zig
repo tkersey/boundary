@@ -70,7 +70,7 @@ test "independent affine checker validates emitted equations and rejects wrong c
     const check = @import("affine_validate.zig");
     var candidate = (try @import("affine_emit.zig").construct(a, rotating, 0, 100000)).?;
     defer candidate.deinit();
-    try check.validate(a, rotating, candidate.program, 0, candidate.basis, 100000);
+    try check.validate(a, rotating, candidate.program, 0, candidate.basis, candidate.input_bias, 100000);
     var altered = candidate.program;
     const blocks = try a.dupe(ir.Block, altered.blocks);
     defer a.free(blocks);
@@ -83,7 +83,7 @@ test "independent affine checker validates emitted equations and rejects wrong c
     altered.blocks = blocks;
     var admitted = try @import("activation_ownership.zig").analyze(a, altered);
     defer admitted.deinit();
-    try std.testing.expectError(error.InvalidAffineCandidate, check.validate(a, rotating, altered, 0, candidate.basis, 100000));
+    try std.testing.expectError(error.InvalidAffineCandidate, check.validate(a, rotating, altered, 0, candidate.basis, candidate.input_bias, 100000));
 }
 
 test "affine acceptance rejects wrong recursive input terms and basis" {
@@ -100,9 +100,9 @@ test "affine acceptance rejects wrong recursive input terms and basis" {
     altered.blocks = blocks;
     var admitted = try @import("activation_ownership.zig").analyze(a, altered);
     defer admitted.deinit();
-    try std.testing.expectError(error.InvalidAffineCandidate, check.validate(a, rotating, altered, 0, candidate.basis, 100000));
-    try std.testing.expectError(error.InvalidAffineCandidate, check.validate(a, rotating, candidate.program, 0, &.{ 1, 2 }, 100000));
-    try std.testing.expectError(error.WorkLimit, check.validate(a, rotating, candidate.program, 0, candidate.basis, 0));
+    try std.testing.expectError(error.InvalidAffineCandidate, check.validate(a, rotating, altered, 0, candidate.basis, candidate.input_bias, 100000));
+    try std.testing.expectError(error.InvalidAffineCandidate, check.validate(a, rotating, candidate.program, 0, &.{ 1, 2 }, candidate.input_bias, 100000));
+    try std.testing.expectError(error.WorkLimit, check.validate(a, rotating, candidate.program, 0, candidate.basis, candidate.input_bias, 0));
 }
 
 fn checkedAllocationAttempt(allocator: std.mem.Allocator) !void {
@@ -230,7 +230,7 @@ test "all recursive modes close and a newly added reset invalidates the old cand
     try std.testing.expectEqual(@as(usize, 2), plan.basis.len);
     var candidate = (try @import("affine_emit.zig").construct(a, program, 0, 100000)).?;
     defer candidate.deinit();
-    try @import("affine_validate.zig").validate(a, program, candidate.program, 0, candidate.basis, 100000);
+    try @import("affine_validate.zig").validate(a, program, candidate.program, 0, candidate.basis, candidate.input_bias, 100000);
     var changed = program;
     var blocks = program.blocks[0..8].*;
     blocks[7].instructions = &.{
@@ -242,7 +242,7 @@ test "all recursive modes close and a newly added reset invalidates the old cand
     var expanded = (try affine.analyze(a, changed, 0, 100000)).?;
     defer expanded.deinit();
     try std.testing.expectEqual(@as(usize, 3), expanded.basis.len);
-    try std.testing.expectError(error.InvalidAffineCandidate, @import("affine_validate.zig").validate(a, changed, candidate.program, 0, candidate.basis, 100000));
+    try std.testing.expectError(error.InvalidAffineCandidate, @import("affine_validate.zig").validate(a, changed, candidate.program, 0, candidate.basis, candidate.input_bias, 100000));
 }
 
 test "rank-zero state is emitted and full-rank observation is a legal no-op" {

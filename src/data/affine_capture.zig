@@ -17,6 +17,7 @@ pub const Plan = struct {
     schema: p.Id,
     dimension: usize,
     basis: []const space.Row,
+    input_bias: []const u64,
     observations: []const space.Row,
     transitions: []const Transition,
     pub fn deinit(self: *Plan) void {
@@ -172,6 +173,21 @@ pub fn analyze(allocator: std.mem.Allocator, program: ir.Program, constructor_id
     var basis_buffer: [space.max_dimension]space.Row = undefined;
     const basis = try a.dupe(space.Row, closed.rows(&basis_buffer));
     const owned_transitions = try transitions.toOwnedSlice(a);
+    const input_bias = try a.alloc(u64, worker.inputs.len - n);
+    @memset(input_bias, 0);
+    for (owned_transitions) |transition| for (transition.values) |value| {
+        if (@popCount(value.input) != 1 or value.constant == 0) continue;
+        const index: usize = @intCast(@ctz(value.input));
+        if (index < input_bias.len) input_bias[index] = value.constant;
+    };
+    // This first normalization keeps encoded input values invariant through CFG
+    // edges. Reassigned dynamic inputs retain their original representation.
+    for (program.blocks) |block| {
+        if (block.function != constructor.function) continue;
+        for (worker.inputs[n..], input_bias) |slot, *bias| {
+            if (@import("slot_access.zig").terminator(block.terminator, slot).writes != 0) bias.* = 0;
+        }
+    }
     keep = true;
-    return .{ .arena = arena, .constructor = constructor_id, .worker = constructor.function, .schema = schema, .dimension = n, .basis = basis, .observations = observations, .transitions = owned_transitions };
+    return .{ .arena = arena, .constructor = constructor_id, .worker = constructor.function, .schema = schema, .dimension = n, .basis = basis, .input_bias = input_bias, .observations = observations, .transitions = owned_transitions };
 }

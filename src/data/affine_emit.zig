@@ -12,6 +12,7 @@ pub const Candidate = struct {
     program: ir.Program,
     constructor: usize,
     basis: []const space.Row,
+    input_bias: []const u64,
     pub fn deinit(self: *Candidate) void {
         self.arena.deinit();
         self.* = undefined;
@@ -25,6 +26,7 @@ const Builder = struct {
     literals: *std.ArrayList(p.Literal),
     operations: std.ArrayList(ir.Instruction) = .empty,
     budget: *space.Budget,
+    input_bias: []const u64,
     fn append(self: *Builder, opcode: p.Opcode, operands: []const p.Id, immediate: p.Id) Error!p.Id {
         try self.budget.charge();
         const destination = self.slots.items.len;
@@ -51,8 +53,15 @@ const Builder = struct {
         for (inputs, 0..) |slot, i| if (value.input & space.coordinate(i) != 0) {
             result = try self.combine(result, slot);
         };
-        if (value.constant != 0) result = try self.combine(result, try self.constant(value.constant));
+        var offset = value.constant;
+        for (self.input_bias, 0..) |bias, i| if (value.input & space.coordinate(i) != 0) {
+            offset ^= bias;
+        };
+        if (offset != 0) result = try self.combine(result, try self.constant(offset));
         return result orelse try self.constant(0);
+    }
+    fn biased(self: *Builder, slot: p.Id, bias: u64) Error!p.Id {
+        return if (bias == 0) slot else self.append(.integer_bit_xor, &.{ slot, try self.constant(bias) }, 0);
     }
     fn original(self: *Builder, row: space.Row, operands: []const p.Id) Error!p.Id {
         var result: ?p.Id = null;
@@ -85,6 +94,14 @@ fn rewriteEdge(builder: *Builder, edge: ir.Edge, worker: ir.Function, values: []
         try assignments.append(builder.a, replacement);
     }
     return .{ .block = edge.block, .assignments = try assignments.toOwnedSlice(builder.a) };
+}
+
+fn appliesConstructor(program: ir.Program, function: p.Id, slot: p.Id, constructor: usize) bool {
+    for (program.blocks) |block| {
+        if (block.function != function) continue;
+        for (block.instructions) |op| if (op.destination == slot and op.opcode == .computation and op.immediate == constructor) return true;
+    }
+    return false;
 }
 
 pub fn construct(allocator: std.mem.Allocator, original: ir.Program, constructor_id: usize, work_limit: u64) Error!?Candidate {
@@ -122,7 +139,7 @@ pub fn construct(allocator: std.mem.Allocator, original: ir.Program, constructor
     var literals: std.ArrayList(p.Literal) = .empty;
     try literals.appendSlice(a, original.constants);
     for (original.blocks, blocks) |block, *out| {
-        var builder: Builder = .{ .a = a, .schema = plan.schema, .width = extract.unsignedWidth(original.schemas[@intCast(plan.schema)]).?, .slots = &layouts[@intCast(block.function)], .literals = &literals, .budget = &budget };
+        var builder: Builder = .{ .a = a, .schema = plan.schema, .width = extract.unsignedWidth(original.schemas[@intCast(plan.schema)]).?, .slots = &layouts[@intCast(block.function)], .literals = &literals, .budget = &budget, .input_bias = plan.input_bias };
         if (block.function != plan.worker) {
             for (block.instructions) |op| {
                 var replacement = op;
@@ -137,8 +154,13 @@ pub fn construct(allocator: std.mem.Allocator, original: ir.Program, constructor
                 const call = block.terminator.call;
                 const arguments = try a.alloc(p.Id, input_slots.len);
                 for (plan.basis, arguments[0..plan.basis.len]) |row, *argument| argument.* = try builder.original(row, call.arguments[0..plan.dimension]);
-                @memcpy(arguments[plan.basis.len..], call.arguments[plan.dimension..]);
+                for (call.arguments[plan.dimension..], arguments[plan.basis.len..], plan.input_bias) |slot, *argument, bias| argument.* = try builder.biased(slot, bias);
                 out.terminator.call.arguments = arguments;
+            }
+            if (block.terminator == .apply and appliesConstructor(original, block.function, block.terminator.apply.computation, constructor_id)) {
+                const arguments = try a.dupe(p.Id, block.terminator.apply.arguments);
+                for (arguments, plan.input_bias) |*argument, bias| argument.* = try builder.biased(argument.*, bias);
+                out.terminator.apply.arguments = arguments;
             }
         } else {
             const values = try a.alloc(?extract.Expression, worker.layout.slots.len);
@@ -177,7 +199,13 @@ pub fn construct(allocator: std.mem.Allocator, original: ir.Program, constructor
                             };
                             argument.* = try builder.expression(value, &basis, summary, dynamic);
                         }
-                        for (call.arguments[plan.dimension..], arguments[plan.basis.len..]) |slot, *argument| argument.* = try remap(&builder, slot, values, &basis, summary, dynamic);
+                        for (call.arguments[plan.dimension..], arguments[plan.basis.len..], plan.input_bias) |slot, *argument, bias| {
+                            if (values[@intCast(slot)]) |value| {
+                                var encoded = value;
+                                encoded.constant ^= bias;
+                                argument.* = try builder.expression(encoded, &basis, summary, dynamic);
+                            } else argument.* = try builder.biased(slot, bias);
+                        }
                         out.terminator.call.arguments = arguments;
                     } else {
                         const arguments = try a.dupe(p.Id, call.arguments);
@@ -198,5 +226,5 @@ pub fn construct(allocator: std.mem.Allocator, original: ir.Program, constructor
     program.constructors = constructors;
     program.scopes.captures = captures;
     program.constants = try literals.toOwnedSlice(a);
-    return .{ .arena = arena, .program = program, .constructor = constructor_id, .basis = try a.dupe(space.Row, plan.basis) };
+    return .{ .arena = arena, .program = program, .constructor = constructor_id, .basis = try a.dupe(space.Row, plan.basis), .input_bias = try a.dupe(u64, plan.input_bias) };
 }

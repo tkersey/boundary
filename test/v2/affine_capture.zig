@@ -52,7 +52,7 @@ test "World executes original and reduced private capture interfaces" {
     }
 }
 
-fn recurrentFixture() ir.Program {
+pub fn recurrentFixture() ir.Program {
     var program = fixture;
     program.schemas = &.{ fixture.schemas[0], fixture.schemas[1], fixture.schemas[2], .{ .internal = .{ .computation = .{ .parameters = &.{ 0, 4 }, .result = 0, .capture_bound = &.{0}, .use = .reusable } } }, .u8 };
     program.constants = &.{
@@ -359,4 +359,103 @@ test "World preserves reduced parallel capture back edges" {
             try std.testing.expectEqualSlices(u8, &expected, outcome.record.completed);
         }
     }
+}
+
+test "independent objects expose imported recursive capture worker only at closed link" {
+    const a = std.testing.allocator;
+    const original = comptime recurrentFixture();
+    var caller_program = original;
+    caller_program.functions = &.{ original.functions[0], .{ .entry = data.relocation.missing, .inputs = &.{ 0, 1, 2, 3, 4 }, .layout = .{ .slots = &.{ 0, 0, 0, 0, 4 } }, .result = 0 } };
+    caller_program.blocks = original.blocks[0..2];
+    const caller: data.component.Object = .{
+        .program = caller_program,
+        .imports = &.{.{ .name = "worker", .reference = .{ .kind = .function, .id = 1 } }},
+        .exports = &.{.{ .name = "main", .reference = .{ .kind = .function, .id = 0 } }},
+        .borrows = &.{ .{ .function = 0 }, .{ .function = 1 } },
+    };
+    var worker_program = original;
+    worker_program.roots.entry = 0;
+    var worker_function = original.functions[1];
+    worker_function.entry = 0;
+    worker_program.functions = &.{worker_function};
+    var blocks = original.blocks[2..6].*;
+    for (&blocks) |*block| {
+        block.function = 0;
+        switch (block.terminator) {
+            .branch => |*branch| {
+                branch.when_true.block -= 2;
+                branch.when_false.block -= 2;
+            },
+            .call => |*call| {
+                call.function = 0;
+                call.next.block -= 2;
+            },
+            else => {},
+        }
+    }
+    worker_program.blocks = &blocks;
+    worker_program.constructors = &.{};
+    worker_program.scopes.captures = &.{};
+    const worker: data.component.Object = .{
+        .program = worker_program,
+        .exports = &.{.{ .name = "worker", .reference = .{ .kind = .function, .id = 0 } }},
+        .borrows = &.{.{ .function = 0 }},
+    };
+    const caller_bytes = try a.alloc(u8, try data.component.encodedLength(caller));
+    defer a.free(caller_bytes);
+    const worker_bytes = try a.alloc(u8, try data.component.encodedLength(worker));
+    defer a.free(worker_bytes);
+    _ = try data.component.encode(a, caller, caller_bytes);
+    _ = try data.component.encode(a, worker, worker_bytes);
+    const bindings = &.{data.linker.Binding{ .required = .{ .instance = "caller", .symbol = "worker" }, .supplied = .{ .instance = "worker", .symbol = "worker" } }};
+    const instances = &.{ data.linker.Instance{ .key = "caller", .object = caller_bytes }, data.linker.Instance{ .key = "worker", .object = worker_bytes } };
+    var structural = try data.linker.link(a, instances, bindings, .{ .instance = "caller", .symbol = "main" });
+    defer structural.deinit();
+    var stats: data.closed_compilation.Statistics = .{};
+    var semantic = try data.linker.linkWithCompilation(a, instances, bindings, .{ .instance = "caller", .symbol = "main" }, .{ .contract = .semantic, .statistics = &stats });
+    defer semantic.deinit();
+    try std.testing.expectEqual(data.closed_compilation.Outcome.applied, stats.outcome);
+    // The standalone affine pass confirms this is an actual capture-state
+    // opportunity, independently of other reductions chosen by the pipeline.
+    var affine_stats: affine.Statistics = .{};
+    var affine_only = try affine.run(a, structural.program, 0, &affine_stats, 1000000, .{});
+    defer affine_only.deinit();
+    try std.testing.expectEqual(@as(usize, 2), affine_stats.reduced_words);
+    @memset(caller_bytes, 0xff);
+    @memset(worker_bytes, 0xff);
+    var args: [33]u8 = undefined;
+    for ([_]u64{ 1, 2, 4, 8 }, 0..) |value, i| std.mem.writeInt(u64, args[i * 8 ..][0..8], value, .little);
+    args[32] = 2;
+    var expected: [8]u8 = undefined;
+    // Two rotations: (1,2,4) -> (2,4,172) -> (4,172,175).
+    std.mem.writeInt(u64, &expected, 4 ^ 172 ^ 8 ^ 0xa5, .little);
+    for ([_]ir.Program{ structural.program, semantic.program, affine_only.program }) |program| {
+        const bytes = try a.alloc(u8, try image.encodedLength(program));
+        defer a.free(bytes);
+        _ = try image.encode(a, program, bytes);
+        var outcome = try world.invocation.invoke(a, .{ .image = bytes, .instance = .{ .initial_args = &args } });
+        defer outcome.deinit();
+        try std.testing.expect(outcome.record == .completed);
+        try std.testing.expectEqualSlices(u8, &expected, outcome.record.completed);
+    }
+}
+
+test "private affine input normalization rejects a missing caller conversion" {
+    const a = std.testing.allocator;
+    const original = comptime recurrentFixture();
+    var candidate = (try data.affine_candidate.construct(a, original, 0, 1000000)).?;
+    defer candidate.deinit();
+    try std.testing.expectEqual(@as(u64, 0xa5), candidate.input_bias[0]);
+    try affine.validate(a, original, candidate.program, 0, candidate.basis, candidate.input_bias, 1000000);
+    var altered = candidate.program;
+    const blocks = try a.dupe(ir.Block, altered.blocks);
+    defer a.free(blocks);
+    const arguments = try a.dupe(u64, blocks[0].terminator.apply.arguments);
+    defer a.free(arguments);
+    arguments[0] = 3;
+    blocks[0].terminator.apply.arguments = arguments;
+    altered.blocks = blocks;
+    var admitted = try data.activation_ownership.analyze(a, altered);
+    defer admitted.deinit();
+    try std.testing.expectError(error.InvalidAffineCandidate, affine.validate(a, original, altered, 0, candidate.basis, candidate.input_bias, 1000000));
 }

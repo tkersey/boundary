@@ -144,3 +144,53 @@ The post-edge ReleaseSafe data aggregate now completes with terminal exit zero:
 **3/3 steps and 275/275 tests**. The integrated compiler/linker, scale, mode and
 parallel-edge slice is ready for the existing draft. This does not close M2.5's
 remaining representation, platform, consumer and economic obligations.
+
+## Independent-object and initial economic evidence
+
+The native suite passes 7/7 tests after adding independently encoded caller and
+worker objects. The caller's constructor refers to an imported worker; only closed
+linking supplies the recursive implementation. Shared semantic linking and the
+standalone checked affine pass both preserve the independently expected result
+after both original object buffers are destroyed.
+
+Annex C was extracted unchanged and run with `uv run`; its recorded finite-model
+counts reproduce, including 78,804 independent transition checks and 13 rejected
+corrupt/stale certificates. `performance/m25-annex-c.json` keeps that model-only
+scope explicit and does not add its counts to production tests.
+
+`performance/m25-synthetic-memory.json` records a first native requested-byte
+probe, separate from timing. The standalone affine output has a new admission
+and invocation-memory cost, while the full semantic pipeline reduces that fixture's
+image 204 → 201 bytes, invocation peak 16,326 → 16,248 bytes and maximum checkpoint
+137 → 126 bytes. Admission peak is 8,736 → 8,784 (+48 bytes). The standalone increase
+is retained in the report. Same-contract C1 attribution, paired timings, platform
+and real-consumer costs are not yet qualified.
+
+## Measured private-input normalization
+
+An uninstalled same-contract C1 control omits only the affine schedule entry.
+Five alternating native timing windows exposed a synthetic regression in the
+initial candidate: median admission +6.9%, fresh invocation +19.2%. The exact
+source delta, raw samples and memory results remain in
+`performance/m25-same-contract-costs.json`; those timing costs were not accepted.
+
+The candidate now normalizes recurring affine input offsets once at every known
+incoming direct call/application. Recursive calls forward the encoded input.
+Capture state remains the derived `H x`; original argument evaluations remain in
+order, and opaque/escaping constructor uses still decline. Input reassignment
+through CFG edges disables this normalization for that input. The independent
+checker interprets the input relation and checks every incoming/recursive argument,
+without trusting discovery. A well-typed missing caller conversion is rejected.
+
+All eight native World tests pass. Five paired windows against the same C1 give
+median admission ratio 1.04957 and fresh-invocation ratio 0.95385; the slower first
+candidate window is retained. Synthetic invocation peak is 15,718 → 14,920 bytes,
+admission peak 8,622 → 8,672 (+50), checkpoint maximum 137 → 126, and logical
+transitions 288 → 258. Image size is 188 → 195 bytes. Construction costs and the
+standalone-pass arm remain visible. `performance/m25-input-normalization.json`
+records these observations and limitations. They are not real-Agent, WASM or
+final economic qualification. The post-normalization data aggregate is running.
+
+The post-normalization data aggregate completes with terminal exit zero:
+**3/3 steps, 275/275 tests passed**. This closes that local validation, not the
+remaining M2.5 cross-platform, real-consumer, representation and economic gates.

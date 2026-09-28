@@ -67,7 +67,7 @@ fn evaluate(program: ir.Program, function: ir.Function, op: ir.Instruction, valu
         else => return null,
     }
 }
-fn mappedArguments(before: []const p.Id, after: []const p.Id, old: []const ?Value, new: []const ?Value, basis: []const u128, n: usize) Error!void {
+fn mappedArguments(before: []const p.Id, after: []const p.Id, old: []const ?Value, new: []const ?Value, basis: []const u128, n: usize, input_bias: []const u64) Error!void {
     if (before.len < n or after.len != before.len - n + basis.len) return error.InvalidAffineCandidate;
     for (basis, after[0..basis.len]) |row, slot| {
         var expected: Word = .{};
@@ -76,8 +76,27 @@ fn mappedArguments(before: []const p.Id, after: []const p.Id, old: []const ?Valu
         };
         if (!equal(Word, expected, try word(new[@intCast(slot)]))) return error.InvalidAffineCandidate;
     }
-    for (before[n..], after[basis.len..]) |left, right| if (!same(old[@intCast(left)], new[@intCast(right)])) return error.InvalidAffineCandidate;
+    try inputArguments(before[n..], after[basis.len..], old, new, input_bias);
 }
+fn inputArguments(before: []const p.Id, after: []const p.Id, old: []const ?Value, new: []const ?Value, biases: []const u64) Error!void {
+    if (before.len != after.len or before.len != biases.len) return error.InvalidAffineCandidate;
+    for (before, after, biases) |left, right, bias| {
+        if (bias == 0) {
+            if (!same(old[@intCast(left)], new[@intCast(right)])) return error.InvalidAffineCandidate;
+        } else {
+            var expected = try word(old[@intCast(left)]);
+            expected.constant ^= bias;
+            if (!equal(Word, expected, try word(new[@intCast(right)]))) return error.InvalidAffineCandidate;
+        }
+    }
+}
+fn selectedApplication(program: ir.Program, function: p.Id, slot: p.Id, constructor: usize) bool {
+    for (program.blocks) |block| if (block.function == function) {
+        for (block.instructions) |op| if (op.destination == slot and op.opcode == .computation and op.immediate == constructor) return true;
+    };
+    return false;
+}
+
 fn drain(program: ir.Program, block: ir.Block, index: *usize, values: []?Value, schema: p.Id, minimum_slot: usize, budget: *space.Budget) Error!void {
     while (index.* < block.instructions.len) {
         const op = block.instructions[index.*];
@@ -131,7 +150,7 @@ fn checkEdge(before: ir.Edge, after: ir.Edge, old: []const ?Value, new: []const 
     }
 }
 
-pub fn validate(allocator: std.mem.Allocator, original: ir.Program, candidate: ir.Program, constructor_id: usize, basis: []const u128, work_limit: u64) Error!void {
+pub fn validate(allocator: std.mem.Allocator, original: ir.Program, candidate: ir.Program, constructor_id: usize, basis: []const u128, input_bias: []const u64, work_limit: u64) Error!void {
     var original_flow = try ownership.analyze(allocator, original);
     defer original_flow.deinit();
     var candidate_flow = try ownership.analyze(allocator, candidate);
@@ -165,6 +184,11 @@ pub fn validate(allocator: std.mem.Allocator, original: ir.Program, candidate: i
         if (!equal(p.Constructor, expected, after)) return error.InvalidAffineCandidate;
     }
     const worker = original.functions[@intCast(ctor.function)];
+    if (input_bias.len != worker.inputs.len - n) return error.InvalidAffineCandidate;
+    const word_bytes = width(original.schemas[@intCast(schema)]).?;
+    for (worker.inputs[n..], input_bias) |slot, bias| {
+        if (bias != 0 and (worker.layout.slots[@intCast(slot)] != schema or (word_bytes < 8 and bias >> @intCast(word_bytes * 8) != 0))) return error.InvalidAffineCandidate;
+    }
     if (worker.effects.len != 0 or worker.regions.len != 0) return error.InvalidAffineCandidate;
     for (original.functions, candidate.functions, 0..) |before, after, id| {
         var metadata = after;
@@ -186,6 +210,9 @@ pub fn validate(allocator: std.mem.Allocator, original: ir.Program, candidate: i
         const old_function = original.functions[@intCast(before.function)];
         const new_function = candidate.functions[@intCast(before.function)];
         const is_worker = before.function == ctor.function;
+        if (is_worker) for (worker.inputs[n..], input_bias) |slot, bias| {
+            if (bias != 0 and @import("slot_access.zig").terminator(before.terminator, slot).writes != 0) return error.InvalidAffineCandidate;
+        };
         if (is_worker) switch (before.terminator) {
             .jump, .branch, .call, .return_value => {},
             else => return error.InvalidAffineCandidate,
@@ -207,6 +234,11 @@ pub fn validate(allocator: std.mem.Allocator, original: ir.Program, candidate: i
                 new[@intCast(slot)] = null;
             }
             for (basis, new_function.inputs[0..basis.len]) |row, slot| new[@intCast(slot)] = .{ .word = .{ .state = row } };
+            for (worker.inputs[n..], input_bias) |slot, bias| if (bias != 0) {
+                var encoded = try word(old[@intCast(slot)]);
+                encoded.constant ^= bias;
+                new[@intCast(slot)] = .{ .word = encoded };
+            };
             // Only matching call-return transfers introduce token cross-block values.
             for (original.blocks) |predecessor| {
                 if (predecessor.function != ctor.function or predecessor.terminator != .call or predecessor.terminator.call.next.block >= original.blocks.len) continue;
@@ -243,7 +275,7 @@ pub fn validate(allocator: std.mem.Allocator, original: ir.Program, candidate: i
             metadata.operands = op.operands;
             if (!equal(ir.Instruction, op, metadata)) return error.InvalidAffineCandidate;
             if (op.opcode == .computation and op.immediate == constructor_id) {
-                try mappedArguments(op.operands, replacement.operands, old, new, basis, n);
+                try mappedArguments(op.operands, replacement.operands, old, new, basis, n, &.{});
             } else {
                 if (op.operands.len != replacement.operands.len) return error.InvalidAffineCandidate;
                 for (op.operands, replacement.operands) |left, right| if (!same(old[@intCast(left)], new[@intCast(right)])) return error.InvalidAffineCandidate;
@@ -259,7 +291,7 @@ pub fn validate(allocator: std.mem.Allocator, original: ir.Program, candidate: i
             .call => |call| {
                 if (terminator != .call) return error.InvalidAffineCandidate;
                 const arguments = terminator.call.arguments;
-                if (call.function == ctor.function) try mappedArguments(call.arguments, arguments, old, new, basis, n) else {
+                if (call.function == ctor.function) try mappedArguments(call.arguments, arguments, old, new, basis, n, input_bias) else {
                     if (call.arguments.len != arguments.len) return error.InvalidAffineCandidate;
                     for (call.arguments, arguments) |left, right| if (!same(old[@intCast(left)], new[@intCast(right)])) return error.InvalidAffineCandidate;
                 }
@@ -268,6 +300,11 @@ pub fn validate(allocator: std.mem.Allocator, original: ir.Program, candidate: i
                     try checkEdge(call.next, terminator.call.next, old, new, worker.inputs[0..n], new_function.inputs[0..basis.len], basis, worker.inputs, &budget);
                     terminator.call.next = call.next;
                 }
+            },
+            .apply => |application| if (!is_worker and selectedApplication(original, before.function, application.computation, constructor_id)) {
+                if (terminator != .apply) return error.InvalidAffineCandidate;
+                try inputArguments(application.arguments, terminator.apply.arguments, old, new, input_bias);
+                terminator.apply.arguments = application.arguments;
             },
             .return_value => |slot| if (is_worker) {
                 if (terminator != .return_value or !same(old[@intCast(slot)], new[@intCast(terminator.return_value)])) return error.InvalidAffineCandidate;

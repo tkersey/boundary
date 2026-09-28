@@ -4,6 +4,7 @@ const std = @import("std");
 const ir = @import("activation.zig");
 const emit = @import("affine_emit.zig");
 const check = @import("affine_validate.zig");
+pub const validate = check.validate;
 const p01 = @import("coalescing.zig");
 pub const Error = p01.Error || emit.Error || check.Error;
 pub const Statistics = struct {
@@ -24,7 +25,7 @@ pub fn run(allocator: std.mem.Allocator, original: ir.Program, constructor_id: u
         else => return err,
     }) orelse return p01.run(allocator, original, options);
     defer candidate.deinit();
-    check.validate(allocator, original, candidate.program, constructor_id, candidate.basis, work_limit) catch |err| switch (err) {
+    check.validate(allocator, original, candidate.program, constructor_id, candidate.basis, candidate.input_bias, work_limit) catch |err| switch (err) {
         error.WorkLimit => {
             stats.outcome = .work_limit;
             return p01.run(allocator, original, options);

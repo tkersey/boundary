@@ -48,5 +48,5 @@ test "independent acceptance rejects a well-typed wrong parallel state transfer"
     changed.blocks = blocks;
     var admitted = try @import("activation_ownership.zig").analyze(a, changed);
     defer admitted.deinit();
-    try std.testing.expectError(error.InvalidAffineCandidate, @import("affine_validate.zig").validate(a, cyclic, changed, 0, candidate.basis, 100000));
+    try std.testing.expectError(error.InvalidAffineCandidate, @import("affine_validate.zig").validate(a, cyclic, changed, 0, candidate.basis, candidate.input_bias, 100000));
 }
