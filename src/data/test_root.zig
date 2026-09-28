@@ -1,5 +1,7 @@
 //! Separate pure-data test entry point; never imported by the production module.
 test {
+    _ = @import("call_patterns_tests.zig");
+    _ = @import("leaf_inlining_tests.zig");
     _ = @import("partial_redundancy_tests.zig");
     _ = @import("affine_extract.zig");
     _ = @import("affine_capture_tests.zig");

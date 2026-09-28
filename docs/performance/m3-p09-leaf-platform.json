@@ -1,0 +1,90 @@
+{
+  "sourceBaseCommit": "c34f7be4c23c0dc4ecf37c317dad9c9899906ea6",
+  "unpublishedWorkingTree": true,
+  "kernelSha256": "7d31effb1d4e32523d0fcbd5b4d5f5a8a2289fbd4c731173a33b1c174524282f",
+  "emitterSha256": "6511ff1f9ab85d9d26dadcbd2a217b3f4c0ab7f56d62626e61122e06255f2a1a",
+  "runnerSha256": "586aa743891b9bc4521dd6d11cbd868a367e4ceaf6c075e31b9daed1558b8c5c",
+  "rows": [
+    {
+      "name": "callable-checked",
+      "route": "standalone checked call patterns",
+      "comparisons": 24,
+      "malformedInputsRejected": 2,
+      "sameImageRestore": true,
+      "wrongImageRejected": true,
+      "images": {
+        "structural": {
+          "bytes": 210,
+          "sha256": "0a8a2096a0fd8659d88dfd3194f729d06044d7def08c3ddc41875e50709d9766"
+        },
+        "semantic": {
+          "bytes": 243,
+          "sha256": "34d2de6c01207bea355e9565b4c31f1db0c4fc48b29e892c9f2d8d4073f90e74"
+        }
+      }
+    },
+    {
+      "name": "callable-shared",
+      "route": "shared semantic compiler",
+      "comparisons": 24,
+      "malformedInputsRejected": 2,
+      "sameImageRestore": true,
+      "wrongImageRejected": true,
+      "images": {
+        "structural": {
+          "bytes": 210,
+          "sha256": "0a8a2096a0fd8659d88dfd3194f729d06044d7def08c3ddc41875e50709d9766"
+        },
+        "semantic": {
+          "bytes": 193,
+          "sha256": "0f412e886ed75baa1459ca97f8879c5d3ba69fd40161d304f830c857fe991395"
+        }
+      }
+    },
+    {
+      "name": "callable-linked",
+      "route": "source-free semantic link",
+      "comparisons": 24,
+      "malformedInputsRejected": 2,
+      "sameImageRestore": true,
+      "wrongImageRejected": true,
+      "images": {
+        "structural": {
+          "bytes": 210,
+          "sha256": "0a8a2096a0fd8659d88dfd3194f729d06044d7def08c3ddc41875e50709d9766"
+        },
+        "semantic": {
+          "bytes": 193,
+          "sha256": "0f412e886ed75baa1459ca97f8879c5d3ba69fd40161d304f830c857fe991395"
+        }
+      }
+    }
+  ],
+  "sourceFiles": {
+    "src/data/call_patterns.zig": "b40936367b048e701fc112c7fe3ab967352a1163e385b6d3945019ef2e0ab3ed",
+    "src/data/leaf_inlining.zig": "027db4e98d07a0891e5e41935c827f1dcfbd7111c06c7a6319caa8a2fcfaadff",
+    "src/data/closed_compilation.zig": "dbc6636b189c60652db6a73f915cd640f18a453881743152626cf31045ca848f",
+    "src/data/root.zig": "89481dd3a2ceb82140c56c0d89e4b699578ff2ffab4d75b0fa8de0deb3266ceb",
+    "test/v2/call_patterns.zig": "ead898f2a2a05fd70ee221649bb18d06b58a4d3d35d7c960ce5f5b1b1a866e47",
+    "test/v2/call_patterns_platform.zig": "ee5653e751916469ab16215fed534b9224626948c0e175965891a3e9f0bffcaa"
+  },
+  "native": {
+    "tests": 2,
+    "executions": 60,
+    "exitCode": 0,
+    "logSha256": "663522a6e5c88c900f67781cf8f032da113e5424519fd5f90eb181510b989b46",
+    "scope": "48 repeated-callable executions plus 12 product/overwritten-parameter executions"
+  },
+  "leafFocused": {
+    "tests": 39,
+    "exitCode": 0,
+    "logSha256": "77fe70da870aab1574d325a35d0a68ff7201ca49d74675cad2ba01015d65cc72"
+  },
+  "disposition": "Initial repeated-callable and leaf-inlining slice; remaining P09 facts and economic obligations open.",
+  "integrated": {
+    "steps": 319,
+    "tests": 614,
+    "exitCode": 0,
+    "logSha256": "07710b985dfe4d7e2b12869d4cc40757df092e94ada70a9669d6597ddc2c48b6"
+  }
+}

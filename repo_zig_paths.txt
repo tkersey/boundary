@@ -52,6 +52,8 @@ src/data/borrow_contract.zig
 src/data/borrow_flow.zig
 src/data/branch_reduction.zig
 src/data/call_contexts.zig
+src/data/call_patterns.zig
+src/data/call_patterns_tests.zig
 src/data/capture_projection.zig
 src/data/capture_projection_tests.zig
 src/data/capture_reduction.zig
@@ -98,6 +100,8 @@ src/data/graph_order.zig
 src/data/graph_order_tests.zig
 src/data/invocation.zig
 src/data/invocation_tests.zig
+src/data/leaf_inlining.zig
+src/data/leaf_inlining_tests.zig
 src/data/linker.zig
 src/data/partial_redundancy.zig
 src/data/partial_redundancy_tests.zig
@@ -208,6 +212,8 @@ test/v2/affine_cycle_timing.zig
 test/v2/aggregate_reduction.zig
 test/v2/application_specialization.zig
 test/v2/borrow_returns.zig
+test/v2/call_patterns.zig
+test/v2/call_patterns_platform.zig
 test/v2/capture_projection.zig
 test/v2/capture_reduction.zig
 test/v2/capture_summary.zig

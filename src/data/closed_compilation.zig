@@ -18,10 +18,12 @@ const projections = @import("capture_projection.zig");
 const summaries = @import("capture_summary.zig");
 const affine = @import("affine_state.zig");
 const pre = @import("partial_redundancy.zig");
+const patterns = @import("call_patterns.zig");
+const leaves = @import("leaf_inlining.zig");
 const unpack = @import("capture_unpack.zig");
 pub const Contract = enum { structural, semantic };
 pub const Objective = enum { size, balanced, speed };
-pub const Stage = enum { p01, branch, applications, aggregates, expressions, cells, dead_computation, dead_arguments, dead_captures, capture_projection, capture_summary, affine_state, capture_unpack, partial_redundancy };
+pub const Stage = enum { p01, branch, applications, aggregates, expressions, cells, dead_computation, dead_arguments, dead_captures, capture_projection, capture_summary, affine_state, capture_unpack, partial_redundancy, call_patterns, leaf_inlining };
 pub const default_work_limit: u64 = 100_000_000_000;
 pub const Outcome = enum { not_run, structural, deferred_open_component, no_change, applied, work_limit, size_guard };
 pub const Statistics = struct {
@@ -57,8 +59,8 @@ pub const Options = struct {
         if (self.statistics) |stats| stats.* = .{};
     }
 };
-pub const Error = branch.Error || applications.Error || aggregates.Error || expressions.Error || cells.Error || dead.Error || arguments.Error || captures.Error || projections.Error || summaries.Error || affine.Error || unpack.Error || pre.Error;
-const schedule = [_]Stage{ .branch, .capture_unpack, .aggregates, .dead_computation, .affine_state, .applications, .aggregates, .expressions, .partial_redundancy, .cells, .dead_computation, .dead_arguments, .dead_captures, .capture_projection, .capture_summary, .dead_computation, .dead_arguments, .applications, .dead_computation };
+pub const Error = branch.Error || applications.Error || aggregates.Error || expressions.Error || cells.Error || dead.Error || arguments.Error || captures.Error || projections.Error || summaries.Error || affine.Error || unpack.Error || pre.Error || patterns.Error || leaves.Error;
+const schedule = [_]Stage{ .branch, .capture_unpack, .aggregates, .dead_computation, .affine_state, .call_patterns, .applications, .leaf_inlining, .aggregates, .expressions, .partial_redundancy, .cells, .dead_computation, .dead_arguments, .dead_captures, .capture_projection, .capture_summary, .dead_computation, .dead_arguments, .applications, .dead_computation };
 fn notify(options: Options, stage: Stage) void {
     if (options.observer) |observer| observer.enter(observer.context, stage);
 }
@@ -127,6 +129,7 @@ fn reservation(program: ir.Program, stage: Stage) Error!u64 {
     // is separately capped by its counted allowance.
     const comparisons: u64 = switch (stage) {
         .branch => std.math.mul(u64, program.blocks.len, program.blocks.len) catch return error.Capacity,
+        .call_patterns, .leaf_inlining => std.math.mul(u64, try sumWork(&.{ program.functions.len, max_inputs, instructions, program.blocks.len, 1 }), shape.records) catch return error.Capacity,
         .applications => std.math.mul(u64, try sumWork(&.{ applications_count, 1 }), shape.records) catch return error.Capacity,
         .aggregates => block_squares,
         .expressions => 0,
@@ -141,7 +144,7 @@ fn reservation(program: ir.Program, stage: Stage) Error!u64 {
     const scans = std.math.mul(u64, std.math.add(u64, comparisons, shape.records) catch return error.Capacity, 64) catch return error.Capacity;
     const byte_work = std.math.mul(u64, shape.bytes, 16) catch return error.Capacity;
     const facts: u64 = switch (stage) {
-        .branch, .applications, .aggregates => 22_000_000,
+        .branch, .applications, .aggregates, .call_patterns => 22_000_000,
         .expressions, .partial_redundancy => 1_000_000,
         .affine_state => std.math.mul(u64, try sumWork(&.{ program.constructors.len, program.functions.len }), 6_000_000) catch return error.Capacity,
         else => 0,
@@ -192,9 +195,10 @@ fn payloadEstimate(program: ir.Program, schema: u64, depth: usize, memo: []?u64,
     memo[id] = result;
     return result;
 }
-// A bounded per-activation path estimate lets PRE expose dynamic work savings
-// that static code counts cannot represent. Calls retain the existing opaque
-// dispatch weight; this is not a whole-program bound or a runtime speed claim.
+// A bounded acyclic entry-path estimate exposes PRE and specialization work
+// savings that static sums miss. Known direct callees are expanded; applications
+// retain their opaque dispatch weight. Cycles/depth exhaustion yield unknown.
+// This is a selection heuristic, not a whole-program runtime bound.
 fn blockWork(block: ir.Block) u64 {
     var work: u64 = if (block.terminator == .apply) 4 else 1;
     for (block.instructions) |op| work +|= switch (op.opcode) {
@@ -223,7 +227,11 @@ fn pathAt(program: ir.Program, block: usize, marks: []u8, memo: []u64, depth: us
     var index: usize = 0;
     while (pathSuccessor(program.blocks[block].terminator, index)) |edge| : (index += 1)
         following = @max(following, pathAt(program, @intCast(edge.block), marks, memo, depth + 1) orelse return null);
-    memo[block] = blockWork(program.blocks[block]) +| following;
+    const nested: u64 = if (program.blocks[block].terminator == .call)
+        pathAt(program, @intCast(program.functions[@intCast(program.blocks[block].terminator.call.function)].entry), marks, memo, depth + 1) orelse return null
+    else
+        0;
+    memo[block] = blockWork(program.blocks[block]) +| following +| nested;
     marks[block] = 2;
     return memo[block];
 }
@@ -234,7 +242,10 @@ fn pathWork(allocator: std.mem.Allocator, program: ir.Program) Error!?u64 {
     const memo = try allocator.alloc(u64, program.blocks.len);
     defer allocator.free(memo);
     var work: u64 = 0;
-    for (program.functions) |function| work +|= pathAt(program, @intCast(function.entry), marks, memo, 0) orelse return null;
+    for (program.functions, 0..) |function, id| {
+        if (!@import("call_contexts.zig").unknownEntry(program, id)) continue;
+        work = @max(work, pathAt(program, @intCast(function.entry), marks, memo, 0) orelse return null);
+    }
     return work;
 }
 fn cost(allocator: std.mem.Allocator, owned: *const p01.Owned) Error!Cost {
@@ -344,6 +355,8 @@ fn possible(allocator: std.mem.Allocator, owned: *const p01.Owned, stage: Stage)
             for (program.functions, 0..) |_, id| if (affine.directTarget(program, id) != null) return true;
         },
         .partial_redundancy => return pre.possible(program),
+        .call_patterns => return patterns.possible(program),
+        .leaf_inlining => return leaves.possible(program),
         .p01 => return true,
     }
     return false;
@@ -534,6 +547,18 @@ fn apply(a: std.mem.Allocator, program: ir.Program, stage: Stage, options: p01.O
             exhausted.* = stats.work_limit;
             break :blk result;
         },
+        .leaf_inlining => blk: {
+            var stats: leaves.Statistics = .{};
+            const result = try leaves.run(a, program, &stats, .{ .coalescing = options });
+            exhausted.* = stats.work_limit;
+            break :blk result;
+        },
+        .call_patterns => blk: {
+            var stats: patterns.Statistics = .{};
+            const result = try patterns.run(a, program, &stats, .{ .coalescing = options });
+            exhausted.* = stats.work_limit;
+            break :blk result;
+        },
         .partial_redundancy => blk: {
             var stats: pre.Statistics = .{};
             const result = try pre.run(a, program, &stats, .{ .coalescing = options });
@@ -610,5 +635,19 @@ test "activation path cost is exact for a simple chain and unknown for a CFG cyc
     const program: ir.Program = .{ .roots = .{ .entry = 0, .result = 0, .failure = 0 }, .schemas = &.{.unit}, .constants = &.{.{ .schema = 0, .bytes = &.{} }}, .effects = &.{}, .functions = &.{.{ .entry = 0, .inputs = &.{}, .layout = .{ .slots = &.{0} }, .result = 0 }}, .blocks = &blocks };
     try std.testing.expectEqual(@as(?u64, 3), try pathWork(a, program));
     blocks[1].terminator = .{ .jump = .{ .block = 0 } };
+    try std.testing.expectEqual(@as(?u64, null), try pathWork(a, program));
+}
+
+test "entry-path estimate expands known direct calls and declines recursion" {
+    const a = std.testing.allocator;
+    var blocks = [_]ir.Block{
+        .{ .function = 0, .instructions = &.{}, .terminator = .{ .call = .{ .function = 1, .arguments = &.{}, .next = .{ .block = 1, .assignments = &.{.{ .destination = 0, .source = .returned }} } } } },
+        .{ .function = 0, .instructions = &.{}, .terminator = .{ .return_value = 0 } },
+        .{ .function = 1, .instructions = &.{.{ .destination = 0, .opcode = .constant }}, .terminator = .{ .return_value = 0 } },
+        .{ .function = 1, .instructions = &.{}, .terminator = .{ .return_value = 0 } },
+    };
+    const program: ir.Program = .{ .roots = .{ .entry = 0, .result = 0, .failure = 0 }, .schemas = &.{.unit}, .constants = &.{.{ .schema = 0, .bytes = &.{} }}, .effects = &.{}, .functions = &.{ .{ .entry = 0, .inputs = &.{}, .layout = .{ .slots = &.{0} }, .result = 0 }, .{ .entry = 2, .inputs = &.{}, .layout = .{ .slots = &.{0} }, .result = 0 } }, .blocks = &blocks };
+    try std.testing.expectEqual(@as(?u64, 4), try pathWork(a, program));
+    blocks[2].terminator = .{ .call = .{ .function = 0, .arguments = &.{}, .next = .{ .block = 3, .assignments = &.{.{ .destination = 0, .source = .returned }} } } };
     try std.testing.expectEqual(@as(?u64, null), try pathWork(a, program));
 }
