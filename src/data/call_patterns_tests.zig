@@ -101,10 +101,12 @@ test "unknown callable join retains the generic fallback beside a known variant"
     try std.testing.expectEqual(@as(usize, 1), stats.generic_fallback_calls);
 }
 test "recursive generic workers are not unfolded by the first call-pattern subset" {
+    try std.testing.expect(patterns.possible(repeated));
     var original = repeated;
     var blocks = repeated.blocks[0..11].*;
     blocks[6].terminator = .{ .call = .{ .function = 1, .arguments = &.{ 0, 1, 2 }, .next = repeated.blocks[6].terminator.apply.next } };
     original.blocks = &blocks;
+    try std.testing.expect(!patterns.possible(original));
     var candidate = try patterns.construct(a, original, .{});
     defer if (candidate) |*value| value.deinit();
     try std.testing.expect(candidate == null);

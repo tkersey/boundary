@@ -29,7 +29,9 @@ const unpack = @import("capture_unpack.zig");
 pub const Contract = enum { structural, semantic };
 pub const Objective = enum { size, balanced, speed };
 pub const Stage = enum { p01, branch, applications, aggregates, expressions, cells, dead_computation, dead_arguments, dead_captures, capture_projection, capture_summary, affine_state, capture_unpack, partial_redundancy, call_patterns, leaf_inlining, contification, common_tails, tail_duplication, outlining, slot_packing };
-pub const default_work_limit: u64 = 100_000_000_000;
+// Prospective construction policy for the expanded four-round schedule.
+// Caller-supplied limits remain exact; this does not change P01's allowance.
+pub const default_work_limit: u64 = 400_000_000_000;
 pub const Outcome = enum { not_run, structural, deferred_open_component, no_change, applied, work_limit, size_guard };
 pub const Statistics = struct {
     outcome: Outcome = .not_run,
@@ -134,13 +136,18 @@ fn reservation(program: ir.Program, stage: Stage) Error!u64 {
     // is separately capped by its counted allowance.
     const comparisons: u64 = switch (stage) {
         .branch => std.math.mul(u64, program.blocks.len, program.blocks.len) catch return error.Capacity,
-        .call_patterns, .leaf_inlining, .contification, .common_tails, .tail_duplication, .outlining, .slot_packing => std.math.mul(u64, try sumWork(&.{ program.functions.len, max_inputs, instructions, program.blocks.len, 1 }), shape.records) catch return error.Capacity,
+        // These bounded passes index whole-record scans by functions, blocks,
+        // parameters or slots. Instruction-level searches have their own
+        // counted allowances below; they do not each rescan the entire Program.
+        .call_patterns, .leaf_inlining, .contification, .common_tails, .tail_duplication, .outlining, .slot_packing => std.math.mul(u64, try sumWork(&.{ program.functions.len, max_inputs, max_slots, program.blocks.len, 1 }), shape.records) catch return error.Capacity,
         .applications => std.math.mul(u64, try sumWork(&.{ applications_count, 1 }), shape.records) catch return error.Capacity,
         .aggregates => block_squares,
         .expressions => 0,
         .partial_redundancy => std.math.mul(u64, try sumWork(&.{ instructions, program.blocks.len, 1 }), shape.records) catch return error.Capacity,
         .cells => std.math.mul(u64, try sumWork(&.{ cells_count, 1 }), shape.records) catch return error.Capacity,
-        .dead_computation => std.math.mul(u64, try sumWork(&.{ instructions, max_slots, program.blocks.len, 1 }), shape.records) catch return error.Capacity,
+        // One dead-computation round. The driver caps and charges each actual
+        // round instead of reserving all hypothetical shrinking rounds up front.
+        .dead_computation => std.math.mul(u64, try sumWork(&.{ program.blocks.len, 1 }), shape.records) catch return error.Capacity,
         .dead_arguments => std.math.mul(u64, try sumWork(&.{ program.functions.len, max_inputs, 1 }), shape.records) catch return error.Capacity,
         .affine_state => std.math.mul(u64, try sumWork(&.{ program.constructors.len, program.functions.len, constructions, 1 }), shape.records) catch return error.Capacity,
         .dead_captures, .capture_projection, .capture_summary, .capture_unpack => std.math.mul(u64, try sumWork(&.{ program.constructors.len, constructions, 1 }), shape.records) catch return error.Capacity,
@@ -149,8 +156,12 @@ fn reservation(program: ir.Program, stage: Stage) Error!u64 {
     const scans = std.math.mul(u64, std.math.add(u64, comparisons, shape.records) catch return error.Capacity, 64) catch return error.Capacity;
     const byte_work = std.math.mul(u64, shape.bytes, 16) catch return error.Capacity;
     const facts: u64 = switch (stage) {
-        .branch, .applications, .aggregates, .call_patterns => 22_000_000,
+        .branch, .applications, .aggregates => 22_000_000,
+        .call_patterns => 5 * (patterns.Options{}).work_limit,
         .expressions, .partial_redundancy => 1_000_000,
+        .leaf_inlining, .contification, .common_tails, .outlining => 2_000_000,
+        .tail_duplication => 26_000_000, // Search/checker plus fresh branch facts/proofs.
+        .slot_packing => 20_000_000,
         .affine_state => std.math.mul(u64, try sumWork(&.{ program.constructors.len, program.functions.len }), 6_000_000) catch return error.Capacity,
         else => 0,
     };
@@ -418,11 +429,17 @@ pub fn run(allocator: std.mem.Allocator, original: ir.Program, options: Options)
             keep_baseline = true;
             return baseline;
         }
-        stats.work_reserved += charge;
         stage = .dead_computation;
         notify(options, stage);
         var exhausted = false;
-        shrinking = try apply(allocator, baseline.program, stage, quiet, &exhausted);
+        shrinking = try applyWithWork(allocator, baseline.program, stage, quiet, charge, options.work_limit, &stats.work_reserved, &exhausted);
+        if (exhausted) {
+            try allowBaseline(options, stats.baseline_bytes);
+            stats.outcome = .work_limit;
+            stats.stopped_stage = stage;
+            keep_baseline = true;
+            return baseline;
+        }
         stats.stages_run += 1;
     }
     var stable = false;
@@ -455,10 +472,9 @@ pub fn run(allocator: std.mem.Allocator, original: ir.Program, options: Options)
                 keep_baseline = true;
                 return baseline;
             }
-            stats.work_reserved += charge;
             notify(options, stage);
             var exhausted = false;
-            var next = apply(allocator, input, stage, quiet, &exhausted) catch |err| {
+            var next = applyWithWork(allocator, input, stage, quiet, charge, options.work_limit, &stats.work_reserved, &exhausted) catch |err| {
                 if (err == error.SemanticWorkLimit or err == error.ExpressionWorkLimit) {
                     try allowBaseline(options, stats.baseline_bytes);
                     stats.outcome = .work_limit;
@@ -535,6 +551,20 @@ pub fn run(allocator: std.mem.Allocator, original: ir.Program, options: Options)
     stats.outcome = .applied;
     return result;
 }
+fn applyWithWork(a: std.mem.Allocator, program: ir.Program, stage: Stage, options: p01.Options, charge: u64, limit: u64, used: *u64, exhausted: *bool) Error!p01.Owned {
+    if (stage != .dead_computation) {
+        used.* += charge;
+        return apply(a, program, stage, options, exhausted);
+    }
+    // Each round only removes instructions, so its input scan bound cannot
+    // exceed the original round's reservation. No round starts without credit.
+    const allowed = (limit - used.*) / @max(charge, 1);
+    var stats: dead.Statistics = .{};
+    const result = try dead.run(a, program, &stats, .{ .round_limit = @intCast(@min(allowed, std.math.maxInt(usize))), .coalescing = options });
+    used.* += charge * stats.round_attempts;
+    exhausted.* = stats.work_limit;
+    return result;
+}
 fn apply(a: std.mem.Allocator, program: ir.Program, stage: Stage, options: p01.Options, exhausted: *bool) Error!p01.Owned {
     return switch (stage) {
         .p01 => unreachable,
@@ -606,7 +636,7 @@ fn apply(a: std.mem.Allocator, program: ir.Program, stage: Stage, options: p01.O
             break :blk result;
         },
         .cells => cells.run(a, program, null, options),
-        .dead_computation => dead.run(a, program, null, .{ .coalescing = options }),
+        .dead_computation => unreachable, // Budgeted rounds are owned by applyWithWork.
         .dead_arguments => arguments.run(a, program, null, options),
         .dead_captures => captures.run(a, program, null, options),
         .capture_projection => projections.run(a, program, null, options),

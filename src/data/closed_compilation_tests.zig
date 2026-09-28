@@ -191,3 +191,27 @@ test "independent shrinking candidate releases every partial owner and charges i
     try std.testing.expectEqual(compile.Stage.dead_computation, stats.stopped_stage.?);
     try std.testing.expectEqual(try image.identity(a, baseline.program), try image.identity(a, limited.program));
 }
+
+test "dead-computation round credit preserves whole-attempt rollback and admission" {
+    const dead = @import("dead_computation.zig");
+    var baseline = try p01.run(a, shrinking_fixture, .{});
+    defer baseline.deinit();
+    for ([_]usize{ 0, 1 }) |limit| {
+        var stats: dead.Statistics = .{};
+        var limited = try dead.run(a, shrinking_fixture, &stats, .{ .round_limit = limit });
+        defer limited.deinit();
+        try std.testing.expect(stats.work_limit);
+        try std.testing.expectEqual(limit, stats.round_attempts);
+        try std.testing.expectEqual(@as(usize, 0), stats.instructions_removed);
+        try std.testing.expectEqual(try image.identity(a, baseline.program), try image.identity(a, limited.program));
+    }
+    var stats: dead.Statistics = .{};
+    var completed = try dead.run(a, shrinking_fixture, &stats, .{ .round_limit = 2 });
+    defer completed.deinit();
+    try std.testing.expect(!stats.work_limit);
+    try std.testing.expectEqual(@as(usize, 2), stats.round_attempts);
+    try std.testing.expectEqual(@as(usize, 1), stats.instructions_removed);
+    var invalid = shrinking_fixture;
+    invalid.roots.entry = 9;
+    try std.testing.expectError(error.InvalidReference, dead.run(a, invalid, null, .{ .round_limit = 0 }));
+}

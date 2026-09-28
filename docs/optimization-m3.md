@@ -565,3 +565,67 @@ cost matrix contains 104 measured cells; byte-identical tails/duplication images
 reuse their exact evidence. Initial rejected allocation policies and the retained
 policy are separate in `performance/m3-p22-*.json`. Full consumer/package and
 remaining programme qualification stay open.
+
+## Consumer work-budget correction (qualification in progress)
+
+The first M3 consumer rebind at `fd2cb6f` preserved behavior but exhausted the
+semantic work allowance on all three inquiry applications. Whole-attempt rollback
+selected the P01 baseline; ReAct consequently grew from 40,966 to 49,604 bytes
+and increased WASM admission peak by 482,052 bytes. These costs are not covered
+by the user's earlier synthetic-cost acceptance.
+
+The correction removes nested slot/argument and slot/edge-assignment scans from
+P02 propagation, while preserving reads from the simultaneous predecessor state.
+A 96-slot rotation is checked against independent backward proofs within 1,500
+work units; ordered call transfer is checked within 2,500. Explicit tiny limits
+still fail. Dead-computation discovery now enumerates explicit edge sources,
+since admitted liveness already contains control operands, instead of scanning
+every layout slot against each terminator. Its driver reserves each shrinking
+round before execution and charges attempted rounds. Exhaustion discards partial
+results and returns the original P01 baseline; zero-round invalid input still
+fails original admission.
+
+M3 stage reservations now distinguish whole-record scans from separately bounded
+instruction search/proof phases. Call-pattern preflight excludes control forms
+that its existing eligibility checker cannot specialize. The rejected experiment
+of seeding all discovery from the independent shrinking candidate passed focused
+tests but did not resolve the consumer exhaustion; it is not retained.
+
+The initial policy of preserving the old numeric default was an implementation
+assumption, not a numeric requirement of §7.4. The prospective semantic default is
+400 billion conservative construction-work units for the expanded four-round
+schedule, up from 100 billion. P09 defaults to P02's ten-million-unit allowance
+for each of its five bounded phases; all five are reserved. Explicit caller
+limits still cap their phases, and P01's limits, exact selection and rollback
+are unchanged. This is an increased compiler construction allowance, not a World
+performance exemption. Full corpus, source/package and runtime qualification
+remain required before this correction is accepted or published.
+
+The corrected corpus completes all 18 compilations with no `work_limit` outcome.
+Repair and repeated inquiry consume 86.7/88.0 billion reserved units and ReAct
+166.1 billion, each converging in two rounds. ReAct emits 41,021 bytes, compared
+with 49,604 from the rejected rollback candidate and 40,966 at M2.5. Its native
+admission/retained increases versus M2.5 are 3,994/3,384 bytes; WASM increases are
+3,192/2,062 bytes. These measured residuals are not accepted by the earlier P22
+synthetic-cost decision. Fresh inquiry/ReAct (13 cases) and repeated inquiry
+(four epochs, 28 prescribed model responses, four experiments, eight cleanups)
+pass native/WASM/Wasmtime comparisons. The other 15 corpus images match the
+initial M3 candidate exactly. Integrated validation and remaining economics are
+still pending; `performance/m3-work-accounting.json` preserves attempt attribution.
+
+The final integrated ReleaseSafe command completed with exit 0: 319/319 steps
+and 689/689 tests. Consumer timing, execution/checkpoint memory and authenticated
+package rebinding remain pending. The current source hashes and terminal log
+digest are recorded in the work-accounting report.
+
+Replay qualification compares 13 inquiry scenarios (128 semantic boundaries)
+and five additional document/consequence/review scenarios (73 boundaries) with
+both M2.5 and the pre-cutover controls. Canonical request identities, schemas,
+payloads and outcomes agree. Local admission and selected fresh-invocation memory
+changes stay within the supplied thresholds; checkpoint maxima do not grow.
+Cumulative document/consequence execution peaks above the pre-cutover threshold
+are retained explicitly: those increases already appear in the M2.5 control and
+are slightly reduced here. Their historical acceptance scope must be reconciled
+with the final economic report, not silently inferred from local improvement.
+Paired admission and execution/checkpoint timing is running separately after
+build and trace generation have stopped.

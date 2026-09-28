@@ -14,7 +14,7 @@ const equal = @import("record_equal.zig").equal;
 const image = @import("program_image.zig");
 const p01 = @import("coalescing.zig");
 pub const Error = facts.Error || p01.Error || error{ InvalidCallPattern, CallPatternLimit };
-pub const Options = struct { work_limit: u64 = 1_000_000, max_variants: usize = 16, max_added_blocks: usize = 256, max_added_bytes: usize = 4096, coalescing: p01.Options = .{} };
+pub const Options = struct { work_limit: u64 = facts.default_work_limit, max_variants: usize = 16, max_added_blocks: usize = 256, max_added_bytes: usize = 4096, coalescing: p01.Options = .{} };
 pub const Static = union(enum) { constructor: p.Id, variant: p.Id, boolean: bool, unsigned: u64 };
 pub const Key = struct { epoch: [32]u8, function: p.Id, parameter: usize, schema: p.Id, value: Static };
 pub const Variant = struct { key: Key, function: p.Id, first_block: usize, literal: ?p.Id = null };
@@ -136,6 +136,20 @@ pub fn possible(program: ir.Program) bool {
         if (contexts.unknownEntry(program, target)) continue;
         const function = program.functions[@intCast(target)];
         if (function.effects.len != 0 or function.regions.len != 0) continue;
+        // Every parameter specialization already rejects these control forms.
+        // Establish this cheap necessary condition before whole-program facts.
+        var supported_body = true;
+        for (program.blocks) |body| {
+            if (body.function != target) continue;
+            switch (body.terminator) {
+                .return_value, .fail, .jump, .branch, .apply, .switch_variant => {},
+                else => {
+                    supported_body = false;
+                    break;
+                },
+            }
+        }
+        if (!supported_body) continue;
         for (function.inputs) |slot| {
             const schema = program.schemas[@intCast(function.layout.slots[@intCast(slot)])];
             if (schema == .u8 or schema == .u16 or schema == .u32 or schema == .u64 or schema == .boolean or schema == .sum or (schema == .internal and schema.internal == .computation and schema.internal.computation.use == .reusable)) return true;
@@ -275,6 +289,8 @@ fn findLiteral(program: ir.Program, schema: p.Id, value: u64, budget: *Budget) E
     return null;
 }
 pub fn construct(allocator: std.mem.Allocator, original: ir.Program, options: Options) Error!?Candidate {
+    // The default covers shared P02 analysis as in branch/application
+    // specialization. An explicit pass limit still caps every phase.
     var discovered = try facts.analyzeWithLimit(allocator, original, options.work_limit);
     defer discovered.deinit();
     var arena = std.heap.ArenaAllocator.init(allocator);

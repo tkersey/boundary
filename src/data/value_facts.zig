@@ -100,8 +100,10 @@ pub fn analyzeWithLimit(allocator: std.mem.Allocator, program: ir.Program, work_
     errdefer arena.deinit();
     const a = arena.allocator();
     const work = try a.alloc(Working, program.blocks.len);
+    var max_slots: usize = 0;
     for (program.blocks, work) |block, *out| {
         const layout = program.functions[@intCast(block.function)].layout.slots;
+        max_slots = @max(max_slots, layout.len);
         try budget.take(layout.len + block.instructions.len);
         const versions = try a.alloc(Version, layout.len);
         const definitions = try a.alloc(Definition, layout.len + block.instructions.len);
@@ -120,6 +122,8 @@ pub fn analyzeWithLimit(allocator: std.mem.Allocator, program: ir.Program, work_
         }
         out.* = .{ .definitions = definitions, .results = results, .exit = versions, .outgoing = try a.alloc(Value, layout.len) };
     }
+    const incoming = try a.alloc(Value, max_slots);
+    const overwritten_slots = try a.alloc(bool, max_slots);
     // Unknown-entry workers are roots. Private direct-call workers are reached
     // through ordered call transfers, including recursive cycles in this same
     // monotone worklist. No observed call can narrow an externally supplied input.
@@ -154,7 +158,7 @@ pub fn analyzeWithLimit(allocator: std.mem.Allocator, program: ir.Program, work_
         }
         try budget.take(state.exit.len);
         for (state.exit, state.outgoing) |version, *value| value.* = state.definitions[version].value;
-        var propagation: Propagation = .{ .program = program, .work = work, .source = state, .allocator = a, .queue = &queue, .queued = queued, .budget = &budget };
+        var propagation: Propagation = .{ .program = program, .work = work, .source = state, .allocator = a, .queue = &queue, .queued = queued, .budget = &budget, .incoming = incoming, .overwritten_slots = overwritten_slots };
         try propagation.terminator(block.terminator);
     }
     const blocks = try a.alloc(Block, work.len);
@@ -213,6 +217,8 @@ const Propagation = struct {
     allocator: std.mem.Allocator,
     queue: *std.ArrayList(usize),
     queued: []bool,
+    incoming: []Value,
+    overwritten_slots: []bool,
     fn value(self: Propagation, slot: p.Id) Value {
         return self.source.outgoing[@intCast(slot)];
     }
@@ -221,12 +227,14 @@ const Propagation = struct {
         const entry: usize = @intCast(function.entry);
         const target = &self.work[entry];
         var changed = !target.reachable;
+        try self.budget.take(function.layout.slots.len + function.inputs.len);
         for (function.layout.slots, 0..) |schema, slot| {
-            try self.budget.take(1 + function.inputs.len);
-            var incoming = bounds(self.program.schemas[@intCast(schema)]);
-            for (function.inputs, arguments) |destination, argument| {
-                if (destination == slot) incoming = forgetOrigin(self.value(argument));
-            }
+            self.incoming[slot] = bounds(self.program.schemas[@intCast(schema)]);
+        }
+        for (function.inputs, arguments) |destination, argument|
+            self.incoming[@intCast(destination)] = forgetOrigin(self.value(argument));
+        try self.budget.take(function.layout.slots.len);
+        for (self.incoming[0..function.layout.slots.len], 0..) |incoming, slot| {
             const merged = if (target.reachable) joined(target.definitions[slot].value, incoming) else incoming;
             if (!std.meta.eql(target.definitions[slot].value, merged)) {
                 target.definitions[slot].value = merged;
@@ -245,16 +253,26 @@ const Propagation = struct {
         const layout = self.program.functions[@intCast(self.program.blocks[@intCast(next.block)].function)].layout.slots;
         // Read only source exit versions. No assignment can see an earlier
         // destination write from this same parallel edge.
+        try self.budget.take(layout.len + overwritten.len + next.assignments.len);
         for (layout, 0..) |schema, slot| {
-            try self.budget.take(1 + next.assignments.len + overwritten.len);
-            var incoming = if (std.mem.indexOfScalar(p.Id, overwritten, slot) != null) bounds(self.program.schemas[@intCast(schema)]) else self.value(slot);
-            for (next.assignments) |assignment| if (assignment.destination == slot) {
-                incoming = switch (assignment.source) {
-                    .returned => bounds(self.program.schemas[@intCast(schema)]),
-                    .slot => |origin| if (std.mem.indexOfScalar(p.Id, overwritten, origin) != null) bounds(self.program.schemas[@intCast(schema)]) else self.value(origin),
-                };
+            _ = schema;
+            self.overwritten_slots[slot] = false;
+            self.incoming[slot] = self.value(slot);
+        }
+        for (overwritten) |slot| {
+            self.overwritten_slots[@intCast(slot)] = true;
+            self.incoming[@intCast(slot)] = bounds(self.program.schemas[@intCast(layout[@intCast(slot)])]);
+        }
+        for (next.assignments) |assignment| {
+            const slot: usize = @intCast(assignment.destination);
+            self.incoming[slot] = switch (assignment.source) {
+                .returned => bounds(self.program.schemas[@intCast(layout[slot])]),
+                .slot => |origin| if (self.overwritten_slots[@intCast(origin)]) bounds(self.program.schemas[@intCast(layout[slot])]) else self.value(origin),
             };
-            incoming = forgetOrigin(incoming);
+        }
+        try self.budget.take(layout.len);
+        for (self.incoming[0..layout.len], 0..) |value_in, slot| {
+            const incoming = forgetOrigin(value_in);
             const merged = if (target.reachable) joined(target.definitions[slot].value, incoming) else incoming;
             if (!std.meta.eql(target.definitions[slot].value, merged)) {
                 target.definitions[slot].value = merged;
@@ -366,4 +384,57 @@ test "variant possibilities widen to explicit unknown without dropping tags" {
     try std.testing.expect(!value.known);
     try std.testing.expectEqual(@as(u3, 0), value.count);
     try std.testing.expect(!VariantSet.merge(VariantSet.one(0), .{}).known);
+}
+
+test "parallel fact transfer is linear and reads every source before writes" {
+    const a = std.testing.allocator;
+    const n = 96;
+    const slots = [_]p.Id{0} ** n;
+    var instructions: [n]ir.Instruction = undefined;
+    var assignments: [n]ir.Assignment = undefined;
+    for (&instructions, &assignments, 0..) |*op, *assignment, index| {
+        op.* = .{ .destination = index, .opcode = .constant, .immediate = index % 2 };
+        assignment.* = .{ .destination = index, .source = .{ .slot = (index + 1) % n } };
+    }
+    const program: ir.Program = .{
+        .roots = .{ .entry = 0, .result = 0, .failure = 1 },
+        .schemas = &.{ .u64, .unit },
+        .effects = &.{},
+        .constants = &.{ .{ .schema = 0, .bytes = &.{ 0, 0, 0, 0, 0, 0, 0, 0 } }, .{ .schema = 0, .bytes = &.{ 1, 0, 0, 0, 0, 0, 0, 0 } } },
+        .functions = &.{.{ .entry = 0, .inputs = &.{}, .layout = .{ .slots = &slots }, .result = 0 }},
+        .blocks = &.{
+            .{ .function = 0, .instructions = &instructions, .terminator = .{ .jump = .{ .block = 1, .assignments = &assignments } } },
+            .{ .function = 0, .instructions = &.{}, .terminator = .{ .return_value = 0 } },
+        },
+    };
+    var result = try analyzeWithLimit(a, program, 1500);
+    defer result.deinit();
+    var proof: @import("constant_origin.zig").Prover = .{ .allocator = a, .program = program };
+    defer proof.deinit();
+    for (0..n) |slot| {
+        const expected: u64 = ((slot + 1) % n) % 2;
+        try std.testing.expectEqual(expected, result.blocks[1].definitions[slot].value.unsigned.?);
+        try std.testing.expectEqual(expected, (try proof.resolve(1, 0, slot)).?.unsigned);
+    }
+    try std.testing.expectError(error.SemanticWorkLimit, analyzeWithLimit(a, program, 1));
+
+    var inputs: [n]p.Id = undefined;
+    var arguments: [n]p.Id = undefined;
+    for (&inputs, &arguments, 0..) |*input, *argument, index| {
+        input.* = index;
+        argument.* = (index + 1) % n;
+    }
+    var called = program;
+    called.functions = &.{
+        program.functions[0],
+        .{ .entry = 2, .inputs = &inputs, .layout = .{ .slots = &slots }, .result = 0 },
+    };
+    called.blocks = &.{
+        .{ .function = 0, .instructions = &instructions, .terminator = .{ .call = .{ .function = 1, .arguments = &arguments, .next = .{ .block = 1, .assignments = &.{.{ .destination = 0, .source = .returned }} } } } },
+        program.blocks[1],
+        .{ .function = 1, .instructions = &.{}, .terminator = .{ .return_value = 0 } },
+    };
+    var call_result = try analyzeWithLimit(a, called, 2500);
+    defer call_result.deinit();
+    for (0..n) |slot| try std.testing.expectEqual(@as(u64, ((slot + 1) % n) % 2), call_result.blocks[2].definitions[slot].value.unsigned.?);
 }
