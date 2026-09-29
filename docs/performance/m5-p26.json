@@ -48929,7 +48929,17 @@
           "ratio": 1.172246717379718,
           "deltaNs": 1333.125
         }
-      ]
+      ],
+      "costDecision": {
+        "status": "accepted",
+        "authority": "Explicit user response in this thread, September 29, 2026",
+        "scope": "P25 four-operation WASM fresh +1.06 microseconds (7.8%); P26 native reclamation pauses +0.166–10.208 microseconds and four WASM pauses +1.04–1.35 microseconds. Does not accept earlier pending costs or ongoing consumer comparisons."
+      }
     }
+  },
+  "costDecision": {
+    "status": "accepted",
+    "authority": "Explicit user response in this thread, September 29, 2026",
+    "scope": "P25 four-operation WASM fresh +1.06 microseconds (7.8%); P26 native reclamation pauses +0.166–10.208 microseconds and four WASM pauses +1.04–1.35 microseconds. Does not accept earlier pending costs or ongoing consumer comparisons."
   }
 }

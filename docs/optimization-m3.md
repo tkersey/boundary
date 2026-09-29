@@ -522,6 +522,17 @@ pass. All 66 preceding images remain byte-identical. Performance acceptance is p
 
 ## P22 activation-local logical slot packing
 
+Later retained-view qualification: `packed temporary reuse isolates an actually
+retained prior activation view` obtains the independently validated packing map,
+proves three original temporaries share its destination, executes to the first
+write, and forks the actual World frame view. The next write changes only the
+active value; the retained value remains byte-identical and the slot-store copy
+counter increases. The current checkpoint restores and returns the independently
+expected value. All three tests in `test/v2/slot_packing.zig` pass in ReleaseSafe
+against World `e89b94a`, including the existing parallel swaps and loop restores.
+This adds retention evidence for the existing logical-packing path; it does not
+claim a new same-image physical slot remapper or alter the existing World runtime.
+
 Inspection of the capture fixture found only one completely unreferenced layout
 entry. The retained correction therefore packs disjoint live ranges, rather than
 launching an unused-slot cleanup. `slot_packing.zig` derives interference from

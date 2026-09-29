@@ -10043,5 +10043,10 @@
     "test/current/scalar_batch_failures.mjs": "326a2c7fba1b05e54db829cba74ee88917c23861c175df648caa921e5ab2d87e",
     "test/current/scalar_batch_memory.zig": "1534775662261ac3ccc0fd58f02b6b272cb8286567cb0201d9fc66aebd22ff76",
     "test/current/scalar_batch_memory.mjs": "d7ac15c50179a941d79f14541858934a22397dee4d5de1036a1f2fd2d725515d"
+  },
+  "costDecision": {
+    "status": "accepted",
+    "authority": "Explicit user response in this thread, September 29, 2026",
+    "scope": "P25 four-operation WASM fresh +1.06 microseconds (7.8%); P26 native reclamation pauses +0.166–10.208 microseconds and four WASM pauses +1.04–1.35 microseconds. Does not accept earlier pending costs or ongoing consumer comparisons."
   }
 }

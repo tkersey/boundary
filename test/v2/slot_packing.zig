@@ -3,6 +3,54 @@ const data = @import("boundary_data");
 const world = @import("world");
 const ir = data.activation;
 const a = std.testing.allocator;
+
+test "packed temporary reuse isolates an actually retained prior activation view" {
+    const original: ir.Program = .{
+        .roots = .{ .entry = 0, .result = 0, .failure = 1 },
+        .schemas = &.{ .u64, .unit },
+        .constants = &.{},
+        .effects = &.{},
+        .functions = &.{.{ .entry = 0, .inputs = &.{0}, .layout = .{ .slots = &.{ 0, 0, 0, 0 } }, .result = 0 }},
+        .blocks = &.{.{ .function = 0, .instructions = &.{
+            .{ .destination = 1, .opcode = .integer_bit_not, .operands = &.{0} },
+            .{ .destination = 2, .opcode = .integer_bit_not, .operands = &.{1} },
+            .{ .destination = 3, .opcode = .integer_bit_not, .operands = &.{2} },
+        }, .terminator = .{ .return_value = 3 } }},
+    };
+    var candidate = (try data.slot_packing.construct(a, original, .{})).?;
+    defer candidate.deinit();
+    try data.slot_packing.validate(a, original, candidate.program, candidate.maps, .{});
+    const map = candidate.maps[0].?;
+    try std.testing.expectEqual(map[1], map[2]);
+    try std.testing.expectEqual(map[2], map[3]);
+    const image = try a.alloc(u8, try data.program_image.encodedLength(candidate.program));
+    defer a.free(image);
+    _ = try data.program_image.encode(a, candidate.program, image);
+    var session = try world.Session.initImage(a, image, &.{ 7, 0, 0, 0, 0, 0, 0, 0 });
+    defer session.deinit();
+    try session.step();
+    const first = try session.frames.get(session.roots.current.?.id);
+    const retained = try session.frames.forkFrame(first);
+    defer session.frames.releaseFrame(retained);
+    const prior = try session.frames.slots.get(retained.view, @intCast(map[1]));
+    try std.testing.expectEqual(~@as(u64, 7), std.mem.readInt(u64, &prior.body.scalar, .little));
+    const pages = session.frames.slots.statistics.live_pages;
+    try session.step();
+    const next = try session.frames.get(session.roots.current.?.id);
+    const current = try session.frames.slots.get(next.view, @intCast(map[2]));
+    try std.testing.expectEqual(@as(u64, 7), std.mem.readInt(u64, &current.body.scalar, .little));
+    try std.testing.expectEqualDeep(prior, try session.frames.slots.get(retained.view, @intCast(map[1])));
+    // An overwrite-only successor needs no predecessor descriptor copy.
+    // The retained view still requires independent backing for the new value.
+    try std.testing.expectEqual(pages + 1, session.frames.slots.statistics.live_pages);
+    const checkpoint = try session.checkpoint(a);
+    defer a.free(checkpoint);
+    var restored = try world.Session.restoreImage(a, image, checkpoint);
+    defer restored.deinit();
+    const result = try restored.run(null);
+    try std.testing.expect(result == .completed);
+    try std.testing.expectEqual(~@as(u64, 7), std.mem.readInt(u64, (try restored.bytes(&result.completed))[0..8], .little));
+}
 pub const threshold: ir.Program = blk: {
     var slots: [66]u64 = @splat(0);
     slots[2] = 1;

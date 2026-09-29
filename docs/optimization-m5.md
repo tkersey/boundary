@@ -1314,3 +1314,359 @@ compiler measurements, not runtime improvements inferred from image size.
 identities, replayable queries, concrete counterexamples and qualified-image
 equality. P28's bounded local deliverable is qualified; full programme delivery,
 consumer economics and final serial reviews remain open.
+
+## Published World runtime qualification
+
+The existing authenticated delivery workflow completed successfully for World
+`e89b94ab32118efbad96cca5917f27ddb8510298`, run `36594076098`, artifact
+`11046230435` (expires October 29, 2026). The runtime remains built against its
+locked Boundary data input `511fe388587b36ae37307d277e04c22b0bb6f6d9`.
+Its delivered kernel SHA-256 is
+`962d621fd781b19f0ec821e63d31688326467b6bba6f52fa697198c80b00a167`.
+
+All eleven producer checks report passed, including the aggregate, ReleaseFast,
+delivered kernel/package/source/capacity/transfer and portable smoke. The aggregate
+contains the existing real Chromium/Firefox qualification and exact same-image
+transfer assertions. Recorded native/Node agreement covers 237 boundaries and
+23 transfers; Node/Wasmtime/native transfer covers 159 boundaries. Counts retain
+their own suite scope rather than being added into a fabricated test total.
+
+The downloaded archive and external descriptor were acquired through World's
+public hash-bound `runtime acquire`; the installed bundle then passed `runtime
+verify --smoke` against its expected manifest hash. A durable local copy of the
+verified archive, descriptor and bundle is preserved separately from the earlier
+runtime. `performance/m5-runtime-delivery.json` binds the run, artifact, exact
+source/kernel hashes, producer checks and local smoke. No local kernel evidence
+was relabeled as this delivered artifact.
+
+Agent's dependency lock has not yet changed. Consumer execution/economics on this
+exact artifact and authenticated package rebinding remain required. Publication
+qualification neither accepts the pending costs nor closes P22/T/G/L reconciliation
+or the final serial-review obligation.
+
+### P22 physical packing candidate — retained-page boundary
+
+The initial logical-packing implementation does not alone close P22's explicit
+World requirement. The new candidate stays within the existing Slots owner:
+ordinary unique pages retain dense addressing; copy-on-write successors may store
+only initialized values in a single aligned header-plus-payload allocation.
+The logical initialization bitmap determines rank-based physical indices on sparse
+pages. Simultaneously initialized slots map injectively; clearing one slot can
+reuse its physical cell for another logical slot, while a retained predecessor
+keeps its independent page. A sparse page that needs more capacity returns to the
+ordinary dense representation. Portable IDs, iteration order, view generations,
+schema-bearing values and checkpoint interpretation do not change.
+
+An unconditional compact-allocation attempt failed the existing no-copy growth
+witnesses and was rejected. The retained design compacts only at an already
+necessary COW boundary and preserves the old tests unchanged. The new test directly
+observes physical-cell reuse across distinct logical slots, distinct live values,
+predecessor isolation, sparse insertion and promotion back to dense storage.
+Native validation passes 62 storage and 87 source/runtime tests. Performance,
+same-image cross-engine/capacity evidence and new authenticated delivery remain
+open; this is a candidate rather than an accepted faster storage claim.
+
+`performance/m5-p22-physical.json` records the construction, rejected attempt and
+proof scope. The running Agent integration still uses the earlier immutable
+`e89b94a` export, so its result cannot qualify this newer World source by relabeling.
+
+The focused physical-storage suite now passes 20 tests, including all 256 subsets
+of eight noncontiguous logical positions, each with every one-slot insertion and
+clear, checked against independent direct-value and iteration expectations.
+Original retained views remain unchanged. Additional over-aligned and zero-sized
+payload cases exercise the trailing allocation's alignment and ownership.
+
+The same heap-allocation probe is compiled against original `e89b94a` Slots and
+the candidate, using the same descriptors and live branches. Across 18 cases
+(1/2/4/8/9/16 live values and 1/8/64 branches), allocation counts do not increase.
+For 64 branches, sparse pages save 23,040/21,504/18,432/12,288 retained heap bytes
+at 1/2/4/8 values; 9/16-value dense pages use exactly the old heap bytes. The
+stack-resident Slots owner and call stack are outside these counters and remain
+separate resource obligations. Timing was deliberately not measured while the
+Agent aggregate was active. This is memory evidence, not a speed claim.
+
+P22's WASM storage target now passes explicit sparse/dense page thresholds,
+logical iteration and retained-predecessor checks in an import-free, unshared
+wasm32 module. The candidate kernel also agrees with a freshly built native
+`e89b94a` runner using the exact locked Boundary `511fe38` source on all 237
+canonical boundaries and 23 transfers in the existing kernel suite. Its additional
+Node/Wasmtime/native State-transfer suite passes 159 boundaries, including retained
+scopes, reentrant captures, custody, resources and independently linked components.
+These runs are terminal with exit zero; exact binaries and logs are bound in the
+P22 physical report. Candidate timing, total-resource cost and final authenticated
+delivery remain open. The old delivered kernel is not relabeled as this candidate.
+
+The existing capacity suite also passes against the physical-packing candidate:
+input, working, output and fixed linear-memory failures preserve unchanged retry
+input. Native owner accounting identifies 24 extra bytes in `Slots(graph.Value)`
+(104→128) for physical-page statistics; this is separate from the measured page
+savings. At two values across 64 retained branches, heap payload is 29,168→7,664
+bytes with 66 allocations in both builds. No whole-runtime/RSS reduction follows
+solely from that probe. Identical native timing probes are built against both
+implementations but remain unmeasured while Agent integration is active.
+
+### Verified candidate dependency binding and inquiry consumers
+
+A candidate Agent lock now binds the independently downloaded Boundary `36023aa`
+and World `e89b94a` source archives to their GitHub commit trees, complete source
+inventories and actual Zig package inventory. The World artifact ZIP digest,
+delivery archive hash, manifest and runtime inventory also verify. Agent's existing
+`snapshotDependencies`/`verifyRuntime` accept the complete candidate tuple. The
+candidate lock and transports are preserved with the acquired bundle; the installed
+repository lock is unchanged pending full qualification and cost disposition.
+
+The verified Boundary package rebuilds Agent's economy emitter and reproduces all
+18 previously measured P30 images byte-for-byte. The new delivered World kernel
+passes all 13 prescribed-response inquiry cases, including four inquiry/ReAct
+fixture pairs, with the qualified experiment sandbox, native control and locked
+Wasmtime checks unchanged. The temporary test adapter changes only the explicit
+candidate-lock argument to the existing runtime verifier. No runner or admission
+gate is bypassed and no paid inference is used.
+
+`performance/m5-runtime-delivery.json` retains the candidate lock digest, complete
+verification observations, exact emitter/image identities and inquiry result. This
+qualifies these checks on the new artifact; broad consumer timing/cumulative costs,
+installed binding, remaining P/T/G/L closure and final reviews remain open.
+
+### Delivered-runtime Agent admission and replay capture
+
+Five alternating process windows compare admission of all 18 identical corpus
+images through the previous and new authenticated runtime locks. Each process
+uses three warmups and nine samples. No image confirms a slowdown; measured
+admission peak and retained bytes are exactly equal in every paired observation.
+This isolates runtime changes and is not the separate pre-cutover cumulative
+compiler/image comparison. `performance/m5-runtime-delivery.json::sameImageAdmission`
+retains all windows and the verifier-bound kernel/image identities.
+
+The unchanged prescribed-response inquiry harness captured 128 PKI3/PKO3 pairs
+across 13 scenarios. Every reply remained checked against native and locked
+Wasmtime execution. A local copy of those fixtures is preserved with the acquired
+runtime; its adapter only records bytes at the existing invocation boundary.
+`test/consumer_runtime_replay.mjs` verifies fixture digests and both dependency
+locks, then measures the same commands in alternating processes with immutable
+reply oracles. This measures fresh runtime invocation/admission/restore work,
+excluding external experiments, inference and host latency. The full replay
+timing run is in progress; it is not counted as passed or economically accepted.
+
+### Accepted P25/P26 measured tradeoffs
+
+On September 29 the user explicitly accepted the consolidated P25/P26 costs:
+P25's four-operation WASM fresh invocation increase of 1.06 microseconds (7.8%),
+P26's measured native reclamation pauses of 0.166–10.208 microseconds, and four
+WASM pause increases of 1.04–1.35 microseconds. The reported 64-alias regression
+was corrected before this decision. The acceptance is recorded in the P25/P26
+performance reports and supersedes their earlier pending disposition for these
+exact measurements only. Earlier M3/P13/P16/P18/P19/P20/P24 decisions and the
+still-running consumer comparisons are not included. Correctness, binding and
+remaining programme qualification obligations are unchanged.
+
+The delivered-runtime replay is now terminal with exit zero. All 13 scenarios
+complete five alternating windows, each with three warmups and nine measured
+replays of their recorded invocation sequence. Every one of the 128 recorded
+command/reply bindings remains byte-exact on both authenticated kernels. No
+scenario confirms a timing slowdown or exceeds the peak-memory growth threshold.
+The full windows are retained under `sameImageReplay` in the runtime delivery
+report. These results isolate runtime changes on current images; they do not
+replace pre-cutover image/compiler comparisons or measure external host latency.
+
+### Reconstructed pre-cutover comparison
+
+The retained cutover report identifies the original Agent `dd336f0` and Boundary
+`6313768` commits. Their recorded images were no longer present in the inspected
+artifact directories, so immutable temporary Git exports rebuilt the original
+economy emitter without modifying its source or creating another worktree.
+All 18 original corpus images are regenerated. Inquiry and ReAct hashes exactly
+match the pre-cutover hashes in the earlier cumulative report, establishing the
+comparison's continuity rather than replacing its baseline with a newer image.
+
+The existing prescribed-response cases regenerate 128 baseline invocation/reply
+bindings and pass native/Wasmtime checks. Comparing them with the current-image
+traces on the new delivered kernel proves equal nominal semantic effect identities,
+request/resume schemas, canonical payloads and completed values at all 128 boundaries
+across 13 scenarios. Image-bound envelopes and private State identities are
+deliberately separate; no cross-image state transplant is performed.
+`performance/m5-runtime-delivery.json` retains the reconstruction identities and
+per-boundary results. Cumulative admission timing is running against this original
+corpus; it is not yet reported as passed or economically accepted.
+
+Cumulative WASM admission now completes all 18 images and five paired windows.
+Review-model confirms a 62.666-microsecond (13.55%) increase; the other seventeen
+images do not confirm timing slowdowns. Six images exceed the memory-growth
+threshold: clarify-first, document-consequence, document, review-clarify_first,
+review-mid_review and review-model. Their exact peak/retained observations and
+all windows are retained in `cumulativeAdmission` in the delivery report.
+The earlier cutover decision explicitly accepted six *native* admission-memory
+increases and the earlier WASM review-model timing cell. Its scope is preserved;
+current WASM memory costs are not silently accepted by that native decision.
+
+The pre-cutover corpus and all 128 baseline command/reply pairs are now preserved
+alongside the candidate runtime for later replay. The cumulative execution
+controller checks semantic correspondence before timing and gives each runtime
+its own immutable manifest and checkpoints. Its timing run remains active; no
+cumulative execution cost or pass is claimed from admission results.
+
+On September 29 the user explicitly accepted the current cumulative WASM admission
+costs: the six measured peak increases of 5,880–14,614 bytes, retained increases of
+4,054–12,104 bytes, and review-model timing increase of 62.7 microseconds (13.6%).
+This resolves the current admission disposition recorded above for the exact
+measured tuple. It does not accept cumulative execution costs or the earlier
+separate package-cost decisions. The full raw measurements remain unchanged.
+
+The cumulative inquiry runtime replay now completes with exit zero across all
+13 scenarios, five paired windows each. No scenario confirms a timing slowdown
+or peak-memory growth beyond the threshold. Both tuples reproduce every command's
+own expected reply, after semantic correspondence was checked across all 128
+boundaries. This is runtime invocation/admission/restore cost over prescribed
+traces, not total host/tool latency. Full raw windows and exact manifests are in
+`performance/m5-runtime-delivery.json::cumulativeReplay`. Other consumer families,
+earlier cost decisions and final programme/rebinding/review closure remain open.
+
+### Additional cumulative document/consequence consumers
+
+The existing four consequence economy cases and all thirteen document cases now
+pass on both the reconstructed original images/runtime and current images/delivered
+runtime. Across their 363 captured invocation boundaries (86 consequence and 277
+document), semantic effect identities, request/resume schemas, canonical payloads
+and completed values agree. Existing approval, stale-evidence, uncertain-delivery,
+cleanup and raw-versus-bridge assertions remain active. These captures did not
+enable the optional native comparison and make no new native-equality claim.
+
+The first candidate-document adapter omitted the explicit candidate lock on later
+bridge/postflight calls and correctly failed the unchanged dependency verifier.
+The corrected adapter supplies that same verified lock at every existing call;
+all assertions remain unchanged. Candidate and baseline traces retain independent
+image/state identities. Sources, adapters and log digests are recorded under
+`additionalConsumers` in the runtime-delivery report. The 17-case cumulative
+replay timing run is active; early rows are not a completed economics verdict.
+
+The additional replay is now terminal: all 17 scenarios complete five paired
+windows with no confirmed timing slowdown. Fifteen scenarios exceed cumulative
+peak-memory thresholds: two consequence cases by 5,518 bytes, document cases by
+6,338–7,010 bytes, and one document case by 9,332 bytes. These remain separate
+from accepted admission costs. The historical M3 decision includes cumulative
+document/consequence execution-memory bounds; its consolidated acceptance request
+is pending and no acceptance is inferred while awaiting the reply.
+
+All six existing review-consumer tests also pass on each tuple. The original
+tests retain their authored order, malformed-reply, unknown-answer, multiple-call
+and normalized model-failure assertions. Only absolute adapter paths and the
+explicit candidate dependency lock differ. The installed Agent lock remains
+unchanged. Exact adapters, logs and cumulative timing/memory windows are retained
+in the runtime-delivery report; final package integration and P/T/G/L closure
+remain open.
+
+### Full candidate Agent package integration
+
+The normal Agent setup succeeds in a temporary export of Agent `9a358cb` with
+only its prospective lock and `build.zig.zon` Boundary pin changed. Original
+setup/build/check/verifier sources match the active checkout. The installed
+checkout/lock remain unchanged while this candidate is qualified.
+
+The first aggregate correctly rejects a package-profile mismatch: the archive
+extract retains mode 0644 for `tools/bitvector_search.py`, while Zig's managed
+package gives it mode 0777. All 483 paths, file bytes and sizes otherwise agree.
+The existing distinct `archive-extracted` and `zig-managed` inventory fields now
+bind their separately observed modes; no verifier comparison is weakened. Full
+source/package/runtime verification then succeeds with the managed profile.
+The historical first candidate lock and observations remain separate evidence.
+
+The corrected `check-agent4 check-agent4-integration` ReleaseSafe aggregate is
+running through the ordinary package/runtime paths, including the existing
+consumer tests. `performance/m5-runtime-delivery.json::fullAgentIntegration`
+records its input scope and failed first attempt. No terminal aggregate pass,
+installed adoption, or final programme completion is claimed yet.
+
+That candidate aggregate is now terminal with exit 1: 401/409 build steps succeed
+and all 202/202 Zig tests pass, but packaging fails with `cannot inspect Git source
+identity: rev-parse HEAD`. The temporary source export does not provide the real
+Git identity required by the unchanged package producer. This invalidates use of
+that export as the final package-qualification route, not the package identity
+requirement. No fake Git identity or weakened package check is substituted.
+Package integration must continue from an actual committed candidate binding on
+the existing Agent branch; the incomplete aggregate is preserved as failed.
+
+The binding is now committed as Agent `de37343` on the existing branch. The
+unchanged package producer succeeds from that real checkout using the completed
+build's fixtures; its manifest reports `packagedSourceMatchesHead: true`. The
+275,156-byte archive has SHA-256
+`c87ddd976031c05d058d7e4c95fe0802a4aff4db0f646758df429981f8f17203`.
+The unchanged integration runner is active against this committed binding.
+The separate compiled-tool browser/file/browser transfer passes in Chromium
+153.0.8010.12 and Firefox 155.0 with the delivered `962d621f` kernel, including
+destroyed workers, file-server transfer and exactly one cleanup. These completed
+checks do not relabel the earlier failed aggregate or qualify the newer P22 kernel.
+
+P22 inspection found that `retainedBytes()` still multiplied live pages by the
+now-header-only `Page` size. It now uses the existing allocated-page byte count.
+An independent allocator-counting test covers dense and packed pages, a directory,
+clear and both releases; all five focused activation-slot tests pass. This changes
+the pending candidate's accounting and requires fresh final artifact qualification;
+earlier P22 kernel evidence remains bound to its original bytes.
+
+The corrected P22 source then passes the integrated 66-test storage suite,
+87-test native suite and WASM storage check (12/12 outer steps). Its rebuilt kernel
+has exactly the prior SHA-256 `c5361898...393a72`, so the same-byte canonical,
+cross-engine transfer and capacity results remain applicable. This does not claim
+authenticated publication of the pending source or completed timing qualification.
+
+### Committed Agent qualification continuation and P22 costs
+
+Agent `c931e25` is published on the existing draft #39. Its parser-package tests
+now use the integration runner's existing `AGENT4_ARCHIVE` selection. The earlier
+committed-checkout integration failed 5/95 tests: a GitHub fetch connection closed
+in the isolated installation, and four parser callers opened an older local
+archive whose lock correctly rejected the candidate runtime. A fresh Zig fetch
+returns the exact expected package hash; the unchanged isolated installation then
+passes. All five corrected parser CLI tests pass with the actual candidate package,
+including parked resumption, EOF choices and the shared call allowance. All five
+runtime commands prevented by the first failing runner also pass. The historical
+aggregate remains failed; final frozen-head aggregate qualification remains open.
+
+P22's direct native storage timing exposed repeatable overhead, including dense
+controls. The revised candidate skips an impossible dense-capacity check, computes
+sparse copy destinations with an ascending live-bit cursor, and uses fixed-size
+allocation/deallocation for dense pages. Its dense storage overhead drops from
+roughly 20–31% to 9–14% in the repeated probe; compact sparse pages retain their
+measured memory benefit and explicit timing tradeoffs. These are storage-probe
+observations, not whole-application speed claims.
+
+The revised source passes 66 storage tests, 87 native tests and import-free WASM
+storage checks. Kernel `e3b9aec1...da2e7ba` matches the frozen native predecessor on
+237 canonical boundaries/23 transfers and passes 159 Node/Wasmtime/native transfer
+boundaries plus unchanged retry-input capacity checks. Across 24 WASM blob
+fresh/pause timing cells, no slowdown is confirmed. Twenty native resident cells
+retain two confirmed pause increases of 41–42 ns; the shortest samples approach
+the native clock's resolution and remain recorded, without inferred acceptance.
+Native fresh/prepared scalar timing, full cost disposition and authenticated
+changed-source delivery are still required.
+
+The final P22 candidate is World `cb52f4f`, published on existing draft #59. Empty
+prefix rank now returns zero directly; all twelve native fresh/prepared scalar
+cells stay within the timing gate, correcting the earlier long prepared slowdown.
+The final 24-cell WASM fresh/pause comparison confirms neither timing slowdown nor
+peak-memory growth. Four direct native storage cells retain 10–83 ns increases
+(6.1–8.0%); two resident pause cells retain approximately 41 ns increases (10.9%).
+An explicit decision for those six cells is pending. This neither accepts nor
+supersedes separate historical package cost decisions.
+
+The final 18-case storage probe independently checks values and allocator balance,
+and reports retained bytes, peak page bytes and actual predecessor copies. At 64
+branches, 1/2/4/8 live-value cases save 23,040/21,504/18,432/12,288 page bytes;
+9/16-value dense controls use the original bytes. Every 64-branch case avoids 64
+copies of descriptors that are immediately overwritten. The 24-byte native Slots
+owner increase remains a separate observation from heap savings.
+
+Boundary's new retained-view test initially assumed that physical isolation must
+increase descriptor copies. With an overwrite-only packed successor, all prior,
+current and checkpoint values pass while that traffic proxy fails. The test now
+checks exactly one additional live backing page and preserves every independent
+value and checkpoint assertion. All three packing tests pass against both the
+final World source and preserved `e89b94a` baseline; failed and corrected results
+remain distinct in the physical report. This is an integration repair for P22,
+not additional authoring scope.
+
+Final kernel `9356b126...df1338d` passes the integrated 66 storage/87 native tests,
+WASM storage, 237 canonical boundaries/23 transfers, 159 cross-engine transfer
+boundaries and unchanged-input capacity retries. Authenticated producer run
+`36629384504` is active on exactly `cb52f4f`; no delivered-artifact result is claimed
+before its terminal result and verified acquisition.
