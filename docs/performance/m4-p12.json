@@ -3,8 +3,8 @@
   "status": {
     "implementation": "present",
     "correctness": "focused, native/WASM/Wasmtime and final integrated pass",
-    "economics": "four required timing increases await disposition",
-    "promotion": "pending economics and final source check"
+    "economics": "user explicitly accepted four bounded timing increases; canonical memory/checkpoint criteria satisfied",
+    "promotion": "P12 checkpoint qualified; programme and subsequent package bindings remain open"
   },
   "baseCommit": "bd6edeb87186628d2b13f1fda716a200d3d83465",
   "unpublishedWorkingTree": true,
@@ -27780,5 +27780,12 @@
     "emit": "zig build-exe -O ReleaseSafe --dep boundary_data -Mroot=test/v2/handler_fusion_platform.zig -O ReleaseSafe -Mboundary_data=src/data/root.zig -femit-bin=EMITTER; EMITTER CORPUS",
     "platform": "node test/handler_fusion_platform.mjs AGENT_ROOT RUNTIME CORPUS OUTPUT EMITTER BASE_COMMIT NATIVE",
     "timing": "node test/handler_timing.mjs AGENT_ROOT RUNTIME CONTROL_CORPUS CANDIDATE_CORPUS OUTPUT ADMISSION_NATIVE FRESH_NATIVE CYCLE_NATIVE MEMORY_NATIVE FIXTURE BASE_COMMIT"
+  },
+  "acceptance": {
+    "source": "Explicit user response to P12 cost question",
+    "answer": "Accept these bounded timing costs",
+    "candidateCommit": "5b272cc78ca43c79fd24204707c912bf26b75791",
+    "scope": "Only the four confirmed timing cells documented in optimization-m4-cost-decision.md",
+    "supersedesOtherDecisions": false
   }
 }

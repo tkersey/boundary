@@ -291,3 +291,11 @@ has been requested and remains pending. `performance/m4-p12.json` preserves the
 initial candidates, correction evidence, exact hashes, final raw measurements,
 consumer comparison, and commands. Final economics and P12 promotion remain open;
 P13–P16, later milestones, package bindings and final reviews remain required.
+
+### P12 cost disposition
+
+The user explicitly accepted the four bounded P12 timing increases for the
+candidate published at `5b272cc78ca43c79fd24204707c912bf26b75791`. P12's measured
+checkpoint is therefore qualified with that specific tradeoff. The separate M3
+cost decision is not resolved by this acceptance. Continue P13 producer/consumer
+fusion on the existing branch and PR; do not start an intermediate review campaign.

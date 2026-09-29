@@ -43,6 +43,8 @@ with no work-limit outcomes.
 
 ## Disposition
 
-Pending explicit acceptance of the four bounded timing increases or correction.
-Earlier cutover, M2, M2.5 and input-preserving-packing acceptances are not reused as
-permission for this P12 candidate. The full optimization programme remains active.
+The user explicitly accepted these four bounded timing increases for the measured
+P12 candidate, published at `5b272cc78ca43c79fd24204707c912bf26b75791`.
+This acceptance is specific to the table above; it does not extend earlier
+cutover, M2, M2.5 or packing decisions to other costs. The separate M3 decision
+and the full remaining optimization programme stay open.
