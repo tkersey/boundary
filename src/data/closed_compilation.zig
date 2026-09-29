@@ -27,10 +27,12 @@ const outlining = @import("outlining.zig");
 const packing = @import("slot_packing.zig");
 const handler_tail = @import("tail_clauses.zig");
 const evidence = @import("evidence_forwarding.zig");
+const handlers = @import("handler_elimination.zig");
+const readers = @import("reader_fusion.zig");
 const unpack = @import("capture_unpack.zig");
 pub const Contract = enum { structural, semantic };
 pub const Objective = enum { size, balanced, speed };
-pub const Stage = enum { p01, branch, applications, aggregates, expressions, cells, dead_computation, dead_arguments, dead_captures, capture_projection, capture_summary, affine_state, capture_unpack, partial_redundancy, call_patterns, leaf_inlining, contification, common_tails, tail_duplication, outlining, slot_packing, tail_clauses, evidence_forwarding };
+pub const Stage = enum { p01, branch, applications, aggregates, expressions, cells, dead_computation, dead_arguments, dead_captures, capture_projection, capture_summary, affine_state, capture_unpack, partial_redundancy, call_patterns, leaf_inlining, contification, common_tails, tail_duplication, outlining, slot_packing, tail_clauses, evidence_forwarding, handler_elimination, reader_fusion };
 // Prospective construction policy for the expanded four-round schedule.
 // Caller-supplied limits remain exact; this does not change P01's allowance.
 pub const default_work_limit: u64 = 400_000_000_000;
@@ -68,8 +70,8 @@ pub const Options = struct {
         if (self.statistics) |stats| stats.* = .{};
     }
 };
-pub const Error = branch.Error || applications.Error || aggregates.Error || expressions.Error || cells.Error || dead.Error || arguments.Error || captures.Error || projections.Error || summaries.Error || affine.Error || unpack.Error || pre.Error || patterns.Error || leaves.Error || joins.Error || tails.Error || duplicate_tails.Error || outlining.Error || packing.Error || handler_tail.ValidationError || evidence.Error;
-const schedule = [_]Stage{ .branch, .capture_unpack, .aggregates, .dead_computation, .affine_state, .call_patterns, .branch, .applications, .leaf_inlining, .contification, .tail_clauses, .evidence_forwarding, .aggregates, .expressions, .partial_redundancy, .cells, .dead_computation, .dead_arguments, .dead_captures, .capture_projection, .capture_summary, .dead_computation, .dead_arguments, .applications, .dead_computation, .tail_duplication, .common_tails, .outlining, .slot_packing };
+pub const Error = branch.Error || applications.Error || aggregates.Error || expressions.Error || cells.Error || dead.Error || arguments.Error || captures.Error || projections.Error || summaries.Error || affine.Error || unpack.Error || pre.Error || patterns.Error || leaves.Error || joins.Error || tails.Error || duplicate_tails.Error || outlining.Error || packing.Error || handler_tail.ValidationError || evidence.Error || handlers.Error || readers.Error;
+const schedule = [_]Stage{ .branch, .capture_unpack, .aggregates, .dead_computation, .affine_state, .call_patterns, .branch, .applications, .leaf_inlining, .contification, .tail_clauses, .evidence_forwarding, .handler_elimination, .reader_fusion, .aggregates, .expressions, .partial_redundancy, .cells, .dead_computation, .dead_arguments, .dead_captures, .capture_projection, .capture_summary, .dead_computation, .dead_arguments, .applications, .dead_computation, .tail_duplication, .common_tails, .outlining, .slot_packing };
 fn notify(options: Options, stage: Stage) void {
     if (options.observer) |observer| observer.enter(observer.context, stage);
 }
@@ -141,7 +143,7 @@ fn reservation(program: ir.Program, stage: Stage) Error!u64 {
         // These bounded passes index whole-record scans by functions, blocks,
         // parameters or slots. Instruction-level searches have their own
         // counted allowances below; they do not each rescan the entire Program.
-        .call_patterns, .leaf_inlining, .contification, .common_tails, .tail_duplication, .outlining, .slot_packing, .tail_clauses, .evidence_forwarding => std.math.mul(u64, try sumWork(&.{ program.functions.len, max_inputs, max_slots, program.blocks.len, 1 }), shape.records) catch return error.Capacity,
+        .call_patterns, .leaf_inlining, .contification, .common_tails, .tail_duplication, .outlining, .slot_packing, .tail_clauses, .evidence_forwarding, .handler_elimination, .reader_fusion => std.math.mul(u64, try sumWork(&.{ program.functions.len, max_inputs, max_slots, program.blocks.len, 1 }), shape.records) catch return error.Capacity,
         .applications => std.math.mul(u64, try sumWork(&.{ applications_count, 1 }), shape.records) catch return error.Capacity,
         .aggregates => block_squares,
         .expressions => 0,
@@ -163,7 +165,8 @@ fn reservation(program: ir.Program, stage: Stage) Error!u64 {
         .expressions, .partial_redundancy => 1_000_000,
         .leaf_inlining, .contification, .common_tails, .outlining => 2_000_000,
         .tail_duplication => 26_000_000, // Search/checker plus fresh branch facts/proofs.
-        .slot_packing, .tail_clauses, .evidence_forwarding => 20_000_000,
+        .slot_packing, .tail_clauses, .evidence_forwarding, .reader_fusion => 20_000_000,
+        .handler_elimination => 2_000_000,
         .affine_state => std.math.mul(u64, try sumWork(&.{ program.constructors.len, program.functions.len }), 6_000_000) catch return error.Capacity,
         else => 0,
     };
@@ -382,6 +385,8 @@ fn possible(allocator: std.mem.Allocator, owned: *const p01.Owned, stage: Stage)
         .slot_packing => return packing.possible(program),
         .tail_clauses => return handler_tail.possible(program),
         .evidence_forwarding => return evidence.possible(program),
+        .handler_elimination => return handlers.possible(program),
+        .reader_fusion => return readers.possible(program),
         .p01 => return true,
     }
     return false;
@@ -588,6 +593,18 @@ fn apply(a: std.mem.Allocator, program: ir.Program, stage: Stage, options: p01.O
         .expressions => blk: {
             var stats: expressions.Statistics = .{};
             const result = try expressions.run(a, program, &stats, .{ .coalescing = options });
+            exhausted.* = stats.work_limit;
+            break :blk result;
+        },
+        .reader_fusion => blk: {
+            var stats: readers.Statistics = .{};
+            const result = try readers.run(a, program, &stats, .{ .coalescing = options });
+            exhausted.* = stats.work_limit;
+            break :blk result;
+        },
+        .handler_elimination => blk: {
+            var stats: handlers.Statistics = .{};
+            const result = try handlers.run(a, program, &stats, .{ .coalescing = options });
             exhausted.* = stats.work_limit;
             break :blk result;
         },

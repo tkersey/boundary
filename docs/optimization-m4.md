@@ -157,3 +157,137 @@ shared and source-free witnesses. The existing source tail engine has one data
 owner and its predecessor file is retired. P12–P16, later milestones and final
 programme qualification/reviews remain open. M3's separate cost decision remains
 pending; no P11 result silently accepts those costs.
+
+## P12: first handler-elimination construction
+
+The first rule recognizes an empty deep handler with a literal identity return
+function and copy/drop wire state. It replaces `handle(body, arguments, state)`
+with `apply(body, arguments)` at the same control site. All preceding instructions
+and the continuation edge remain exact. This preserves state-expression order;
+it does not use handler absence to delete evaluation or a nonidentity return.
+Fresh original/candidate admission and independent changed-record validation
+precede final P01. Explicit work exhaustion returns the original P01 baseline.
+
+The shared semantic compiler/final linker invokes the rule. Focused validation
+passes 20/20 tests, including allocation failures, original rejection under zero
+budget, state-instruction preservation, shallow/nonidentity refusal and an
+admissible forged deletion. Compiler-focused tests pass 88/88. Native/source-free
+execution is being checked separately. Reader-pair fusion and explicit ordered
+composition of total return functions remain required; this first rule does not
+replace them or establish P12 completion.
+
+## Explicit pure return composition
+
+Elimination now preserves a nonidentity pure total return action in an appended
+call block. The body's returned value uses a fresh caller slot; handler state
+arguments remain ordered before that value, and the original continuation follows
+the return call. The checker reconstructs every added slot/block and rejects
+changed callees, state/result order or continuations. This rule remains limited
+to deep empty handlers with wire copy/drop state and unchanged answer type.
+It does not authorize arbitrary answer-transforming or effectful handler fusion.
+
+Focused tests pass 20/20, including allocation failure along the return-call path
+and an independently admissible swapped-argument mutation. Compiler-focused tests
+pass 88/88. The initial u64 composition sample was replaced with a genuinely finite
+Boolean fixture: all eight admitted input/state triples are checked across
+original, checked, shared and source-free linked paths. The old u64 sample log
+remains historical evidence, not an exhaustive claim. A type-correct swapped
+return-order mutation computes 1 where the correct order computes 0 and is
+rejected by correspondence. Disjoint Reader fusion remains open.
+
+## P12: disjoint Reader construction
+
+The Reader recognizer now checks executable records: distinct nominal effects,
+one immutable copy/drop wire state per deep handler, unit-payload bodyless
+operations, literal total-tail reads, pure total return functions, local known
+closure construction, and confined capability use. The combined handler's state
+is the ordered tuple of the outer and inner states. Old effect declarations and
+unaffected records remain unchanged. Return actions use inner-then-outer order.
+
+Construction emits a combined body and clauses; independent correspondence
+reconstructs schemas, state/capture/argument order, actual direct-call code and
+return composition from original records. A capability-bearing closure initially
+left as an application was correctly declined by the existing general-specializer
+boundary and failed canonical selection. The Reader rule now emits its own
+validated ordered direct call under its stronger confinement proof; the general
+specializer was not weakened.
+
+The shared compiler and source-free linker now select the fused candidate. Native
+World checks all 16 Boolean state/operation-choice combinations across four arms,
+with quantum-one save/restore: 64 executions agree. Two installations become one;
+the selected image is 408 bytes versus the 400-byte P01 baseline. This eight-byte
+increase is reported, not described as a size win. Runtime economics, wider
+negative coverage, allocation failures and full integrated qualification remain.
+The initial fixture's missing unit capture bound was repaired before admission;
+original capture checking was not relaxed.
+
+## P12 platform qualification and return-call cost correction
+
+The complete Reader unit suite passes 22/22. Native World passes all three
+Reader tests, including finite identity/composed return cases and preservation of
+mutable, shallow, scoped-body and cleanup examples. The new platform runner checks
+all eight composed empty-handler inputs and all 16 state/operation-choice inputs
+for each Reader variant, across structural, checked, shared and source-free linked
+arms. All 172 cases agree between native, Node WASM and Wasmtime; quantum-one
+checkpoint cycles agree with the independent Boolean oracle. Sixteen malformed
+inputs, 16 same-image restores and 16 wrong-image rejections pass. The first full
+ReleaseSafe aggregate completes 319/319 steps and 705/705 tests.
+
+The first composed Reader candidate exposed a concrete economic defect: its shared
+pipeline retained Boolean return-call bridges, reaching 18,052 bytes of WASM
+checkpoint-cycle peak versus 16,562 structural bytes. The existing bounded leaf
+inliner admitted integer bit operations but omitted equally total Boolean `not`
+and `select`. Extending that exact instruction subset preserves private-callee,
+copy/drop, no-effect/no-failure, custody, instruction and growth limits. Its checker
+still reconstructs every operand from original definitions. The added admissible
+swapped-select mutation is rejected; all 43 focused leaf tests pass. This change
+is a P12 return-composition dependency, not a broader authoring prerequisite.
+
+After that correction, all 172 platform cases and the 16/16/16 rejection/restore
+checks pass again. Shared composed Reader bytes decrease from 512 to 467; native
+fresh peak decreases from 20,586 to 19,632, WASM fresh peak from 17,672 to 16,859,
+and checkpoint-cycle peak from 18,052 to 17,163. The latter is 601 bytes over the
+structural baseline, below its 1 KiB threshold. The isolated Reader pass remains
+a separate mechanism arm; its costs are not relabeled as the combined pipeline.
+
+Against the frozen P11 compiler, the selected shared images are: empty identity
+122→68 bytes; composed empty handlers 210→136; identity Readers 400→408; composed
+Readers 468→467. Empty installations decrease from one/two to zero; Readers from
+two to one while retaining both ordered state fields and both nominal effects.
+The runtime still scans clauses by effect: each original Reader operation checks
+one clause, whereas the fused pair checks one or two. Thus its two-operation
+fixture makes two to four clause comparisons rather than two; fusion is not a
+universal lookup reduction. Runtime timing remains a separate measurement.
+
+The unchanged 18-image Agent corpus is byte-identical to P11 after these changes.
+No real-Agent execution improvement is claimed. Final integrated verification,
+timing, explicit opportunity exclusions and publication are still pending.
+
+## P12 current candidate: slot reuse and final qualification
+
+The fused body now uses the eliminated inner-closure temporary as its second
+capability input, with an explicit non-input guard and exact schema/argument
+correspondence. It no longer allocates an unnecessary activation slot. This
+removes the identity Reader's earlier +1,194-byte WASM admission increase: peak
+13,248→13,170, with retained storage unchanged at 11,148 bytes. The final shared
+Reader images are 392 and 451 bytes (identity and composed), versus frozen P11's
+400 and 468. Original capability confinement and return order remain mandatory.
+
+The final exact source passes 319/319 ReleaseSafe steps and 706/706 tests, 22/22
+Reader focused tests, and the repeated 172-case native/Node-WASM/Wasmtime matrix
+with all 16 malformed-input, restore and wrong-image checks. The final Agent
+emitter again produces all 18 images byte-identical to P11, with no work-limit
+outcome. There are no empty deep handlers in that corpus; 17 images have fewer
+than two singleton tail/state candidates. Document's two header candidates use
+incompatible answer types (sum and u64), so neither ordering instantiates this
+Reader law. These are bounded synthetic capabilities, not an Agent speed claim.
+
+All 56 final paired timing cells completed. One composed empty-handler WASM
+admission cell and three composed Reader complete checkpoint-cycle cells exceed
+the supplied confirmation threshold. The separate extended warm-up diagnostic
+shows admission tiering sensitivity but does not erase the required result.
+`optimization-m4-cost-decision.md` contains the four exact costs; one user decision
+has been requested and remains pending. `performance/m4-p12.json` preserves the
+initial candidates, correction evidence, exact hashes, final raw measurements,
+consumer comparison, and commands. Final economics and P12 promotion remain open;
+P13–P16, later milestones, package bindings and final reviews remain required.

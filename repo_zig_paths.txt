@@ -110,6 +110,8 @@ src/data/function_inputs.zig
 src/data/graph.zig
 src/data/graph_order.zig
 src/data/graph_order_tests.zig
+src/data/handler_elimination.zig
+src/data/handler_elimination_tests.zig
 src/data/invocation.zig
 src/data/invocation_tests.zig
 src/data/leaf_inlining.zig
@@ -124,6 +126,8 @@ src/data/program.zig
 src/data/program_image.zig
 src/data/program_image_tests.zig
 src/data/program_record.zig
+src/data/reader_fusion.zig
+src/data/reader_fusion_tests.zig
 src/data/record.zig
 src/data/record_equal.zig
 src/data/region_admission.zig
@@ -255,11 +259,14 @@ test/v2/emit_source.zig
 test/v2/evidence_forwarding.zig
 test/v2/evidence_forwarding_platform.zig
 test/v2/expression_reuse.zig
+test/v2/handler_elimination.zig
+test/v2/handler_fusion_platform.zig
 test/v2/oracle_scopes.zig
 test/v2/outlining.zig
 test/v2/outlining_platform.zig
 test/v2/partial_redundancy.zig
 test/v2/pre_platform.zig
+test/v2/reader_fusion.zig
 test/v2/slot_packing.zig
 test/v2/slot_packing_platform.zig
 test/v2/snapshot_retention.zig

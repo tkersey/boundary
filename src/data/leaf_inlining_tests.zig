@@ -70,6 +70,37 @@ test "callee overwrites become fresh caller definitions" {
     try std.testing.expectEqualSlices(u64, &.{0}, candidate.program.blocks[0].instructions[0].operands);
     try std.testing.expectEqual(@as(u64, 3), candidate.program.blocks[0].terminator.jump.assignments[0].source.slot);
 }
+test "Boolean return composition inlines with independently checked select order" {
+    var original = overwrite;
+    original.schemas = &.{ .boolean, .unit };
+    var functions = overwrite.functions[0..2].*;
+    functions[1].layout.slots = &.{ 0, 0, 0 };
+    original.functions = &functions;
+    var blocks = overwrite.blocks[0..3].*;
+    blocks[1].instructions = &.{};
+    blocks[1].terminator = .{ .return_value = 1 };
+    blocks[2].instructions = &.{
+        .{ .destination = 1, .opcode = .boolean_not, .operands = &.{0} },
+        .{ .destination = 2, .opcode = .select, .operands = &.{ 0, 1, 0 } },
+    };
+    blocks[2].terminator = .{ .return_value = 2 };
+    original.blocks = &blocks;
+    var candidate = (try inline_leaf.construct(a, original, .{})).?;
+    defer candidate.deinit();
+    try inline_leaf.validate(a, original, candidate.program, candidate.sites, .{});
+    try std.testing.expectEqual(@as(usize, 1), candidate.sites.len);
+    var changed_blocks = candidate.program.blocks[0..3].*;
+    var changed_ops = changed_blocks[0].instructions[0..2].*;
+    const operands = changed_ops[1].operands;
+    const swapped = [_]u64{ operands[0], operands[2], operands[1] };
+    changed_ops[1].operands = &swapped;
+    changed_blocks[0].instructions = &changed_ops;
+    var forged = candidate.program;
+    forged.blocks = &changed_blocks;
+    var admitted = try @import("activation_ownership.zig").analyze(a, forged);
+    defer admitted.deinit();
+    try std.testing.expectError(error.InvalidLeafInlining, inline_leaf.validate(a, original, forged, candidate.sites, .{}));
+}
 fn allocationAttempt(allocator: std.mem.Allocator) !void {
     var result = try inline_leaf.run(allocator, product, null, .{});
     defer result.deinit();

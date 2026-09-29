@@ -24,12 +24,16 @@ if(args[0]==='--sample'){
  console.log(JSON.stringify({samplesNs}));
 }else{
  const [agent,runtime,controlDirectory,candidateDirectory,output,admission,freshNative,cycleNative,memoryNative,mode,controlSource]=args;
- assert.equal(args.length,11);assert(['tail','evidence','nested'].includes(mode));assert(/^[0-9a-f]{40}$/.test(controlSource));
+ assert.equal(args.length,11);assert(['tail','evidence','nested','empty','empty-composed','reader','reader-composed'].includes(mode));assert(/^[0-9a-f]{40}$/.test(controlSource));
  const {identity,world}=await load(agent,runtime),kernel=await fresh(world,identity),arms={control:join(controlDirectory,mode+'-shared-semantic.bpi3'),candidate:join(candidateDirectory,mode+'-shared-semantic.bpi3')};
  const imageHashes=Object.fromEntries(Object.entries(arms).map(([arm,path])=>[arm,hash(readFileSync(path))]));assert.notEqual(imageHashes.control,imageHashes.candidate);
- const fixtures=[['identity-first',0n],['word',7n],['maximum',(1n<<64n)-1n]].map(([name,value])=>[name,value,BigInt.asUintN(64,~(mode==='nested'?20n:value))]);
+ const word=value=>{const bytes=Buffer.alloc(8);bytes.writeBigUInt64LE(value);return bytes;};
+ let fixtures;
+ if(mode.startsWith('reader'))fixtures=[[0,0,0,0],[1,1,1,1],[1,0,1,0]].map((values,i)=>{const [left,right,first,second]=values,one=first?left:right;return [i===0?'identity-first':`path-${i}`,Buffer.from(values),Buffer.from([mode==='reader-composed'?(one|right)^left:one,second?left:right])];});
+ else if(mode==='empty-composed')fixtures=[[0,0,0],[1,1,1],[0,1,1]].map((values,i)=>[i===0?'identity-first':`path-${i}`,Buffer.from(values),Buffer.from([(values[0]|values[2])^values[1]])]);
+ else fixtures=[['identity-first',0n],['word',7n],['maximum',(1n<<64n)-1n]].map(([name,value])=>[name,mode==='empty'?Buffer.concat([word(value),word(42n)]):word(value),word(mode==='empty'?value:BigInt.asUintN(64,~(mode==='nested'?20n:value)))]);
  const inputs={};
- for(const [name,value,expected]of fixtures){const bytes=Buffer.alloc(8);bytes.writeBigUInt64LE(value);inputs[name]={argumentsHex:bytes.toString('hex'),arms:{}};for(const [arm,path]of Object.entries(arms)){const image=readFileSync(path),encoded=world.encodeInput({image,initialArgs:bytes}),result=kernel.invoke(encoded),decoded=world.decodeOutcome(result);assert.equal(decoded.kind,'completed');assert.deepEqual(Buffer.from(decoded.value),Buffer.concat((Array.isArray(expected)?expected:[expected]).map(value=>Buffer.from(Uint8Array.from({length:8},(_,i)=>Number((value>>BigInt(i*8))&255n))))));const pki=join(candidateDirectory,`timing-${name}-${arm}.pki3`);writeFileSync(pki,encoded);inputs[name].arms[arm]={path,pki,expected:hash(result),inputSha256:hash(encoded)};}}
+ for(const [name,bytes,expected]of fixtures){inputs[name]={argumentsHex:bytes.toString('hex'),arms:{}};for(const [arm,path]of Object.entries(arms)){const image=readFileSync(path),encoded=world.encodeInput({image,initialArgs:bytes}),result=kernel.invoke(encoded),decoded=world.decodeOutcome(result);assert.equal(decoded.kind,'completed');assert.deepEqual(Buffer.from(decoded.value),expected);const pki=join(candidateDirectory,`timing-${name}-${arm}.pki3`);writeFileSync(pki,encoded);inputs[name].arms[arm]={path,pki,expected:hash(result),inputSha256:hash(encoded)};}}
  const memory={};
  for(const [arm,path]of Object.entries(arms)){const image=readFileSync(path),native=JSON.parse(execFileSync(memoryNative,[path],{encoding:'utf8'})),k=await fresh(world,identity),p=k.prepare(image),usage=k.usage();memory[arm]={native,wasmAdmission:{peak:Number(usage.workingPeak),retained:Number(usage.workingLive),capacity:usage.memoryBytes}};k.releasePrepared(p);assert.equal(k.usage().workingLive,0n);}
  const executables={admission,fresh:freshNative,cycle:cycleNative};

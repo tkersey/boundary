@@ -51,3 +51,11 @@ test {
 test {
     _ = @import("evidence_forwarding_tests.zig");
 }
+
+test {
+    _ = @import("handler_elimination_tests.zig");
+}
+
+test {
+    _ = @import("reader_fusion_tests.zig");
+}

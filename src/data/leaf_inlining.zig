@@ -55,7 +55,7 @@ fn eligible(program: ir.Program, bid: usize, permissions: traits.Facts, maximum:
         try budget.tick();
         if (op.failures.len != 0) return false;
         switch (op.opcode) {
-            .move, .constant, .product, .field, .variant, .integer_bit_not, .integer_bit_and, .integer_bit_or, .integer_bit_xor => {},
+            .move, .constant, .product, .field, .variant, .boolean_not, .select, .integer_bit_not, .integer_bit_and, .integer_bit_or, .integer_bit_xor => {},
             else => return false,
         }
     }

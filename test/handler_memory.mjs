@@ -9,8 +9,11 @@ const {verifyRuntime,sha256}=await import(pathToFileURL(join(agent,'tools/agent4
 const runtime=verifyRuntime(runtimePath),world=await import(pathToFileURL(runtime.entrypoint));
 const fresh=async()=>{const k=await world.Kernel.create({bytes:readFileSync(runtime.kernelPath),expectedSha256:runtime.kernelSha256});k.setLimits({input:256<<20,working:256<<20,output:256<<20});return k;};
 const rows=[];
-for(const [name,value] of [['zero',0n],['word',7n],['maximum',(1n<<64n)-1n]]){
- const args=Buffer.alloc(8);args.writeBigUInt64LE(value);
+let fixtures;
+if(fixture.startsWith('reader'))fixtures=[[0,0,0,0],[1,1,1,1],[1,0,1,0]].map((values,i)=>[`path-${i}`,Buffer.from(values)]);
+else if(fixture==='empty-composed')fixtures=[[0,0,0],[1,1,1],[0,1,1]].map((values,i)=>[`path-${i}`,Buffer.from(values)]);
+else fixtures=[['zero',0n],['word',7n],['maximum',(1n<<64n)-1n]].map(([name,value])=>{const bytes=Buffer.alloc(fixture==='empty'?16:8);bytes.writeBigUInt64LE(value);if(fixture==='empty')bytes.writeBigUInt64LE(42n,8);return [name,bytes];});
+for(const [name,args] of fixtures){
  const row={name};let reference;
  for(const [arm,directory] of Object.entries({control,candidate})){
   const image=readFileSync(join(directory,`${fixture}-shared-semantic.bpi3`)),input=world.encodeInput({image,initialArgs:args}),inputPath=join(candidate,`memory-${name}-${arm}.pki3`);writeFileSync(inputPath,input);
