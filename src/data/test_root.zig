@@ -79,3 +79,7 @@ test {
 test {
     _ = @import("constructor_contexts_tests.zig");
 }
+
+test {
+    _ = @import("loop_motion_tests.zig");
+}
