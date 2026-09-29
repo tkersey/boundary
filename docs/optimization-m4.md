@@ -560,3 +560,62 @@ The user explicitly accepts these bounded P15 costs. This closes the P15
 economic gate for the qualified candidate, without changing the separate M3/P13
 decisions or accepting future costs. Continue P16 without calling M4 or the full
 programme complete. Final binding and installed serial reviews remain outstanding.
+
+## P16: persistent sequence constructor contexts
+
+Select an ordinary data-only loop for a private pure worker that recursively
+constructs an ordered fixed-width chunk before its returned suffix. Its invariant
+is `output = accumulated_prefix ++ construct(remaining_input)`. Concatenation is
+associative but not commutative; preserve every mapped element and chunk order.
+Prove `chunk_width * input_maximum <= output_maximum` before changing the position
+of any authored capacity check. Pure total mapping, original/fresh admission,
+copy/drop/exportability and an exact four-block/no-observer census are required.
+
+World already rebuilds immutable sequence values for append/concatenation. Reuse
+that persistent operation: each intermediate accumulator is a complete admitted
+value, and existing aliases retain their prior value. No uniqueness claim,
+partially initialized hole or World storage change is needed. The output remains
+O(N), and copying traffic may remain quadratic; the claimed reduction is pending
+administrative frames. Compare singleton mapping and ordered multi-element context
+composition, independently admitted reversed orientation, undersized capacity,
+nonlinear/control/resource fallback, aliased input and intermediate checkpoints.
+The existing P15 law registry remains scoped to its two fixed-size action families.
+
+The retained P16 rule is in `constructor_contexts.zig`; the fixed action registry
+is unchanged. Singleton and ordered paired chunks pass original/fresh admission,
+independent correspondence and default shared selection. At 4096 inputs the
+native witnesses remove all 4096 pending frames. The output remains 4098/8194
+encoded bytes and the deepest-return checkpoints remain 4176/8272 bytes: output
+storage is explicitly included, not described as constant space.
+
+Six native tests cover sizes 0/1/16/256/4096, source-free linking, an original input
+alias retained by the caller, a separately admitted reversed-order mutant, every
+intermediate checkpoint, and actual nonlinear reentry/cloned-continuation behavior
+(result 113 with one yield). Resource-bearing examples retain their exact images.
+Focused tests cover capacity underflow, failing mapping, exposed workers,
+allocation failures and invalid-original/zero-work handling. The aggregate exits
+successfully with 319 steps and 748 tests. All 18 Agent images match P15 exactly.
+
+The unchanged World collection writer materializes two-segment concatenations.
+For width k and N inputs, the concatenated element payload sums to
+`k * N * (N + 1) / 2` on both sides; administrative storage/calls are what change.
+Measured native total allocations at N=4096 drop 37,031 → 28,766/28,767. Allocated
+bytes drop 17,322,260 → 10,463,180 for singleton chunks and
+25,864,532 → 19,006,859 for paired chunks. These counts include program admission
+and complete invocation, exclude compiler image encoding, and are separate from
+peak live memory. No destructive update or uniqueness claim is made.
+
+Final native/Node/Wasmtime equality passes 24 arms over 316 boundaries. Same-image
+restoration, wrong-image rejection and malformed-input rejection pass on all 24.
+The frozen P15 compiler emits byte-identical control images, and source-free links
+match the candidate images. Cost qualification is still in flight; this entry
+does not close P16 or supersede any earlier accepted/pending economic decision.
+
+All 40 final timing cells have now terminated. Eight comparisons confirm small
+native admission/empty-invocation costs and empty checkpoint-cycle increases.
+No nonempty fresh-execution slowdown is confirmed, and no measured native/WASM
+memory or checkpoint-size comparison exceeds its threshold. The consolidated
+§9.5 decision is pending in `optimization-m4-p16-cost-decision.md`; prior P15
+acceptance is not reused for these new costs. P17 onward, final bindings and
+installed serial reviews remain open. Construction observations are recorded
+separately and make no claim of a paired compiler speedup.

@@ -75,3 +75,7 @@ test {
 test {
     _ = @import("context_compression_tests.zig");
 }
+
+test {
+    _ = @import("constructor_contexts_tests.zig");
+}

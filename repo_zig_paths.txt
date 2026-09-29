@@ -94,6 +94,8 @@ src/data/compact_sequence_tests.zig
 src/data/component.zig
 src/data/component_tests.zig
 src/data/constant_origin.zig
+src/data/constructor_contexts.zig
+src/data/constructor_contexts_tests.zig
 src/data/context_compression.zig
 src/data/context_compression_tests.zig
 src/data/contification.zig
@@ -255,6 +257,8 @@ test/v2/common_tails_platform.zig
 test/v2/compact_fixtures.zig
 test/v2/compact_wasm.zig
 test/v2/compare_activation_flow.zig
+test/v2/constructor_contexts.zig
+test/v2/constructor_contexts_platform.zig
 test/v2/context_compression.zig
 test/v2/context_compression_platform.zig
 test/v2/contification.zig
