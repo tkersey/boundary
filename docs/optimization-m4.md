@@ -299,3 +299,102 @@ candidate published at `5b272cc78ca43c79fd24204707c912bf26b75791`. P12's measure
 checkpoint is therefore qualified with that specific tradeoff. The separate M3
 cost decision is not resolved by this acceptance. Continue P13 producer/consumer
 fusion on the existing branch and PR; do not start an intermediate review campaign.
+
+## P13: bounded map/fold law selected
+
+Actuating retains the existing data-only transformation boundary. The next native
+record rule recognizes the full two-loop shape (pop/map/append, then pop/fold),
+not a library name. For copy/drop exportable values, total effect-free mapper and
+folder functions, and input maximum no greater than intermediate capacity,
+`fold(f, seed, map(m, xs))` equals the single traversal that updates its accumulator
+with `f(acc, m(x))`. After k iterations the accumulator is the fold of the mapped
+input prefix, and the remaining input is the original suffix. Empty input returns
+the original seed. Capacity failure is impossible because produced length never
+exceeds admitted input length. Original initial-input validation remains unchanged.
+
+Whole-function shape/use correspondence must exclude another consumer or returned
+intermediate, preserve all slot/call/edge ordering, and decline partial/effectful
+steps or insufficient capacity. This is a native loop rewrite with independent
+record validation and final P01, not new stream/runtime infrastructure. The deciding
+witnesses are a real removed vector/second traversal, finite native/source-free
+agreement, and admitted negative/mutation cases. P13 also requires a separate
+unfold/early-stop rule preserving an unused divergent successor; this first law
+does not discharge that obligation.
+
+### P13 delayed-successor representation
+
+The original early-stop witness compiles to 183 bytes with one successor closure
+and one dynamic application still present. Its successor after `true` diverges,
+but the consumer stops before that application. Ordinary local specialization
+therefore does not yet deliver the required unfold case.
+
+Universalist nominates a private closed-protocol representation change: for one
+known reusable successor constructor with immutable wire state, replace
+`(value, successor(state))` by `(value, state)`. Construction becomes a state copy;
+application becomes an ordered direct call **at the original application site**.
+No successor computation is moved before the consumer's stop branch. The relation
+preserves every demanded successor and each returned value, including divergence
+if that successor is actually demanded. Whole-program type/use census must exclude
+public Step/closure interfaces, another constructor, ownership/nominal resources,
+effects and unsupported observations; fresh admission and independent exact-record
+correspondence decide acceptance. The existing generic specializer remains intact.
+
+This native data transformation is selected over leaving the demonstrated opaque
+closure in place or changing authored producer APIs. Its falsifiers are another
+successor implementation, an escaping protocol value, changed capture/argument
+order, and hoisting the successor across the stop branch. The pipeline may then
+use existing leaf/aggregate reductions to remove the remaining private pair.
+
+## P13 implementation and qualification checkpoint
+
+The shared compiler/final linker now runs both checked record rules. Map/fold
+removes the intermediate vector and second traversal, while preserving original
+input admission and every potentially reachable capacity or callback failure.
+The capacity proof requires the input's admitted maximum to fit the intermediate
+bound; the original mapper/folder must be total. The negative eager-order example
+fails in the later mapper before a possible earlier folder failure, as required.
+Resource-owning vectors from the existing borrow/custody example retain identical
+images under both rules. Another consumer or returned intermediate prevents the
+map/fold rewrite.
+
+The unfold rule changes the closed singleton protocol's delayed successor into
+immutable state and an ordered direct call at the old demand site. It does not
+invoke a successor at construction or before the consumer's stop decision. An
+admitted hoisted-call mutation diverges on an input where the original completes;
+independent correspondence rejects it. Two actual successor implementations are
+not collapsed. The unbounded productive witness remains interrupted/progressed
+through repeated same-image saves/restores. This is bounded runtime evidence plus
+the control/call simulation, not an assertion that an infinite unfold terminates.
+
+Focused checks pass 26/26 map tests and 39/39 unfold tests, including allocation
+failures and work-limit rollback. Five native map/resource/failure tests and three
+native unfold tests pass. All 62 Boolean vector/seed inputs of the finite map
+fixture execute across four arms (248 executions); all four initial-state/seed
+unfold inputs execute through original, checked, shared and source-free linked
+images. BMO source buffers are overwritten after linking. Shared map/fold is
+231→148 bytes versus P01-only; unfold is 183→156. The separate paired economic
+control is the full frozen P12 compiler, not the P01-only arm.
+
+Final ReleaseSafe aggregate: 319/319 steps and 721/721 tests, terminal exit 0.
+Native/Node-WASM/Wasmtime matrix: 280 cases, including 32/64/128-element workloads
+and eager failure ordering; 20 malformed inputs, 16 same-image restores and 15
+applicable wrong-image rejections. The refused checked failure-order image is
+identical to its structural arm, so it has no wrong-image rejection claim.
+
+All 42 paired timing cells completed. Three prescribed WASM cells have confirmed
+increases: empty-map fresh invocation +6.41 µs, unfold admission +5.01 µs, and one
+unfold fresh invocation +8.42 µs. The cost decision is recorded in
+`optimization-m4-p13-cost-decision.md`; acceptance or correction remains pending.
+Native timing, checkpoint cycles and the wide map/fold matrix show no confirmed
+slowdown. Local and cumulative synthetic memory/checkpoints improve; for example,
+WASM cycle peak decreases 1,824/1,828 bytes in the small/wide map cases and 851
+bytes in unfold. Measurements and source/tool identities are in
+`performance/m4-p13.json`. The measurement helper was rebuilt against unchanged
+World f8a1597 and Boundary 511fe38 after temporary tools disappeared; the World
+kernel was neither rebuilt nor republished.
+
+The final unchanged Agent corpus has 18 byte-identical images and no work-limit
+outcome. Its exact census has zero matching map headers and zero singleton-unfold
+headers; no real-Agent gain is claimed. Agent's qualified package binding remains
+c1f4baf, and the separate M3 economic decision remains open. P14–P16, later
+milestones, package rebinding and final programme reviews are still required.

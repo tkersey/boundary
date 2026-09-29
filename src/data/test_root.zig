@@ -59,3 +59,11 @@ test {
 test {
     _ = @import("reader_fusion_tests.zig");
 }
+
+test {
+    _ = @import("sequence_fusion_tests.zig");
+}
+
+test {
+    _ = @import("unfold_fusion_tests.zig");
+}

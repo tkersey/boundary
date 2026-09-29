@@ -138,6 +138,8 @@ src/data/root.zig
 src/data/scalar.zig
 src/data/schema.zig
 src/data/schema_partition.zig
+src/data/sequence_fusion.zig
+src/data/sequence_fusion_tests.zig
 src/data/slot_access.zig
 src/data/slot_packing.zig
 src/data/slot_packing_tests.zig
@@ -152,6 +154,8 @@ src/data/test_root.zig
 src/data/tests.zig
 src/data/total_clause.zig
 src/data/traits.zig
+src/data/unfold_fusion.zig
+src/data/unfold_fusion_tests.zig
 src/data/value_facts.zig
 src/data/wire.zig
 src/facts_profile.zig
@@ -267,6 +271,8 @@ test/v2/outlining_platform.zig
 test/v2/partial_redundancy.zig
 test/v2/pre_platform.zig
 test/v2/reader_fusion.zig
+test/v2/sequence_fusion.zig
+test/v2/sequence_fusion_platform.zig
 test/v2/slot_packing.zig
 test/v2/slot_packing_platform.zig
 test/v2/snapshot_retention.zig
@@ -274,6 +280,7 @@ test/v2/tail_clauses.zig
 test/v2/tail_clauses_platform.zig
 test/v2/tail_duplication.zig
 test/v2/tail_duplication_platform.zig
+test/v2/unfold_fusion.zig
 tools/authoring_stats.zig
 tools/component_example.zig
 tools/component_link.zig
