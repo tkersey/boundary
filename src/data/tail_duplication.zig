@@ -8,8 +8,9 @@ const branches = @import("branch_reduction.zig");
 const p01 = @import("coalescing.zig");
 const image = @import("program_image.zig");
 const equal = @import("record_equal.zig").equal;
-pub const Error = branches.Error || error{ InvalidTailDuplication, TailDuplicationLimit };
-pub const Options = struct { work_limit: u64 = 1_000_000, max_copies: usize = 16, max_instructions: usize = 8, max_added_bytes: usize = 4096, coalescing: p01.Options = .{} };
+const profiles = @import("optimization_profile.zig");
+pub const Error = branches.Error || profiles.Error || error{ InvalidTailDuplication, TailDuplicationLimit };
+pub const Options = struct { work_limit: u64 = 1_000_000, max_copies: usize = 16, max_instructions: usize = 8, max_added_bytes: usize = 4096, profile: ?profiles.Record = null, coalescing: p01.Options = .{} };
 pub const Witness = struct { predecessor: usize, tail: usize, copy: usize, condition: bool };
 pub const Statistics = struct { copies: usize = 0, exposed_branches: usize = 0, work_limit: bool = false };
 pub const Candidate = struct {
@@ -77,6 +78,7 @@ pub fn possible(program: ir.Program) bool {
     return false;
 }
 pub fn construct(allocator: std.mem.Allocator, original: ir.Program, options: Options) Error!?Candidate {
+    if (options.profile) |record| try profiles.validate(allocator, original, record);
     var admitted = try ownership.analyze(allocator, original);
     defer admitted.deinit();
     var arena = std.heap.ArenaAllocator.init(allocator);
@@ -87,9 +89,20 @@ pub fn construct(allocator: std.mem.Allocator, original: ir.Program, options: Op
     var proof: origin.Prover = .{ .allocator = a, .program = original, .work_limit = options.work_limit };
     defer proof.deinit();
     var witnesses: std.ArrayList(Witness) = .empty;
-    for (original.blocks, 0..) |block, bid| {
+    const order = if (options.profile) |record| blk: {
+        const charge = std.math.mul(u64, original.blocks.len, original.blocks.len) catch return error.TailDuplicationLimit;
+        if (charge > budget.left) return error.TailDuplicationLimit;
+        budget.left -= charge;
+        break :blk try profiles.orderedBlocks(a, original, record);
+    } else null;
+    for (0..original.blocks.len) |ordinal| {
+        const bid = if (order) |ids| ids[ordinal] else ordinal;
+        const block = original.blocks[bid];
         const condition = (try selected(original, bid, options, &proof, &budget)) orelse continue;
-        if (witnesses.items.len == options.max_copies) return error.TailDuplicationLimit;
+        if (witnesses.items.len == options.max_copies) {
+            if (options.profile != null) break;
+            return error.TailDuplicationLimit;
+        }
         try witnesses.append(a, .{ .predecessor = bid, .tail = @intCast(block.terminator.jump.block), .copy = original.blocks.len + witnesses.items.len, .condition = condition });
     }
     if (witnesses.items.len == 0) return null;

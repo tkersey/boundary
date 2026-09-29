@@ -10,8 +10,9 @@ const loops = @import("loop_regions.zig");
 const image = @import("program_image.zig");
 const equal = @import("record_equal.zig").equal;
 const p01 = @import("coalescing.zig");
-pub const Error = p01.Error || loops.Error || error{InvalidLoopUnswitch};
-pub const Options = struct { work_limit: u64 = 2_000_000, max_added_bytes: usize = 4096, coalescing: p01.Options = .{} };
+const profiles = @import("optimization_profile.zig");
+pub const Error = p01.Error || loops.Error || profiles.Error || error{InvalidLoopUnswitch};
+pub const Options = struct { work_limit: u64 = 2_000_000, max_added_bytes: usize = 4096, profile: ?profiles.Record = null, coalescing: p01.Options = .{} };
 pub const Statistics = struct { unswitched: usize = 0, copied_blocks: usize = 0, code_budget_rejected: bool = false, work_limit: bool = false };
 pub const Witness = struct { header: usize, dispatch: usize };
 pub const Candidate = struct {
@@ -118,6 +119,7 @@ fn cloneTerm(a: std.mem.Allocator, c: Copies, term: ir.Terminator, arm: usize) !
     };
 }
 pub fn construct(allocator: std.mem.Allocator, original: ir.Program, options: Options) Error!?Candidate {
+    if (options.profile) |record| try profiles.validate(allocator, original, record);
     var facts = try own.analyze(allocator, original);
     defer facts.deinit();
     var arena = std.heap.ArenaAllocator.init(allocator);
@@ -128,12 +130,46 @@ pub fn construct(allocator: std.mem.Allocator, original: ir.Program, options: Op
     try budget.record(ir.Program, original);
     const permissions = try traits.derive(a, original.schemas);
     const schemas = try admission.schemas(a, original.schemas);
-    for (original.functions, 0..) |_, fid| {
+    const order = if (options.profile) |record| blk: {
+        try budget.take(std.math.mul(u64, original.blocks.len, original.blocks.len) catch return error.LoopWorkLimit);
+        break :blk try profiles.orderedBlocks(a, original, record);
+    } else null;
+    const function_order = if (order) |ids| blk: {
+        const result = try a.alloc(usize, original.functions.len);
+        const seen = try a.alloc(bool, original.functions.len);
+        @memset(seen, false);
+        var count: usize = 0;
+        for (ids) |bid| {
+            const fid: usize = @intCast(original.blocks[bid].function);
+            if (!seen[fid]) {
+                seen[fid] = true;
+                result[count] = fid;
+                count += 1;
+            }
+        }
+        // Admission gives every function an entry block.
+        if (count != result.len) return error.InvalidLoopUnswitch;
+        break :blk result;
+    } else null;
+    for (0..original.functions.len) |ordinal| {
+        const fid = if (function_order) |ids| ids[ordinal] else ordinal;
         if (!try allowed(original, fid, permissions, schemas.exportable, &budget)) continue;
         const graph = (try loops.Graph.init(a, original, fid, &budget)) orelse continue;
         if (!try graph.cyclic(&budget)) continue;
         const dom = try graph.dominators(&budget);
-        for (graph.blocks, 0..) |header, h| {
+        const headers = if (order) |ids| blk: {
+            const result = try a.alloc(usize, graph.blocks.len);
+            var count: usize = 0;
+            for (ids) |bid| if (original.blocks[bid].function == fid) {
+                try budget.take(1);
+                result[count] = bid;
+                count += 1;
+            };
+            if (count != result.len) return error.InvalidLoopUnswitch;
+            break :blk result;
+        } else graph.blocks;
+        for (headers) |header| {
+            const h = graph.local[header];
             try budget.take(1);
             if (!graph.reachable[h]) continue;
             const dominated = try a.alloc(bool, graph.blocks.len);

@@ -10,6 +10,7 @@ const branch = @import("branch_reduction.zig");
 const applications = @import("application_specialization.zig");
 const aggregates = @import("aggregate_reduction.zig");
 const expressions = @import("expression_reuse.zig");
+const saturation = @import("equality_saturation.zig");
 const cells = @import("cell_reduction.zig");
 const dead = @import("dead_computation.zig");
 const arguments = @import("dead_arguments.zig");
@@ -36,10 +37,15 @@ const contexts = @import("context_compression.zig");
 const constructors = @import("constructor_contexts.zig");
 const motion = @import("loop_motion.zig");
 const unswitch = @import("loop_unswitch.zig");
+const induction_guards = @import("induction_reduction.zig");
+const induction_affine = @import("affine_induction.zig");
+const rectangles = @import("rectangular_loops.zig");
+const tiling = @import("rectangular_tiling.zig");
+const profiles = @import("optimization_profile.zig");
 const unpack = @import("capture_unpack.zig");
 pub const Contract = enum { structural, semantic };
 pub const Objective = enum { size, balanced, speed };
-pub const Stage = enum { p01, branch, applications, aggregates, expressions, cells, dead_computation, dead_arguments, dead_captures, capture_projection, capture_summary, affine_state, capture_unpack, partial_redundancy, call_patterns, leaf_inlining, contification, common_tails, tail_duplication, outlining, slot_packing, tail_clauses, evidence_forwarding, handler_elimination, reader_fusion, sequence_fusion, unfold_fusion, thunk_forwarding, context_compression, constructor_contexts, loop_motion, loop_unswitch };
+pub const Stage = enum { p01, branch, applications, aggregates, expressions, cells, dead_computation, dead_arguments, dead_captures, capture_projection, capture_summary, affine_state, capture_unpack, partial_redundancy, call_patterns, leaf_inlining, contification, common_tails, tail_duplication, outlining, slot_packing, tail_clauses, evidence_forwarding, handler_elimination, reader_fusion, sequence_fusion, unfold_fusion, thunk_forwarding, context_compression, constructor_contexts, loop_motion, loop_unswitch, induction_guards, induction_affine, rectangular_loops, rectangular_tiling, equality_saturation };
 // Prospective construction policy for the expanded four-round schedule.
 // Caller-supplied limits remain exact; this does not change P01's allowance.
 pub const default_work_limit: u64 = 400_000_000_000;
@@ -58,8 +64,27 @@ pub const Statistics = struct {
     failed_stage: ?Stage = null,
     selected_candidate: enum { baseline, shrinking, full } = .baseline,
     admission_guard_rejections: usize = 0,
+    search_exhaustions: usize = 0,
+    profile_used: bool = false,
+    profile_variants: usize = 0,
+    profile_rewrites: usize = 0,
 };
 pub const Observer = struct { context: *anyopaque, enter: *const fn (*anyopaque, Stage) void };
+pub const ProfilePolicy = struct {
+    record: profiles.Record,
+    target: enum { call_patterns, loop_unswitch, tail_duplication } = .call_patterns,
+    max_variants: usize = 16,
+    max_copies: usize = 16,
+    max_added_blocks: usize = 256,
+    max_added_bytes: usize = 4096,
+};
+fn profileStage(policy: ProfilePolicy) Stage {
+    return switch (policy.target) {
+        .call_patterns => .call_patterns,
+        .loop_unswitch => .loop_unswitch,
+        .tail_duplication => .tail_duplication,
+    };
+}
 pub const Options = struct {
     contract: Contract = .structural,
     objective: Objective = .balanced,
@@ -69,6 +94,7 @@ pub const Options = struct {
     round_limit: usize = 4,
     statistics: ?*Statistics = null,
     observer: ?Observer = null,
+    profile: ?ProfilePolicy = null,
     coalescing: p01.Options = .{},
 
     /// Begin an invocation before any producer can reject its input.
@@ -77,8 +103,8 @@ pub const Options = struct {
         if (self.statistics) |stats| stats.* = .{};
     }
 };
-pub const Error = branch.Error || applications.Error || aggregates.Error || expressions.Error || cells.Error || dead.Error || arguments.Error || captures.Error || projections.Error || summaries.Error || affine.Error || unpack.Error || pre.Error || patterns.Error || leaves.Error || joins.Error || tails.Error || duplicate_tails.Error || outlining.Error || packing.Error || handler_tail.ValidationError || evidence.Error || handlers.Error || readers.Error || sequences.Error || unfolds.Error || thunk_forwarding.Error || contexts.Error || constructors.Error || motion.Error || unswitch.Error;
-const schedule = [_]Stage{ .loop_unswitch, .loop_motion, .constructor_contexts, .context_compression, .unfold_fusion, .sequence_fusion, .thunk_forwarding, .branch, .capture_unpack, .aggregates, .dead_computation, .affine_state, .call_patterns, .branch, .applications, .leaf_inlining, .contification, .tail_clauses, .evidence_forwarding, .handler_elimination, .reader_fusion, .aggregates, .expressions, .partial_redundancy, .cells, .dead_computation, .dead_arguments, .dead_captures, .capture_projection, .capture_summary, .dead_computation, .dead_arguments, .applications, .dead_computation, .tail_duplication, .common_tails, .outlining, .slot_packing };
+pub const Error = branch.Error || applications.Error || aggregates.Error || expressions.Error || cells.Error || dead.Error || arguments.Error || captures.Error || projections.Error || summaries.Error || affine.Error || unpack.Error || pre.Error || patterns.Error || leaves.Error || joins.Error || tails.Error || duplicate_tails.Error || outlining.Error || packing.Error || handler_tail.ValidationError || evidence.Error || handlers.Error || readers.Error || sequences.Error || unfolds.Error || thunk_forwarding.Error || contexts.Error || constructors.Error || motion.Error || unswitch.Error || induction_guards.Error || induction_affine.Error || rectangles.Error || tiling.Error || saturation.Error;
+const schedule = [_]Stage{ .rectangular_loops, .rectangular_tiling, .induction_guards, .induction_affine, .loop_unswitch, .loop_motion, .constructor_contexts, .context_compression, .unfold_fusion, .sequence_fusion, .thunk_forwarding, .branch, .capture_unpack, .aggregates, .dead_computation, .affine_state, .call_patterns, .branch, .applications, .leaf_inlining, .contification, .tail_clauses, .evidence_forwarding, .handler_elimination, .reader_fusion, .aggregates, .expressions, .equality_saturation, .partial_redundancy, .cells, .dead_computation, .dead_arguments, .dead_captures, .capture_projection, .capture_summary, .dead_computation, .dead_arguments, .applications, .dead_computation, .tail_duplication, .common_tails, .outlining, .slot_packing };
 fn notify(options: Options, stage: Stage) void {
     if (options.observer) |observer| observer.enter(observer.context, stage);
 }
@@ -150,10 +176,10 @@ fn reservation(program: ir.Program, stage: Stage) Error!u64 {
         // These bounded passes index whole-record scans by functions, blocks,
         // parameters or slots. Instruction-level searches have their own
         // counted allowances below; they do not each rescan the entire Program.
-        .call_patterns, .leaf_inlining, .contification, .common_tails, .tail_duplication, .outlining, .slot_packing, .tail_clauses, .evidence_forwarding, .handler_elimination, .reader_fusion, .sequence_fusion, .unfold_fusion, .thunk_forwarding, .context_compression, .constructor_contexts, .loop_motion, .loop_unswitch => std.math.mul(u64, try sumWork(&.{ program.functions.len, max_inputs, max_slots, program.blocks.len, 1 }), shape.records) catch return error.Capacity,
+        .call_patterns, .leaf_inlining, .contification, .common_tails, .tail_duplication, .outlining, .slot_packing, .tail_clauses, .evidence_forwarding, .handler_elimination, .reader_fusion, .sequence_fusion, .unfold_fusion, .thunk_forwarding, .context_compression, .constructor_contexts, .loop_motion, .loop_unswitch, .induction_guards, .induction_affine, .rectangular_loops, .rectangular_tiling => std.math.mul(u64, try sumWork(&.{ program.functions.len, max_inputs, max_slots, program.blocks.len, 1 }), shape.records) catch return error.Capacity,
         .applications => std.math.mul(u64, try sumWork(&.{ applications_count, 1 }), shape.records) catch return error.Capacity,
         .aggregates => block_squares,
-        .expressions => 0,
+        .expressions, .equality_saturation => 0,
         .partial_redundancy => std.math.mul(u64, try sumWork(&.{ instructions, program.blocks.len, 1 }), shape.records) catch return error.Capacity,
         .cells => std.math.mul(u64, try sumWork(&.{ cells_count, 1 }), shape.records) catch return error.Capacity,
         // One dead-computation round. The driver caps and charges each actual
@@ -169,10 +195,10 @@ fn reservation(program: ir.Program, stage: Stage) Error!u64 {
     const facts: u64 = switch (stage) {
         .branch, .applications, .aggregates => 22_000_000,
         .call_patterns => 5 * (patterns.Options{}).work_limit,
-        .expressions, .partial_redundancy => 1_000_000,
+        .expressions, .partial_redundancy, .equality_saturation => 1_000_000,
         .leaf_inlining, .contification, .common_tails, .outlining => 2_000_000,
         .tail_duplication => 26_000_000, // Search/checker plus fresh branch facts/proofs.
-        .slot_packing, .tail_clauses, .evidence_forwarding, .reader_fusion, .sequence_fusion, .unfold_fusion, .thunk_forwarding, .context_compression, .constructor_contexts, .loop_motion, .loop_unswitch => 20_000_000,
+        .slot_packing, .tail_clauses, .evidence_forwarding, .reader_fusion, .sequence_fusion, .unfold_fusion, .thunk_forwarding, .context_compression, .constructor_contexts, .loop_motion, .loop_unswitch, .induction_guards, .induction_affine, .rectangular_loops, .rectangular_tiling => 20_000_000,
         .handler_elimination => 2_000_000,
         .affine_state => std.math.mul(u64, try sumWork(&.{ program.constructors.len, program.functions.len }), 6_000_000) catch return error.Capacity,
         else => 0,
@@ -289,7 +315,7 @@ fn cost(allocator: std.mem.Allocator, owned: *const p01.Owned) Error!Cost {
     // This models the retained analysis containers, not World runtime memory.
     const admission_sets = try admissionSetCost(owned.flow.pool.nodeCount(), owned.flow.pool.interned.capacity());
     const repeated_work = try motion.repeatedWorkEstimate(allocator, program);
-    var result: Cost = .{ .bytes = try image.encodedLength(program), .work = 0, .path_work = try pathWork(allocator, program), .repeated_scalar_work = if (repeated_work) |work| work.scalars else null, .repeated_branch_tests = if (repeated_work) |work| work.branch_tests else null, .retention = 0, .admission_sets = admission_sets };
+    var result: Cost = .{ .bytes = try image.encodedLength(program), .work = 0, .path_work = if (try rectangles.executionWork(allocator, program)) |work| work else try pathWork(allocator, program), .repeated_scalar_work = if (repeated_work) |work| work.scalars else null, .repeated_branch_tests = if (repeated_work) |work| work.branch_tests else null, .retention = 0, .admission_sets = admission_sets };
     for (program.blocks) |block| {
         result.work +|= blockWork(block);
         if (block.terminator == .call and block.terminator.call.function == block.function) {
@@ -410,6 +436,10 @@ fn possible(allocator: std.mem.Allocator, owned: *const p01.Owned, stage: Stage)
         .constructor_contexts => return constructors.possible(program),
         .loop_motion => return motion.possible(program),
         .loop_unswitch => return unswitch.possible(program),
+        .equality_saturation => return saturation.possible(program),
+        .rectangular_loops, .rectangular_tiling => return rectangles.possible(program),
+        .induction_guards => return induction_guards.possible(program),
+        .induction_affine => return induction_affine.possible(program),
         .p01 => return true,
     }
     return false;
@@ -427,6 +457,9 @@ pub fn run(allocator: std.mem.Allocator, original: ir.Program, options: Options)
     var baseline = try p01.run(allocator, original, options.coalescing);
     var keep_baseline = false;
     defer if (!keep_baseline) baseline.deinit();
+    // Bind logical locations before any semantic rewrite or P01 relocation.
+    // Structural compilation validates the profile but explicitly does not use it.
+    if (options.profile) |policy| try profiles.validate(allocator, original, policy.record);
     stats.original_bytes = try image.encodedLength(original);
     stats.baseline_bytes = try image.encodedLength(baseline.program);
     stats.final_bytes = stats.baseline_bytes;
@@ -447,6 +480,60 @@ pub fn run(allocator: std.mem.Allocator, original: ir.Program, options: Options)
     const baseline_cost = try cost(allocator, &baseline);
     const limit = std.math.add(usize, stats.baseline_bytes, growth(options, stats.baseline_bytes)) catch return error.Capacity;
     const quiet: p01.Options = .{ .work_limit = options.coalescing.work_limit };
+    if (options.profile) |policy| {
+        stage = profileStage(policy);
+        const charge = try reservation(original, stage);
+        if (charge > options.work_limit - stats.work_reserved) {
+            try allowBaseline(options, stats.baseline_bytes);
+            stats.outcome = .work_limit;
+            stats.stopped_stage = stage;
+            keep_baseline = true;
+            return baseline;
+        }
+        stats.work_reserved += charge;
+        notify(options, stage);
+        var exhausted = false;
+        current = switch (policy.target) {
+            .call_patterns => blk: {
+                var profiled: patterns.Statistics = .{};
+                const result = try patterns.run(allocator, original, &profiled, .{
+                    .profile = policy.record,
+                    .max_variants = policy.max_variants,
+                    .max_added_blocks = policy.max_added_blocks,
+                    .max_added_bytes = policy.max_added_bytes,
+                    .coalescing = quiet,
+                });
+                exhausted = profiled.work_limit;
+                stats.profile_variants = profiled.variants;
+                stats.profile_rewrites = profiled.rewritten_calls;
+                break :blk result;
+            },
+            .loop_unswitch => blk: {
+                var profiled: unswitch.Statistics = .{};
+                const result = try unswitch.run(allocator, original, &profiled, .{ .profile = policy.record, .max_added_bytes = policy.max_added_bytes, .coalescing = quiet });
+                exhausted = profiled.work_limit;
+                stats.profile_rewrites = profiled.unswitched;
+                break :blk result;
+            },
+            .tail_duplication => blk: {
+                var profiled: duplicate_tails.Statistics = .{};
+                const result = try duplicate_tails.run(allocator, original, &profiled, .{ .profile = policy.record, .max_copies = policy.max_copies, .max_added_bytes = policy.max_added_bytes, .coalescing = quiet });
+                exhausted = profiled.work_limit;
+                stats.profile_rewrites = profiled.copies;
+                break :blk result;
+            },
+        };
+        if (exhausted) {
+            try allowBaseline(options, stats.baseline_bytes);
+            stats.outcome = .work_limit;
+            stats.stopped_stage = stage;
+            keep_baseline = true;
+            return baseline;
+        }
+        stats.profile_used = true;
+        stats.stages_run += 1;
+        stats.changed_stages += @intFromBool(!@import("record_equal.zig").equal(ir.Program, baseline.program, current.?.program));
+    }
     // A small independent shrinking candidate keeps useful dead-work removal
     // available when a later reuse combination is uneconomical. It is an
     // internal candidate, never an alternative production compilation route.
@@ -464,7 +551,7 @@ pub fn run(allocator: std.mem.Allocator, original: ir.Program, options: Options)
         stage = .dead_computation;
         notify(options, stage);
         var exhausted = false;
-        shrinking = try applyWithWork(allocator, baseline.program, stage, quiet, charge, options.work_limit, &stats.work_reserved, &exhausted);
+        shrinking = try applyWithWork(allocator, baseline.program, stage, quiet, charge, options.work_limit, &stats.work_reserved, &exhausted, &stats.search_exhaustions);
         if (exhausted) {
             try allowBaseline(options, stats.baseline_bytes);
             stats.outcome = .work_limit;
@@ -478,7 +565,7 @@ pub fn run(allocator: std.mem.Allocator, original: ir.Program, options: Options)
     var generation: usize = 0;
     var no_change_generation: [std.meta.fields(Stage).len]?usize = @splat(null);
     if (shrinking) |owner| {
-        if (@import("record_equal.zig").equal(ir.Program, baseline.program, owner.program))
+        if (current == null and @import("record_equal.zig").equal(ir.Program, baseline.program, owner.program))
             no_change_generation[@intFromEnum(Stage.dead_computation)] = generation;
     }
     var round: usize = 0;
@@ -486,6 +573,12 @@ pub fn run(allocator: std.mem.Allocator, original: ir.Program, options: Options)
         const before = try image.identity(allocator, if (current) |owner| owner.program else baseline.program);
         for (schedule) |next_stage| {
             stage = next_stage;
+            // The one original-image profile budget is not replenished after
+            // rewriting, and old IDs never rank relocated candidate records.
+            if (options.profile) |policy| if (stage == profileStage(policy)) {
+                stats.stages_skipped += 1;
+                continue;
+            };
             if (no_change_generation[@intFromEnum(stage)] == generation) {
                 stats.stages_skipped += 1;
                 continue;
@@ -506,7 +599,7 @@ pub fn run(allocator: std.mem.Allocator, original: ir.Program, options: Options)
             }
             notify(options, stage);
             var exhausted = false;
-            var next = applyWithWork(allocator, input, stage, quiet, charge, options.work_limit, &stats.work_reserved, &exhausted) catch |err| {
+            var next = applyWithWork(allocator, input, stage, quiet, charge, options.work_limit, &stats.work_reserved, &exhausted, &stats.search_exhaustions) catch |err| {
                 if (err == error.SemanticWorkLimit or err == error.ExpressionWorkLimit) {
                     try allowBaseline(options, stats.baseline_bytes);
                     stats.outcome = .work_limit;
@@ -583,10 +676,10 @@ pub fn run(allocator: std.mem.Allocator, original: ir.Program, options: Options)
     stats.outcome = .applied;
     return result;
 }
-fn applyWithWork(a: std.mem.Allocator, program: ir.Program, stage: Stage, options: p01.Options, charge: u64, limit: u64, used: *u64, exhausted: *bool) Error!p01.Owned {
+fn applyWithWork(a: std.mem.Allocator, program: ir.Program, stage: Stage, options: p01.Options, charge: u64, limit: u64, used: *u64, exhausted: *bool, search_exhaustions: *usize) Error!p01.Owned {
     if (stage != .dead_computation) {
         used.* += charge;
-        return apply(a, program, stage, options, exhausted);
+        return apply(a, program, stage, options, exhausted, search_exhaustions);
     }
     // Each round only removes instructions, so its input scan bound cannot
     // exceed the original round's reservation. No round starts without credit.
@@ -597,7 +690,7 @@ fn applyWithWork(a: std.mem.Allocator, program: ir.Program, stage: Stage, option
     exhausted.* = stats.work_limit;
     return result;
 }
-fn apply(a: std.mem.Allocator, program: ir.Program, stage: Stage, options: p01.Options, exhausted: *bool) Error!p01.Owned {
+fn apply(a: std.mem.Allocator, program: ir.Program, stage: Stage, options: p01.Options, exhausted: *bool, search_exhaustions: *usize) Error!p01.Owned {
     return switch (stage) {
         .p01 => unreachable,
         .branch => blk: {
@@ -616,6 +709,38 @@ fn apply(a: std.mem.Allocator, program: ir.Program, stage: Stage, options: p01.O
         .expressions => blk: {
             var stats: expressions.Statistics = .{};
             const result = try expressions.run(a, program, &stats, .{ .coalescing = options });
+            exhausted.* = stats.work_limit;
+            break :blk result;
+        },
+        .equality_saturation => blk: {
+            var stats: saturation.Statistics = .{};
+            const result = try saturation.run(a, program, &stats, .{ .coalescing = options });
+            // Section 7.4: bounded search keeps its checked stage incumbent;
+            // it does not authorize unfinished analysis or alter P01 rollback.
+            search_exhaustions.* += @intFromBool(stats.work_limit);
+            break :blk result;
+        },
+        .rectangular_tiling => blk: {
+            var stats: tiling.Statistics = .{};
+            const result = try tiling.run(a, program, &stats, .{ .coalescing = options });
+            exhausted.* = stats.work_limit;
+            break :blk result;
+        },
+        .rectangular_loops => blk: {
+            var stats: rectangles.Statistics = .{};
+            const result = try rectangles.run(a, program, &stats, .{ .coalescing = options });
+            exhausted.* = stats.work_limit;
+            break :blk result;
+        },
+        .induction_guards => blk: {
+            var stats: induction_guards.Statistics = .{};
+            const result = try induction_guards.run(a, program, &stats, .{ .coalescing = options });
+            exhausted.* = stats.work_limit;
+            break :blk result;
+        },
+        .induction_affine => blk: {
+            var stats: induction_affine.Statistics = .{};
+            const result = try induction_affine.run(a, program, &stats, .{ .coalescing = options });
             exhausted.* = stats.work_limit;
             break :blk result;
         },

@@ -1,0 +1,550 @@
+{
+  "status": "partial-p31-qualification",
+  "directory": "/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary-modular-optimization-x70vvr",
+  "emitterSha256": "6bc32d179ff40dfbba7268ddd96e7fc602d83322b61fa49c2d897a58b1a142b1",
+  "linkerSha256": "cbfe326c1f8d9b6752f1433e880df22efdfe5c100e884bd78021fb07f1fbfcc9",
+  "contracts": {
+    "structural": {
+      "sha256": "1b89d709cef38ca5fbc0987e16a7e8f087382c6f185a8f2f919f89eedff9d3e0",
+      "bytes": 110,
+      "functions": 2,
+      "constructors": 1,
+      "applies": 1,
+      "constructions": 1,
+      "captureOperands": 2,
+      "forwardingLawWitnesses": 0,
+      "deadCaptureWitnesses": 1,
+      "xorInstructions": 1
+    },
+    "semantic": {
+      "sha256": "97364b61f764af6320e8758aa26c311eeed6ca6315017c066db84cffd03fd300",
+      "bytes": 77,
+      "functions": 1,
+      "constructors": 0,
+      "applies": 0,
+      "constructions": 0,
+      "captureOperands": 0,
+      "forwardingLawWitnesses": 0,
+      "deadCaptureWitnesses": 0,
+      "xorInstructions": 1
+    }
+  },
+  "executions": 18,
+  "rejections": [
+    {
+      "contract": "structural",
+      "error": "error: InvalidOwnership"
+    },
+    {
+      "contract": "semantic",
+      "error": "error: InvalidOwnership"
+    },
+    {
+      "contract": "off",
+      "error": "error: InvalidEnumTag"
+    },
+    {
+      "contract": "safe",
+      "error": "error: InvalidEnumTag"
+    }
+  ],
+  "kernelSha256": "7d31effb1d4e32523d0fcbd5b4d5f5a8a2289fbd4c731173a33b1c174524282f",
+  "law": {
+    "structural": {
+      "sha256": "7fa563ed2bb38e52c2cf4dd63949de0d63c88e52cb9eee350288b500c509d52b",
+      "bytes": 127,
+      "functions": 3,
+      "constructors": 2,
+      "applies": 2,
+      "constructions": 2,
+      "captureOperands": 2,
+      "forwardingLawWitnesses": 1,
+      "deadCaptureWitnesses": 0,
+      "xorInstructions": 0
+    },
+    "semantic": {
+      "sha256": "c0a3a1610fdfaa08bc5f4b3883220e3235ccaea6a99cfd11285f871ed7844e7f",
+      "bytes": 96,
+      "functions": 2,
+      "constructors": 1,
+      "applies": 1,
+      "constructions": 1,
+      "captureOperands": 1,
+      "forwardingLawWitnesses": 0,
+      "deadCaptureWitnesses": 0,
+      "xorInstructions": 0
+    }
+  },
+  "sharing": {
+    "objects": {
+      "provider": {
+        "sha256": "6e85dafa1bfd26f87458dd3b4b289c464c1de594ac82a3a7ba8e4367aeb2af4b",
+        "functions": 2,
+        "xorInstructions": 1
+      },
+      "client": {
+        "sha256": "af94e97dd82a11067bfe78316a7f5239cdf78c4e4c1dcb7c011e3ec097bb81bd",
+        "functions": 3,
+        "xorInstructions": 1
+      }
+    },
+    "sha256": "e25fa0109906238f000e116560008049fc8650651b89e47d749964e21a2eae17",
+    "bytes": 117,
+    "functions": 3,
+    "constructors": 0,
+    "applies": 0,
+    "constructions": 0,
+    "captureOperands": 0,
+    "forwardingLawWitnesses": 0,
+    "deadCaptureWitnesses": 0,
+    "xorInstructions": 1
+  },
+  "previousLawQualification": {
+    "status": "partial-p31-qualification",
+    "directory": "/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary-modular-optimization-yCNK6c",
+    "emitterSha256": "a5a5dd56afbd523243bc73e54ad1bd13c46ef3cb79a3f76f6fc624df3f62d947",
+    "linkerSha256": "cbfe326c1f8d9b6752f1433e880df22efdfe5c100e884bd78021fb07f1fbfcc9",
+    "contracts": {
+      "structural": {
+        "sha256": "1b89d709cef38ca5fbc0987e16a7e8f087382c6f185a8f2f919f89eedff9d3e0",
+        "bytes": 110,
+        "functions": 2,
+        "constructors": 1,
+        "applies": 1,
+        "constructions": 1,
+        "captureOperands": 2,
+        "forwardingLawWitnesses": 0,
+        "deadCaptureWitnesses": 1
+      },
+      "semantic": {
+        "sha256": "97364b61f764af6320e8758aa26c311eeed6ca6315017c066db84cffd03fd300",
+        "bytes": 77,
+        "functions": 1,
+        "constructors": 0,
+        "applies": 0,
+        "constructions": 0,
+        "captureOperands": 0,
+        "forwardingLawWitnesses": 0,
+        "deadCaptureWitnesses": 0
+      }
+    },
+    "executions": 15,
+    "rejections": [
+      {
+        "contract": "structural",
+        "error": "error: InvalidOwnership"
+      },
+      {
+        "contract": "semantic",
+        "error": "error: InvalidOwnership"
+      },
+      {
+        "contract": "off",
+        "error": "error: InvalidEnumTag"
+      },
+      {
+        "contract": "safe",
+        "error": "error: InvalidEnumTag"
+      }
+    ],
+    "kernelSha256": "7d31effb1d4e32523d0fcbd5b4d5f5a8a2289fbd4c731173a33b1c174524282f",
+    "law": {
+      "structural": {
+        "sha256": "7fa563ed2bb38e52c2cf4dd63949de0d63c88e52cb9eee350288b500c509d52b",
+        "bytes": 127,
+        "functions": 3,
+        "constructors": 2,
+        "applies": 2,
+        "constructions": 2,
+        "captureOperands": 2,
+        "forwardingLawWitnesses": 1,
+        "deadCaptureWitnesses": 0
+      },
+      "semantic": {
+        "sha256": "c0a3a1610fdfaa08bc5f4b3883220e3235ccaea6a99cfd11285f871ed7844e7f",
+        "bytes": 96,
+        "functions": 2,
+        "constructors": 1,
+        "applies": 1,
+        "constructions": 1,
+        "captureOperands": 1,
+        "forwardingLawWitnesses": 0,
+        "deadCaptureWitnesses": 0
+      }
+    },
+    "previousConstructorQualification": {
+      "status": "partial-p31-qualification",
+      "directory": "/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary-modular-optimization-mkc1p3",
+      "emitterSha256": "01b01dc8bacd0ed84e528a3fedcd4feb2720f3b23faca97375b4d8c11d0e789e",
+      "linkerSha256": "cbfe326c1f8d9b6752f1433e880df22efdfe5c100e884bd78021fb07f1fbfcc9",
+      "contracts": {
+        "structural": {
+          "sha256": "1b89d709cef38ca5fbc0987e16a7e8f087382c6f185a8f2f919f89eedff9d3e0",
+          "bytes": 110,
+          "functions": 2,
+          "constructors": 1,
+          "applies": 1,
+          "constructions": 1,
+          "captureOperands": 2
+        },
+        "semantic": {
+          "sha256": "97364b61f764af6320e8758aa26c311eeed6ca6315017c066db84cffd03fd300",
+          "bytes": 77,
+          "functions": 1,
+          "constructors": 0,
+          "applies": 0,
+          "constructions": 0,
+          "captureOperands": 0
+        }
+      },
+      "executions": 9,
+      "rejections": [
+        {
+          "contract": "structural",
+          "error": "error: InvalidOwnership"
+        },
+        {
+          "contract": "semantic",
+          "error": "error: InvalidOwnership"
+        },
+        {
+          "contract": "off",
+          "error": "error: InvalidEnumTag"
+        },
+        {
+          "contract": "safe",
+          "error": "error: InvalidEnumTag"
+        }
+      ],
+      "kernelSha256": "7d31effb1d4e32523d0fcbd5b4d5f5a8a2289fbd4c731173a33b1c174524282f",
+      "sources": {
+        "tools/component_link.zig": "913a0837e25e7e1345f1f8ca2d1c6f893202d5b2c4b6d81deb29298323cd6558",
+        "test/v2/modular_optimization.zig": "0ec504a4b178533f3cece4b8a712838ebb1f96e8a39ea2183e9bb2e429cec7bd",
+        "test/modular_optimization.mjs": "f60563f6fb41e24ada4fad6f076a134a7bea959f95f8b6a1a2f15271cc2529d8"
+      },
+      "remaining": [
+        "independent-process linked law producer/consumer witness",
+        "full requirement and consumer binding reconciliation",
+        "blocked runtime/solver/economic/publication/review work"
+      ],
+      "aggregate": {
+        "steps": 319,
+        "tests": 836,
+        "status": "passed",
+        "mode": "ReleaseSafe"
+      }
+    },
+    "sources": {
+      "tools/component_link.zig": "913a0837e25e7e1345f1f8ca2d1c6f893202d5b2c4b6d81deb29298323cd6558",
+      "test/v2/modular_optimization.zig": "9a4f5061b3cad9c5425949189e56b04182b3dfcab6d3adb5a96446af97a732fa",
+      "test/modular_optimization.mjs": "8b130dac796518d83273180eaef8907ad96eee647836497d85d487ea58eb09a4"
+    },
+    "aggregate": {
+      "steps": 319,
+      "tests": 836,
+      "status": "passed",
+      "mode": "ReleaseSafe",
+      "scope": "Production standalone contract change; predates the later test-only forwarding-law fixture and inspection counters. Not rerun for those additions."
+    },
+    "remaining": [
+      "full requirement and consumer binding reconciliation",
+      "blocked runtime/solver/economic/publication/review work"
+    ]
+  },
+  "sources": {
+    "tools/component_link.zig": "913a0837e25e7e1345f1f8ca2d1c6f893202d5b2c4b6d81deb29298323cd6558",
+    "test/v2/modular_optimization.zig": "acbce163fcbd39581686515f594ee93fe1af6785d26c8ae601b9692df752b49d",
+    "test/modular_optimization.mjs": "4c1fe16698361f643dd107641512ed62c28ba6cef9ed658a58b55e9dcd27bf0a"
+  },
+  "aggregate": {
+    "steps": 319,
+    "tests": 836,
+    "status": "passed",
+    "mode": "ReleaseSafe",
+    "scope": "Production standalone contract change; predates the later test-only forwarding-law fixture and inspection counters. Not rerun for those additions."
+  },
+  "remaining": [
+    "full requirement and consumer binding reconciliation",
+    "blocked runtime/solver/economic/publication/review work"
+  ],
+  "policyQualification": {
+    "status": "complete",
+    "directory": "/var/folders/8g/smldc3c95hlfp9_z2_47mx440000gn/T/boundary-modular-optimization-T8P6a8",
+    "emitterSha256": "73bb44a0286da680bb45e682daa33b933e609dd864f6b8535e9f5c9c9732717e",
+    "linkerSha256": "b3035d4d98045b978352d85ef1653036685c4472c311257a7446e53c20af5daf",
+    "contracts": {
+      "structural": {
+        "sha256": "1b89d709cef38ca5fbc0987e16a7e8f087382c6f185a8f2f919f89eedff9d3e0",
+        "bytes": 110,
+        "functions": 2,
+        "constructors": 1,
+        "applies": 1,
+        "constructions": 1,
+        "captureOperands": 2,
+        "forwardingLawWitnesses": 0,
+        "deadCaptureWitnesses": 1,
+        "xorInstructions": 1
+      },
+      "semantic": {
+        "sha256": "97364b61f764af6320e8758aa26c311eeed6ca6315017c066db84cffd03fd300",
+        "bytes": 77,
+        "functions": 1,
+        "constructors": 0,
+        "applies": 0,
+        "constructions": 0,
+        "captureOperands": 0,
+        "forwardingLawWitnesses": 0,
+        "deadCaptureWitnesses": 0,
+        "xorInstructions": 1
+      }
+    },
+    "executions": 18,
+    "rejections": [
+      {
+        "contract": "structural",
+        "error": "error: InvalidOwnership"
+      },
+      {
+        "contract": "semantic",
+        "error": "error: InvalidOwnership"
+      },
+      {
+        "contract": "off",
+        "error": "error: InvalidEnumTag"
+      },
+      {
+        "contract": "safe",
+        "error": "error: InvalidEnumTag"
+      }
+    ],
+    "policy": [
+      {
+        "policy": {
+          "work_limit": 0
+        },
+        "result": "checked structural baseline",
+        "sha256": "1b89d709cef38ca5fbc0987e16a7e8f087382c6f185a8f2f919f89eedff9d3e0"
+      },
+      {
+        "policy": {
+          "round_limit": 0
+        },
+        "result": "checked structural baseline",
+        "sha256": "1b89d709cef38ca5fbc0987e16a7e8f087382c6f185a8f2f919f89eedff9d3e0"
+      },
+      {
+        "policy": {
+          "objective": "size",
+          "image_growth_bytes": 0,
+          "max_image_bytes": 110
+        },
+        "bytes": 77,
+        "sha256": "97364b61f764af6320e8758aa26c311eeed6ca6315017c066db84cffd03fd300"
+      },
+      {
+        "policy": {
+          "objective": "balanced",
+          "image_growth_bytes": 0,
+          "max_image_bytes": 110
+        },
+        "bytes": 77,
+        "sha256": "97364b61f764af6320e8758aa26c311eeed6ca6315017c066db84cffd03fd300"
+      },
+      {
+        "policy": {
+          "objective": "speed",
+          "image_growth_bytes": 0,
+          "max_image_bytes": 110
+        },
+        "bytes": 77,
+        "sha256": "97364b61f764af6320e8758aa26c311eeed6ca6315017c066db84cffd03fd300"
+      },
+      {
+        "contract": "structural",
+        "policy": {
+          "max_image_bytes": 1
+        },
+        "result": "Capacity"
+      },
+      {
+        "contract": "structural",
+        "policy": {
+          "profile": {
+            "record": {
+              "image_identity": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "block_counts": [],
+              "total": 0
+            }
+          }
+        },
+        "result": "InvalidOptimizationProfile"
+      },
+      {
+        "contract": "semantic",
+        "policy": {
+          "max_image_bytes": 1
+        },
+        "result": "Capacity"
+      },
+      {
+        "contract": "semantic",
+        "policy": {
+          "profile": {
+            "record": {
+              "image_identity": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "block_counts": [],
+              "total": 0
+            }
+          }
+        },
+        "result": "InvalidOptimizationProfile"
+      },
+      {
+        "policy": {
+          "profile": "valid original provider profile; all counts zero"
+        },
+        "result": "accepted; reachable behavior retained",
+        "sha256": "8f7cd1dfe5aee26844b48442e807ecd331a39032c599d9b097655f1142b6f58e"
+      },
+      {
+        "policy": {
+          "contract": "semantic",
+          "work_limit": 0
+        },
+        "result": "P01 still shares two private bodies",
+        "sha256": "e25fa0109906238f000e116560008049fc8650651b89e47d749964e21a2eae17"
+      }
+    ],
+    "kernelSha256": "7d31effb1d4e32523d0fcbd5b4d5f5a8a2289fbd4c731173a33b1c174524282f",
+    "law": {
+      "structural": {
+        "sha256": "7fa563ed2bb38e52c2cf4dd63949de0d63c88e52cb9eee350288b500c509d52b",
+        "bytes": 127,
+        "functions": 3,
+        "constructors": 2,
+        "applies": 2,
+        "constructions": 2,
+        "captureOperands": 2,
+        "forwardingLawWitnesses": 1,
+        "deadCaptureWitnesses": 0,
+        "xorInstructions": 0
+      },
+      "semantic": {
+        "sha256": "c0a3a1610fdfaa08bc5f4b3883220e3235ccaea6a99cfd11285f871ed7844e7f",
+        "bytes": 96,
+        "functions": 2,
+        "constructors": 1,
+        "applies": 1,
+        "constructions": 1,
+        "captureOperands": 1,
+        "forwardingLawWitnesses": 0,
+        "deadCaptureWitnesses": 0,
+        "xorInstructions": 0
+      }
+    },
+    "sharing": {
+      "objects": {
+        "provider": {
+          "sha256": "6e85dafa1bfd26f87458dd3b4b289c464c1de594ac82a3a7ba8e4367aeb2af4b",
+          "functions": 2,
+          "xorInstructions": 1
+        },
+        "client": {
+          "sha256": "af94e97dd82a11067bfe78316a7f5239cdf78c4e4c1dcb7c011e3ec097bb81bd",
+          "functions": 3,
+          "xorInstructions": 1
+        }
+      },
+      "sha256": "e25fa0109906238f000e116560008049fc8650651b89e47d749964e21a2eae17",
+      "bytes": 117,
+      "functions": 3,
+      "constructors": 0,
+      "applies": 0,
+      "constructions": 0,
+      "captureOperands": 0,
+      "forwardingLawWitnesses": 0,
+      "deadCaptureWitnesses": 0,
+      "xorInstructions": 1
+    },
+    "sources": {
+      "tools/component_link.zig": "fec14bb5d72008644bb21f883f8eecaba4948c8a5535bf469c254296a2451a9c",
+      "test/v2/modular_optimization.zig": "e733113faec5f4c24e24084bc4bfccd6d87a651b96e53c62ae2d624288d15f12",
+      "test/modular_optimization.mjs": "22bd760b53b533f39d3272a1a23420cb81bd56af5682e65ab4658b7a55a26722"
+    },
+    "aggregate": {
+      "status": "passed",
+      "exitCode": 0,
+      "steps": 319,
+      "tests": 836,
+      "mode": "ReleaseSafe",
+      "command": "zig build check -Doptimize=ReleaseSafe --global-cache-dir /tmp/p23-global-cache --summary all",
+      "log": "/tmp/p31-policy-boundary-check.log"
+    }
+  }
+}

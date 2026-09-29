@@ -5,6 +5,36 @@ const p = @import("program.zig");
 const own = @import("activation_ownership.zig");
 const unswitch = @import("loop_unswitch.zig");
 const a = std.testing.allocator;
+
+test "profile order spends the one-loop unswitch attempt on the hotter header" {
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    var original = selectable;
+    const blocks = try allocator.alloc(ir.Block, 1 + 2 * selectable.blocks.len);
+    blocks[0] = .{ .function = 0, .instructions = &.{}, .terminator = .{ .branch = .{ .condition = 1, .when_true = .{ .block = 1 }, .when_false = .{ .block = 8 } } } };
+    for ([_]usize{ 1, 8 }) |offset| for (selectable.blocks, 0..) |block, id| {
+        blocks[offset + id] = block;
+        switch (blocks[offset + id].terminator) {
+            .jump => |*edge| edge.block += offset,
+            .branch => |*branch| {
+                branch.when_true.block += offset;
+                branch.when_false.block += offset;
+            },
+            else => {},
+        }
+    };
+    original.blocks = blocks;
+    const counts = try allocator.alloc(u64, blocks.len);
+    @memset(counts, 0);
+    counts[9] = 100;
+    const profile: @import("optimization_profile.zig").Record = .{ .image_identity = try @import("program_image.zig").identity(a, original), .block_counts = counts, .total = 100 };
+    var candidate = (try unswitch.construct(a, original, .{ .profile = profile })).?;
+    defer candidate.deinit();
+    try std.testing.expectEqual(@as(usize, 9), candidate.witness.header);
+    try unswitch.validate(a, original, candidate.program, candidate.witness, .{});
+    try std.testing.expect(@import("record_equal.zig").equal(ir.Block, original.blocks[3], candidate.program.blocks[3]));
+}
 pub const selectable: ir.Program = .{
     .roots = .{ .entry = 0, .result = 0, .failure = 1 },
     .schemas = &.{ .u64, .unit, .boolean },

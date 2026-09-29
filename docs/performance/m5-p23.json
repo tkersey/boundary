@@ -1,0 +1,5893 @@
+{
+  "status": "complete",
+  "kernelSha256": "7d31effb1d4e32523d0fcbd5b4d5f5a8a2289fbd4c731173a33b1c174524282f",
+  "nativeSha256": "b1b1b1187956fb38971e9677a174b34abc6e99f6b7fd1f32217fa838ea6c426b",
+  "probeSha256": "e33eb32d3361a0f7e61056b5d55b3bc5cffca30d8131df15a57fe3741ca7d777",
+  "profileSha256": "55aa10505969b4ecd08c883d0ec3f3c9fa08de6936e79341da01d4b7b46f6545",
+  "scope": "One local complement-path training invocation; three held-out identity paths; explicit one-variant pass budget compared separately from ordinary full shared compilation",
+  "protocol": "Three alternating process windows, extended to five if any ratio exceeds 1.05; three warmups and nine samples per process; confirmation requires median >1.05 and at least four ratios >1.05",
+  "collection": [
+    {
+      "order": [
+        "disabled",
+        "enabled"
+      ],
+      "disabled": {
+        "samplesNs": [
+          9611.265625,
+          10205.0625,
+          10569.65625,
+          9606.125,
+          9498.75,
+          9509.078125,
+          9520.890625,
+          9524.75,
+          9522.078125
+        ],
+        "logicalSteps": 12,
+        "collection": false,
+        "peakBytes": 12455,
+        "retainedProfileBytes": 0
+      },
+      "enabled": {
+        "samplesNs": [
+          16001.25,
+          16989.515625,
+          16333.921875,
+          15793.609375,
+          15776.640625,
+          16138.015625,
+          16057.890625,
+          15962.234375,
+          15798.859375
+        ],
+        "logicalSteps": 12,
+        "collection": true,
+        "peakBytes": 12581,
+        "retainedProfileBytes": 88
+      },
+      "ratio": 1.6799653534213497
+    },
+    {
+      "order": [
+        "enabled",
+        "disabled"
+      ],
+      "enabled": {
+        "samplesNs": [
+          15988.890625,
+          15908.1875,
+          15796.203125,
+          16156.984375,
+          15783.84375,
+          15626.328125,
+          15636.625,
+          15721.921875,
+          15686.875
+        ],
+        "logicalSteps": 12,
+        "collection": true,
+        "peakBytes": 12581,
+        "retainedProfileBytes": 88
+      },
+      "disabled": {
+        "samplesNs": [
+          9664.6875,
+          9535.15625,
+          9511.765625,
+          9613.875,
+          9822.25,
+          9516.375,
+          9775.40625,
+          9621.65625,
+          9548.15625
+        ],
+        "logicalSteps": 12,
+        "collection": false,
+        "peakBytes": 12455,
+        "retainedProfileBytes": 0
+      },
+      "ratio": 1.6417775090689237
+    },
+    {
+      "order": [
+        "disabled",
+        "enabled"
+      ],
+      "disabled": {
+        "samplesNs": [
+          9513.03125,
+          9582.0625,
+          9671.9375,
+          9644.484375,
+          10236.953125,
+          10044.328125,
+          9812.53125,
+          9534.46875,
+          9595.640625
+        ],
+        "logicalSteps": 12,
+        "collection": false,
+        "peakBytes": 12455,
+        "retainedProfileBytes": 0
+      },
+      "enabled": {
+        "samplesNs": [
+          15652.34375,
+          15673.171875,
+          15744.1875,
+          16268.859375,
+          15615.28125,
+          15570.890625,
+          15699.203125,
+          15576.171875,
+          15619.734375
+        ],
+        "logicalSteps": 12,
+        "collection": true,
+        "peakBytes": 12581,
+        "retainedProfileBytes": 88
+      },
+      "ratio": 1.6229321487184223
+    },
+    {
+      "order": [
+        "enabled",
+        "disabled"
+      ],
+      "enabled": {
+        "samplesNs": [
+          15828.828125,
+          15796.265625,
+          15873.65625,
+          15673.859375,
+          15658.84375,
+          15655.578125,
+          15667.375,
+          15686.15625,
+          15963.5
+        ],
+        "logicalSteps": 12,
+        "collection": true,
+        "peakBytes": 12581,
+        "retainedProfileBytes": 88
+      },
+      "disabled": {
+        "samplesNs": [
+          10018.828125,
+          9565.71875,
+          9486.34375,
+          10622.40625,
+          9751.34375,
+          9606.109375,
+          9743.453125,
+          9540.34375,
+          9473.953125
+        ],
+        "logicalSteps": 12,
+        "collection": false,
+        "peakBytes": 12455,
+        "retainedProfileBytes": 0
+      },
+      "ratio": 1.6329354203298356
+    },
+    {
+      "order": [
+        "disabled",
+        "enabled"
+      ],
+      "disabled": {
+        "samplesNs": [
+          9496.109375,
+          9472.609375,
+          9481.796875,
+          9583.296875,
+          9690.109375,
+          9476.546875,
+          9458.953125,
+          9483.109375,
+          9490.90625
+        ],
+        "logicalSteps": 12,
+        "collection": false,
+        "peakBytes": 12455,
+        "retainedProfileBytes": 0
+      },
+      "enabled": {
+        "samplesNs": [
+          15643.234375,
+          15951.8125,
+          15716.125,
+          15621.6875,
+          15880.875,
+          15611.984375,
+          16252.046875,
+          15809.25,
+          16065.140625
+        ],
+        "logicalSteps": 12,
+        "collection": true,
+        "peakBytes": 12581,
+        "retainedProfileBytes": 88
+      },
+      "ratio": 1.667095609134003
+    }
+  ],
+  "cells": [
+    {
+      "control": "limited",
+      "candidate": "profiled",
+      "engine": "native",
+      "phase": "admission",
+      "path": "training",
+      "windows": [
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              6776.828125,
+              6725.859375,
+              6729.875,
+              6725.328125,
+              6720.109375,
+              6721.390625,
+              6716.8125,
+              6725.28125,
+              6730.359375
+            ],
+            "peakBytes": 9980,
+            "retainedBytes": 9246
+          },
+          "candidate": {
+            "samplesNs": [
+              8587.203125,
+              8501.921875,
+              8266.28125,
+              7970.046875,
+              8055.28125,
+              7955,
+              8131.390625,
+              8020.171875,
+              8131.5625
+            ],
+            "peakBytes": 11306,
+            "retainedBytes": 10054
+          },
+          "ratio": 1.2090697247578535
+        },
+        {
+          "order": [
+            "profiled",
+            "limited"
+          ],
+          "control": {
+            "samplesNs": [
+              6714.15625,
+              6718.78125,
+              6734.984375,
+              6728.546875,
+              6731.78125,
+              6724.484375,
+              6835.34375,
+              6911.46875,
+              6716.875
+            ],
+            "peakBytes": 9980,
+            "retainedBytes": 9246
+          },
+          "candidate": {
+            "samplesNs": [
+              7983.171875,
+              7989.59375,
+              7979.34375,
+              7990.3125,
+              7975.28125,
+              7970.671875,
+              7972.03125,
+              7962.28125,
+              7986.328125
+            ],
+            "peakBytes": 11306,
+            "retainedBytes": 10054
+          },
+          "ratio": 1.1858940568055416
+        },
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              7116.5,
+              7134.21875,
+              7158.15625,
+              7275.359375,
+              7202.46875,
+              6834.578125,
+              6958.9375,
+              6744.171875,
+              6906.859375
+            ],
+            "peakBytes": 9980,
+            "retainedBytes": 9246
+          },
+          "candidate": {
+            "samplesNs": [
+              7970.578125,
+              8068.328125,
+              9304.703125,
+              8175.78125,
+              8043.671875,
+              8041.65625,
+              8252.015625,
+              8018.1875,
+              7961.578125
+            ],
+            "peakBytes": 11306,
+            "retainedBytes": 10054
+          },
+          "ratio": 1.1302848134616736
+        },
+        {
+          "order": [
+            "profiled",
+            "limited"
+          ],
+          "control": {
+            "samplesNs": [
+              6788.9375,
+              6762.390625,
+              6766.9375,
+              6774.75,
+              6847.65625,
+              7122.96875,
+              7086.625,
+              6818.96875,
+              6836.484375
+            ],
+            "peakBytes": 9980,
+            "retainedBytes": 9246
+          },
+          "candidate": {
+            "samplesNs": [
+              7965.53125,
+              7970.703125,
+              7955.71875,
+              7957.046875,
+              7956.40625,
+              7955.171875,
+              7960.34375,
+              7963.640625,
+              7958.296875
+            ],
+            "peakBytes": 11306,
+            "retainedBytes": 10054
+          },
+          "ratio": 1.1670821742657203
+        },
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              6783.171875,
+              6872.375,
+              6793.625,
+              7223.234375,
+              6847.671875,
+              6725.3125,
+              6723.984375,
+              6783.203125,
+              7602.84375
+            ],
+            "peakBytes": 9980,
+            "retainedBytes": 9246
+          },
+          "candidate": {
+            "samplesNs": [
+              7985.75,
+              8156.9375,
+              7959.71875,
+              8228.546875,
+              7961.453125,
+              8105.484375,
+              8133.5,
+              8192.703125,
+              8104.3125
+            ],
+            "peakBytes": 11306,
+            "retainedBytes": 10054
+          },
+          "ratio": 1.1931015290069735
+        }
+      ],
+      "medianRatio": 1.1858940568055416,
+      "pairedMedianDeltaNs": 1250.796875,
+      "confirmedSlowdown": true
+    },
+    {
+      "control": "limited",
+      "candidate": "profiled",
+      "engine": "native",
+      "phase": "fresh",
+      "path": "training",
+      "windows": [
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              10135.4375,
+              10112.0625,
+              9935,
+              9937.6875,
+              9921.75,
+              9906.25,
+              9901.0625,
+              10153.625,
+              10158.875
+            ],
+            "peakBytes": 12733,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              11442.8125,
+              11244.75,
+              11304.6875,
+              11176.9375,
+              11205.75,
+              11224.125,
+              11195.25,
+              11174.625,
+              11153.625
+            ],
+            "peakBytes": 14236,
+            "retainedBytes": 0
+          },
+          "ratio": 1.1276013660119621
+        },
+        {
+          "order": [
+            "profiled",
+            "limited"
+          ],
+          "control": {
+            "samplesNs": [
+              10580.875,
+              9945.3125,
+              9934.75,
+              9893.125,
+              9908.9375,
+              10453.0625,
+              11172,
+              9979.375,
+              9921.6875
+            ],
+            "peakBytes": 12733,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              11739.5,
+              11299.4375,
+              11476.625,
+              11950.5625,
+              12158.875,
+              11486.75,
+              11781.25,
+              11474,
+              11458.3125
+            ],
+            "peakBytes": 14236,
+            "retainedBytes": 0
+          },
+          "ratio": 1.1549913589945011
+        },
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              10544.3125,
+              9976.625,
+              9929.875,
+              9945.25,
+              9929.5,
+              9911.4375,
+              9937.625,
+              9934.625,
+              9909
+            ],
+            "peakBytes": 12733,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              21119.75,
+              11338.5,
+              11187.4375,
+              14148.6875,
+              11265.5,
+              11593.875,
+              11187.625,
+              11174.5625,
+              11218.8125
+            ],
+            "peakBytes": 14236,
+            "retainedBytes": 0
+          },
+          "ratio": 1.1339632849755275
+        },
+        {
+          "order": [
+            "profiled",
+            "limited"
+          ],
+          "control": {
+            "samplesNs": [
+              10171.8125,
+              10153.5,
+              9989.5625,
+              10010.375,
+              9997.4375,
+              9963.625,
+              10000,
+              9968.4375,
+              9963.5
+            ],
+            "peakBytes": 12733,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              11364.5,
+              11221.3125,
+              11789,
+              11432.1875,
+              11700.3125,
+              11213.5,
+              11174.5,
+              11161.5625,
+              11156.3125
+            ],
+            "peakBytes": 14236,
+            "retainedBytes": 0
+          },
+          "ratio": 1.1224188698353954
+        },
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              10848.875,
+              10697.6875,
+              11002.625,
+              10390.5,
+              10921.9375,
+              10396,
+              10372.25,
+              10385.4375,
+              10359.5
+            ],
+            "peakBytes": 12733,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              12039,
+              11882.875,
+              11692.6875,
+              11656.1875,
+              11687.4375,
+              11666.75,
+              11630.25,
+              11643.3125,
+              11643.375
+            ],
+            "peakBytes": 14236,
+            "retainedBytes": 0
+          },
+          "ratio": 1.1222345132743363
+        }
+      ],
+      "medianRatio": 1.1276013660119621,
+      "pairedMedianDeltaNs": 1270.75,
+      "confirmedSlowdown": true
+    },
+    {
+      "control": "limited",
+      "candidate": "profiled",
+      "engine": "native",
+      "phase": "fresh",
+      "path": "held-out-first",
+      "windows": [
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              11153.8125,
+              10802,
+              11205.8125,
+              10448.125,
+              10171.875,
+              10205.9375,
+              10192.875,
+              10151.125,
+              10156.375
+            ],
+            "peakBytes": 12733,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              12333.1875,
+              12046.9375,
+              11604.0625,
+              11567.6875,
+              11515.6875,
+              11549.5625,
+              11583.25,
+              11601.6875,
+              11611.9375
+            ],
+            "peakBytes": 14236,
+            "retainedBytes": 0
+          },
+          "ratio": 1.1367586270247099
+        },
+        {
+          "order": [
+            "profiled",
+            "limited"
+          ],
+          "control": {
+            "samplesNs": [
+              10390.6875,
+              10281.1875,
+              10611.9375,
+              10190.375,
+              10211,
+              10195.25,
+              10202.875,
+              10177,
+              10255.1875
+            ],
+            "peakBytes": 12733,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              11950.5625,
+              11760.4375,
+              11580.75,
+              11567.8125,
+              11578,
+              11591.0625,
+              11554.625,
+              11546.9375,
+              11580.8125
+            ],
+            "peakBytes": 14236,
+            "retainedBytes": 0
+          },
+          "ratio": 1.1341445499951033
+        },
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              10320.25,
+              10294.25,
+              10606.6875,
+              10265.75,
+              10192.875,
+              10164.1875,
+              10153.5625,
+              10166.625,
+              10156.1875
+            ],
+            "peakBytes": 12733,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              12122.4375,
+              11562.6875,
+              11583.375,
+              11580.6875,
+              11567.625,
+              11565.25,
+              11570.25,
+              11570.375,
+              12033.8125
+            ],
+            "peakBytes": 14236,
+            "retainedBytes": 0
+          },
+          "ratio": 1.1351434212624014
+        },
+        {
+          "order": [
+            "profiled",
+            "limited"
+          ],
+          "control": {
+            "samplesNs": [
+              10518.0625,
+              10208.25,
+              10200.375,
+              10208.3125,
+              10463.5625,
+              10171.75,
+              10200.5,
+              10179.625,
+              10163.9375
+            ],
+            "peakBytes": 12733,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              12078.3125,
+              11619.8125,
+              11534,
+              11888.125,
+              13760.375,
+              11773.5,
+              11570.3125,
+              11528.625,
+              11572.875
+            ],
+            "peakBytes": 14236,
+            "retainedBytes": 0
+          },
+          "ratio": 1.1391414636537425
+        },
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              10411.5,
+              10226.5625,
+              10223.8125,
+              10377.4375,
+              18213.5,
+              9963.5625,
+              9809.875,
+              9825.5,
+              9781.5
+            ],
+            "peakBytes": 12733,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              11809.8125,
+              11054.8125,
+              11320.0625,
+              11325.4375,
+              11018.25,
+              11072.875,
+              11062.375,
+              11054.75,
+              11033.875
+            ],
+            "peakBytes": 14236,
+            "retainedBytes": 0
+          },
+          "ratio": 1.0820205280564368
+        }
+      ],
+      "medianRatio": 1.1351434212624014,
+      "pairedMedianDeltaNs": 1377.5,
+      "confirmedSlowdown": true
+    },
+    {
+      "control": "limited",
+      "candidate": "profiled",
+      "engine": "native",
+      "phase": "fresh",
+      "path": "held-out-second",
+      "windows": [
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              10687.5625,
+              10468.625,
+              10341.125,
+              10304.8125,
+              10296.6875,
+              10734.4375,
+              10307.3125,
+              10281.1875,
+              10304.5
+            ],
+            "peakBytes": 12733,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              11963.375,
+              11653.5625,
+              11669.3125,
+              11682.1875,
+              11625.125,
+              11619.6875,
+              11658.8125,
+              11630.375,
+              11640.8125
+            ],
+            "peakBytes": 14236,
+            "retainedBytes": 0
+          },
+          "ratio": 1.1306111559147936
+        },
+        {
+          "order": [
+            "profiled",
+            "limited"
+          ],
+          "control": {
+            "samplesNs": [
+              10877.5625,
+              10601.5625,
+              10630.1875,
+              10609.4375,
+              10552.1875,
+              10541.6875,
+              10528.6875,
+              17682.3125,
+              10364.6875
+            ],
+            "peakBytes": 12733,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              13994.9375,
+              12028.6875,
+              14557.125,
+              11734.5,
+              11679.8125,
+              11718.75,
+              11643.5,
+              11669.0625,
+              11684.9375
+            ],
+            "peakBytes": 14236,
+            "retainedBytes": 0
+          },
+          "ratio": 1.105379513633014
+        },
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              10296.875,
+              10776.125,
+              10622.625,
+              10833.25,
+              10130.4375,
+              9840.8125,
+              9820.1875,
+              10281.1875,
+              10291.5625
+            ],
+            "peakBytes": 12733,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              11362,
+              11296.9375,
+              12666.75,
+              11742.3125,
+              11195.25,
+              11187.3125,
+              11489.5,
+              11148.375,
+              11156.4375
+            ],
+            "peakBytes": 14236,
+            "retainedBytes": 0
+          },
+          "ratio": 1.0976892478668812
+        },
+        {
+          "order": [
+            "profiled",
+            "limited"
+          ],
+          "control": {
+            "samplesNs": [
+              11359.375,
+              10864.6875,
+              10260.3125,
+              10273.5625,
+              10234.375,
+              10510.5,
+              11020.875,
+              11015.75,
+              10760.4375
+            ],
+            "peakBytes": 12733,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              11992.3125,
+              12052.125,
+              11195.3125,
+              11221.375,
+              11211,
+              11211.0625,
+              11211,
+              11200.5625,
+              11195.1875
+            ],
+            "peakBytes": 14236,
+            "retainedBytes": 0
+          },
+          "ratio": 1.0418721357751486
+        },
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              10442.75,
+              10372.1875,
+              10609.3125,
+              10302.3125,
+              10317.75,
+              10216.25,
+              10213.4375,
+              10247.4375,
+              10242.375
+            ],
+            "peakBytes": 12733,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              12135.4375,
+              11679.75,
+              11700.3125,
+              11695.3125,
+              12049.5625,
+              12023.4375,
+              12031.25,
+              12216.125,
+              12002.5
+            ],
+            "peakBytes": 14236,
+            "retainedBytes": 0
+          },
+          "ratio": 1.1670620067096587
+        }
+      ],
+      "medianRatio": 1.105379513633014,
+      "pairedMedianDeltaNs": 1117.1875,
+      "confirmedSlowdown": true
+    },
+    {
+      "control": "limited",
+      "candidate": "profiled",
+      "engine": "native",
+      "phase": "fresh",
+      "path": "held-out-both",
+      "windows": [
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              10536.375,
+              10156.375,
+              10135.4375,
+              10140.75,
+              10192.6875,
+              10169.25,
+              10182.25,
+              10187.6875,
+              10184.875
+            ],
+            "peakBytes": 12733,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              11328.0625,
+              11200.4375,
+              11093.6875,
+              11075.375,
+              11073,
+              11078.3125,
+              11487.0625,
+              11127.625,
+              11109.5
+            ],
+            "peakBytes": 14236,
+            "retainedBytes": 0
+          },
+          "ratio": 1.091065334282698
+        },
+        {
+          "order": [
+            "profiled",
+            "limited"
+          ],
+          "control": {
+            "samplesNs": [
+              10768.0625,
+              10007.9375,
+              9830.875,
+              9836.0625,
+              9783.75,
+              9752.6875,
+              10359.5,
+              10117.3125,
+              9784
+            ],
+            "peakBytes": 12733,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              11919.125,
+              11132.875,
+              11119.8125,
+              11101.5,
+              11111.9375,
+              11132.75,
+              12377.5625,
+              11106.875,
+              11174.5625
+            ],
+            "peakBytes": 14236,
+            "retainedBytes": 0
+          },
+          "ratio": 1.1318299370301887
+        },
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              9966.0625,
+              9801.9375,
+              9802.1875,
+              9773.1875,
+              9786.4375,
+              9778.875,
+              9770.6875,
+              9778.625,
+              9796.8125
+            ],
+            "peakBytes": 12733,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              11330.9375,
+              11435.0625,
+              11091.3125,
+              11330.625,
+              12140.6875,
+              12981.625,
+              12734.25,
+              11974,
+              12145.9375
+            ],
+            "peakBytes": 14236,
+            "retainedBytes": 0
+          },
+          "ratio": 1.2235300128366426
+        },
+        {
+          "order": [
+            "profiled",
+            "limited"
+          ],
+          "control": {
+            "samplesNs": [
+              10005,
+              10099,
+              9822.875,
+              10114.625,
+              9781.25,
+              9789.1875,
+              9807.3125,
+              10125,
+              9799.4375
+            ],
+            "peakBytes": 12733,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              11242.3125,
+              11596.5625,
+              11093.875,
+              11101.5625,
+              11091.125,
+              11088.5625,
+              11083.5625,
+              11052.0625,
+              11039.0625
+            ],
+            "peakBytes": 14236,
+            "retainedBytes": 0
+          },
+          "ratio": 1.129111894430093
+        },
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              10781.1875,
+              9783.8125,
+              9791.625,
+              9781.25,
+              9791.5625,
+              9778.625,
+              9773.25,
+              9778.6875,
+              9731.8125
+            ],
+            "peakBytes": 12733,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              11765.75,
+              11124.9375,
+              11130.125,
+              11106.8125,
+              11935,
+              11080.625,
+              11687.5625,
+              11310.0625,
+              11304.8125
+            ],
+            "peakBytes": 14236,
+            "retainedBytes": 0
+          },
+          "ratio": 1.1557635782747604
+        }
+      ],
+      "medianRatio": 1.1318299370301887,
+      "pairedMedianDeltaNs": 1296.6875,
+      "confirmedSlowdown": true
+    },
+    {
+      "control": "limited",
+      "candidate": "profiled",
+      "engine": "native",
+      "phase": "cycle",
+      "path": "training",
+      "windows": [
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              135625,
+              138791,
+              134541,
+              136708,
+              134000,
+              138459,
+              133833,
+              133708,
+              133792
+            ],
+            "peakBytes": 18921,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              151416,
+              143625,
+              142334,
+              142500,
+              142791,
+              143250,
+              156958,
+              150083,
+              147083
+            ],
+            "peakBytes": 20664,
+            "retainedBytes": 0
+          },
+          "ratio": 1.0675184516244118
+        },
+        {
+          "order": [
+            "profiled",
+            "limited"
+          ],
+          "control": {
+            "samplesNs": [
+              136292,
+              145958,
+              134417,
+              146959,
+              133583,
+              236541,
+              149250,
+              138792,
+              136458
+            ],
+            "peakBytes": 18921,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              143459,
+              142875,
+              142542,
+              141459,
+              141917,
+              141875,
+              141667,
+              141958,
+              142167
+            ],
+            "peakBytes": 20664,
+            "retainedBytes": 0
+          },
+          "ratio": 1.0228111130324515
+        },
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              141000,
+              134083,
+              134125,
+              136584,
+              133500,
+              132958,
+              133375,
+              133125,
+              133333
+            ],
+            "peakBytes": 18921,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              164125,
+              156000,
+              154292,
+              147875,
+              147958,
+              148709,
+              147667,
+              148959,
+              148125
+            ],
+            "peakBytes": 20664,
+            "retainedBytes": 0
+          },
+          "ratio": 1.1139250936329588
+        },
+        {
+          "order": [
+            "profiled",
+            "limited"
+          ],
+          "control": {
+            "samplesNs": [
+              140208,
+              139542,
+              139292,
+              142500,
+              139459,
+              139375,
+              139333,
+              139166,
+              139291
+            ],
+            "peakBytes": 18921,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              149083,
+              149042,
+              152833,
+              148250,
+              152417,
+              148708,
+              157833,
+              163084,
+              151625
+            ],
+            "peakBytes": 20664,
+            "retainedBytes": 0
+          },
+          "ratio": 1.0878923766816144
+        },
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              135208,
+              148125,
+              139708,
+              143209,
+              139083,
+              139708,
+              143458,
+              146250,
+              139041
+            ],
+            "peakBytes": 18921,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              143375,
+              142208,
+              142042,
+              141959,
+              141500,
+              146458,
+              141875,
+              163625,
+              152125
+            ],
+            "peakBytes": 20664,
+            "retainedBytes": 0
+          },
+          "ratio": 1.0178944655996793
+        }
+      ],
+      "medianRatio": 1.0675184516244118,
+      "pairedMedianDeltaNs": 9084,
+      "confirmedSlowdown": false
+    },
+    {
+      "control": "limited",
+      "candidate": "profiled",
+      "engine": "native",
+      "phase": "cycle",
+      "path": "held-out-first",
+      "windows": [
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              106709,
+              104875,
+              104708,
+              104000,
+              103833,
+              104125,
+              103750,
+              103500,
+              103291
+            ],
+            "peakBytes": 18915,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              113208,
+              111959,
+              111500,
+              111250,
+              111666,
+              111875,
+              111500,
+              111209,
+              112083
+            ],
+            "peakBytes": 23165,
+            "retainedBytes": 0
+          },
+          "ratio": 1.0737115384615386
+        },
+        {
+          "order": [
+            "profiled",
+            "limited"
+          ],
+          "control": {
+            "samplesNs": [
+              102959,
+              100833,
+              105750,
+              101333,
+              99917,
+              99875,
+              99791,
+              99625,
+              99834
+            ],
+            "peakBytes": 18915,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              114583,
+              112750,
+              112125,
+              111625,
+              110917,
+              111708,
+              111583,
+              111000,
+              111458
+            ],
+            "peakBytes": 23165,
+            "retainedBytes": 0
+          },
+          "ratio": 1.1171772571234124
+        },
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              105542,
+              104708,
+              104333,
+              104500,
+              103750,
+              104000,
+              103917,
+              109541,
+              104167
+            ],
+            "peakBytes": 18915,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              113333,
+              120458,
+              112166,
+              115666,
+              111500,
+              111792,
+              112000,
+              111667,
+              112000
+            ],
+            "peakBytes": 23165,
+            "retainedBytes": 0
+          },
+          "ratio": 1.0734858577822932
+        },
+        {
+          "order": [
+            "profiled",
+            "limited"
+          ],
+          "control": {
+            "samplesNs": [
+              109750,
+              108750,
+              114417,
+              108375,
+              104875,
+              109750,
+              99583,
+              99375,
+              99292
+            ],
+            "peakBytes": 18915,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              115208,
+              112750,
+              111917,
+              111875,
+              116708,
+              111667,
+              123291,
+              117541,
+              111417
+            ],
+            "peakBytes": 23165,
+            "retainedBytes": 0
+          },
+          "ratio": 1.0403690888119954
+        },
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              108917,
+              101167,
+              99875,
+              99666,
+              99416,
+              99250,
+              99125,
+              99083,
+              99291
+            ],
+            "peakBytes": 18915,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              113458,
+              111959,
+              112250,
+              112000,
+              111959,
+              111625,
+              111667,
+              111459,
+              120708
+            ],
+            "peakBytes": 23165,
+            "retainedBytes": 0
+          },
+          "ratio": 1.1261668141948982
+        }
+      ],
+      "medianRatio": 1.0737115384615386,
+      "pairedMedianDeltaNs": 7667,
+      "confirmedSlowdown": true
+    },
+    {
+      "control": "limited",
+      "candidate": "profiled",
+      "engine": "native",
+      "phase": "cycle",
+      "path": "held-out-second",
+      "windows": [
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              111833,
+              118250,
+              111125,
+              110625,
+              111208,
+              110708,
+              110500,
+              110500,
+              110125
+            ],
+            "peakBytes": 18921,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              125833,
+              139458,
+              143500,
+              129833,
+              124166,
+              124042,
+              124375,
+              136708,
+              124208
+            ],
+            "peakBytes": 23165,
+            "retainedBytes": 0
+          },
+          "ratio": 1.136620659753586
+        },
+        {
+          "order": [
+            "profiled",
+            "limited"
+          ],
+          "control": {
+            "samplesNs": [
+              122833,
+              129500,
+              124625,
+              124458,
+              123250,
+              120875,
+              129417,
+              119500,
+              120083
+            ],
+            "peakBytes": 18921,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              125250,
+              124250,
+              124291,
+              124208,
+              124083,
+              124000,
+              124500,
+              123542,
+              123834
+            ],
+            "peakBytes": 23165,
+            "retainedBytes": 0
+          },
+          "ratio": 1.0077728194726165
+        },
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              112000,
+              110959,
+              110667,
+              110500,
+              118084,
+              110708,
+              110375,
+              110167,
+              110417
+            ],
+            "peakBytes": 18921,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              125458,
+              124959,
+              124792,
+              124125,
+              124041,
+              123625,
+              124083,
+              124000,
+              123959
+            ],
+            "peakBytes": 23165,
+            "retainedBytes": 0
+          },
+          "ratio": 1.1212285505164141
+        },
+        {
+          "order": [
+            "profiled",
+            "limited"
+          ],
+          "control": {
+            "samplesNs": [
+              117333,
+              116375,
+              116667,
+              116208,
+              115500,
+              115708,
+              114916,
+              115250,
+              115208
+            ],
+            "peakBytes": 18921,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              126625,
+              130875,
+              129458,
+              134042,
+              124583,
+              133666,
+              124250,
+              124125,
+              124375
+            ],
+            "peakBytes": 23165,
+            "retainedBytes": 0
+          },
+          "ratio": 1.0943495696062502
+        },
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              117417,
+              120625,
+              115917,
+              126375,
+              116000,
+              115625,
+              115334,
+              115791,
+              115583
+            ],
+            "peakBytes": 18921,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              131083,
+              130541,
+              129291,
+              129791,
+              129542,
+              129292,
+              129459,
+              129500,
+              129292
+            ],
+            "peakBytes": 23165,
+            "retainedBytes": 0
+          },
+          "ratio": 1.1171786709455904
+        }
+      ],
+      "medianRatio": 1.1171786709455904,
+      "pairedMedianDeltaNs": 13416,
+      "confirmedSlowdown": true
+    },
+    {
+      "control": "limited",
+      "candidate": "profiled",
+      "engine": "native",
+      "phase": "cycle",
+      "path": "held-out-both",
+      "windows": [
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              102666,
+              101208,
+              100458,
+              100042,
+              99458,
+              99500,
+              99250,
+              98708,
+              99333
+            ],
+            "peakBytes": 18915,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              118458,
+              124125,
+              123000,
+              116667,
+              116334,
+              116583,
+              120625,
+              119917,
+              115708
+            ],
+            "peakBytes": 23165,
+            "retainedBytes": 0
+          },
+          "ratio": 1.190532663316583
+        },
+        {
+          "order": [
+            "profiled",
+            "limited"
+          ],
+          "control": {
+            "samplesNs": [
+              101250,
+              100375,
+              100083,
+              99459,
+              107916,
+              99708,
+              104042,
+              100125,
+              113250
+            ],
+            "peakBytes": 18915,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              119291,
+              117833,
+              117875,
+              117750,
+              116250,
+              116917,
+              119959,
+              116458,
+              116333
+            ],
+            "peakBytes": 23165,
+            "retainedBytes": 0
+          },
+          "ratio": 1.1731008717310087
+        },
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              107042,
+              104958,
+              111792,
+              114584,
+              104334,
+              108458,
+              103500,
+              108875,
+              107459
+            ],
+            "peakBytes": 18915,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              115458,
+              112792,
+              112500,
+              121791,
+              111916,
+              115666,
+              111625,
+              111750,
+              111917
+            ],
+            "peakBytes": 23165,
+            "retainedBytes": 0
+          },
+          "ratio": 1.0469109148605515
+        },
+        {
+          "order": [
+            "profiled",
+            "limited"
+          ],
+          "control": {
+            "samplesNs": [
+              102667,
+              100875,
+              100500,
+              100500,
+              100167,
+              100042,
+              99834,
+              99125,
+              99000
+            ],
+            "peakBytes": 18915,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              113958,
+              111833,
+              112125,
+              111625,
+              111459,
+              111708,
+              112042,
+              111750,
+              113791
+            ],
+            "peakBytes": 23165,
+            "retainedBytes": 0
+          },
+          "ratio": 1.1164655026106403
+        },
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              105792,
+              104750,
+              104209,
+              103875,
+              104167,
+              104042,
+              103209,
+              107458,
+              103583
+            ],
+            "peakBytes": 18915,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              121083,
+              117000,
+              116334,
+              116167,
+              117000,
+              119750,
+              116167,
+              116167,
+              116167
+            ],
+            "peakBytes": 23165,
+            "retainedBytes": 0
+          },
+          "ratio": 1.1168028262309562
+        }
+      ],
+      "medianRatio": 1.1168028262309562,
+      "pairedMedianDeltaNs": 12167,
+      "confirmedSlowdown": true
+    },
+    {
+      "control": "limited",
+      "candidate": "profiled",
+      "engine": "wasm",
+      "phase": "admission",
+      "path": "training",
+      "windows": [
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              42623.671875,
+              41818.296875,
+              33465.53125,
+              31878.921875,
+              25651.734375,
+              22260.4375,
+              22626.296875,
+              20921.890625,
+              21058.609375
+            ],
+            "samplesPerBatch": 64
+          },
+          "candidate": {
+            "samplesNs": [
+              50084.0625,
+              48075.4375,
+              26953.78125,
+              27372.421875,
+              27082.609375,
+              25554.03125,
+              24151.65625,
+              24395.890625,
+              24350.96875
+            ],
+            "samplesPerBatch": 64
+          },
+          "ratio": 1.050758629259352
+        },
+        {
+          "order": [
+            "profiled",
+            "limited"
+          ],
+          "control": {
+            "samplesNs": [
+              43176.453125,
+              43113.90625,
+              36137.9375,
+              22410.796875,
+              23324.265625,
+              21818.265625,
+              21395.84375,
+              21191.34375,
+              20908.84375
+            ],
+            "samplesPerBatch": 64
+          },
+          "candidate": {
+            "samplesNs": [
+              50703.765625,
+              47836.59375,
+              27285.71875,
+              26875.015625,
+              26646.5,
+              26220.671875,
+              24186.8125,
+              25404.328125,
+              24873.734375
+            ],
+            "samplesPerBatch": 64
+          },
+          "ratio": 1.1890027895315525
+        },
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              43400.3125,
+              42861.96875,
+              35169.1875,
+              22251.375,
+              23462.21875,
+              23195.359375,
+              20706.390625,
+              20747.3125,
+              20613.875
+            ],
+            "samplesPerBatch": 64
+          },
+          "candidate": {
+            "samplesNs": [
+              48377.015625,
+              44589.125,
+              25427.109375,
+              25505.90625,
+              27388.015625,
+              27538.46875,
+              24315.75,
+              24418.03125,
+              24110.0625
+            ],
+            "samplesPerBatch": 64
+          },
+          "ratio": 1.099612462891621
+        },
+        {
+          "order": [
+            "profiled",
+            "limited"
+          ],
+          "control": {
+            "samplesNs": [
+              43305.265625,
+              43357.453125,
+              37255.875,
+              23940.140625,
+              25826.15625,
+              22499.328125,
+              22186.140625,
+              21444.609375,
+              21379.515625
+            ],
+            "samplesPerBatch": 64
+          },
+          "candidate": {
+            "samplesNs": [
+              50186.953125,
+              46281.90625,
+              26082.015625,
+              26424.453125,
+              25374.296875,
+              25995.359375,
+              25464.859375,
+              24555.953125,
+              26845.078125
+            ],
+            "samplesPerBatch": 64
+          },
+          "ratio": 1.0894679372836809
+        },
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              42748.703125,
+              44758.53125,
+              36179.78125,
+              23164.8125,
+              23061.9375,
+              21854.140625,
+              22808.609375,
+              21233.734375,
+              21280.640625
+            ],
+            "samplesPerBatch": 64
+          },
+          "candidate": {
+            "samplesNs": [
+              51723.96875,
+              47795.625,
+              27177.0625,
+              26606.78125,
+              25062.453125,
+              25509.71875,
+              23774.03125,
+              24304,
+              25382.140625
+            ],
+            "samplesPerBatch": 64
+          },
+          "ratio": 1.1061394451355182
+        }
+      ],
+      "medianRatio": 1.099612462891621,
+      "pairedMedianDeltaNs": 2310.546875,
+      "confirmedSlowdown": true
+    },
+    {
+      "control": "limited",
+      "candidate": "profiled",
+      "engine": "wasm",
+      "phase": "fresh",
+      "path": "training",
+      "windows": [
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              73760.984375,
+              61195.296875,
+              50118.46875,
+              50427.734375,
+              45642.578125,
+              45616.53125,
+              46585.34375,
+              44507.6875,
+              43423.828125
+            ],
+            "samplesPerBatch": 64
+          },
+          "candidate": {
+            "samplesNs": [
+              80076.921875,
+              70182.25,
+              49388.015625,
+              48763.6875,
+              50408.1875,
+              49220,
+              51046.25,
+              49891.3125,
+              48653.71875
+            ],
+            "samplesPerBatch": 64
+          },
+          "ratio": 1.0709658550067047
+        },
+        {
+          "order": [
+            "profiled",
+            "limited"
+          ],
+          "control": {
+            "samplesNs": [
+              74903.671875,
+              68618.421875,
+              55079.359375,
+              46629.578125,
+              49373,
+              47920.5625,
+              46306.671875,
+              46968.140625,
+              44154.859375
+            ],
+            "samplesPerBatch": 64
+          },
+          "candidate": {
+            "samplesNs": [
+              78096.953125,
+              66217.4375,
+              51089.828125,
+              51671.90625,
+              52551.484375,
+              52091.84375,
+              50027.953125,
+              46714.0625,
+              49803.265625
+            ],
+            "samplesPerBatch": 64
+          },
+          "ratio": 1.07828254833194
+        },
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              72203.6875,
+              65119.796875,
+              56567.734375,
+              46623,
+              46825.546875,
+              48982.421875,
+              48499.296875,
+              45323.5625,
+              46268.8125
+            ],
+            "samplesPerBatch": 64
+          },
+          "candidate": {
+            "samplesNs": [
+              82658.28125,
+              64584.015625,
+              49631.546875,
+              48649.765625,
+              51803.421875,
+              49623.09375,
+              48604.84375,
+              47214.21875,
+              50673.75
+            ],
+            "samplesPerBatch": 64
+          },
+          "ratio": 1.0233456992772125
+        },
+        {
+          "order": [
+            "profiled",
+            "limited"
+          ],
+          "control": {
+            "samplesNs": [
+              76639.9375,
+              57119.171875,
+              50250.609375,
+              48884.84375,
+              47436.890625,
+              47371.78125,
+              47029.9375,
+              47875.6875,
+              47836.703125
+            ],
+            "samplesPerBatch": 64
+          },
+          "candidate": {
+            "samplesNs": [
+              78522.78125,
+              68819.671875,
+              49560.515625,
+              49127.546875,
+              49752.671875,
+              48774.03125,
+              48583.984375,
+              47425.6875,
+              46885.4375
+            ],
+            "samplesPerBatch": 64
+          },
+          "ratio": 1.0261481231992753
+        },
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              73100.90625,
+              60714.859375,
+              49749.390625,
+              48581.40625,
+              51485.078125,
+              46772.1875,
+              47127.625,
+              45216.84375,
+              43895.78125
+            ],
+            "samplesPerBatch": 64
+          },
+          "candidate": {
+            "samplesNs": [
+              78178.34375,
+              71025.328125,
+              50343.0625,
+              49209,
+              50432.9375,
+              48223.296875,
+              49345.078125,
+              48208.3125,
+              46493.46875
+            ],
+            "samplesPerBatch": 64
+          },
+          "ratio": 1.0157194271213588
+        }
+      ],
+      "medianRatio": 1.0261481231992753,
+      "pairedMedianDeltaNs": 1251.859375,
+      "confirmedSlowdown": false
+    },
+    {
+      "control": "limited",
+      "candidate": "profiled",
+      "engine": "wasm",
+      "phase": "fresh",
+      "path": "held-out-first",
+      "windows": [
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              74084.546875,
+              62536.5,
+              59651.625,
+              46046.859375,
+              47411.484375,
+              45826.171875,
+              45321.5625,
+              44243.5,
+              42966.203125
+            ],
+            "samplesPerBatch": 64
+          },
+          "candidate": {
+            "samplesNs": [
+              83171.96875,
+              59912.734375,
+              48442.046875,
+              48035.1875,
+              48877.609375,
+              49687.453125,
+              50143.890625,
+              48473.375,
+              52130.796875
+            ],
+            "samplesPerBatch": 64
+          },
+          "ratio": 1.0790628025323388
+        },
+        {
+          "order": [
+            "profiled",
+            "limited"
+          ],
+          "control": {
+            "samplesNs": [
+              74266.390625,
+              66837.234375,
+              51796.203125,
+              44200.546875,
+              45872.4375,
+              45548.765625,
+              44938.796875,
+              43602.25,
+              43660.75
+            ],
+            "samplesPerBatch": 64
+          },
+          "candidate": {
+            "samplesNs": [
+              84661.546875,
+              64042.390625,
+              53150.453125,
+              49285.109375,
+              50056.65625,
+              49566.390625,
+              48425.03125,
+              45641.25,
+              50631.546875
+            ],
+            "samplesPerBatch": 64
+          },
+          "ratio": 1.0989684476218997
+        },
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              75655.671875,
+              69133.46875,
+              48339.21875,
+              45901.703125,
+              46125.03125,
+              48180.265625,
+              47776.015625,
+              45239.640625,
+              44621.0625
+            ],
+            "samplesPerBatch": 64
+          },
+          "candidate": {
+            "samplesNs": [
+              81149.796875,
+              57897.125,
+              49114.578125,
+              47474.59375,
+              47744.84375,
+              47239.484375,
+              46440.125,
+              47983.796875,
+              45959.015625
+            ],
+            "samplesPerBatch": 64
+          },
+          "ratio": 0.9993475413428221
+        },
+        {
+          "order": [
+            "profiled",
+            "limited"
+          ],
+          "control": {
+            "samplesNs": [
+              75385.375,
+              69596.40625,
+              47144.453125,
+              48383.40625,
+              48546.21875,
+              46318.375,
+              46181.625,
+              43982.390625,
+              43145.890625
+            ],
+            "samplesPerBatch": 64
+          },
+          "candidate": {
+            "samplesNs": [
+              76711.59375,
+              59274.71875,
+              48846.984375,
+              48832.71875,
+              48138.78125,
+              48061.140625,
+              46404.921875,
+              47544.84375,
+              45940.75
+            ],
+            "samplesPerBatch": 64
+          },
+          "ratio": 1.0210910946906864
+        },
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              74858.09375,
+              67677.765625,
+              49622.375,
+              45626.3125,
+              45696.03125,
+              47526.0625,
+              45034.5,
+              44451.140625,
+              44030.59375
+            ],
+            "samplesPerBatch": 64
+          },
+          "candidate": {
+            "samplesNs": [
+              86095.71875,
+              61641.296875,
+              49051.421875,
+              48925.0625,
+              48121.078125,
+              52190.1875,
+              49837.828125,
+              50711.484375,
+              48318.375
+            ],
+            "samplesPerBatch": 64
+          },
+          "ratio": 1.0906379998810072
+        }
+      ],
+      "medianRatio": 1.0790628025323388,
+      "pairedMedianDeltaNs": 3640.59375,
+      "confirmedSlowdown": false
+    },
+    {
+      "control": "limited",
+      "candidate": "profiled",
+      "engine": "wasm",
+      "phase": "fresh",
+      "path": "held-out-second",
+      "windows": [
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              79353.484375,
+              69029.3125,
+              50764.953125,
+              45542.96875,
+              47503.296875,
+              45746.8125,
+              45776.671875,
+              44030.5625,
+              44963.578125
+            ],
+            "samplesPerBatch": 64
+          },
+          "candidate": {
+            "samplesNs": [
+              82182.328125,
+              69464.8125,
+              49033.953125,
+              47502.609375,
+              48787.078125,
+              48418.65625,
+              48055.375,
+              46098.265625,
+              46763.03125
+            ],
+            "samplesPerBatch": 64
+          },
+          "ratio": 1.057714645184655
+        },
+        {
+          "order": [
+            "profiled",
+            "limited"
+          ],
+          "control": {
+            "samplesNs": [
+              79395.171875,
+              61671.859375,
+              51237.578125,
+              44467.453125,
+              45181.671875,
+              45454.390625,
+              44411.53125,
+              42214.8125,
+              46816.40625
+            ],
+            "samplesPerBatch": 64
+          },
+          "candidate": {
+            "samplesNs": [
+              84671.96875,
+              57524.09375,
+              53002.015625,
+              47324.25,
+              49246.046875,
+              48408.3125,
+              47690.109375,
+              46548.140625,
+              46270.125
+            ],
+            "samplesPerBatch": 64
+          },
+          "ratio": 1.0649865026102745
+        },
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              71789.765625,
+              64079.375,
+              53271.4375,
+              47180.34375,
+              50472.640625,
+              46489.578125,
+              45403.078125,
+              46926.3125,
+              44471.3125
+            ],
+            "samplesPerBatch": 64
+          },
+          "candidate": {
+            "samplesNs": [
+              81788.984375,
+              60217.390625,
+              50841.1875,
+              50550.828125,
+              48965.515625,
+              48312.53125,
+              47834.6875,
+              45800.046875,
+              46695.96875
+            ],
+            "samplesPerBatch": 64
+          },
+          "ratio": 1.0378371951772818
+        },
+        {
+          "order": [
+            "profiled",
+            "limited"
+          ],
+          "control": {
+            "samplesNs": [
+              74921.3125,
+              57488.28125,
+              54843.796875,
+              47998.09375,
+              46612.625,
+              47294.9375,
+              48858.78125,
+              44604.140625,
+              44478.546875
+            ],
+            "samplesPerBatch": 64
+          },
+          "candidate": {
+            "samplesNs": [
+              82080.0625,
+              59685.578125,
+              48544.9375,
+              49567.796875,
+              49352.8125,
+              48235.046875,
+              47505.75,
+              45546.1875,
+              47399.78125
+            ],
+            "samplesPerBatch": 64
+          },
+          "ratio": 1.0113930305825947
+        },
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              69538.390625,
+              67109.40625,
+              55309.21875,
+              46738.875,
+              45823.5625,
+              47279.953125,
+              46875.65625,
+              43121.03125,
+              43305.96875
+            ],
+            "samplesPerBatch": 64
+          },
+          "candidate": {
+            "samplesNs": [
+              80546.90625,
+              64166.71875,
+              53600.203125,
+              49887.390625,
+              52217.453125,
+              50408.15625,
+              50956.359375,
+              48296.296875,
+              46689.4375
+            ],
+            "samplesPerBatch": 64
+          },
+          "ratio": 1.0870537812470626
+        }
+      ],
+      "medianRatio": 1.057714645184655,
+      "pairedMedianDeltaNs": 2641.984375,
+      "confirmedSlowdown": false
+    },
+    {
+      "control": "limited",
+      "candidate": "profiled",
+      "engine": "wasm",
+      "phase": "fresh",
+      "path": "held-out-both",
+      "windows": [
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              74985.015625,
+              68347.640625,
+              47308.640625,
+              47369.90625,
+              48317.046875,
+              45788.265625,
+              47843.046875,
+              45353.484375,
+              43024.75
+            ],
+            "samplesPerBatch": 64
+          },
+          "candidate": {
+            "samplesNs": [
+              81259.71875,
+              64750.015625,
+              50419.328125,
+              51454.421875,
+              49141.21875,
+              49291.625,
+              50829.390625,
+              48643.21875,
+              49226.578125
+            ],
+            "samplesPerBatch": 64
+          },
+          "ratio": 1.064374665613783
+        },
+        {
+          "order": [
+            "profiled",
+            "limited"
+          ],
+          "control": {
+            "samplesNs": [
+              68759.8125,
+              75173.21875,
+              53164.078125,
+              46857.375,
+              46276.046875,
+              45388.046875,
+              44413.40625,
+              43869.125,
+              43772.71875
+            ],
+            "samplesPerBatch": 64
+          },
+          "candidate": {
+            "samplesNs": [
+              85009.109375,
+              62008.46875,
+              49991.53125,
+              50828.109375,
+              49000.03125,
+              50140.703125,
+              48469.46875,
+              45959.625,
+              45766.875
+            ],
+            "samplesPerBatch": 64
+          },
+          "ratio": 1.0802895801587418
+        },
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              74104.921875,
+              67771.609375,
+              47460.25,
+              47453.15625,
+              47772.140625,
+              46227.859375,
+              46230.515625,
+              45566.984375,
+              44272.09375
+            ],
+            "samplesPerBatch": 64
+          },
+          "candidate": {
+            "samplesNs": [
+              79441.515625,
+              61889.359375,
+              51856.8125,
+              49345.640625,
+              50018.828125,
+              49787.671875,
+              47833.9375,
+              45911.46875,
+              50106.078125
+            ],
+            "samplesPerBatch": 64
+          },
+          "ratio": 1.0540674652173427
+        },
+        {
+          "order": [
+            "profiled",
+            "limited"
+          ],
+          "control": {
+            "samplesNs": [
+              71525.5,
+              68865.203125,
+              51530.546875,
+              45252.609375,
+              46431.65625,
+              46901.0625,
+              46481.046875,
+              43175.734375,
+              42878.921875
+            ],
+            "samplesPerBatch": 64
+          },
+          "candidate": {
+            "samplesNs": [
+              82226.5625,
+              64756.515625,
+              50214.234375,
+              48116.515625,
+              49373.046875,
+              51673.203125,
+              49298.921875,
+              47026.015625,
+              49612.65625
+            ],
+            "samplesPerBatch": 64
+          },
+          "ratio": 1.0673738993749804
+        },
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              74602.1875,
+              63572.921875,
+              49665.328125,
+              44490.90625,
+              46350.265625,
+              45720.015625,
+              47150.46875,
+              44225.984375,
+              46679.0625
+            ],
+            "samplesPerBatch": 64
+          },
+          "candidate": {
+            "samplesNs": [
+              83052.71875,
+              59791.046875,
+              49056,
+              48536.453125,
+              48229.84375,
+              49128.28125,
+              48474.625,
+              46243.53125,
+              45736.921875
+            ],
+            "samplesPerBatch": 64
+          },
+          "ratio": 1.0397906582849645
+        }
+      ],
+      "medianRatio": 1.064374665613783,
+      "pairedMedianDeltaNs": 3049.421875,
+      "confirmedSlowdown": true
+    },
+    {
+      "control": "limited",
+      "candidate": "profiled",
+      "engine": "wasm",
+      "phase": "cycle",
+      "path": "training",
+      "windows": [
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              968875,
+              1026750,
+              997417,
+              1009250,
+              1005208,
+              1131208,
+              1137500,
+              1045959,
+              990250
+            ],
+            "samplesPerBatch": 1
+          },
+          "candidate": {
+            "samplesNs": [
+              1044667,
+              1070875,
+              1081208,
+              1091083,
+              1058292,
+              1193875,
+              1025875,
+              1026458,
+              1028875
+            ],
+            "samplesPerBatch": 1
+          },
+          "ratio": 1.048592519197424
+        },
+        {
+          "order": [
+            "profiled",
+            "limited"
+          ],
+          "control": {
+            "samplesNs": [
+              977791,
+              1035125,
+              1010000,
+              1013500,
+              1007917,
+              1130541,
+              981541,
+              972416,
+              967667
+            ],
+            "samplesPerBatch": 1
+          },
+          "candidate": {
+            "samplesNs": [
+              1046375,
+              1087750,
+              1072625,
+              1093375,
+              1055375,
+              1190125,
+              1193791,
+              1050250,
+              1033417
+            ],
+            "samplesPerBatch": 1
+          },
+          "ratio": 1.0641997307317963
+        },
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              973541,
+              1007292,
+              977750,
+              981333,
+              978000,
+              1098791,
+              962000,
+              986667,
+              980917
+            ],
+            "samplesPerBatch": 1
+          },
+          "candidate": {
+            "samplesNs": [
+              1054041,
+              1074125,
+              1069500,
+              1093417,
+              1053667,
+              1195208,
+              1042750,
+              1025000,
+              1037584
+            ],
+            "samplesPerBatch": 1
+          },
+          "ratio": 1.074546572238018
+        },
+        {
+          "order": [
+            "profiled",
+            "limited"
+          ],
+          "control": {
+            "samplesNs": [
+              986375,
+              1045792,
+              1011750,
+              1016042,
+              1007125,
+              1145375,
+              1122667,
+              1017375,
+              990125
+            ],
+            "samplesPerBatch": 1
+          },
+          "candidate": {
+            "samplesNs": [
+              1043083,
+              1069000,
+              1077209,
+              1095750,
+              1066000,
+              1186375,
+              1028458,
+              1030834,
+              1031833
+            ],
+            "samplesPerBatch": 1
+          },
+          "ratio": 1.0491692272563535
+        },
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              996833,
+              1047208,
+              1015667,
+              1016125,
+              1139666,
+              1163708,
+              976458,
+              1010875,
+              983375
+            ],
+            "samplesPerBatch": 1
+          },
+          "candidate": {
+            "samplesNs": [
+              1039208,
+              1060875,
+              1068417,
+              1093833,
+              1053875,
+              1173542,
+              1014625,
+              1024250,
+              1019833
+            ],
+            "samplesPerBatch": 1
+          },
+          "ratio": 1.0376186289403908
+        }
+      ],
+      "medianRatio": 1.0491692272563535,
+      "pairedMedianDeltaNs": 49958,
+      "confirmedSlowdown": false
+    },
+    {
+      "control": "limited",
+      "candidate": "profiled",
+      "engine": "wasm",
+      "phase": "cycle",
+      "path": "held-out-first",
+      "windows": [
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              741167,
+              741250,
+              734459,
+              771208,
+              750917,
+              759000,
+              759917,
+              747792,
+              885542
+            ],
+            "samplesPerBatch": 1
+          },
+          "candidate": {
+            "samplesNs": [
+              879333,
+              818583,
+              807542,
+              822083,
+              828333,
+              811667,
+              822125,
+              813333,
+              963250
+            ],
+            "samplesPerBatch": 1
+          },
+          "ratio": 1.0947721252814893
+        },
+        {
+          "order": [
+            "profiled",
+            "limited"
+          ],
+          "control": {
+            "samplesNs": [
+              775208,
+              770625,
+              773459,
+              807416,
+              946792,
+              889417,
+              811042,
+              786416,
+              935625
+            ],
+            "samplesPerBatch": 1
+          },
+          "candidate": {
+            "samplesNs": [
+              815958,
+              745125,
+              757709,
+              785083,
+              801375,
+              783250,
+              754416,
+              759542,
+              881458
+            ],
+            "samplesPerBatch": 1
+          },
+          "ratio": 0.9700699515491394
+        },
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              788458,
+              772209,
+              786500,
+              792375,
+              788667,
+              801416,
+              794750,
+              790584,
+              922042
+            ],
+            "samplesPerBatch": 1
+          },
+          "candidate": {
+            "samplesNs": [
+              780500,
+              737417,
+              755458,
+              765083,
+              772042,
+              776000,
+              757166,
+              762750,
+              886834
+            ],
+            "samplesPerBatch": 1
+          },
+          "ratio": 0.9677440980338585
+        },
+        {
+          "order": [
+            "profiled",
+            "limited"
+          ],
+          "control": {
+            "samplesNs": [
+              696875,
+              684791,
+              707833,
+              702708,
+              699250,
+              702792,
+              707708,
+              709042,
+              868875
+            ],
+            "samplesPerBatch": 1
+          },
+          "candidate": {
+            "samplesNs": [
+              857125,
+              833250,
+              839417,
+              861333,
+              859375,
+              862125,
+              854625,
+              858333,
+              981000
+            ],
+            "samplesPerBatch": 1
+          },
+          "ratio": 1.2213186831950278
+        },
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              835166,
+              875084,
+              900750,
+              831375,
+              788375,
+              784500,
+              770750,
+              774292,
+              907667
+            ],
+            "samplesPerBatch": 1
+          },
+          "candidate": {
+            "samplesNs": [
+              800500,
+              805583,
+              741208,
+              783209,
+              765875,
+              767792,
+              755625,
+              755667,
+              863333
+            ],
+            "samplesPerBatch": 1
+          },
+          "ratio": 0.9235206735829199
+        }
+      ],
+      "medianRatio": 0.9700699515491394,
+      "pairedMedianDeltaNs": -24166,
+      "confirmedSlowdown": false
+    },
+    {
+      "control": "limited",
+      "candidate": "profiled",
+      "engine": "wasm",
+      "phase": "cycle",
+      "path": "held-out-second",
+      "windows": [
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              860875,
+              823667,
+              882667,
+              924916,
+              890833,
+              856125,
+              858875,
+              959416,
+              843416
+            ],
+            "samplesPerBatch": 1
+          },
+          "candidate": {
+            "samplesNs": [
+              942125,
+              933458,
+              983166,
+              974458,
+              1089292,
+              959625,
+              943166,
+              1075875,
+              926292
+            ],
+            "samplesPerBatch": 1
+          },
+          "ratio": 1.1147088717874256
+        },
+        {
+          "order": [
+            "profiled",
+            "limited"
+          ],
+          "control": {
+            "samplesNs": [
+              829250,
+              816209,
+              857750,
+              846458,
+              827375,
+              832167,
+              824666,
+              965167,
+              812917
+            ],
+            "samplesPerBatch": 1
+          },
+          "candidate": {
+            "samplesNs": [
+              944167,
+              928375,
+              955792,
+              953750,
+              969750,
+              942875,
+              947667,
+              1061958,
+              923875
+            ],
+            "samplesPerBatch": 1
+          },
+          "ratio": 1.1428001205908953
+        },
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              1000458,
+              861625,
+              909834,
+              882417,
+              879417,
+              872416,
+              877417,
+              1015542,
+              939708
+            ],
+            "samplesPerBatch": 1
+          },
+          "candidate": {
+            "samplesNs": [
+              904542,
+              887916,
+              1143083,
+              915542,
+              904291,
+              876292,
+              877541,
+              1147042,
+              968167
+            ],
+            "samplesPerBatch": 1
+          },
+          "ratio": 1.0250731796871546
+        },
+        {
+          "order": [
+            "profiled",
+            "limited"
+          ],
+          "control": {
+            "samplesNs": [
+              949500,
+              866625,
+              917834,
+              891500,
+              877333,
+              873916,
+              881084,
+              1015875,
+              835875
+            ],
+            "samplesPerBatch": 1
+          },
+          "candidate": {
+            "samplesNs": [
+              971958,
+              913583,
+              929875,
+              917042,
+              919667,
+              894708,
+              903500,
+              1029125,
+              875292
+            ],
+            "samplesPerBatch": 1
+          },
+          "ratio": 1.040811091791475
+        },
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              781500,
+              810459,
+              842417,
+              812458,
+              810791,
+              817708,
+              807458,
+              926000,
+              772625
+            ],
+            "samplesPerBatch": 1
+          },
+          "candidate": {
+            "samplesNs": [
+              1148958,
+              959792,
+              968750,
+              945292,
+              944292,
+              918541,
+              916791,
+              1231291,
+              996792
+            ],
+            "samplesPerBatch": 1
+          },
+          "ratio": 1.1837723901720665
+        }
+      ],
+      "medianRatio": 1.1147088717874256,
+      "pairedMedianDeltaNs": 98750,
+      "confirmedSlowdown": false
+    },
+    {
+      "control": "limited",
+      "candidate": "profiled",
+      "engine": "wasm",
+      "phase": "cycle",
+      "path": "held-out-both",
+      "windows": [
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              701000,
+              683959,
+              698500,
+              704625,
+              712250,
+              699250,
+              700375,
+              745666,
+              886417
+            ],
+            "samplesPerBatch": 1
+          },
+          "candidate": {
+            "samplesNs": [
+              759500,
+              744500,
+              754084,
+              773542,
+              811625,
+              822834,
+              801208,
+              807167,
+              1078333
+            ],
+            "samplesPerBatch": 1
+          },
+          "ratio": 1.1429500713266763
+        },
+        {
+          "order": [
+            "profiled",
+            "limited"
+          ],
+          "control": {
+            "samplesNs": [
+              701084,
+              704833,
+              743000,
+              737667,
+              743125,
+              748833,
+              746750,
+              754542,
+              886167
+            ],
+            "samplesPerBatch": 1
+          },
+          "candidate": {
+            "samplesNs": [
+              809084,
+              806583,
+              803083,
+              833959,
+              863959,
+              849834,
+              818833,
+              821417,
+              936500
+            ],
+            "samplesPerBatch": 1
+          },
+          "ratio": 1.1053550883095038
+        },
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              695584,
+              697000,
+              706458,
+              710083,
+              712208,
+              706000,
+              715792,
+              703875,
+              821792
+            ],
+            "samplesPerBatch": 1
+          },
+          "candidate": {
+            "samplesNs": [
+              832333,
+              822250,
+              816167,
+              842166,
+              824000,
+              852125,
+              825500,
+              843375,
+              963000
+            ],
+            "samplesPerBatch": 1
+          },
+          "ratio": 1.1781776128234092
+        },
+        {
+          "order": [
+            "profiled",
+            "limited"
+          ],
+          "control": {
+            "samplesNs": [
+              789000,
+              783750,
+              810250,
+              801125,
+              795541,
+              808541,
+              815833,
+              835750,
+              1071875
+            ],
+            "samplesPerBatch": 1
+          },
+          "candidate": {
+            "samplesNs": [
+              796292,
+              741834,
+              745625,
+              780916,
+              765666,
+              762167,
+              753667,
+              765875,
+              886708
+            ],
+            "samplesPerBatch": 1
+          },
+          "ratio": 0.9469723860632918
+        },
+        {
+          "order": [
+            "limited",
+            "profiled"
+          ],
+          "control": {
+            "samplesNs": [
+              780042,
+              774750,
+              781666,
+              806750,
+              785125,
+              795542,
+              797458,
+              793292,
+              930166
+            ],
+            "samplesPerBatch": 1
+          },
+          "candidate": {
+            "samplesNs": [
+              876667,
+              850875,
+              860708,
+              893208,
+              901208,
+              891708,
+              855792,
+              858208,
+              992333
+            ],
+            "samplesPerBatch": 1
+          },
+          "ratio": 1.1051000136141547
+        }
+      ],
+      "medianRatio": 1.1053550883095038,
+      "pairedMedianDeltaNs": 83375,
+      "confirmedSlowdown": true
+    },
+    {
+      "control": "ordinary",
+      "candidate": "shared",
+      "status": "identical-images"
+    },
+    {
+      "control": "structural",
+      "candidate": "shared",
+      "engine": "native",
+      "phase": "admission",
+      "path": "training",
+      "windows": [
+        {
+          "order": [
+            "structural",
+            "shared"
+          ],
+          "control": {
+            "samplesNs": [
+              7270.1875,
+              7065.171875,
+              6759.78125,
+              6762.390625,
+              6775.3125,
+              6748.046875,
+              6733.171875,
+              6827.421875,
+              6740.171875
+            ],
+            "peakBytes": 9980,
+            "retainedBytes": 9246
+          },
+          "candidate": {
+            "samplesNs": [
+              6707.75,
+              6798.25,
+              6750.546875,
+              6657.59375,
+              6897.0625,
+              6762.359375,
+              6705.609375,
+              6805.25,
+              6648.5625
+            ],
+            "peakBytes": 10228,
+            "retainedBytes": 9408
+          },
+          "ratio": 0.9982485853514267
+        },
+        {
+          "order": [
+            "shared",
+            "structural"
+          ],
+          "control": {
+            "samplesNs": [
+              6733.75,
+              6730.453125,
+              6772.15625,
+              6733.71875,
+              6728.546875,
+              6739.546875,
+              6740.21875,
+              6738.25,
+              6739.5
+            ],
+            "peakBytes": 9980,
+            "retainedBytes": 9246
+          },
+          "candidate": {
+            "samplesNs": [
+              6609.453125,
+              6753.09375,
+              6798.140625,
+              6620.484375,
+              6619.046875,
+              6787.8125,
+              6956.453125,
+              6609.953125,
+              6617.25
+            ],
+            "peakBytes": 10228,
+            "retainedBytes": 9408
+          },
+          "ratio": 0.9825228174971247
+        },
+        {
+          "order": [
+            "structural",
+            "shared"
+          ],
+          "control": {
+            "samplesNs": [
+              7224.671875,
+              7031.203125,
+              6739.578125,
+              6740.171875,
+              6724.59375,
+              6744.203125,
+              6740.765625,
+              6811.15625,
+              6731.796875
+            ],
+            "peakBytes": 9980,
+            "retainedBytes": 9246
+          },
+          "candidate": {
+            "samplesNs": [
+              7084,
+              7375.703125,
+              6994.75,
+              6703.78125,
+              6614.578125,
+              6609.453125,
+              6623,
+              6621.78125,
+              6634.078125
+            ],
+            "peakBytes": 10228,
+            "retainedBytes": 9408
+          },
+          "ratio": 0.9841727919445352
+        }
+      ],
+      "medianRatio": 0.9841727919445352,
+      "pairedMedianDeltaNs": -106.6875,
+      "confirmedSlowdown": false
+    },
+    {
+      "control": "structural",
+      "candidate": "shared",
+      "engine": "native",
+      "phase": "fresh",
+      "path": "training",
+      "windows": [
+        {
+          "order": [
+            "structural",
+            "shared"
+          ],
+          "control": {
+            "samplesNs": [
+              13703.0625,
+              10455.5625,
+              10520.9375,
+              10346.5625,
+              10413.9375,
+              10374.8125,
+              10356.625,
+              10635.5625,
+              10482.0625
+            ],
+            "peakBytes": 12733,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              9125,
+              8935.125,
+              9268.375,
+              8958.1875,
+              8929.8125,
+              8890.6875,
+              9236.8125,
+              8900.875,
+              8880.3125
+            ],
+            "peakBytes": 12576,
+            "retainedBytes": 0
+          },
+          "ratio": 0.8545809945662894
+        },
+        {
+          "order": [
+            "shared",
+            "structural"
+          ],
+          "control": {
+            "samplesNs": [
+              10713.4375,
+              11713.6875,
+              10692.875,
+              10226.5,
+              9984.1875,
+              10338.625,
+              9971.5625,
+              9940.125,
+              9984.5
+            ],
+            "peakBytes": 12733,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              9148.5625,
+              8942.625,
+              9416.375,
+              8924.375,
+              8953.1875,
+              8927.125,
+              8908.75,
+              8973.9375,
+              8937.3125
+            ],
+            "peakBytes": 12576,
+            "retainedBytes": 0
+          },
+          "ratio": 0.8744560700141788
+        },
+        {
+          "order": [
+            "structural",
+            "shared"
+          ],
+          "control": {
+            "samplesNs": [
+              10338.625,
+              10388.0625,
+              10255,
+              10213.5625,
+              9916.75,
+              10549.4375,
+              9997.25,
+              10002.5,
+              10026
+            ],
+            "peakBytes": 12733,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              9119.875,
+              9098.9375,
+              8895.6875,
+              8883,
+              8911.625,
+              8880.25,
+              8950.375,
+              8953,
+              8929.6875
+            ],
+            "peakBytes": 12576,
+            "retainedBytes": 0
+          },
+          "ratio": 0.8742970437592172
+        }
+      ],
+      "medianRatio": 0.8742970437592172,
+      "pairedMedianDeltaNs": -1283.875,
+      "confirmedSlowdown": false
+    },
+    {
+      "control": "structural",
+      "candidate": "shared",
+      "engine": "native",
+      "phase": "fresh",
+      "path": "held-out-first",
+      "windows": [
+        {
+          "order": [
+            "structural",
+            "shared"
+          ],
+          "control": {
+            "samplesNs": [
+              10528.6875,
+              10369.8125,
+              10742.0625,
+              9757.6875,
+              9765.5625,
+              9765.5625,
+              9815.0625,
+              9752.5625,
+              9773.3125
+            ],
+            "peakBytes": 12733,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              8950.5625,
+              9122.375,
+              8726.5,
+              8716.3125,
+              8723.8125,
+              8695.0625,
+              8737.1875,
+              11239.625,
+              9106.8125
+            ],
+            "peakBytes": 12576,
+            "retainedBytes": 0
+          },
+          "ratio": 0.8939842555939964
+        },
+        {
+          "order": [
+            "shared",
+            "structural"
+          ],
+          "control": {
+            "samplesNs": [
+              10755.1875,
+              10171.875,
+              10171.6875,
+              10151.1875,
+              10192.6875,
+              10158.8125,
+              10143.0625,
+              10213.4375,
+              10161.5
+            ],
+            "peakBytes": 12733,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              8856.75,
+              8838.5625,
+              8927.125,
+              9525.9375,
+              8731.75,
+              8750.0625,
+              8713.6875,
+              8739.5,
+              8747.4375
+            ],
+            "peakBytes": 12576,
+            "retainedBytes": 0
+          },
+          "ratio": 0.8602370550609227
+        },
+        {
+          "order": [
+            "structural",
+            "shared"
+          ],
+          "control": {
+            "samplesNs": [
+              10861.9375,
+              9916.6875,
+              9893.125,
+              9919.125,
+              9903.625,
+              9932.1875,
+              9846.4375,
+              9882.75,
+              9890.5
+            ],
+            "peakBytes": 12733,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              8914.125,
+              9156.25,
+              8760.25,
+              9341.1875,
+              8737.1875,
+              8755.25,
+              8856.6875,
+              8807.375,
+              8721.375
+            ],
+            "peakBytes": 12576,
+            "retainedBytes": 0
+          },
+          "ratio": 0.8893082078531851
+        }
+      ],
+      "medianRatio": 0.8893082078531851,
+      "pairedMedianDeltaNs": -1096.25,
+      "confirmedSlowdown": false
+    },
+    {
+      "control": "structural",
+      "candidate": "shared",
+      "engine": "native",
+      "phase": "fresh",
+      "path": "held-out-second",
+      "windows": [
+        {
+          "order": [
+            "structural",
+            "shared"
+          ],
+          "control": {
+            "samplesNs": [
+              10271.125,
+              9825.625,
+              9833.375,
+              9814.875,
+              9804.5,
+              9828.1875,
+              9843.8125,
+              9867,
+              10281.1875
+            ],
+            "peakBytes": 12733,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              9018,
+              9465.9375,
+              8817.6875,
+              8796.875,
+              8804.75,
+              8804.625,
+              8765.5,
+              8794.25,
+              8796.8125
+            ],
+            "peakBytes": 12576,
+            "retainedBytes": 0
+          },
+          "ratio": 0.8953817992296643
+        },
+        {
+          "order": [
+            "shared",
+            "structural"
+          ],
+          "control": {
+            "samplesNs": [
+              10479,
+              10309.9375,
+              10239.6875,
+              10281.25,
+              10213.5,
+              10232.0625,
+              10203.3125,
+              10226.4375,
+              10239.5625
+            ],
+            "peakBytes": 12733,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              9356.875,
+              9333.25,
+              9205.6875,
+              9187.5,
+              9210.9375,
+              9213.6875,
+              9203.3125,
+              9236.9375,
+              9182.1875
+            ],
+            "peakBytes": 12576,
+            "retainedBytes": 0
+          },
+          "ratio": 0.8995440479024372
+        },
+        {
+          "order": [
+            "structural",
+            "shared"
+          ],
+          "control": {
+            "samplesNs": [
+              11145.75,
+              10757.625,
+              10330.625,
+              10307.125,
+              10252.625,
+              10221.3125,
+              11041.625,
+              11216.125,
+              11250.1875
+            ],
+            "peakBytes": 12733,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              9486.9375,
+              9213.5625,
+              9223.9375,
+              9247.5625,
+              9169.25,
+              9190.0625,
+              9205.625,
+              9182.3125,
+              9192.6875
+            ],
+            "peakBytes": 12576,
+            "retainedBytes": 0
+          },
+          "ratio": 0.855730237854545
+        }
+      ],
+      "medianRatio": 0.8953817992296643,
+      "pairedMedianDeltaNs": -1028.75,
+      "confirmedSlowdown": false
+    },
+    {
+      "control": "structural",
+      "candidate": "shared",
+      "engine": "native",
+      "phase": "fresh",
+      "path": "held-out-both",
+      "windows": [
+        {
+          "order": [
+            "structural",
+            "shared"
+          ],
+          "control": {
+            "samplesNs": [
+              10013,
+              10104.125,
+              9757.8125,
+              9724,
+              9783.875,
+              9742.125,
+              9797,
+              9749.9375,
+              9757.6875
+            ],
+            "peakBytes": 12733,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              8966.1875,
+              8786.375,
+              8838.6875,
+              8752.6875,
+              8758,
+              8760.4375,
+              9158.6875,
+              9031.375,
+              10843.8125
+            ],
+            "peakBytes": 12576,
+            "retainedBytes": 0
+          },
+          "ratio": 0.9058062449959968
+        },
+        {
+          "order": [
+            "shared",
+            "structural"
+          ],
+          "control": {
+            "samplesNs": [
+              10080.75,
+              10242,
+              10763,
+              10450.3125,
+              9854.125,
+              9825.5,
+              11903.75,
+              10106.6875,
+              10551.875
+            ],
+            "peakBytes": 12733,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              9346.375,
+              8713.625,
+              8734.125,
+              8708.4375,
+              8713.3125,
+              8731.8125,
+              8703.1875,
+              8723.8125,
+              8721.4375
+            ],
+            "peakBytes": 12576,
+            "retainedBytes": 0
+          },
+          "ratio": 0.8515365651239992
+        },
+        {
+          "order": [
+            "structural",
+            "shared"
+          ],
+          "control": {
+            "samplesNs": [
+              9981.75,
+              9757.875,
+              9768.375,
+              9776.1875,
+              10122.25,
+              9768.125,
+              9739.5,
+              9742,
+              9783.875
+            ],
+            "peakBytes": 12733,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              9781.0625,
+              8703.25,
+              9325.4375,
+              8736.6875,
+              8718.6875,
+              8713.4375,
+              8695.4375,
+              8726.375,
+              8713.5625
+            ],
+            "peakBytes": 12576,
+            "retainedBytes": 0
+          },
+          "ratio": 0.892542260099556
+        }
+      ],
+      "medianRatio": 0.892542260099556,
+      "pairedMedianDeltaNs": -1049.6875,
+      "confirmedSlowdown": false
+    },
+    {
+      "control": "structural",
+      "candidate": "shared",
+      "engine": "native",
+      "phase": "cycle",
+      "path": "training",
+      "windows": [
+        {
+          "order": [
+            "structural",
+            "shared"
+          ],
+          "control": {
+            "samplesNs": [
+              141667,
+              141042,
+              141167,
+              144042,
+              140000,
+              139417,
+              139084,
+              139375,
+              139292
+            ],
+            "peakBytes": 18921,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              94291,
+              93375,
+              93125,
+              92667,
+              92709,
+              92792,
+              92750,
+              109625,
+              99333
+            ],
+            "peakBytes": 18756,
+            "retainedBytes": 0
+          },
+          "ratio": 0.6651785714285714
+        },
+        {
+          "order": [
+            "shared",
+            "structural"
+          ],
+          "control": {
+            "samplesNs": [
+              142458,
+              141000,
+              146250,
+              143208,
+              146334,
+              140667,
+              139875,
+              139333,
+              139667
+            ],
+            "peakBytes": 18921,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              94041,
+              93625,
+              93125,
+              93459,
+              92708,
+              92958,
+              93042,
+              92917,
+              93292
+            ],
+            "peakBytes": 18756,
+            "retainedBytes": 0
+          },
+          "ratio": 0.6604609929078015
+        },
+        {
+          "order": [
+            "structural",
+            "shared"
+          ],
+          "control": {
+            "samplesNs": [
+              141417,
+              140542,
+              139750,
+              141917,
+              139709,
+              139958,
+              139541,
+              139208,
+              139750
+            ],
+            "peakBytes": 18921,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              89667,
+              89625,
+              89750,
+              89542,
+              89042,
+              89208,
+              89125,
+              88833,
+              88500
+            ],
+            "peakBytes": 18756,
+            "retainedBytes": 0
+          },
+          "ratio": 0.6383398926654741
+        }
+      ],
+      "medianRatio": 0.6604609929078015,
+      "pairedMedianDeltaNs": -47875,
+      "confirmedSlowdown": false
+    },
+    {
+      "control": "structural",
+      "candidate": "shared",
+      "engine": "native",
+      "phase": "cycle",
+      "path": "held-out-first",
+      "windows": [
+        {
+          "order": [
+            "structural",
+            "shared"
+          ],
+          "control": {
+            "samplesNs": [
+              100667,
+              100167,
+              99375,
+              99792,
+              99833,
+              100083,
+              99208,
+              98958,
+              99291
+            ],
+            "peakBytes": 18915,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              60084,
+              63958,
+              59166,
+              58875,
+              58792,
+              59000,
+              58666,
+              58458,
+              58541
+            ],
+            "peakBytes": 18705,
+            "retainedBytes": 0
+          },
+          "ratio": 0.5899771524771524
+        },
+        {
+          "order": [
+            "shared",
+            "structural"
+          ],
+          "control": {
+            "samplesNs": [
+              105792,
+              104750,
+              104292,
+              104625,
+              103791,
+              103958,
+              103875,
+              103958,
+              103916
+            ],
+            "peakBytes": 18915,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              70291,
+              67375,
+              63375,
+              63375,
+              63625,
+              63083,
+              63125,
+              62750,
+              63125
+            ],
+            "peakBytes": 18705,
+            "retainedBytes": 0
+          },
+          "ratio": 0.6096211931741665
+        },
+        {
+          "order": [
+            "structural",
+            "shared"
+          ],
+          "control": {
+            "samplesNs": [
+              105875,
+              104583,
+              104292,
+              104125,
+              104041,
+              103833,
+              103542,
+              104000,
+              103083
+            ],
+            "peakBytes": 18915,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              62958,
+              66834,
+              62042,
+              61917,
+              61625,
+              61459,
+              61167,
+              61167,
+              61000
+            ],
+            "peakBytes": 18705,
+            "retainedBytes": 0
+          },
+          "ratio": 0.5923145682951914
+        }
+      ],
+      "medianRatio": 0.5923145682951914,
+      "pairedMedianDeltaNs": -40917,
+      "confirmedSlowdown": false
+    },
+    {
+      "control": "structural",
+      "candidate": "shared",
+      "engine": "native",
+      "phase": "cycle",
+      "path": "held-out-second",
+      "windows": [
+        {
+          "order": [
+            "structural",
+            "shared"
+          ],
+          "control": {
+            "samplesNs": [
+              126083,
+              124250,
+              128416,
+              120125,
+              125042,
+              115917,
+              124333,
+              127291,
+              115125
+            ],
+            "peakBytes": 18921,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              79083,
+              75084,
+              74458,
+              74375,
+              74166,
+              74541,
+              72875,
+              72250,
+              72166
+            ],
+            "peakBytes": 18756,
+            "retainedBytes": 0
+          },
+          "ratio": 0.5981919522572446
+        },
+        {
+          "order": [
+            "shared",
+            "structural"
+          ],
+          "control": {
+            "samplesNs": [
+              117666,
+              116000,
+              116000,
+              115333,
+              114583,
+              114625,
+              115250,
+              114750,
+              115000
+            ],
+            "peakBytes": 18921,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              76916,
+              73917,
+              73500,
+              72833,
+              73209,
+              72583,
+              72083,
+              72292,
+              72292
+            ],
+            "peakBytes": 18756,
+            "retainedBytes": 0
+          },
+          "ratio": 0.6319566160520608
+        },
+        {
+          "order": [
+            "structural",
+            "shared"
+          ],
+          "control": {
+            "samplesNs": [
+              111958,
+              111250,
+              110834,
+              110333,
+              111208,
+              110625,
+              110542,
+              111084,
+              110167
+            ],
+            "peakBytes": 18921,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              90125,
+              69416,
+              69458,
+              69625,
+              69541,
+              69541,
+              69125,
+              69125,
+              69000
+            ],
+            "peakBytes": 18756,
+            "retainedBytes": 0
+          },
+          "ratio": 0.6266849522709638
+        }
+      ],
+      "medianRatio": 0.6266849522709638,
+      "pairedMedianDeltaNs": -42417,
+      "confirmedSlowdown": false
+    },
+    {
+      "control": "structural",
+      "candidate": "shared",
+      "engine": "native",
+      "phase": "cycle",
+      "path": "held-out-both",
+      "windows": [
+        {
+          "order": [
+            "structural",
+            "shared"
+          ],
+          "control": {
+            "samplesNs": [
+              110667,
+              113458,
+              111875,
+              104292,
+              99708,
+              99625,
+              103250,
+              108459,
+              119125
+            ],
+            "peakBytes": 18915,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              60000,
+              63459,
+              59417,
+              59167,
+              59125,
+              59083,
+              59041,
+              58916,
+              59458
+            ],
+            "peakBytes": 18705,
+            "retainedBytes": 0
+          },
+          "ratio": 0.5455241151034032
+        },
+        {
+          "order": [
+            "shared",
+            "structural"
+          ],
+          "control": {
+            "samplesNs": [
+              110041,
+              122000,
+              108625,
+              104291,
+              111917,
+              103875,
+              115167,
+              99375,
+              99166
+            ],
+            "peakBytes": 18915,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              59583,
+              62167,
+              58958,
+              58750,
+              58750,
+              58709,
+              67583,
+              58750,
+              58750
+            ],
+            "peakBytes": 18705,
+            "retainedBytes": 0
+          },
+          "ratio": 0.5408515535097813
+        },
+        {
+          "order": [
+            "structural",
+            "shared"
+          ],
+          "control": {
+            "samplesNs": [
+              102083,
+              101584,
+              100042,
+              100083,
+              100041,
+              99500,
+              99208,
+              99416,
+              106208
+            ],
+            "peakBytes": 18915,
+            "retainedBytes": 0
+          },
+          "candidate": {
+            "samplesNs": [
+              59625,
+              66667,
+              62709,
+              63125,
+              58792,
+              59167,
+              63875,
+              62417,
+              63083
+            ],
+            "peakBytes": 18705,
+            "retainedBytes": 0
+          },
+          "ratio": 0.6268267327722357
+        }
+      ],
+      "medianRatio": 0.5455241151034032,
+      "pairedMedianDeltaNs": -49292,
+      "confirmedSlowdown": false
+    },
+    {
+      "control": "structural",
+      "candidate": "shared",
+      "engine": "wasm",
+      "phase": "admission",
+      "path": "training",
+      "windows": [
+        {
+          "order": [
+            "structural",
+            "shared"
+          ],
+          "control": {
+            "samplesNs": [
+              43784.53125,
+              42690.734375,
+              31783.859375,
+              29888.703125,
+              22537.0625,
+              22207.609375,
+              20818.953125,
+              21248.703125,
+              22035.78125
+            ],
+            "samplesPerBatch": 64
+          },
+          "candidate": {
+            "samplesNs": [
+              44069,
+              39097.078125,
+              35723.390625,
+              21401.734375,
+              21363.921875,
+              22867.171875,
+              22128.921875,
+              23048.796875,
+              21645.796875
+            ],
+            "samplesPerBatch": 64
+          },
+          "ratio": 1.0146474002545807
+        },
+        {
+          "order": [
+            "shared",
+            "structural"
+          ],
+          "control": {
+            "samplesNs": [
+              42837.890625,
+              40221.3125,
+              33890.5625,
+              29683,
+              26871.6875,
+              22048.171875,
+              20939.5,
+              22384.734375,
+              22190.109375
+            ],
+            "samplesPerBatch": 64
+          },
+          "candidate": {
+            "samplesNs": [
+              41605.515625,
+              41801.390625,
+              38298.234375,
+              21399.09375,
+              21415.96875,
+              21547.53125,
+              20339.890625,
+              20304.703125,
+              20378.234375
+            ],
+            "samplesPerBatch": 64
+          },
+          "ratio": 0.796971487183304
+        },
+        {
+          "order": [
+            "structural",
+            "shared"
+          ],
+          "control": {
+            "samplesNs": [
+              43038.421875,
+              42964.234375,
+              31652.90625,
+              27875.03125,
+              23579.453125,
+              21873.078125,
+              22421.859375,
+              21968.0625,
+              21343.6875
+            ],
+            "samplesPerBatch": 64
+          },
+          "candidate": {
+            "samplesNs": [
+              42387.40625,
+              42507.84375,
+              35085.84375,
+              21850.890625,
+              21692.09375,
+              22031.3125,
+              20847.015625,
+              21437.46875,
+              21752.609375
+            ],
+            "samplesPerBatch": 64
+          },
+          "ratio": 0.9266920021072371
+        }
+      ],
+      "medianRatio": 0.9266920021072371,
+      "pairedMedianDeltaNs": -1728.5625,
+      "confirmedSlowdown": false
+    },
+    {
+      "control": "structural",
+      "candidate": "shared",
+      "engine": "wasm",
+      "phase": "fresh",
+      "path": "training",
+      "windows": [
+        {
+          "order": [
+            "structural",
+            "shared"
+          ],
+          "control": {
+            "samplesNs": [
+              75578.140625,
+              58348.28125,
+              49945.296875,
+              48486.390625,
+              47966.796875,
+              45421.265625,
+              45443.375,
+              43946.59375,
+              44295.515625
+            ],
+            "samplesPerBatch": 64
+          },
+          "candidate": {
+            "samplesNs": [
+              70444.71875,
+              63119.765625,
+              52066.390625,
+              44557.28125,
+              43079.390625,
+              49526.109375,
+              44249.34375,
+              42451.890625,
+              42761.75
+            ],
+            "samplesPerBatch": 64
+          },
+          "ratio": 0.9289192556700191
+        },
+        {
+          "order": [
+            "shared",
+            "structural"
+          ],
+          "control": {
+            "samplesNs": [
+              75599.5625,
+              58496.71875,
+              50594.453125,
+              46884.046875,
+              45849.75,
+              46361.984375,
+              46307.296875,
+              43561.9375,
+              43500.6875
+            ],
+            "samplesPerBatch": 64
+          },
+          "candidate": {
+            "samplesNs": [
+              68627.609375,
+              61716.15625,
+              52795.515625,
+              46281.828125,
+              43877.6875,
+              43050.15625,
+              41395.125,
+              39185.515625,
+              46072.265625
+            ],
+            "samplesPerBatch": 64
+          },
+          "ratio": 0.9937509415546883
+        },
+        {
+          "order": [
+            "structural",
+            "shared"
+          ],
+          "control": {
+            "samplesNs": [
+              74048.1875,
+              69081.359375,
+              51155,
+              45369.796875,
+              46224,
+              45435.625,
+              45690.71875,
+              43555.3125,
+              43171.921875
+            ],
+            "samplesPerBatch": 64
+          },
+          "candidate": {
+            "samplesNs": [
+              73183.53125,
+              64549.453125,
+              53102.1875,
+              45669.28125,
+              44386.734375,
+              44553.390625,
+              43051.453125,
+              39814.4375,
+              42219.390625
+            ],
+            "samplesPerBatch": 64
+          },
+          "ratio": 0.9751081148181763
+        }
+      ],
+      "medianRatio": 0.9751081148181763,
+      "pairedMedianDeltaNs": -1137.328125,
+      "confirmedSlowdown": false
+    },
+    {
+      "control": "structural",
+      "candidate": "shared",
+      "engine": "wasm",
+      "phase": "fresh",
+      "path": "held-out-first",
+      "windows": [
+        {
+          "order": [
+            "structural",
+            "shared"
+          ],
+          "control": {
+            "samplesNs": [
+              74086.5625,
+              69760.4375,
+              50824.921875,
+              47200.515625,
+              46380.21875,
+              45865.25,
+              45926.453125,
+              43900.375,
+              44348.34375
+            ],
+            "samplesPerBatch": 64
+          },
+          "candidate": {
+            "samplesNs": [
+              64259.75,
+              61468.6875,
+              47731.8125,
+              43258.53125,
+              45770.125,
+              44110.09375,
+              41091.765625,
+              40616.484375,
+              42013.015625
+            ],
+            "samplesPerBatch": 64
+          },
+          "ratio": 0.9510540255914597
+        },
+        {
+          "order": [
+            "shared",
+            "structural"
+          ],
+          "control": {
+            "samplesNs": [
+              72055.390625,
+              67385.453125,
+              49088.5625,
+              43584.640625,
+              46087.265625,
+              46998.015625,
+              45516.984375,
+              43153.59375,
+              43005.9375
+            ],
+            "samplesPerBatch": 64
+          },
+          "candidate": {
+            "samplesNs": [
+              70377.53125,
+              58160.140625,
+              48459.03125,
+              43800.140625,
+              44682.265625,
+              44458.296875,
+              42047.484375,
+              43550.109375,
+              43464.875
+            ],
+            "samplesPerBatch": 64
+          },
+          "ratio": 0.9646546887104457
+        },
+        {
+          "order": [
+            "structural",
+            "shared"
+          ],
+          "control": {
+            "samplesNs": [
+              69664.78125,
+              67014.359375,
+              52542.296875,
+              45209.03125,
+              46666.6875,
+              45833.96875,
+              46836.609375,
+              45332.6875,
+              43009.09375
+            ],
+            "samplesPerBatch": 64
+          },
+          "candidate": {
+            "samplesNs": [
+              74131.484375,
+              60582.65625,
+              45485.703125,
+              44503.953125,
+              43390.5625,
+              44585.328125,
+              41794.25,
+              40360,
+              40361.890625
+            ],
+            "samplesPerBatch": 64
+          },
+          "ratio": 0.9536557126536997
+        }
+      ],
+      "medianRatio": 0.9536557126536997,
+      "pairedMedianDeltaNs": -2162.734375,
+      "confirmedSlowdown": false
+    },
+    {
+      "control": "structural",
+      "candidate": "shared",
+      "engine": "wasm",
+      "phase": "fresh",
+      "path": "held-out-second",
+      "windows": [
+        {
+          "order": [
+            "structural",
+            "shared"
+          ],
+          "control": {
+            "samplesNs": [
+              73992.265625,
+              70451.84375,
+              57492.875,
+              46740.328125,
+              47713.546875,
+              45559.234375,
+              47242.875,
+              43554.046875,
+              43395.828125
+            ],
+            "samplesPerBatch": 64
+          },
+          "candidate": {
+            "samplesNs": [
+              73321.671875,
+              55097.640625,
+              49143.8125,
+              44881.484375,
+              45953.796875,
+              42865.828125,
+              42471.953125,
+              42748.734375,
+              42421.171875
+            ],
+            "samplesPerBatch": 64
+          },
+          "ratio": 0.9500159415573248
+        },
+        {
+          "order": [
+            "shared",
+            "structural"
+          ],
+          "control": {
+            "samplesNs": [
+              76214.21875,
+              66345.140625,
+              55345.09375,
+              45565.078125,
+              45869.828125,
+              49224.59375,
+              46641.234375,
+              43907.5625,
+              46758.421875
+            ],
+            "samplesPerBatch": 64
+          },
+          "candidate": {
+            "samplesNs": [
+              69568.359375,
+              57571.015625,
+              44361.375,
+              41707,
+              45054.015625,
+              44947.1875,
+              44046.9375,
+              41069.75,
+              43290.96875
+            ],
+            "samplesPerBatch": 64
+          },
+          "ratio": 0.948735505201436
+        },
+        {
+          "order": [
+            "structural",
+            "shared"
+          ],
+          "control": {
+            "samplesNs": [
+              73003.25,
+              58410.75,
+              47930.3125,
+              50470.0625,
+              46923.890625,
+              47186.203125,
+              48225.328125,
+              46758.484375,
+              45209.5625
+            ],
+            "samplesPerBatch": 64
+          },
+          "candidate": {
+            "samplesNs": [
+              69849.65625,
+              61630.296875,
+              50455.796875,
+              42546.28125,
+              43393.171875,
+              44723.890625,
+              42310.46875,
+              39158.859375,
+              40541.6875
+            ],
+            "samplesPerBatch": 64
+          },
+          "ratio": 0.9053388056879453
+        }
+      ],
+      "medianRatio": 0.948735505201436,
+      "pairedMedianDeltaNs": -2397.046875,
+      "confirmedSlowdown": false
+    },
+    {
+      "control": "structural",
+      "candidate": "shared",
+      "engine": "wasm",
+      "phase": "fresh",
+      "path": "held-out-both",
+      "windows": [
+        {
+          "order": [
+            "structural",
+            "shared"
+          ],
+          "control": {
+            "samplesNs": [
+              69637.40625,
+              69677.765625,
+              50479.21875,
+              43992.75,
+              47218.734375,
+              46029.28125,
+              46801.421875,
+              46128.328125,
+              44139.359375
+            ],
+            "samplesPerBatch": 64
+          },
+          "candidate": {
+            "samplesNs": [
+              70328.15625,
+              60968.71875,
+              43281.84375,
+              44405.015625,
+              43311.90625,
+              43373.78125,
+              43309.25,
+              41344.46875,
+              41485.015625
+            ],
+            "samplesPerBatch": 64
+          },
+          "ratio": 0.9254399655993357
+        },
+        {
+          "order": [
+            "shared",
+            "structural"
+          ],
+          "control": {
+            "samplesNs": [
+              75275.34375,
+              67958.984375,
+              51074.890625,
+              47122.34375,
+              46034.4375,
+              48173.875,
+              45038.34375,
+              43787.78125,
+              44804.125
+            ],
+            "samplesPerBatch": 64
+          },
+          "candidate": {
+            "samplesNs": [
+              66119.078125,
+              61448.5625,
+              47026.8125,
+              44846.34375,
+              45309.21875,
+              47728.5625,
+              44983,
+              40935.5625,
+              40781.96875
+            ],
+            "samplesPerBatch": 64
+          },
+          "ratio": 0.9615230301442721
+        },
+        {
+          "order": [
+            "structural",
+            "shared"
+          ],
+          "control": {
+            "samplesNs": [
+              71965.515625,
+              69096.390625,
+              48869.703125,
+              44219.328125,
+              45808,
+              45887.328125,
+              45296.25,
+              44440.828125,
+              43895.15625
+            ],
+            "samplesPerBatch": 64
+          },
+          "candidate": {
+            "samplesNs": [
+              68300.828125,
+              59587.9375,
+              48321.703125,
+              42958.359375,
+              44346.34375,
+              46440.796875,
+              43033.890625,
+              41000.6875,
+              41544.96875
+            ],
+            "samplesPerBatch": 64
+          },
+          "ratio": 0.9680916815840028
+        }
+      ],
+      "medianRatio": 0.9615230301442721,
+      "pairedMedianDeltaNs": -1813.125,
+      "confirmedSlowdown": false
+    },
+    {
+      "control": "structural",
+      "candidate": "shared",
+      "engine": "wasm",
+      "phase": "cycle",
+      "path": "training",
+      "windows": [
+        {
+          "order": [
+            "structural",
+            "shared"
+          ],
+          "control": {
+            "samplesNs": [
+              1024542,
+              1074667,
+              1046000,
+              1047417,
+              1046250,
+              1182875,
+              1023792,
+              1014667,
+              1008417
+            ],
+            "samplesPerBatch": 1
+          },
+          "candidate": {
+            "samplesNs": [
+              672708,
+              664833,
+              679583,
+              628000,
+              626083,
+              631625,
+              620375,
+              638500,
+              813542
+            ],
+            "samplesPerBatch": 1
+          },
+          "ratio": 0.6104206500956023
+        },
+        {
+          "order": [
+            "shared",
+            "structural"
+          ],
+          "control": {
+            "samplesNs": [
+              991959,
+              1033792,
+              1010750,
+              1024042,
+              1027250,
+              1158708,
+              977500,
+              982375,
+              970667
+            ],
+            "samplesPerBatch": 1
+          },
+          "candidate": {
+            "samplesNs": [
+              677708,
+              626458,
+              615375,
+              630042,
+              628541,
+              687833,
+              670459,
+              672708,
+              914958
+            ],
+            "samplesPerBatch": 1
+          },
+          "ratio": 0.6633282216176107
+        },
+        {
+          "order": [
+            "structural",
+            "shared"
+          ],
+          "control": {
+            "samplesNs": [
+              924916,
+              966917,
+              990625,
+              1020625,
+              1009959,
+              1145083,
+              978166,
+              1195583,
+              1064916
+            ],
+            "samplesPerBatch": 1
+          },
+          "candidate": {
+            "samplesNs": [
+              682208,
+              628583,
+              612333,
+              633500,
+              633333,
+              637833,
+              633417,
+              677875,
+              812959
+            ],
+            "samplesPerBatch": 1
+          },
+          "ratio": 0.627253185525353
+        }
+      ],
+      "medianRatio": 0.627253185525353,
+      "pairedMedianDeltaNs": -376459,
+      "confirmedSlowdown": false
+    },
+    {
+      "control": "structural",
+      "candidate": "shared",
+      "engine": "wasm",
+      "phase": "cycle",
+      "path": "held-out-first",
+      "windows": [
+        {
+          "order": [
+            "structural",
+            "shared"
+          ],
+          "control": {
+            "samplesNs": [
+              709500,
+              693291,
+              715959,
+              713417,
+              715167,
+              711834,
+              768541,
+              763333,
+              887292
+            ],
+            "samplesPerBatch": 1
+          },
+          "candidate": {
+            "samplesNs": [
+              507500,
+              473250,
+              461291,
+              437834,
+              574333,
+              461416,
+              471792,
+              446250,
+              461709
+            ],
+            "samplesPerBatch": 1
+          },
+          "ratio": 0.645596063576759
+        },
+        {
+          "order": [
+            "shared",
+            "structural"
+          ],
+          "control": {
+            "samplesNs": [
+              951375,
+              738083,
+              746500,
+              778209,
+              759458,
+              762167,
+              751167,
+              757166,
+              894458
+            ],
+            "samplesPerBatch": 1
+          },
+          "candidate": {
+            "samplesNs": [
+              469958,
+              453792,
+              431750,
+              414167,
+              402834,
+              407000,
+              429708,
+              404542,
+              419791
+            ],
+            "samplesPerBatch": 1
+          },
+          "ratio": 0.5527507775281846
+        },
+        {
+          "order": [
+            "structural",
+            "shared"
+          ],
+          "control": {
+            "samplesNs": [
+              707334,
+              687041,
+              693292,
+              734583,
+              711959,
+              699209,
+              707459,
+              710083,
+              831792
+            ],
+            "samplesPerBatch": 1
+          },
+          "candidate": {
+            "samplesNs": [
+              491417,
+              482208,
+              463583,
+              454459,
+              438166,
+              454292,
+              440042,
+              629750,
+              477667
+            ],
+            "samplesPerBatch": 1
+          },
+          "ratio": 0.6552789631625295
+        }
+      ],
+      "medianRatio": 0.645596063576759,
+      "pairedMedianDeltaNs": -253458,
+      "confirmedSlowdown": false
+    },
+    {
+      "control": "structural",
+      "candidate": "shared",
+      "engine": "wasm",
+      "phase": "cycle",
+      "path": "held-out-second",
+      "windows": [
+        {
+          "order": [
+            "structural",
+            "shared"
+          ],
+          "control": {
+            "samplesNs": [
+              868333,
+              862792,
+              902333,
+              894625,
+              887167,
+              890167,
+              882584,
+              1002750,
+              847292
+            ],
+            "samplesPerBatch": 1
+          },
+          "candidate": {
+            "samplesNs": [
+              533458,
+              529000,
+              485917,
+              480625,
+              488125,
+              483583,
+              487667,
+              480417,
+              483500
+            ],
+            "samplesPerBatch": 1
+          },
+          "ratio": 0.5477176224994843
+        },
+        {
+          "order": [
+            "shared",
+            "structural"
+          ],
+          "control": {
+            "samplesNs": [
+              780625,
+              787458,
+              859417,
+              850125,
+              832083,
+              830167,
+              830541,
+              961667,
+              795541
+            ],
+            "samplesPerBatch": 1
+          },
+          "candidate": {
+            "samplesNs": [
+              565750,
+              547708,
+              514417,
+              516667,
+              525625,
+              514917,
+              519542,
+              509709,
+              531500
+            ],
+            "samplesPerBatch": 1
+          },
+          "ratio": 0.6255464811490342
+        },
+        {
+          "order": [
+            "structural",
+            "shared"
+          ],
+          "control": {
+            "samplesNs": [
+              849959,
+              817458,
+              868167,
+              845208,
+              833542,
+              840083,
+              817209,
+              961917,
+              801458
+            ],
+            "samplesPerBatch": 1
+          },
+          "candidate": {
+            "samplesNs": [
+              523042,
+              542334,
+              524125,
+              513166,
+              523041,
+              509958,
+              518750,
+              504833,
+              516667
+            ],
+            "samplesPerBatch": 1
+          },
+          "ratio": 0.6174985090758889
+        }
+      ],
+      "medianRatio": 0.6174985090758889,
+      "pairedMedianDeltaNs": -321333,
+      "confirmedSlowdown": false
+    },
+    {
+      "control": "structural",
+      "candidate": "shared",
+      "engine": "wasm",
+      "phase": "cycle",
+      "path": "held-out-both",
+      "windows": [
+        {
+          "order": [
+            "structural",
+            "shared"
+          ],
+          "control": {
+            "samplesNs": [
+              743041,
+              715125,
+              716666,
+              746500,
+              736666,
+              726375,
+              727542,
+              732250,
+              857834
+            ],
+            "samplesPerBatch": 1
+          },
+          "candidate": {
+            "samplesNs": [
+              471542,
+              454959,
+              447875,
+              438584,
+              440750,
+              458625,
+              448167,
+              453292,
+              459458
+            ],
+            "samplesPerBatch": 1
+          },
+          "ratio": 0.6190399453738478
+        },
+        {
+          "order": [
+            "shared",
+            "structural"
+          ],
+          "control": {
+            "samplesNs": [
+              760291,
+              747875,
+              757250,
+              766250,
+              755708,
+              755834,
+              760541,
+              746333,
+              880292
+            ],
+            "samplesPerBatch": 1
+          },
+          "candidate": {
+            "samplesNs": [
+              478500,
+              595417,
+              462625,
+              448250,
+              433417,
+              458250,
+              443084,
+              483917,
+              446084
+            ],
+            "samplesPerBatch": 1
+          },
+          "ratio": 0.6051502145922747
+        },
+        {
+          "order": [
+            "structural",
+            "shared"
+          ],
+          "control": {
+            "samplesNs": [
+              740917,
+              739167,
+              754292,
+              763250,
+              746250,
+              777250,
+              753292,
+              766459,
+              887541
+            ],
+            "samplesPerBatch": 1
+          },
+          "candidate": {
+            "samplesNs": [
+              507584,
+              475708,
+              471625,
+              446667,
+              428875,
+              453375,
+              443042,
+              448084,
+              436042
+            ],
+            "samplesPerBatch": 1
+          },
+          "ratio": 0.594045807194031
+        }
+      ],
+      "medianRatio": 0.6051502145922747,
+      "pairedMedianDeltaNs": -299000,
+      "confirmedSlowdown": false
+    }
+  ],
+  "images": {
+    "structural": {
+      "sha256": "0a8a2096a0fd8659d88dfd3194f729d06044d7def08c3ddc41875e50709d9766",
+      "bytes": 210
+    },
+    "limited": {
+      "sha256": "0a8a2096a0fd8659d88dfd3194f729d06044d7def08c3ddc41875e50709d9766",
+      "bytes": 210
+    },
+    "profiled": {
+      "sha256": "ade2851e88c9abfea9fdd89b75176f78725f45766172985cff316cba2fae5d1e",
+      "bytes": 249
+    },
+    "ordinary": {
+      "sha256": "0f412e886ed75baa1459ca97f8879c5d3ba69fd40161d304f830c857fe991395",
+      "bytes": 193
+    },
+    "shared": {
+      "sha256": "0f412e886ed75baa1459ca97f8879c5d3ba69fd40161d304f830c857fe991395",
+      "bytes": 193
+    }
+  },
+  "sourceHashes": {
+    "src/data/optimization_profile.zig": "5d8d0fb777e293c70503bde3bfd1b7003e034fad6a0a872fab4bcc808dada194",
+    "src/data/call_patterns.zig": "6bda37ab3b79c833b93a378138da0424ca9752d64ed65287f14504bad4bf9e7d",
+    "src/data/closed_compilation.zig": "e01674f8d693e2856fd960b6117f1c15da28e37a797fd1de6c906ec4a612bfb1",
+    "src/data/loop_unswitch.zig": "1c7b83b8672b5c9bc8771e84925727d1f4ef0c7d5d80b6a8a282eb8f84c0ced5",
+    "src/data/tail_duplication.zig": "5faed3a67b2e9ef452c109a228b5ebf3bf078d0de33e288afd6050176e920723",
+    "test/v2/profile_probe.zig": "2b77c5afaccf2fbb14239eaa68f059e216daf962a3268f88dabe71349f57d9bc"
+  },
+  "disposition": "Shared profiled image equals ordinary compilation on measured fixture; isolated pass regressions are not final compiler gains. Collection is opt-in and its measured overhead is reported.",
+  "environment": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "os": "27.2.0",
+    "cpu": "Apple M2 Pro",
+    "node": "v26.10.0"
+  },
+  "collectionWorldSources": {
+    "values.zig": "af2de5840fddd612e87df8f56077fef07c9ddf753b20cef67896650b581e86ed",
+    "store.zig": "dbd9a59018d71cb6eb9e33133a07d39f40a3a902f7f7682ddfaed6e3b6e0a5ac"
+  },
+  "agent": {
+    "images": 18,
+    "identicalToP20": true,
+    "scope": "Fresh compilation of existing 18-image corpus with no supplied profile; no runtime rebind"
+  },
+  "aggregate": {
+    "steps": 319,
+    "tests": 797,
+    "status": "passed",
+    "command": "ZIG_GLOBAL_CACHE_DIR=/tmp/p23-global-cache zig build check -Doptimize=ReleaseSafe --global-cache-dir /tmp/p23-global-cache --summary all",
+    "additionalFocusedPolymorphicTests": 53
+  }
+}

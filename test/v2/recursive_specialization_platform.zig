@@ -1,0 +1,37 @@
+const std = @import("std");
+const data = @import("boundary_data");
+const fixtures = @import("recursive_specialization.zig");
+pub fn main(init: std.process.Init) !void {
+    var args = init.minimal.args.iterate();
+    _ = args.next();
+    const family = args.next() orelse return error.Family;
+    const arm = args.next() orelse return error.Arm;
+    var arena = std.heap.ArenaAllocator.init(init.gpa);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const original = if (std.mem.eql(u8, family, "pure")) fixtures.countdown else if (std.mem.eql(u8, family, "effect")) try fixtures.withOpaqueEffect(a) else return error.Family;
+    if (std.mem.eql(u8, arm, "linked")) {
+        const borrows = try a.alloc(data.borrow_contract.Summary, original.functions.len);
+        for (borrows, 0..) |*summary, id| summary.* = .{ .function = id };
+        const object: data.component.Object = .{ .program = original, .exports = &.{.{ .name = "main", .reference = .{ .kind = .function, .id = original.roots.entry } }}, .borrows = borrows };
+        const object_bytes = try a.alloc(u8, try data.component.encodedLength(object));
+        _ = try data.component.encode(a, object, object_bytes);
+        var linked = try data.linker.linkWithCompilation(a, &.{.{ .key = "context", .object = object_bytes }}, &.{}, .{ .instance = "context", .symbol = "main" }, .{ .contract = .semantic });
+        defer linked.deinit();
+        @memset(object_bytes, 0xff);
+        return emit(init, linked.program);
+    }
+    if (!std.mem.eql(u8, arm, "structural") and !std.mem.eql(u8, arm, "semantic")) return error.Arm;
+    var compiled = try data.closed_compilation.run(a, original, .{ .contract = if (std.mem.eql(u8, arm, "structural")) .structural else .semantic });
+    defer compiled.deinit();
+    return emit(init, compiled.program);
+}
+fn emit(init: std.process.Init, program: data.activation.Program) !void {
+    const bytes = try init.gpa.alloc(u8, try data.program_image.encodedLength(program));
+    defer init.gpa.free(bytes);
+    _ = try data.program_image.encode(init.gpa, program, bytes);
+    var buffer: [4096]u8 = undefined;
+    var output = std.Io.File.stdout().writer(init.io, &buffer);
+    try output.interface.writeAll(bytes);
+    try output.interface.flush();
+}

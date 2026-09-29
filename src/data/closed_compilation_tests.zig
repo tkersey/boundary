@@ -6,6 +6,83 @@ const image = @import("program_image.zig");
 const captured = @import("application_specialization_tests.zig").captured;
 const a = std.testing.allocator;
 
+test "bounded equality search reports exhaustion without discarding its checked incumbent" {
+    const ir = @import("activation.zig");
+    const p = @import("program.zig");
+    var inputs: [128]p.Id = undefined;
+    for (&inputs, 0..) |*slot, id| slot.* = id;
+    const slots = [_]p.Id{0} ** 130;
+    var instructions: [128]ir.Instruction = undefined;
+    instructions[0] = .{ .destination = 129, .opcode = .constant };
+    var operands: [127][2]p.Id = undefined;
+    for (instructions[1..], 0..) |*op, id| {
+        operands[id] = .{ if (id == 0) 0 else 128, id + 1 };
+        op.* = .{ .destination = 128, .opcode = .integer_bit_xor, .operands = &operands[id] };
+    }
+    const program: ir.Program = .{ .roots = .{ .entry = 0, .result = 0, .failure = 1 }, .schemas = &.{ .u64, .unit }, .constants = &.{.{ .schema = 0, .bytes = &.{ 0, 0, 0, 0, 0, 0, 0, 0 } }}, .effects = &.{}, .functions = &.{.{ .entry = 0, .inputs = &inputs, .layout = .{ .slots = &slots }, .result = 0 }}, .blocks = &.{.{ .function = 0, .instructions = &instructions, .terminator = .{ .return_value = 128 } }} };
+    var stats: compile.Statistics = .{};
+    var result = try compile.run(a, program, .{ .contract = .semantic, .statistics = &stats });
+    defer result.deinit();
+    try std.testing.expect(stats.search_exhaustions > 0);
+    try std.testing.expectEqual(compile.Outcome.applied, stats.outcome);
+    var baseline = try p01.run(a, program, .{});
+    defer baseline.deinit();
+    try std.testing.expectEqual(@as(usize, 128), baseline.program.blocks[0].instructions.len);
+    try std.testing.expectEqual(@as(usize, 127), result.program.blocks[0].instructions.len);
+}
+
+test "shared profile policy reaches independently checked loop and tail consumers" {
+    const programs = [_]@import("activation.zig").Program{ @import("loop_unswitch_tests.zig").selectable, @import("tail_duplication_tests.zig").split };
+    for (programs, 0..) |program, index| {
+        const counts = try a.alloc(u64, program.blocks.len);
+        defer a.free(counts);
+        @memset(counts, 0);
+        counts[if (index == 0) 1 else 2] = 100;
+        const policy: compile.ProfilePolicy = .{
+            .record = .{ .image_identity = try image.identity(a, program), .block_counts = counts, .total = 100 },
+            .target = if (index == 0) .loop_unswitch else .tail_duplication,
+            .max_copies = 1,
+        };
+        var stats: compile.Statistics = .{};
+        var result = try compile.run(a, program, .{ .contract = .semantic, .profile = policy, .statistics = &stats });
+        defer result.deinit();
+        try std.testing.expect(stats.profile_used);
+        try std.testing.expectEqual(@as(usize, 1), stats.profile_rewrites);
+        try std.testing.expect(stats.outcome != .work_limit);
+    }
+}
+
+test "shared profile budget is bound to original records and consumed only once" {
+    const program = @import("call_patterns_tests.zig").repeated;
+    const profiles = @import("optimization_profile.zig");
+    var counts = [_]u64{0} ** program.blocks.len;
+    counts[4] = 100;
+    const record: profiles.Record = .{ .image_identity = try image.identity(a, program), .block_counts = &counts, .total = 100 };
+    var stats: compile.Statistics = .{};
+    var p01_stats: p01.Statistics = .{};
+    const policy: compile.ProfilePolicy = .{ .record = record, .max_variants = 1 };
+    var result = try compile.run(a, program, .{ .contract = .semantic, .profile = policy, .statistics = &stats, .coalescing = .{ .statistics = &p01_stats } });
+    defer result.deinit();
+    try std.testing.expect(stats.profile_used);
+    try std.testing.expectEqual(@as(usize, 1), stats.profile_variants);
+    try std.testing.expect(stats.outcome != .work_limit);
+    try std.testing.expect(p01_stats.outcome != .not_run);
+    var repeated = try compile.run(a, program, .{ .contract = .semantic, .profile = policy });
+    defer repeated.deinit();
+    try std.testing.expectEqualSlices(u8, &try image.identity(a, result.program), &try image.identity(a, repeated.program));
+    var structural = try compile.run(a, program, .{ .profile = policy, .statistics = &stats });
+    defer structural.deinit();
+    try std.testing.expect(!stats.profile_used);
+    try std.testing.expectEqual(compile.Outcome.structural, stats.outcome);
+    var limited = try compile.run(a, program, .{ .contract = .semantic, .profile = policy, .statistics = &stats, .work_limit = 0 });
+    defer limited.deinit();
+    try std.testing.expectEqual(compile.Outcome.work_limit, stats.outcome);
+    try std.testing.expectEqualSlices(u8, &try image.identity(a, structural.program), &try image.identity(a, limited.program));
+    var stale = policy;
+    stale.record.image_identity[0] ^= 1;
+    try std.testing.expectError(error.InvalidOptimizationProfile, compile.run(a, program, .{ .contract = .semantic, .profile = stale, .work_limit = 0 }));
+}
+
 test "both closed compilation contracts invoke P01 and only semantic rewrites apply" {
     var structural_stats: compile.Statistics = .{};
     var structural_p01: p01.Statistics = .{};

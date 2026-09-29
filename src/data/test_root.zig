@@ -87,3 +87,13 @@ test {
 test {
     _ = @import("loop_unswitch_tests.zig");
 }
+
+test {
+    _ = @import("induction_facts_tests.zig");
+    _ = @import("induction_reduction_tests.zig");
+    _ = @import("affine_induction_tests.zig");
+    _ = @import("rectangular_loops_tests.zig");
+    _ = @import("rectangular_tiling_tests.zig");
+    _ = @import("equality_saturation_tests.zig");
+    _ = @import("recursive_specialization_tests.zig");
+}

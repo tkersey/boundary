@@ -2,6 +2,91 @@ const std = @import("std");
 const ir = @import("activation.zig");
 const patterns = @import("call_patterns.zig");
 const a = std.testing.allocator;
+const profile = @import("optimization_profile.zig");
+
+test "an exact immutable profile prioritizes a proved hot constructor within one variant" {
+    var counts = [_]u64{0} ** repeated.blocks.len;
+    counts[4] = 100;
+    const record: profile.Record = .{ .image_identity = try @import("program_image.zig").identity(a, repeated), .block_counts = &counts, .total = 100 };
+    var candidate = (try patterns.construct(a, repeated, .{ .profile = record, .max_variants = 1 })).?;
+    defer candidate.deinit();
+    try patterns.validate(a, repeated, candidate.program, candidate.variants, candidate.sites, 1000000);
+    try std.testing.expectEqual(@as(usize, 1), candidate.variants.len);
+    try std.testing.expectEqual(@as(u64, 1), candidate.variants[0].key.value.constructor);
+    // Unobserved, reachable alternatives remain generic, not unreachable.
+    try std.testing.expectEqual(@as(u64, 1), candidate.program.blocks[1].terminator.call.function);
+    try std.testing.expectEqual(@as(u64, 1), candidate.program.blocks[3].terminator.call.function);
+    var again = (try patterns.construct(a, repeated, .{ .profile = record, .max_variants = 1 })).?;
+    defer again.deinit();
+    try std.testing.expect(@import("record_equal.zig").equal(ir.Program, candidate.program, again.program));
+}
+
+test "a hot polymorphic call does not acquire a constructor proof from its profile" {
+    var blocks: [repeated.blocks.len + 1]ir.Block = undefined;
+    @memcpy(blocks[0..repeated.blocks.len], repeated.blocks);
+    blocks[repeated.blocks.len] = .{ .function = 0, .instructions = &.{}, .terminator = repeated.blocks[1].terminator };
+    blocks[1].terminator = .{ .jump = .{ .block = repeated.blocks.len } };
+    blocks[4].terminator = .{ .jump = .{ .block = repeated.blocks.len } };
+    var original = repeated;
+    original.blocks = &blocks;
+    var counts = [_]u64{0} ** blocks.len;
+    counts[repeated.blocks.len] = 1000000;
+    const record: profile.Record = .{ .image_identity = try @import("program_image.zig").identity(a, original), .block_counts = &counts, .total = 1000000 };
+    var candidate = (try patterns.construct(a, original, .{ .profile = record, .max_variants = 1 })).?;
+    defer candidate.deinit();
+    try patterns.validate(a, original, candidate.program, candidate.variants, candidate.sites, 1000000);
+    try std.testing.expectEqual(@as(u64, 1), candidate.program.blocks[repeated.blocks.len].terminator.call.function);
+    for (candidate.sites) |site| try std.testing.expect(site.block != repeated.blocks.len);
+}
+
+test "profile identity toolchain locations and overflowing counters reject" {
+    var counts = [_]u64{0} ** repeated.blocks.len;
+    var record: profile.Record = .{ .image_identity = try @import("program_image.zig").identity(a, repeated), .block_counts = &counts, .total = 0 };
+    try profile.validate(a, repeated, record);
+    record.image_identity[0] ^= 1;
+    try std.testing.expectError(error.InvalidOptimizationProfile, patterns.construct(a, repeated, .{ .profile = record }));
+    try std.testing.expectError(error.InvalidOptimizationProfile, patterns.construct(a, repeated, .{ .profile = record, .work_limit = 0 }));
+    record.image_identity[0] ^= 1;
+    record.toolchain_identity = "another compiler";
+    try std.testing.expectError(error.InvalidOptimizationProfile, profile.validate(a, repeated, record));
+    record.toolchain_identity = profile.toolchain;
+    record.block_counts = counts[0 .. counts.len - 1];
+    try std.testing.expectError(error.InvalidOptimizationProfile, profile.validate(a, repeated, record));
+    record.block_counts = &counts;
+    counts[0] = std.math.maxInt(u64);
+    counts[1] = 1;
+    try std.testing.expectError(error.InvalidOptimizationProfile, profile.validate(a, repeated, record));
+}
+
+test "local profile collection snapshots and canonical bytes preserve checked counts" {
+    var collector = try profile.Collector.init(a, repeated);
+    defer collector.deinit();
+    try collector.observe(4);
+    var snapshot = try collector.snapshot(a);
+    defer snapshot.deinit();
+    try collector.observe(1);
+    try std.testing.expectEqual(@as(u64, 1), snapshot.record.total);
+    try std.testing.expectEqual(@as(u64, 0), snapshot.record.block_counts[1]);
+    const bytes = try a.alloc(u8, try profile.encodedLength(snapshot.record));
+    defer a.free(bytes);
+    _ = try profile.encode(snapshot.record, bytes);
+    var decoded = try profile.decode(a, repeated, bytes);
+    defer decoded.deinit();
+    try std.testing.expectEqualSlices(u64, snapshot.record.block_counts, decoded.record.block_counts);
+    for (0..bytes.len) |length| {
+        const result = profile.decode(a, repeated, bytes[0..length]);
+        if (result) |value| {
+            var owner = value;
+            owner.deinit();
+            return error.AcceptedTruncatedProfile;
+        } else |_| {}
+    }
+    collector.total = std.math.maxInt(u64);
+    const before = collector.counts[4];
+    try std.testing.expectError(error.InvalidOptimizationProfile, collector.observe(4));
+    try std.testing.expectEqual(before, collector.counts[4]);
+    try std.testing.expectError(error.InvalidOptimizationProfile, collector.observe(collector.counts.len));
+}
 pub const repeated: ir.Program = .{
     .roots = .{ .entry = 0, .result = 0, .failure = 2 },
     .schemas = &.{ .u64, .boolean, .unit, .{ .internal = .{ .computation = .{ .parameters = &.{0}, .result = 0, .capture_bound = &.{0}, .use = .reusable } } } },
@@ -100,16 +185,23 @@ test "unknown callable join retains the generic fallback beside a known variant"
     defer result.deinit();
     try std.testing.expectEqual(@as(usize, 1), stats.generic_fallback_calls);
 }
-test "recursive generic workers are not unfolded by the first call-pattern subset" {
+test "recursive generic workers fold finitely without unfolding their runtime recursion" {
     try std.testing.expect(patterns.possible(repeated));
     var original = repeated;
     var blocks = repeated.blocks[0..11].*;
     blocks[6].terminator = .{ .call = .{ .function = 1, .arguments = &.{ 0, 1, 2 }, .next = repeated.blocks[6].terminator.apply.next } };
     original.blocks = &blocks;
-    try std.testing.expect(!patterns.possible(original));
-    var candidate = try patterns.construct(a, original, .{});
-    defer if (candidate) |*value| value.deinit();
-    try std.testing.expect(candidate == null);
+    try std.testing.expect(patterns.possible(original));
+    var candidate = (try patterns.construct(a, original, .{})).?;
+    defer candidate.deinit();
+    try patterns.validate(a, original, candidate.program, candidate.variants, candidate.sites, 10_000_000);
+    try std.testing.expectEqual(@as(usize, 2), candidate.variants.len);
+    try std.testing.expectEqual(original.functions.len + 2, candidate.program.functions.len);
+    for (candidate.variants) |variant| {
+        const call = candidate.program.blocks[variant.first_block].terminator.call;
+        try std.testing.expectEqual(variant.function, call.function);
+        try std.testing.expectEqualSlices(u64, &.{ 1, 2 }, call.arguments);
+    }
 }
 test "call-pattern validation retains argument order and public interface authority" {
     var candidate = (try patterns.construct(a, repeated, .{})).?;

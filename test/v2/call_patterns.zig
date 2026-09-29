@@ -65,6 +65,71 @@ test "World executes repeated callable workers through compilation and closed li
     };
 }
 
+test "a locally collected hot-path profile preserves held-out reachable alternatives" {
+    var collector = try data.optimization_profile.Collector.init(a, repeated);
+    defer collector.deinit();
+    const original_bytes = try a.alloc(u8, try data.program_image.encodedLength(repeated));
+    defer a.free(original_bytes);
+    _ = try data.program_image.encode(a, repeated, original_bytes);
+    var input = [_]u8{0} ** 18;
+    input[0] = 5;
+    input[8] = 3;
+    var training = try world.Session.initImage(a, original_bytes, &input);
+    defer training.deinit();
+    var steps: usize = 0;
+    while (true) {
+        try std.testing.expect(steps < 100);
+        if (training.roots.current) |current| {
+            const node = try training.store.get(current);
+            if (node == .control and (try training.frames.get(current.id)).position == 0)
+                try collector.observe(@intCast(node.control.block));
+        }
+        steps += 1;
+        switch (try training.run(1)) {
+            .progressed => {},
+            .completed => break,
+            else => return error.UnexpectedTrainingOutcome,
+        }
+    }
+    var snapshot = try collector.snapshot(a);
+    defer snapshot.deinit();
+    try std.testing.expect(snapshot.record.block_counts[4] > 0);
+    try std.testing.expectEqual(@as(u64, 0), snapshot.record.block_counts[1]);
+    var statistics: patterns.Statistics = .{};
+    var optimized = try patterns.run(a, repeated, &statistics, .{ .profile = snapshot.record, .max_variants = 1 });
+    defer optimized.deinit();
+    try std.testing.expectEqual(@as(usize, 1), statistics.variants);
+    const policy: data.closed_compilation.ProfilePolicy = .{ .record = snapshot.record, .max_variants = 1 };
+    var shared_stats: data.closed_compilation.Statistics = .{};
+    var shared = try data.closed_compilation.run(a, repeated, .{ .contract = .semantic, .profile = policy, .statistics = &shared_stats });
+    defer shared.deinit();
+    try std.testing.expect(shared_stats.profile_used);
+    try std.testing.expectEqual(@as(usize, 1), shared_stats.profile_variants);
+    const object: data.component.Object = .{ .program = repeated, .exports = &.{.{ .name = "main", .reference = .{ .kind = .function, .id = 0 } }}, .borrows = &.{ .{ .function = 0 }, .{ .function = 1 }, .{ .function = 2 }, .{ .function = 3 } } };
+    const encoded = try a.alloc(u8, try data.component.encodedLength(object));
+    defer a.free(encoded);
+    _ = try data.component.encode(a, object, encoded);
+    var linked = try data.linker.linkWithCompilation(a, &.{.{ .key = "profile", .object = encoded }}, &.{}, .{ .instance = "profile", .symbol = "main" }, .{ .contract = .semantic, .profile = policy, .statistics = &shared_stats });
+    defer linked.deinit();
+    @memset(encoded, 0xff);
+    try std.testing.expect(shared_stats.profile_used);
+    try std.testing.expectEqual(@as(usize, 1), shared_stats.profile_variants);
+    for ([_]ir.Program{ optimized.program, shared.program, linked.program }) |program| {
+        const bytes = try a.alloc(u8, try data.program_image.encodedLength(program));
+        defer a.free(bytes);
+        _ = try data.program_image.encode(a, program, bytes);
+        for ([_]bool{ false, true }) |first| for ([_]bool{ false, true }) |second| {
+            input[16] = @intFromBool(first);
+            input[17] = @intFromBool(second);
+            const expected: u64 = if (first or second) 7 else (~@as(u64, 5)) | (~@as(u64, 3));
+            var result = try world.invocation.invoke(a, .{ .image = bytes, .instance = .{ .initial_args = &input } });
+            defer result.deinit();
+            try std.testing.expect(result.record == .completed);
+            try std.testing.expectEqual(expected, std.mem.readInt(u64, result.record.completed[0..8], .little));
+        };
+    }
+}
+
 pub const leaf_product: ir.Program = .{
     .roots = .{ .entry = 0, .result = 0, .failure = 1 },
     .schemas = &.{ .u64, .unit, .{ .product = &.{ 0, 0 } } },

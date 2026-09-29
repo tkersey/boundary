@@ -116,9 +116,25 @@ grammar includes the contract table; objects emitted before it must be rebuilt.
 
 ## Standalone use and witnesses
 
-The manifest contains `instances`, `bindings`, and `entry`. Linking applies
+The manifest contains `instances`, `bindings`, and `entry`. An optional `contract`
+selects `"structural"` (the default) or `"semantic"`. The semantic contract runs the
+shared record optimizer after every original object, interface and borrow guarantee
+has been checked. Both contracts invoke mandatory checked P01; neither is an
+optimization-off selector. Linking applies
 the canonical optimizations automatically where their preconditions hold.
 The retired `coalescing` selector is rejected; it cannot disable the pass.
+
+The same manifest forwards `objective` (`size`, `balanced`, or `speed`),
+`work_limit`, `round_limit`, `image_growth_bytes`, and `max_image_bytes` to shared
+closed compilation. Omitted fields retain the shared API defaults. These bound
+semantic search/selection; mandatory P01 retains its own checks and budget.
+An optional `profile` uses the shared `ProfilePolicy` JSON shape (`record`,
+`target`, and optional candidate limits). The record's version, toolchain identity,
+32-byte image identity, original block counts and total are checked against the
+original closed linked program. Its IDs are never interpreted against an optimized
+or relocated candidate.
+A stale profile rejects; it cannot establish semantic facts. No policy is stored
+in the emitted program or state image.
 
 ```
 zig build build-compiler

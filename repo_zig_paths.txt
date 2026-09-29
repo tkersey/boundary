@@ -40,6 +40,8 @@ src/data/activation_structure.zig
 src/data/activation_structure_tests.zig
 src/data/activation_types.zig
 src/data/admission.zig
+src/data/affine_induction.zig
+src/data/affine_induction_tests.zig
 src/data/affine_target.zig
 src/data/aggregate_admission.zig
 src/data/aggregate_reduction.zig
@@ -109,6 +111,8 @@ src/data/diagnostic.zig
 src/data/effect_scope.zig
 src/data/evidence_forwarding.zig
 src/data/evidence_forwarding_tests.zig
+src/data/equality_saturation.zig
+src/data/equality_saturation_tests.zig
 src/data/expression_reuse.zig
 src/data/expression_reuse_tests.zig
 src/data/function_inputs.zig
@@ -117,6 +121,10 @@ src/data/graph_order.zig
 src/data/graph_order_tests.zig
 src/data/handler_elimination.zig
 src/data/handler_elimination_tests.zig
+src/data/induction_facts.zig
+src/data/induction_facts_tests.zig
+src/data/induction_reduction.zig
+src/data/induction_reduction_tests.zig
 src/data/invocation.zig
 src/data/invocation_tests.zig
 src/data/leaf_inlining.zig
@@ -127,6 +135,7 @@ src/data/loop_motion_tests.zig
 src/data/loop_regions.zig
 src/data/loop_unswitch.zig
 src/data/loop_unswitch_tests.zig
+src/data/optimization_profile.zig
 src/data/outlining.zig
 src/data/outlining_tests.zig
 src/data/partial_redundancy.zig
@@ -140,6 +149,11 @@ src/data/reader_fusion.zig
 src/data/reader_fusion_tests.zig
 src/data/record.zig
 src/data/record_equal.zig
+src/data/rectangular_loops.zig
+src/data/rectangular_loops_tests.zig
+src/data/rectangular_tiling.zig
+src/data/rectangular_tiling_tests.zig
+src/data/recursive_specialization_tests.zig
 src/data/region_admission.zig
 src/data/relocation.zig
 src/data/relocation_tests.zig
@@ -148,6 +162,7 @@ src/data/root.zig
 src/data/scalar.zig
 src/data/schema.zig
 src/data/schema_partition.zig
+src/data/schema_partition_bench.zig
 src/data/sequence_fusion.zig
 src/data/sequence_fusion_tests.zig
 src/data/slot_access.zig
@@ -249,6 +264,7 @@ test/package_authoring/rejection.zig
 test/v2/affine_cycle_timing.zig
 test/v2/aggregate_reduction.zig
 test/v2/application_specialization.zig
+test/v2/bitvector_fixtures.zig
 test/v2/borrow_returns.zig
 test/v2/call_patterns.zig
 test/v2/call_patterns_platform.zig
@@ -283,6 +299,8 @@ test/v2/emit_compact.zig
 test/v2/emit_economy.zig
 test/v2/emit_scalar.zig
 test/v2/emit_source.zig
+test/v2/equality_platform.zig
+test/v2/equality_saturation.zig
 test/v2/evidence_forwarding.zig
 test/v2/evidence_forwarding_platform.zig
 test/v2/expression_reuse.zig
@@ -291,16 +309,26 @@ test/v2/handler_fusion_platform.zig
 test/v2/hyper_fusion.zig
 test/v2/hyper_fusion_platform.zig
 test/v2/hyper_memo.zig
+test/v2/induction.zig
+test/v2/induction_platform.zig
 test/v2/loop_motion.zig
 test/v2/loop_motion_platform.zig
 test/v2/loop_unswitch.zig
 test/v2/loop_unswitch_platform.zig
+test/v2/modular_optimization.zig
 test/v2/oracle_scopes.zig
 test/v2/outlining.zig
 test/v2/outlining_platform.zig
 test/v2/partial_redundancy.zig
 test/v2/pre_platform.zig
+test/v2/profile_probe.zig
 test/v2/reader_fusion.zig
+test/v2/rectangular.zig
+test/v2/rectangular_compile.zig
+test/v2/rectangular_platform.zig
+test/v2/recursive_specialization.zig
+test/v2/recursive_specialization_platform.zig
+test/v2/recursive_timing.zig
 test/v2/sequence_fusion.zig
 test/v2/sequence_fusion_platform.zig
 test/v2/slot_packing.zig
@@ -313,5 +341,6 @@ test/v2/tail_duplication_platform.zig
 test/v2/thunk_forwarding.zig
 test/v2/unfold_fusion.zig
 tools/authoring_stats.zig
+tools/bitvector_extract.zig
 tools/component_example.zig
 tools/component_link.zig

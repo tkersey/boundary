@@ -3,6 +3,20 @@ const std = @import("std");
 const ir = @import("activation.zig");
 const duplicate = @import("tail_duplication.zig");
 const a = std.testing.allocator;
+
+test "a profile spends one tail copy on the hot proved incoming edge" {
+    const profiles = @import("optimization_profile.zig");
+    var counts = [_]u64{0} ** split.blocks.len;
+    counts[2] = 100;
+    const record: profiles.Record = .{ .image_identity = try @import("program_image.zig").identity(a, split), .block_counts = &counts, .total = 100 };
+    var candidate = (try duplicate.construct(a, split, .{ .profile = record, .max_copies = 1 })).?;
+    defer candidate.deinit();
+    try duplicate.validate(a, split, candidate.program, candidate.witnesses, .{});
+    try std.testing.expectEqual(@as(usize, 1), candidate.witnesses.len);
+    try std.testing.expectEqual(@as(usize, 2), candidate.witnesses[0].predecessor);
+    try std.testing.expect(!candidate.witnesses[0].condition);
+    try std.testing.expectEqual(@as(u64, 3), candidate.program.blocks[1].terminator.jump.block);
+}
 pub const split: ir.Program = .{
     .roots = .{ .entry = 0, .result = 0, .failure = 0 },
     .schemas = &.{ .u64, .boolean },

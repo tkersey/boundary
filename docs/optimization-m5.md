@@ -293,3 +293,1024 @@ are in `performance/m5-p19.json`.
 P20 onward, separate M3/P13/P16/P18/P19 economic decisions, final package bindings
 and installed serial reviews remain open. No cost acceptance is inferred from
 technical qualification or draft publication.
+
+## P20 in flight: induction and same-image bounds work
+
+`induction_facts.zig` derives a zero-origin unsigned unit-step loop certificate
+from admitted records. It checks every outside initialization, the unique latch,
+all writes/transfers of the counter and limit, and acyclicity of one iteration.
+A guard `i < limit` makes `i + 1 <= limit <= type_max`; zero or larger strides and
+signed counters do not receive this certificate. Loop-constant scalar limits and
+actual sequence-length definitions are distinct. A vector capacity can bound
+arithmetic but does not replace its runtime length.
+
+The first focused run passes 33 tests including the three new induction cases
+and imported loop/admission witnesses. The analysis is still in flight: affine
+recurrence and redundant explicit-guard consumers remain to be implemented before
+this is a delivered compiler capability. Strength reduction must bound every new
+intermediate, including any final recurrence update, and retain fault payload/order.
+
+World work continues in its existing checkout and branch at
+`/Users/tk/workspace/tk/world`, `codex/canonical-durable-3183` (base `0ba2120`).
+No worktree or branch was created. Its runtime source matches the qualified
+`f8a1597` code; intervening commits change tests only.
+
+The current World sequence-get path checked an index and then rechecked the same
+single-element range in slicing. The in-flight implementation binds a checked
+range to the exact immutable collection view and materializes that range without
+a second cardinality check. No unchecked portable opcode or caller-supplied proof
+is added. Optional counters report one index check and zero repeated range checks.
+Nine focused collection tests pass against World’s exact pinned Boundary data
+revision `511fe388587b36ae37307d277e04c22b0bb6f6d9`, including short actual length
+inside a larger capacity and maximum-u64 zero-width cardinality. The pinned source
+was reconstructed from Git after its package-cache directory was found absent;
+that cache miss was not treated as a validation result.
+
+Both repository changes remain uncommitted. This is not World/package/runtime
+qualification: same-image differential stepping/restoration, malformed inputs,
+allocation/cost measurements, integrated checks and authenticated delivery/rebinding
+remain required. No kernel was rebuilt or published in this step. All P20–P31,
+remaining T/G/L requirements, pending economic decisions and final reviews remain.
+
+### P20 compiler consumers now implemented
+
+The induction analysis now has production consumers in `induction_reduction.zig`
+and `affine_induction.zig`, both wired into shared closed compilation. The former
+removes only the exact repeated index/limit relation established by the successful
+loop header, when neither version has changed and the comparison result has no
+other observer. Portable checked access operations remain checked.
+
+The affine consumer recognizes adjacent unsigned `i*stride+base` operations whose
+intermediate product is private. It introduces an ordinary private scalar recurrence,
+initializes it after incoming assignments, retains the original result-write point,
+and advances it at the latch. Its certificate includes `base + stride*limit_upper`,
+including the otherwise-dangerous final transfer after the last useful iteration.
+Both original multiplication/addition ranges and every introduced addition fit the
+same primitive width. Fault declarations remain on the introduced checked add;
+no unchecked arithmetic is introduced. The validator re-derives induction/ranges
+and checks actual layout, initialization, replacement and transfer records.
+
+Focused results: 34 guard-reduction tests and 23 affine tests pass, including
+allocation failures and independently admitted wrong-edge/seed/increment mutations.
+Four native tests pass through the qualified unchanged World runtime. For actual
+sequence lengths 0/1/7/50, all multiplications disappear through shared compilation
+and outputs match. The 50-iteration case removes 50 multiplications. A u8 case
+with 51 iterations is retained: its last useful result fits, but an extra final
+recurrence update would overflow. Repeated bounds comparisons drop from `2N+1`
+to `N+1` at zero, one, seven and maximum-u8 (255) trip counts. Signed-overflow
+behavior and its failure payload remain unchanged.
+
+These are local implementation witnesses, not P20 closeout. Further alias/length
+and source-free witnesses, same-image World differential qualification, integrated
+checks, cost measurements and authenticated package/runtime delivery remain.
+Boundary and World changes are uncommitted, on their existing task branches.
+
+### P20 source-free and alias witnesses
+
+The subsequent native run passes all five tests, including source-free final
+linking and same-image checkpoint/restore every 17 steps. Short vectors at actual
+lengths 0/1/7/50 retain their results. A capacity-driven loop over a length-three
+vector retains its explicit failure payload 99 rather than reaching the different
+payload-access failure 73. The updated focused suites pass 35 guard tests and
+23 affine tests (including imported witnesses).
+
+World's focused collection suite now passes ten tests against pinned Boundary
+data `511fe388587b36ae37307d277e04c22b0bb6f6d9`. The added alias case first accesses
+index one of a length-two vector, then writes a length-one vector through the
+same cell's alias. Reading the cell again returns absent; the retained immutable
+snapshot still returns present. All three accesses perform their own exact-view
+index check and no redundant slice check. This is a storage-level alias witness,
+not a claim that compiler facts may cross mutable-cell reads.
+
+Integrated Boundary and World native checks, runtime differential qualification,
+P20 costs and authenticated runtime delivery remain in progress. These focused
+results do not establish P20 completion or a latency improvement.
+
+World `check-storage check-native` subsequently completed successfully against
+the current Boundary working tree: 52 storage tests and 87 native/source/session
+tests passed in ReleaseSafe. A separate native differential run compared 1,120
+identical PKI3 initial/checkpoint requests from the existing P16/P19 corpora.
+All PKO3 bytes matched between qualified runtime source `f8a1597` and the current
+World P20 tree. Both binaries used the same pinned Boundary data `511fe38` and
+the same Agent native host source. This establishes the observed native relation
+on those requests; browser/WASM and economic evidence remain separate obligations.
+
+Boundary's ReleaseSafe `zig build check --summary all` also completed with exit
+zero on this working tree: 319/319 steps and 789/789 tests passed.
+
+World's full ReleaseSafe `zig build check` with the current Boundary source
+override then completed: 39/39 steps, 52/52 storage tests and the nested 87/87
+native tests passed. It includes real Chromium 153.0.8010.12 and Firefox 155.0
+Worker transfer, 235 native/Node boundaries (23 transfers), and 158
+Node/Wasmtime/native boundaries. The locally built candidate kernel SHA-256 is
+`eb00cf79b8011a1e42c7ed9e27a72f58a45d5cef7eb212f3d4a8141a117d3478`.
+This is local qualification, not an authenticated published artifact or an Agent
+runtime rebind. The existing authenticated old kernel remains separately named.
+
+P20's first 36-arm platform run passed on the authenticated old kernel, including
+source-free linked records and sampled native/Wasmtime checkpoint correspondence.
+The affine length-50 quantum-one cycle peak grew from 8,840 to 9,902 bytes; the
+guard and access fixtures improved. Before timing, the selected refinement is to
+reuse the removed multiply's private result slot for the recurrence. The existing
+whole-function use census must establish no other reads, writes or edge transfers;
+the original addition result stays at its old write point. This preserves the
+arithmetic and fault proof while removing the assumption that recurrence storage
+must enlarge the layout. The discriminator is unchanged-layout validation plus
+admitted observer/transfer counterexamples and repeated resource measurement.
+
+The recurrence refinement now preserves the original function layout and reuses
+the private multiplication slot. Its independent validator requires exact function
+metadata/layout equality. All 24 focused affine tests pass, including the new
+admitted product-observer and edge-transfer negatives; all five native P20 tests
+also pass with source-free linking and same-image restores. Earlier integrated
+Boundary results above precede this refinement and are not relabelled as current.
+World runtime code is unchanged by this compiler refinement.
+
+The refined platform matrix passes all 48 cases (three families, four lengths,
+P19 semantic control / structural / semantic / source-free linked arms). All 18
+Agent images equal the prior P19 corpus. At affine length 50, slot reuse reduces
+the candidate quantum-one peak from 9,902 to 9,889 bytes; P19 is 8,841 and structural
+is 8,840. The residual growth remains above the §9.5 threshold and needs its cost
+disposition together with timings. At the same length, guard/access candidate
+peaks are 8,775/10,082 versus P19 9,213/10,677. Checkpoint maxima remain 148/148/155
+bytes for affine/guard/access. These are measured working payloads, not RSS or
+latency estimates.
+
+The post-refinement Boundary aggregate completed with exit zero: 319/319 steps,
+790/790 tests. Compiler timing now compares the retained candidate against both
+frozen P19 semantic records and structural records on the authenticated unchanged
+runtime, using the existing alternating-window protocol. Those timing runs are
+not yet terminal. Partial platform/resource evidence, including the initial
+candidate rather than overwriting it, is retained in `performance/m5-p20.json`.
+
+P20 measurement is now terminal: 108 compiler comparisons include 18 confirmed
+affine-family increases; guard/access have none. The separate same-image World
+comparison completes 54 cells with no confirmed timing or memory regression.
+The bounded affine costs await the explicit §9.5 decision documented in
+`optimization-m5-p20-cost-decision.md`. No acceptance has been inferred.
+
+## P23 initial production policy slice
+
+P21 tail sharing/duplication/outlining and P22's initial logical packing already
+exist from M3; they are not being restarted. P23 now introduces an explicitly
+supplied profile of original image identity, version/toolchain, dense original
+block counts and a checked total. The semantic owner remains P02 plus P09's
+independent checker. Counts affect candidate order only, with deterministic ID
+tie-breaking. They never prove reachability, constructor identity or absence of
+an alternative. Relocated/source IDs cannot be substituted for original image IDs.
+
+The initial consumer is `call_patterns`: within a fixed variant/block budget it
+visits hot original call sites first and leaves nonselected calls generic. The
+profile-free limit/rollback behavior is preserved. Whole-program work exhaustion
+still rolls back rather than exposing an unfinished proof. The initial focused
+run passes 51 tests, including preferred hot constructor selection, retained
+zero-count alternatives, exact repeatability, stale identities, wrong toolchains,
+wrong count dimensions and overflowing count totals.
+
+Canonical BPF1 encoding/decoding and an explicit local collector are now added;
+the collector snapshots counts and checks arithmetic before mutation. The 52-test
+focused suite passes, including every truncated prefix of a valid profile and
+atomic counter-overflow rejection. Supplied stale profiles reject even under a
+zero search budget; the final focused rerun covers this added ordering case.
+Shared compiler/final-link integration,
+P19/P21 policy consumers, executed held-out/collection-overhead qualification and
+P23 completion remain open. This is consumed production code, not P23 closeout.
+
+Seven native call-pattern tests pass, including actual local World execution
+collecting only the complement-constructor path, followed by specialization under
+a one-variant budget and execution of all four Boolean branch combinations.
+The two unobserved identity-constructor paths remain reachable and produce their
+expected result. Existing source-free callable/capture/variant/fault witnesses in
+that native file also pass. This proves the tested held-out correctness, not
+profile collection overhead or a profile-guided speedup.
+
+The environment now permits writes only in Boundary and temporary directories;
+World/Agent writes and Git publication are unavailable under the current sandbox.
+Existing work is preserved. Boundary implementation continues without changing
+permissions, global configuration, branches or worktrees.
+
+### P23 shared compilation and further policy consumers
+
+The shared closed compiler now validates supplied profiles against the original
+admitted records, before semantic relocation can change block IDs. Its explicit
+profile policy selects call-pattern specialization, loop unswitching or tail
+duplication. That target runs once on original records within its variant/copy/
+byte bounds, then the normal shrinking/selection pipeline continues without
+replenishing that target's budget or reapplying old IDs. Original/fresh admission,
+independent transformation checkers, work-limit rollback and final P01 remain.
+Structural compilation validates but leaves the profile unused, reported in
+statistics. The no-profile route remains unchanged.
+
+The call-policy shared suite passes 107 tests; seven native tests pass with both
+profiled direct compilation and source-free BMO linking, including all four
+held-out branch combinations after training only one path. Tail duplication now
+selects the hotter independently proved incoming edge within one copy (45 focused
+tests pass). Unswitching selects the hotter header between two admissible loops
+for its one-loop attempt (27 focused tests pass). A combined shared-consumer
+suite subsequently completed: 125/125 tests passed, including all three policy
+consumers, exact repeatability, stale-profile rejection, unchanged structural
+compilation and P01 work-limit fallback. Profile collection overhead, held-out performance, broader
+qualification and P23 delivery remain open; these are not speedup claims.
+
+### P23 measured collection and held-out results
+
+The opt-in native collector adds a median 6.17 microseconds (ratio 1.642) to this
+12-step short invocation, including identity validation, counter collection and
+snapshot creation/destruction. Working peak rises 12,455 to 12,581 bytes; the
+returned snapshot retains 88 counter bytes. Both modes execute exactly 12 logical
+steps. Five alternating windows retain nine measurements after three warmups;
+this is measured collection overhead, not a runtime optimization claim.
+
+The platform measurement completes 36 native/WASM timing cells plus one exact
+image-equality comparison. The isolated one-variant pass emits 249 bytes against
+its 210-byte no-profile rollback control and has 11 confirmed timing increases,
+with native working-memory increases up to 4,250 bytes. These intermediate
+results are retained as adverse evidence, not reported as final compiler gains.
+The complete shared profiled compiler selects a 193-byte image exactly equal to
+ordinary shared compilation. Training and three held-out paths agree; the selected
+shared image has no confirmed slowdown versus the structural control in this
+matrix. Thus the fixture proves bounded profile-directed selection and preserved
+held-out behavior, but no final speedup over ordinary compilation.
+
+`performance/m5-p23.json` retains exact image/profile/binary/source hashes and raw
+samples. A further focused negative confirms that a million-count polymorphic
+call remains generic without a constructor proof (53 focused tests pass). The
+final aggregate and fresh 18-image application comparison remain in progress.
+
+Those checks are now terminal: the ReleaseSafe aggregate passes 319/319 steps and
+797/797 tests; the added polymorphic-profile focused run passes 53/53 tests. All
+18 freshly emitted Agent images are byte-identical to the P20 corpus. Outputs
+and caches stayed in permitted Boundary/temporary paths; no Agent source or
+runtime binding was changed. P20 cost acceptance, authenticated runtime delivery,
+publication, remaining P22 physical/retention work and P24–P31 plus the remaining
+T/G/L requirements and final serial reviews remain open. P23's measured fixture
+supports no speedup claim over the ordinary compiler.
+
+## P24 rectangular interchange — first executable slice
+
+`rectangular_loops.zig` recognizes an admitted seven-block rectangular nest with
+constant u64 dimensions, zero-origin unit-step counters, immutable scalar inputs,
+a total bitwise/move body and a final XOR accumulator update. Block IDs and slot
+IDs are discovered from actual control edges and uses. Triangular bounds,
+accumulator-dependent body calculations, checked body arithmetic, effects,
+custody changes and other unsupported shapes remain unchanged.
+
+The selected ordinary-record construction exchanges only counter initialization,
+guards and transfers. Body index meanings and the accumulator expression remain
+unchanged. For each original point `(i,j)` in `[0,R) × [0,C)`, the new schedule
+visits the same point exactly once in the opposite nesting order. The body's
+def-use restriction makes its value depend only on that point and immutable
+inputs. Total fixed-width XOR is associative and commutative, so this permutation
+preserves the result without preserving incidental iteration order. Both checked
+counter updates satisfy `index + 1 <= bound <= max(u64)`, including the final
+update; zero-sized domains perform no body computation.
+
+Interchange is selected only when `R > C`, reducing outer-loop bookkeeping and
+making the orientation idempotent. An independent validator derives the original
+domain again and checks every actual edit and unchanged record; it does not call
+the emitter. Original/fresh admission, allocation cleanup, bounded work rollback
+and mandatory final P01 remain. The pass is integrated before the earlier loop
+passes in semantic closed compilation.
+
+For this fragment the exact logical count is
+`9 + 8R + R*C*(body_instruction_count + 3)`. Overflow makes the estimate unknown.
+The shared selector can use that count without treating it as runtime timing.
+The focused suite passes 22 tests including admitted dependence/triangular/fault
+negatives, a forged reduction and allocation/work failures. Native execution
+exhausts all 49 dimension pairs from 0 through 6 through direct/shared/source-free
+paths, with same-image checkpoint restores every seven steps. The shared 8×2
+witness is selected and executes 121 steps versus the original 169, in 151 image
+bytes. The existing shared-stage regression suite passes all 126 tests.
+
+This is not P24 closeout. Fixed-size tiling with partial tiles, remaining negative
+witnesses, runtime/locality and cumulative-cost measurements, broader platform
+qualification and delivery remain required. Existing P20/P23 evidence is not
+relabelled as validation of this new compiler stage.
+
+### P24 checked four-by-four tiling
+
+`rectangular_tiling.zig` now constructs ordinary 13-block records for four-by-four
+tiles over the same admitted reduction domain. Six fresh scalar slots hold tile
+origins, endpoints, a scratch value and the fixed width. Every endpoint is formed
+as `begin + min(bound - begin, 4)` after proving `begin < bound`. This avoids an
+overflowing speculative `begin + 4`. Row/column increments remain checked and
+bounded by those endpoints; each tile advances to its actual endpoint.
+
+For every original point `(i,j)`, the unique tile origins are
+`4*floor(i/4)` and `4*floor(j/4)`. The clipped endpoints include that point and
+exclude every point outside the rectangle, including both partial final tiles.
+The original total body and XOR update are retained exactly. The independent
+validator checks layout/constant extension, each guard, range computation,
+transfer and unchanged body; it never calls the emitter.
+
+The focused suite passes 27 tests, including admitted wrong-endpoint/advance
+mutations, maximum-u64 dimensions, observable per-iteration yield rejection,
+nonprogressing-counter rejection and allocation failure cleanup. Native tests
+exhaust all 100 rectangles with dimensions 0 through 9. They record actual `(i,j)`
+visits to reject duplicates, omissions or out-of-range points, rather than relying
+on a final XOR that could hide duplicate pairs. Same-image restores continue every
+seven steps; the structural compiler retains the original 169-step contract.
+The shared-stage regression suite passes all 126 tests.
+
+The tiling stage is active in semantic compilation after interchange. Its local
+cost guard preserves the checked incumbent when the exact logical count cannot
+justify the candidate or the byte bound is exceeded. On the nonempty scalar
+5×7 witness, the constructed tiled schedule takes 373 logical steps versus 259
+in the original schedule, so it is not selected as an improvement. This is a
+measured/count-checked construction witness, not a cache-locality or timing gain.
+A separate empty-column selection witness also passes: tiling retains the 20×0
+candidate and reduces actual logical steps from 169 to 71. All four native tests
+complete successfully. Runtime timings, broader platform/cumulative qualification
+and delivery remain open.
+
+### P24 platform and measured qualification
+
+Qualification now passes 30 emitted-record cases and 181 sampled native/Wasmtime
+comparisons against Node, with every Node quantum-one checkpoint restored. The
+restricted session initially blocked Agent's repository-local uv cache; the same
+locked embedding then passed with a temporary cache and its existing environment
+left unchanged. This infrastructure failure was not counted as a test result.
+
+The P23 compiler control was reconstructed under `/tmp` and its production-module
+hashes matched the recorded P23 report exactly. P24's ReleaseSafe aggregate passes
+319/319 steps and 807/807 tests. All 18 freshly compiled Agent images remain
+byte-identical to P23. World was neither rebuilt nor rebound for these compiler
+measurements; the authenticated old kernel is explicitly identified in the report.
+
+The 8×2 fresh-execution median ratios versus P23 are 0.815 native and 0.865 WASM;
+checkpoint-cycle ratios are 0.724 and 0.736. Selected schedules have no measured
+memory threshold increase and checkpoints do not grow. Construction medians rise
+37–41%, with unchanged measured compiler peak; this is reported under the corrected
+Boundary construction policy. The deliberately rejected 5×7 tiled candidate
+regresses all six timing phases and is kept separate from selected outputs.
+
+Two selected-output comparisons require §9.5 acceptance or correction: 20×0 WASM
+admission +3.88 µs (16.5%), and an inherited 1×1 semantic/structural fresh comparison
++2.48 µs (5.7%) whose semantic image is unchanged from P23. The decision is pending
+in `optimization-m5-p24-cost-decision.md`; no acceptance is inferred. Exact inputs,
+raw samples, limits and the other unconfirmed admission increases remain in
+`performance/m5-p24.json`. P24 delivery and the full remaining programme stay open.
+
+### P24 explicit alias and first-failure counterexamples
+
+The negative witnesses now include an admitted rectangular loop inside a region,
+with two aliases of one mutable cell and an order-dependent read/update recurrence.
+Both P24 recognizers retain it, and original/shared native execution matches an
+independent ordered recurrence. The focused suite passes 23 tests.
+
+A second admitted near-example has `i-j` and `j-i` with different failure payloads.
+Original/shared execution fails with payload 11; independently forcing the pure
+control permutation instead fails with payload 22. Both production recognizers
+refuse the checked-arithmetic body. All six native tests pass, including the prior
+domain, exact-point, source-free and checkpoint witnesses. This pass changes tests
+only; the recorded 807-test aggregate and performance runs are preserved at their
+actual input versions, rather than relabelled as reruns of the new tests.
+
+## P27 typed equality search — initial XOR slice
+
+While World writes remain unavailable, the independent Boundary P27 work proceeds.
+`equality_saturation.zig` now searches a bounded typed graph for a single-block
+total unsigned XOR fragment. Exact schemas and input/definition versions stay on
+nodes. Every union records congruence, commutativity, associativity, cancellation
+or zero identity. The checker rebuilds the original expression versions, checks
+the source epoch, independently replays each registered law from fresh equivalence
+classes, and checks the actual extracted records against the proven root class.
+
+Extraction uses a finite cost fixed point and iterative dependency materialization,
+with one emitted computation per needed class. Positive operation costs prevent
+chosen cyclic dependencies; incomplete extraction is rejected. Final admission,
+mandatory P01 and exact materialized image size govern selection, rather than
+assuming additive tree cost describes sharing. Checked arithmetic, effects and
+noninteger layouts are outside this first fragment.
+
+The `(a XOR b) XOR a` witness saturates in five rounds with 29 nodes, four classes
+and 25 unions, then emits a direct return of `b`. Focused tests pass 26 cases,
+including cyclic XOR-zero classes, typed-width nonmerge, stale epochs, an admitted
+wrong emitted output, original slot redefinitions, `0 * failing_expression`,
+bounded exhaustion and every allocation failure. Native checks pass 256
+original/direct/shared/source-free executions over u8/u16/u32/u64 with same-image
+checkpoint restoration, plus the original and compiled authored-failure case.
+
+The shared compiler invokes this search after expression reuse. Under §7.4, a
+local search limit retains the already checked stage input and reports
+`search_exhaustions`; it never publishes the incomplete graph. Global construction
+limits and P01's original-input rollback remain unchanged. The shared regression
+suite passes 127 tests; a strengthened focused test checks that earlier dead-work
+removal survives a later equality-search limit.
+
+This is not P27 completion. Aggregate/construction/projection rule coverage,
+additional sharing-cost/borrow witnesses, actual search/proof/construction and
+runtime measurements, broader qualification and delivery remain open. No dynamic
+state equivalence is inferred from one expression graph. All remaining programme
+requirements and pending cost decisions remain active.
+
+The strengthened incumbent witness confirms that earlier dead-computation removal
+survives exhaustion: 128 original instructions become 127 while the equality
+search reports its limit. Original/candidate/proof records are charged before
+search or replay allocations; graph node and round limits remain independent.
+Search work units are exposed separately from node/class/union counts. The
+post-accounting focused suite passes 26 tests; the final interaction and incumbent
+checks also pass after the diagnostic counter addition.
+
+### P27 typed products and sharing-preserving extraction
+
+The graph now carries ordered product children and typed field projections. Its
+projection rule requires an actual equivalent product constructor, a valid field
+index and the exact result schema; proof replay checks those conditions again.
+Eligible aggregate types are bounded-depth immutable products of unsigned words.
+Internal/region/cell types remain excluded, including when nested in products.
+Variadic product comparisons are charged explicitly to the deterministic budget.
+
+The interacting product/projection/XOR witness reduces to its second argument.
+A separate witness shares an inner product across two result fields: additive
+tree cost is three operations, but actual extraction emits two product operations
+and reuses the inner result. An admitted field-order mutation fails the checker.
+Regional alias inputs and injected internal-type proof nodes are rejected, and
+product extraction/replay pass allocation-failure testing.
+
+The updated focused suite passes 35 tests and the shared regression suite passes
+127. Three native tests cover 306 executions across original, direct, shared and
+source-free images, including all unsigned widths, nested products, authored
+arithmetic failure and same-image checkpoint restoration. These are correctness
+and actual-record witnesses; P27 search/proof/construction costs, runtime/platform
+measurements, cumulative consumer qualification and delivery remain open.
+
+### P27 retained qualification and measurements
+
+Initial measurements exposed a preflight omission: projection forwarding removed
+the field opcode, so the shared driver skipped saturation on remaining products
+and moves. The preflight now admits those supported forms. The sharing witness's
+shared/source-free images shrink from 74 to 70 bytes and eliminate the remaining
+copy; the XOR/projection images are byte-identical to their initial P27 versions.
+Their exact runtime evidence is reused, while sharing is freshly qualified and
+measured. Initial results are retained separately, not relabelled.
+
+The final ReleaseSafe aggregate passes 319 steps and 822 tests; all 18 Agent
+images remain byte-identical to P24. The retained platform matrix contains 45
+cases and 162 native/Node/Wasmtime request comparisons, with quantum-one restores.
+All 126 retained timing comparisons complete with no confirmed slowdown and no
+selected-output memory threshold increase. Versus the recorded P24 control,
+representative fresh median ratios are 0.789 native / 0.899 WASM for XOR, 0.812 /
+0.836 for projection, and 0.939 / 1.000 for sharing. These are fixture-specific
+measurements; no application-wide speedup is claimed.
+
+Selected image sizes are 51/56/70 bytes versus P24's 59/67/74. XOR and projection
+complete in one logical step, so their quantum-one cycles need no checkpoint;
+sharing's maximum checkpoint remains 109 bytes. Search and proof replay are
+measured separately. The source-bound raw samples, proof statistics, exact image
+and executable hashes, control reconstruction checks and evidence-reuse scope
+are in `performance/m5-p27.json`. No new §9.5 acceptance is needed for this retained
+matrix. Earlier pending cost decisions are unaffected. Authenticated package
+delivery, publication, final serial reviews and the remaining programme stay open.
+
+## P28 offline extraction/search — solver qualification blocked
+
+`tools/bitvector_extract.zig` reads and admits an actual BPI3 image before exporting
+a bounded, versioned SSA bitvector fragment. It retains exact schemas, widths,
+input ordinals, definition versions and both image identities. Its first fragment
+contains only unsigned inputs/constants and total bitwise operators; checked
+arithmetic, effects and other unsupported evaluation requirements reject.
+
+`tools/bitvector_search.py` enumerates bounded candidate DAGs, writes replayable
+QF_BV queries and requires the pinned Z3 4.15.3 interface. Source and target
+encoders are separate. An independent concrete interpreter checks reduced-width
+cases and revalidates/minimizes actual-width counterexamples. Unknown, timeout,
+incomplete encoding, malformed/inconsistent solver output, changed executables
+and unvalidated models never become proof. Solver answers grant no production
+rewrite authority; rule-schema promotion remains a separate required step.
+
+No solver is installed. A task-local `z3-solver==4.15.3` package probe failed DNS
+against the dependency host under the current network restriction. This is a
+real P28 blocker, not a reason to substitute finite enumeration for SMT proof.
+Six parser/model guard tests pass. Actual BPI3 integration emits 16 queries and
+returns `not-proved`; the independent interpreter refutes the false return-first-
+argument candidate at `(0,1)`. The valid cancellation candidate has no small
+counterexample, explicitly **not** a width-parametric or SMT proof. An admitted
+`0 * failing_expression` image rejects at extraction and emits no candidates.
+
+`performance/m5-p28.json` preserves the exact extracted input, queries, hashes,
+counterexample and blocked outcomes. Real solver execution, automatic valid-rule
+rediscovery, production promotion and solver/search cost qualification remain
+unfulfilled. No solver dependency was added to the compiler or runtime.
+
+## P29 finite recursive specialization — initial delivery slice
+
+P29 extends P09's existing key, worker builder and independent checker. A selected
+configuration parameter must remain unwritten and pass unchanged at every direct
+self-call. The worker replaces known constructor applications and known control,
+then folds that self-call into itself with the same ordered dynamic arguments and
+capture fields. Nonrecursive P09 eligibility remains bounded by its earlier domain;
+the new call/effect/control forms are admitted for the recursive slice only.
+
+The binding-time abstraction keeps only one invariant selector in a key. Constructor
+IDs/tags/Booleans come from finite original catalogs; numeric keys require an existing
+literal and unchanged recursive transfer. Other parameters remain dynamic. When an
+entry argument is proved static but changes on recurrence, an independently checked
+generalization record identifies that parameter. No sequence of growing numeric
+constants or stacks is unfolded. Discovery visits original sites, memoizes exact
+epoch/function/parameter/schema/value keys, and clones finitely many original blocks.
+Budgets remain a defense; the finite configuration argument does not depend on them.
+
+The simulation relation fixes the original selector (or its known payload/captures)
+and equates every remaining live slot with the worker slot. Unchanged instructions
+preserve that relation and their authored failure order. Known applications have
+the original ordered capture/argument contract. At a recursive call, the selector
+is invariant and the same dynamic values enter the same residual worker, establishing
+the inductive/coinductive step. Unknown calls, performs and yields are copied in
+place with exact nominal identities, operands and corresponding continuation edges.
+No host emitter, callback or environmental operation is executed during compilation.
+
+The countdown witness creates one worker, folds one recursive call and generalizes
+the known growing counter into a dynamic parameter. Equivalent entry configurations
+with distinct counter values reuse that worker. Admitted wrong recursive arguments,
+false generalization metadata and changed effect payloads fail the checker. The
+focused suite passes 27 tests, including allocation failure cleanup. The 53-test
+P09 suite passes after its former blanket recursion-exclusion test was strengthened
+to require finite folding without runtime unfolding, as P29 now explicitly requires.
+
+Native direct/shared/source-free tests preserve countdown demand, opaque request
+payloads/replies and same-image restores. Shared images reduce from 192 to 166 bytes
+for the pure case and 225 to 198 for the effectful case. An undemanded divergent
+callback is not evaluated by specialization; when demanded, all tested arms remain
+progressed at 128 steps. Its source body is an unconditional self-loop. The final
+failure-order test also passes: original, checked and shared execution fail with
+payload 11, while an independently admitted reordered worker fails with 22 and is
+rejected by the worker certificate. All three native tests complete successfully.
+P29 performance, cumulative consumer/platform qualification and delivery remain open;
+image reduction alone is not a speed claim.
+
+### P29 qualification and explicit consumer blocker
+
+The ReleaseSafe aggregate passes 319 steps and 828 tests. The standalone recursive
+matrix passes 32 cases and 424 native/Node/Wasmtime comparisons, including opaque
+request/reply traces and quantum-one restores. All 72 timing comparisons complete
+without a confirmed slowdown or measured memory threshold increase. At length 32,
+pure fresh median ratios versus P27 are 0.761 native / 0.787 WASM; effectful ratios
+are 0.843 / 0.950. These measurements use the unchanged authenticated World kernel.
+
+Sixteen Agent images are byte-identical. Two change: inquiry ReAct 41,021→40,995
+bytes and review ReAct 300→248 bytes. Fresh admission measurements for both changed
+images have no confirmed slowdown or memory increase. The existing review ReAct
+prescribed-response runtime test passes against its exact new image.
+
+Fresh inquiry qualification is blocked. Its required experiment sandbox canary
+returns `sandbox_apply: Operation not permitted` under the current session policy.
+The gate was not disabled, replaced by an unqualified runner, or counted as passed.
+The inquiry image's smaller size and successful admission do not establish execution
+or checkpoint performance. Its full execution/cumulative economics remain open.
+Consumer fixture manifests also attempted an unavailable pinned dependency fetch;
+test emitters were instead compiled from the same existing local modules into `/tmp`,
+and their BPI3 bytes matched the corpus exactly. No manifest or World kernel changed.
+
+`performance/m5-p29.json` preserves the matrices, exact source/image identities,
+terminal aggregate, passed review test and blocked inquiry evidence. P29 consumer
+completion, authenticated bindings, publication, final reviews, earlier economic
+decisions and the remaining programme requirements are not closed.
+
+## P30 immutable schema-partition indexing
+
+Measurement identified quadratic pairwise shape comparison inside the shared
+linker/P01 schema partition: 1,024 mostly-unique schemas required 1,049,600 exact
+comparisons over two rounds. The replacement keeps the original contiguous scan
+while there are at most 16 distinct shapes, then uses canonical record keys and
+hash indexing. Exact key equality resolves collisions; insertion order preserves
+the original first representative and dense class IDs. Nominal maps stay identities.
+
+Each index belongs to one refinement round and is destroyed with that round's
+scratch. It is rebuilt after class labels change and never survives into another
+compilation. Mutable source-builder schema/literal catalogs remain authoritative;
+their public edits and reservation/definition paths are not cached by this change.
+Tests compare against an uninstalled pairwise reference, force all hashes to
+collide, change completed recursive definitions between invocations, distinguish
+nominal region leaves, preserve invalid-reference diagnostics and exercise every
+allocation failure. All 12 focused tests pass. Existing recursive authoring
+reservation/definition tests are included in the running aggregate.
+
+An initial representative-list scan regressed duplicate-heavy input and was
+replaced with the original contiguous path. The retained three-window paired
+measurement gives unique-input ratios 0.076/0.039/0.020 at 256/512/1,024 schemas,
+with 284/304/334 comparisons. Duplicate-heavy ratios are 0.927/0.926/0.912.
+Every class-vector digest matches the reference; measured retained arena capacity
+is unchanged. This is a partition construction result, not a World speed claim.
+Initial and retained measurements are separate in `performance/m5-p30.json`.
+Integrated qualification, application-byte equality and delivery remain pending.
+
+Integrated qualification is now terminal: 319/319 ReleaseSafe steps and 836/836
+tests pass, including recursive authoring declaration/definition checks. All 18
+Agent images are byte-identical to P29, so no new runtime-image cost is introduced.
+The prior inquiry sandbox blocker remains unfulfilled; this construction result
+does not waive it. Publication, final serial reviews and the full remaining
+programme remain open.
+
+## P31 standalone semantic final linking
+
+The library already performs original component admission, nominal/interface
+resolution and independent borrow-summary checking before shared closed compilation.
+The standalone `boundary-link` command had not exposed that semantic contract.
+Its manifest now accepts `contract: "structural"` (default) or `"semantic"`;
+both invoke mandatory P01. BMO1 is unchanged. The Agent wrapper already forwards
+its selected contract into `linkWithCompilation`; no Agent source edit was needed.
+
+A new data-only emitter produces provider/client objects in separate processes.
+The provider summary is inferred from actual checked bodies using the existing
+borrow solver; the client declares the existing BMO1 interface obligations.
+Transported linking runs in a directory initially containing only the executable
+and two objects. Constructor binding exposes a singleton application and its two
+capture operands. Structural output is 110 bytes with one application/construction;
+semantic output is 77 bytes with neither application nor captured environment.
+Nine direct/linked runtime executions agree on native and Node, restoring every
+quantum-one checkpoint. An ordinary factory-return case remains conservatively
+unchanged; it is not misreported as a gain.
+
+Both contracts reject a canonical object whose summary is bound to the wrong
+function, without emitting an image. Retired `off`/`safe` values reject as invalid
+contracts. Existing independently checked false borrow guarantees, nominal sharing
+and original-unreachable-contract tests remain in the aggregate. The new result is
+recorded in `performance/m5-p31.json`.
+
+The independent-process forwarding-law witness now passes too. Separately emitted
+provider/client objects expose a wrapper whose linked body applies its captured
+thunk. Inspection finds one forwarding-law witness in the structural image;
+semantic linking reduces 127 to 96 bytes, two constructions to one and two capture
+operands to one. The constructor fixture independently exposes one dead-capture
+witness. All 15 direct/linked native and Node executions agree, including every
+quantum-one restore. The harness completed with exit status zero. These are
+transformation and correctness observations, not latency measurements.
+
+The report preserves the earlier nine-execution result and identifies the later
+fixture sources. The 319-step/836-test aggregate covers the production CLI change;
+it predates these test-only additions and is not presented as a fresh aggregate.
+Full programme/consumer reconciliation, runtime qualification, pending cost
+decisions, publication and final reviews remain open. This is not P31 or goal
+completion.
+
+### P31 independent-object private sharing
+
+`sharing-provider` and `sharing-client` now emit independent BMO1 objects, each
+containing one private XOR helper. Decoding each transported object confirms its
+helper is present. Structural final linking produces a 117-byte image with three
+functions and exactly one XOR instruction: the public wrapper and client entry
+remain distinct while their private helper bodies share. Three inputs, including
+full-width words, return the independently expected `(x XOR y) XOR y = x` result.
+Every quantum-one checkpoint agrees between native and the authenticated Node
+kernel. The full standalone harness passes 18 executions with exit status zero,
+including the earlier constructor/law witnesses and invalid-contract rejections.
+
+`performance/m5-p31.json` retains input-object identities and counts, output
+identity/counts and prior qualification evidence. This addition changes only the
+fixture and harness, not production compilation. It closes the independent-process
+private-sharing witness; it does not establish a new runtime speed improvement.
+
+### P31 standalone policy transport
+
+The existing manifest now forwards the shared objective, semantic work/round
+budgets, image-growth/hard-size limits and optional checked profile. Defaults
+remain those of the shared compiler. No record format or runtime changes.
+Eleven standalone policy checks pass: all three objectives honor the image bound;
+zero semantic work/round budgets retain the checked structural baseline; zero
+semantic work still shares the two private helpers through P01; impossible hard
+limits and stale profiles reject under both contracts without emitting an image.
+A valid original-provider profile with all-zero counts is accepted and emits the
+same image as the unprofiled route, preserving reachable unobserved behavior.
+The existing 18 runtime executions also pass against the changed CLI.
+
+Exact source/executable identities and results are retained under
+`policyQualification` in `performance/m5-p31.json`. The fresh Boundary ReleaseSafe
+aggregate passes 319/319 steps and 836/836 tests with terminal exit zero. This policy transport
+does not resolve the separate World/Agent, solver, economic or publication blockers.
+
+## Remaining execution frontier after P31 qualification
+
+The source-free audit found existing closed-link execution witnesses in
+`test/v2/induction.zig`, `loop_unswitch.zig`, `rectangular.zig`,
+`recursive_specialization.zig`, `equality_saturation.zig` and `affine_capture.zig`.
+These are bounded package witnesses, not proof that the full programme is complete.
+The next major implementation obligations retain their original owners:
+
+| Remaining obligation | Current evidence and blocking condition |
+| --- | --- |
+| P22 physical packing/retained activation proof | Boundary's logical temporary packing is implemented. World `activation_slots.zig` owns persistent physical pages/views; its retained-version obligations are not discharged by the compiler rewrite. World is outside this session's writable roots. |
+| P25 superinstructions | World `prepared.zig` owns admitted program leases and derived contracts; `stable_session.zig` owns instruction positions and stepping. The required accelerated sequence/prefix-state implementation and qualification remain outstanding. World writes are unavailable. |
+| P26 reuse/retention | Existing `store.zig::aggregateSlice` shares descriptor storage and bounds prefix retention; that existing mechanism is not completion of the specified consumed-node reuse, alias fallback, short-lived allocation and failure witnesses. World writes are unavailable. |
+| P28 real solver qualification and rule integration | `performance/m5-p28.json` remains `solver-blocked-not-proved`: pinned Z3 is absent and its package fetch failed DNS. Offline extraction/search guards are not SMT proof. |
+| Changed inquiry execution and cumulative costs | The required inquiry sandbox canary returned `unavailable`; the gate remains intact. The smaller P29 image and successful admission do not qualify execution. |
+| Economic decisions | M3 consumer residuals and P13/P16/P18/P19/P20/P24 retain their recorded pending dispositions. Accepted P15 costs do not accept these separate reports. |
+| Binding/publication/final reviews | Boundary HEAD remains `7c7b5867c3bac6090cabe7980c67ad12c273ac12`; later work is uncommitted. Agent HEAD is `9a358cb42909095de84842ce4ea9364fc3de970d`. Git metadata and World/Agent are read-only in this session, and network access is restricted. No current package rebinding, publication or final review completion is claimed. |
+
+Agent's existing `docs/optimization-m2-adoption.md` contains the owned-consumer
+policy audit. Current `src/compiled_tool.zig` forwards the selected contract,
+objective, growth/hard-size limits and work/round budgets to final linking; the
+earlier M2 snapshot describing missing forwarding is historical. Its audit does
+not waive current consumer execution or authenticated binding qualification.
+
+All P01–P31, T01–T42, G01–G45 and L01–L20 requirements remain in force. The current
+permission boundary blocks the next World implementation and delivery steps;
+it does not authorize moving runtime responsibilities into Boundary, weakening
+qualification, resetting the existing drafts or introducing another worktree.
+
+### Access restored; P25 resumed
+
+The user enabled full access on September 29. Exclusive temporary-file write/remove
+probes succeeded in all three existing checkouts and their actual Git directories;
+GitHub returned HTTP 200. All three named PRs remain open drafts, assigned to
+`tkersey`, on the existing branch and previously recorded published heads. The
+filesystem/network restriction above is historical, not the current blocker.
+
+P25 implementation has begun in World's existing `stable_session.zig`. The selected
+boundary is the current admitted Session: adjacent total unsigned bitwise scalar
+operations can share a dispatch while retaining each existing instruction/frame
+write. No separate evaluator, serialized plan or new opcode is introduced. Batches
+are bounded by eight operations, remaining quantum and the next collection boundary.
+`step()` remains the one-operation discriminator; same-image checkpoint bytes at
+every prefix are the deciding witness. Physical failure retains the existing
+poison/Resident rollback owners. Runtime performance and broader qualification
+remain required before this candidate is accepted.
+
+The focused ReleaseSafe P25 test passes all 128 input/quantum/counter combinations,
+comparing canonical checkpoint bytes with repeated one-step execution and restoring
+each result. It covers quantum 0–7, a four-operation chain, collection boundaries
+254/255 and counter wraparound. Two tests pass including the imported clone test.
+The first broader native command used the historical data-only Boundary fixture;
+it failed to compile because that fixture lacks `src/root.zig`. The corrected
+command uses the full current Boundary checkout; no execution failure is inferred
+from the fixture-path error.
+
+The corrected World `check-storage check-native` run is terminal with exit zero:
+53 storage tests and 87 native tests pass in ReleaseSafe. This is local native
+qualification of the P25 candidate; WASM, failure-injection, representative timing
+and final package/browser qualification remain open.
+
+The restored network also permits pinned Z3 4.15.3. The real offline P28 search
+on the unchanged XOR image completes all 16 candidates: two equivalent targets
+are proved at the source width and fourteen candidates are refuted with independently
+validated counterexamples. `performance/m5-p28.json::solverAccessQualification`
+retains the solver/extractor/source identities, timings and replayable queries,
+separately from the earlier unavailable-solver evidence. The discovered identity
+is `(a XOR b) XOR a = b`; production rule integration and remaining qualification
+are still required. No solver result alone grants production rewrite authority.
+
+### P25 checked failures and first native measurement
+
+Four focused ReleaseSafe tests now pass. Beyond all quantum prefixes and collection
+counter wraparound, an overflowing checked operation interrupts the scalar sequence
+at its original position. Canonical checkpoint bytes match repeated `step()` at
+each cut. The Resident allocation-failure sweep reaches failures after batch work,
+proves exact prior-checkpoint preservation and successfully retries every failed
+drive. These checks use the unchanged runtime Boundary data input.
+
+The uninstalled `test/current/scalar_batch_bench.zig` is built identically against
+the current World candidate and a source snapshot restoring only the two P25
+production files to their predecessor. Existing P20 storage changes are present
+in both. Both executables admit and execute exactly equal images. Five alternating
+process windows, each with three warmups and nine samples, cover 0/2/4/16/256/1024
+scalar operations under prepared and fresh execution. None of the twelve cells
+confirms a slowdown under the specified 5% / four-of-five-window rule.
+Prepared ratios at 16/256/1024 operations are 0.927/0.900/0.902; fresh ratios are
+0.989/0.952/0.935. Zero-, two- and four-operation cases are approximately unchanged.
+
+`performance/m5-p25.json` retains exact source/binary identities and raw windows.
+This is a native scalar-workload result, not a whole-application gain. WASM,
+memory/preparation costs, representative cumulative economics and final integrated
+qualification remain open. The candidate is not yet accepted for publication.
+
+### P25 WASM prefix, memory and timing qualification
+
+The baseline and candidate kernels were built from the same runtime data input;
+only the P25 runtime files differ. Six images at 0/2/4/16/256/1024 scalar operations
+pass 158 paired requests, with native byte comparison at the initial cuts. Every
+cut through the short sequences and sampled collection-boundary cuts through the
+long sequences preserves outcome/checkpoint bytes. Restoring each progressed
+checkpoint and cancelling at those cuts also agrees exactly. Admission peak and
+retained bytes, fresh-execution peak, quantum-one cycle peak, checkpoint maximum
+and cycle step counts are exactly equal between kernels on all six images.
+
+All 18 WASM timing cells finish five alternating process windows with three
+warmups and nine samples. Prepared ratios at 256/1024 operations are 0.877/0.811;
+fresh ratios are 0.951/0.912. One four-operation fresh-execution cell confirms
+an increase of 1.063 microseconds (7.8%) under the unchanged threshold. Its §9.5
+disposition is pending correction or explicit acceptance; none is inferred from
+the long-chain benefit. The zero-operation fresh cell has a 7.7% median increase
+but does not satisfy the four-of-five confirmation criterion.
+
+Raw platform and timing evidence is appended to `performance/m5-p25.json`, without
+relabeling native evidence or authenticating the local candidate kernel as a
+delivered artifact. Native physical-memory accounting, WASM failure paths, consumer
+economics and final integrated qualification remain open.
+
+### P25 failure/memory completion and restored P29 consumer execution
+
+The additional WASM fixture exercises the authored arithmetic failure at all nine
+quantum cuts and restores each unfinished State to the same failure. Sixteen
+working/output-capacity cases have identical dispositions across kernels; twelve
+fail, preserve the resident's byte-identical prior checkpoint and retry to the
+expected result. This is working/output-budget evidence; the full capacity suite,
+including fixed linear-memory exhaustion, remains part of final qualification.
+Native admission, fresh execution and checkpoint-cycle measurements also finish:
+all 18 before/after cells have exactly equal measured peak and retained bytes.
+Incidental native timing samples from that memory probe are not a paired latency
+qualification. Sources and raw results are appended to `performance/m5-p25.json`.
+
+The restored session permissions also permit Agent's unchanged inquiry sandbox
+canary to return `qualified`. The previously blocked P29 consumer command now exits
+zero with 13 prescribed-response scenarios, including four inquiry/ReAct fixture
+pairs. Original model parsing, approvals, custody, experiment and cleanup assertions
+remain active; no paid inference or runner-gate bypass was used. The exact adapter,
+fixture and executable identities, authenticated kernel binding and full results
+are retained in `performance/m5-p29.json`, alongside the earlier failed attempt.
+This removes the sandbox execution blocker. It does not establish P29 consumer
+timing/cumulative economic acceptance, or qualify the new P25 kernel by relabeling
+the existing authenticated runtime.
+
+## P26 compatible tail-frame reuse and bounded argument scratch
+
+The existing World owner already reuses active control nodes, uses copy-on-write
+pages for retained slot views and restarts same-function tail calls. The selected
+change extends that restart to different functions only when their exact schema
+layouts and custody capacities agree and no custody history is initialized.
+`Frames.restart` now takes and checks the target function; its production and
+storage-test callers are migrated with no compatibility adapter. Arguments are
+gathered from the predecessor view before old locals are cleared or inputs written.
+Logical function/position change while compatible physical storage remains owned
+by the same view. Aliased pages still copy through the existing Slots owner.
+
+Up to eight direct-call argument descriptors use bounded stack scratch; larger
+calls retain the existing arena. This array has the same transition-local lifetime
+as its predecessor allocation: callee frame operations copy descriptors, and no
+host pointer enters a portable value. This changes allocation behavior, not the
+call order or argument contract. The stack bytes must be included separately in
+physical resource accounting; reduced heap traffic alone is not a total-memory gain.
+
+Three focused ReleaseSafe tests pass. Eight mutual tail calls reuse their actual
+view handles; an explicitly retained prior view keeps its original value and
+causes page copying; incompatible layouts take eight allocation fallbacks.
+Checkpoints at each reused call restore and complete correctly. Eight stack and
+nine heap arguments preserve reversed predecessor order across checkpoint/restore.
+Seventeen activation-storage tests pass, including allocation failures at 4/65/256
+slots for self and cross-function restarts and rejection of layout/custody mismatch.
+The 87-test native suite also passes with the final production changes, including
+existing Resident rollback, cleanup and resumption coverage.
+
+`performance/m5-p26.json` binds these observations to their exact inputs. The new
+candidate still needs native/WASM allocation, memory and timing measurements,
+remaining retention work and final integration. It does not inherit P25 runtime
+qualification by relabeling the earlier kernel.
+
+### P26 same-image platform and local economics
+
+The shared data-only frame fixture emits both compatible and incompatible-layout
+images. With input counts 0/1/8/128/512, baseline P25 and candidate P26 WASM kernels
+agree on all 6,530 quantum-one requests, including intermediate checkpoints and
+tested cancellation cuts. Checkpoint sizes and logical step counts are unchanged;
+admission peak/retained bytes are identical. Compatible long-call fresh heap peak
+falls by 271 WASM bytes and 259 native bytes; fallback long-call heap peak falls
+by 90 WASM bytes and 108 native bytes through argument scratch alone.
+
+The bounded stack array contains eight 24-byte native value descriptors (192 bytes),
+plus compiler frame/alignment overhead. This bound is reported separately from
+heap observations; no total-stack or RSS reduction is inferred. WASM retains its
+existing fixed stack reservation. Retained aliases continue to take COW copies.
+
+Forty-four native/WASM timing cells complete five alternating process windows,
+three warmups and nine samples each. No cell confirms a slowdown or exceeds the
+memory-growth threshold. At 128/512 compatible tail calls, native fresh ratios are
+0.831/0.835 and WASM ratios are 0.851/0.829. At 512 incompatible calls, native/WASM
+fresh ratios are 0.950/0.945. Short and checkpoint-cycle paths are approximately
+unchanged. These are selected-workload local comparisons against P25, not cumulative
+application claims or acceptance of P25's separately reported short-case cost.
+
+`performance/m5-p26.json` retains sources, kernel/native executable identities,
+raw windows and memory observations. Precise retention beyond frame reuse,
+allocation traffic, cumulative consumers and final capacity/browser/package
+qualification remain open before full P26/delivery closure.
+
+### P26 release consumed large-blob backing before a resident pauses
+
+The new measurement found a concrete retention gap: after a 1 MiB blob's last
+length observation, a progressed Resident still owned 1,051,286 requested bytes.
+Only scalar work remained. Periodic/terminal collection eventually released it,
+but a paused resident could retain it indefinitely. The initial test fixture had
+a descriptor-slice lifetime error before execution; the baseline uses corrected
+comptime-owned descriptors, not that invalid attempt.
+
+The selected boundary remains Session/Resident and the existing tracing collector.
+When `blob_length` loses its large operand slot under the admitted post-instruction
+liveness facts (encoded backing at least 64 KiB), Session records a collection
+hint. It does not infer that other aliases are dead or free backing itself.
+Hints coalesce until a public drive returns; ordinary periodic/terminal collection
+also clears them. `step()` observes the same boundary. The pending flag is part of
+transaction rollback and is not serialized into portable State. Collection failure
+poisons only the private attempt; Resident restores the original state.
+
+The paused unaliased fixture now owns 2,852 bytes. The direct-aliased fixture keeps
+its backing (2,100,037 versus 2,099,891 baseline bytes), and a blob captured in a
+future callable also survives and yields its expected length. Requested resident
+bytes exclude immutable Prepared and caller-owned input storage; these are not RSS
+or whole-process memory claims. The allocation-failure sweep includes failures
+after collection and proves byte-identical prior checkpoints and successful retry.
+
+Final native validation passes four focused tests plus the 60-test storage and
+87-test native suites; focused tests are a subset, not additional aggregate credit.
+`performance/m5-p26.json::retentionCandidate` retains the exact source and log
+identities. WASM state/capacity checks and latency/allocation measurements, including
+alias-heavy cases, remain required before accepting this retention candidate.
+
+### P26 retention WASM qualification and payload-rehash correction
+
+Fifteen unique/direct-alias/captured-alias cases cross the 64 KiB encoded-backing
+threshold and include 1 MiB payloads. Ninety prefix comparisons preserve exact
+outcome/checkpoint bytes and restored results. Ten constrained-capacity cases
+preserve the prior resident checkpoint and retry successfully. The harness first
+attempted two residents in one kernel and correctly received `SessionAlreadyPresent`;
+the retained harness closes the first resident before restoring, preserving that
+existing contract. The unique 1 MiB WASM resident drops from 1,052,336 to 3,838 live
+working bytes. Direct/captured aliases remain live, and linear-memory reservation
+is unchanged. Extra working peaks are below the specified memory threshold.
+
+The first timing matrix exposed a 191-microsecond pause cost: garbage collection
+rehashed the retiring blob's entire payload to remove its intern-table entry.
+Collection now iterates existing entries, journals and removes the current entry
+before freeing its payload, then restores ascending free-ID order with constant-
+space heap sort. No cached hash field or second interning structure is introduced.
+Literal producers intern their blobs; restored State passes `checkCanonical`
+before `importOwned`, establishing the table's live-blob coverage. A 128-entry
+test verifies partial deletion, retained entries, rollback, complete retirement
+and subsequent reuse of the expected free ID. The standard block sorter was
+replaced because its 512-element scratch buffer was unnecessary for this purpose.
+
+Final validation passes 61 storage tests and 87 native tests, plus the same 90
+WASM prefixes and 24 timing cells. Uninterrupted 1 MiB fresh ratios are 0.658
+(unique), 0.797 (direct alias) and 0.657 (captured alias). Six pause-phase cells
+still confirm increases of 0.71–1.33 microseconds (10.5–17.3%); §9.5 acceptance or
+correction remains pending. No full fresh-execution slowdown is confirmed. Initial,
+intermediate and final measurements retain separate kernel identities in
+`performance/m5-p26.json::retentionCandidate`; the failed fixture compile and
+single-resident harness attempt receive no qualification credit.
+
+Native retention timing/allocation counts, alias-heavy scaling, cumulative consumer
+economics and final package/browser qualification remain open. The positive local
+results do not close the entire programme or waive any pending measured cost.
+
+### P26 native allocation traffic and alias-heavy correction
+
+An uninstalled common native Resident probe compares current code with the actual
+published/authenticated runtime source `f8a1597`, using the fixed runtime Boundary
+data input. Preparation and caller buffers are outside its resident allocation
+counter; timing uses a separate uninstrumented drive. At 512 compatible tail
+calls, runtime allocations fall from 1,030 to 6 and requested allocation traffic
+from 263,338 to 3,242 bytes. Each probe checks the result and zero remaining tracked
+allocations after close. This is an explicitly named runtime-code baseline, not
+a relabeling of the still-required full pre-cutover consumer comparison.
+
+The 64-direct-alias, quantum-one case then exposed a 13.8% slowdown and 1,122 extra
+retained scratch bytes from repeated pointless traces. The collection hint now
+declines when an initialized, post-instruction-live slot in the same frame holds
+the exact same blob ID. Absence of a direct alias is not a uniqueness proof:
+indirect/captured aliases still go through the authoritative tracer. Once the
+last direct alias disappears, early reclamation remains eligible.
+
+The corrected 1/4/16/64-alias matrix passes identical checkpoint traces and five
+paired timing windows with no confirmed slowdown; the 64-alias ratio is 1.002,
+and its paused live bytes return to the exact baseline 91,652. The initial probe's
+peak field was read after releasing Prepared and is explicitly excluded; the
+corrected probe observes memory in a separate untimed operation sequence.
+The 61-storage/87-native tests and original 90-prefix WASM matrix pass again.
+
+Final cost reports retain 20 native and 24 WASM cells. Six native pause cells
+confirm increases from 0.166 to 10.208 microseconds, with the largest freeing the
+1 MiB input; four WASM pause cells increase 1.04–1.35 microseconds. These specific
+§9.5 dispositions remain pending. Initial failed scaling, corrected scaling,
+native traffic and all cost windows are separate under
+`performance/m5-p26.json::retentionCandidate`. Cumulative consumer economics and
+final capacity/browser/package qualification remain open.
+
+### P28 offline discovery through the existing production checker
+
+`test/bitvector_integration.mjs` now exercises the complete supported loop on fresh
+current-source images. Pinned Z3 4.15.3 checks sixteen bounded candidates and
+rediscovers `(a XOR b) XOR a = b` over all 64-bit inputs. The false target `a` is
+refuted by the independently replayed/minimized input `(0, 1)`, giving source 1
+and target 0. The `0 * failing_expression` fixture remains outside the total
+fragment and is rejected before any candidate query is submitted.
+
+The discovered identity is instantiated through the existing typed XOR rule
+registry and its independent replay checker; it does not create a second optimizer
+or a trusted solver-result import. Exact schema, SSA-version/origin and source-epoch
+conditions remain checked. Associativity, commutativity, self-cancellation and zero
+identity supply the width-parametric semantic argument; the solver result itself
+is claimed only at its actual 64-bit width. Current checked-pass, shared-compiler
+and source-free linked outputs are each 51 bytes versus 59 structural bytes and
+extract to input ordinal 1. Their bytes match the previously qualified P27 images.
+
+All 59 current production-checker tests and six offline tool-guard tests pass.
+The former include independently admitted wrong-output, wrong-width, stale-epoch
+and allocation-failure cases. The latter test `unknown`/timeout/incomplete-output
+classification; no actual solver timeout is invented. Sixteen searches consume
+411.2 ms in total, median 25.76 ms per candidate including process/model work.
+Separate current construction/checker medians are 37.71/5.42 microseconds, with
+29 nodes, 25 justified unions and five saturation rounds. These are offline and
+compiler measurements, not runtime improvements inferred from image size.
+
+`performance/m5-p28.json::productionIntegration` retains exact tool/source/image
+identities, replayable queries, concrete counterexamples and qualified-image
+equality. P28's bounded local deliverable is qualified; full programme delivery,
+consumer economics and final serial reviews remain open.
