@@ -152,6 +152,8 @@ src/data/tail_duplication.zig
 src/data/tail_duplication_tests.zig
 src/data/test_root.zig
 src/data/tests.zig
+src/data/thunk_forwarding.zig
+src/data/thunk_forwarding_tests.zig
 src/data/total_clause.zig
 src/data/traits.zig
 src/data/unfold_fusion.zig
@@ -265,6 +267,9 @@ test/v2/evidence_forwarding_platform.zig
 test/v2/expression_reuse.zig
 test/v2/handler_elimination.zig
 test/v2/handler_fusion_platform.zig
+test/v2/hyper_fusion.zig
+test/v2/hyper_fusion_platform.zig
+test/v2/hyper_memo.zig
 test/v2/oracle_scopes.zig
 test/v2/outlining.zig
 test/v2/outlining_platform.zig
@@ -280,6 +285,7 @@ test/v2/tail_clauses.zig
 test/v2/tail_clauses_platform.zig
 test/v2/tail_duplication.zig
 test/v2/tail_duplication_platform.zig
+test/v2/thunk_forwarding.zig
 test/v2/unfold_fusion.zig
 tools/authoring_stats.zig
 tools/component_example.zig

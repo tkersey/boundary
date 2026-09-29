@@ -398,3 +398,83 @@ outcome. Its exact census has zero matching map headers and zero singleton-unfol
 headers; no real-Agent gain is claimed. Agent's qualified package binding remains
 c1f4baf, and the separate M3 economic decision remains open. P14–P16, later
 milestones, package rebinding and final programme reviews are still required.
+
+## P14: forwarding-thunk law selected
+
+The emitted `hyper.identity` fixture contains an exact same-schema forwarding
+thunk: one reusable captured computation, zero explicit parameters, an otherwise
+empty apply block and an empty return block. Its application passes no arguments
+and returns that result unchanged. The new data rule will replace construction of
+this wrapper with a move of its captured thunk, preserving each later demand site
+and force multiplicity. It does not enter the captured computation, inspect a
+library/host type name, change the peer lookup graph, or erase a memo cell.
+
+Actuating retains the data-only semantic owner and selects this exact native
+contextual law. Construction and validation must independently check the actual
+function body, exact callable schema, reusable/copy/drop contract, empty region
+and custody obligations, and unchanged original records. Nonidentity returns,
+additional work, different callables, and ownership-bearing wrappers are outside
+this rule. General P03 capture restrictions remain unchanged. The deciding
+observations include the real generated helper, reciprocal recursion, unused
+faulting/divergent peers, and memo-sharing/multi-shot preservation.
+
+## P14 implementation and qualified checkpoint
+
+`thunk_forwarding` recognizes the actual same-schema, reusable forwarding body and
+replaces its construction with the exact captured computation. An immediate return
+of that wrapper returns the capture directly. Other cases retain a move at the
+original construction position, preserving the captured version. The checker
+reconstructs the law from original code and checks every changed instruction and
+return; a same-typed different capture, extra return work or wrong returned value
+is rejected. Original/fresh admission, allocation cleanup, deterministic work-limit
+rollback and final P01 remain. The general application specializer is unchanged.
+
+The generated `hyper.identity` helper and real reciprocal participants are exercised
+through checked, shared and source-free routes. Ignored failing/divergent peers
+remain unforced; suspended reciprocal control still yields once. Two `ana` calls
+with the same host Step type and different configuration emit twice and retain
+different results. Reusable scoped-cell fixtures preserve three versus five cells,
+repeated demand and shared-versus-distinct cache results. An authored busy-cell
+failure guard, demanded partial/divergent thunks and reentrant multi-shot force
+retain their behavior. No memo cell is removed, and the captured thunk's transitive
+state remains live; only its administrative wrapper is eliminated.
+
+Component tests infer guarantees for their actual exported entry. An initial test
+incorrectly supplied empty guarantees for every internal function; original
+admission rejected that setup. The fresh-region write in the original reentrant
+example remains unrepresentable by current component borrow-summary inference,
+even for the sole exported entry. That case has original/checked/shared runtime
+qualification and an explicit original-publication rejection; other fixtures
+provide real source-free positive evidence. No admission check was weakened.
+
+One source-local lambda/force fixture was already normalized before the data pass.
+Its wrapper now crosses an ordinary function return so that the intended data-layer
+rewrite is present. The unchanged real generated identity helper independently
+establishes the library opportunity. Assertions requiring an actual removed layer
+were retained. Immediate-return refinement avoids an inlining temporary, restoring
+the observed suspended caller layout from eight slots to seven. It corrects the
+reentrant retained-memory threshold violation; the remaining suspended-execution
+increase is reported separately, not inferred away from the smaller image.
+
+Final checks: 23/23 focused tests; 319/319 ReleaseSafe steps and 727/727 tests; two
+native hyper tests, two memo tests and one partial-thunk test. The final native,
+Node WASM and Wasmtime matrix passes 55 cases over 62 execution boundaries, with
+39 malformed inputs, 39 restores and 33 applicable wrong-image rejections. The
+existing multi-shot example still observes `(false,1,1,39)` and `(true,1,2,40)`;
+its reentrant counterpart returns 145 with one yield. Their full semantic images
+are byte-identical to the frozen P13 compiler's outputs.
+
+All 58 final paired timing cells completed after builds stopped. An earlier timing
+launch overlapped a live build and was terminated; it receives no gate credit.
+The user explicitly accepts P14's remaining costs: one WASM identity cycle
++236.17 µs (9.6%), two admission cells +3.16/+2.07 µs (14.1%/8.8%), and suspended
+reciprocal fresh peak +1,239 bytes (4.23%). Checkpoints do not grow; no native or
+WASM fresh-execution slowdown is confirmed. The exact decision and raw evidence
+are in `optimization-m4-p14-cost-decision.md` and `performance/m4-p14.json`.
+
+All 18 final Agent images remain byte-identical to P13 with no work-limit outcome;
+the direct census finds no same-schema capture header. No Agent gain is claimed.
+Agent remains bound to its independently qualified c1f4baf package; World and its
+kernel are unchanged. P14 acceptance does not resolve the separate M3/P13 cost
+decisions. P15–P16, the remaining programme, package bindings and final serial
+reviews remain required.

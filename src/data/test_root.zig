@@ -67,3 +67,7 @@ test {
 test {
     _ = @import("unfold_fusion_tests.zig");
 }
+
+test {
+    _ = @import("thunk_forwarding_tests.zig");
+}
