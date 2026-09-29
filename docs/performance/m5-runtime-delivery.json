@@ -20926,5 +20926,360 @@
     "sourceSha256": "2cf7767fb665161fdf5362902eed9e48c2b1573f7ef8739343b824fe180a42fe",
     "logSha256": "599659b1c719a482b4f8a99f4fe70bb784b474f71c0e0ca7788aa8cf39cdbda1",
     "scope": "Existing logical slot-coalescing output; actual retained World view forces copy-on-write; current same-image checkpoint restores. No new runtime remapper."
+  },
+  "referenceModels": {
+    "specificationSha256": "18de5e347545a99aaa07f6da1ee7fe2343f0834b533efd09e18a5a5e843d7e83",
+    "models": [
+      {
+        "name": "annex-a.py",
+        "sourceSha256": "a199126216874f95b0c27892b941cf6ae2df5d0d7a4cfc730cd5e39db47a40ed"
+      },
+      {
+        "name": "annex-b.py",
+        "sourceSha256": "c29d5c0fa3c7927e9637c69247cb3dc40b467fc0b90ecb77e247f40641ef8348"
+      },
+      {
+        "name": "annex-c.py",
+        "sourceSha256": "ad8e2ccdbf14804159cee5ff7861d87e608a5d1243c222fd36bac7f444cd77f3"
+      }
+    ],
+    "scope": "Exact Python blocks from the user-supplied specification; finite mathematical models only, not production equivalence or performance.",
+    "executions": [
+      {
+        "model": "annex-a",
+        "exitCode": 0,
+        "command": "uv run --no-project --cache-dir <temporary> --python <installed system Python> --no-managed-python <exact extracted model>",
+        "result": {
+          "status": "PASS",
+          "exhaustive_unary_graphs": 4330,
+          "seeded_labeled_graphs": 500,
+          "adversarial_assertions": 11,
+          "scope": "finite structural reference graph only"
+        }
+      },
+      {
+        "model": "annex-b",
+        "exitCode": 0,
+        "command": "uv run --no-project --cache-dir <temporary> --python <installed system Python> --no-managed-python <exact extracted model>",
+        "result": {
+          "status": "PASS",
+          "xor_chain_input_cases": 69904,
+          "finite_action_input_cases": 2187,
+          "finite_action_associativity_cases": 19683,
+          "boolean_matrix_associativity_cases": 4096,
+          "boolean_matrix_distributivity_cases": 8192,
+          "same_image_quantum_cases": 7736,
+          "counterexample_families": 7,
+          "scope": "finite algebra and toy execution only"
+        }
+      },
+      {
+        "model": "annex-c",
+        "exitCode": 0,
+        "command": "uv run --no-project --cache-dir <temporary> --python <installed system Python> --no-managed-python <exact extracted model>",
+        "result": {
+          "status": "PASS",
+          "exhaustive_two_mode_binary_systems": 1032,
+          "seeded_affine_systems": 500,
+          "seeded_location_indexed_systems": 200,
+          "independent_oracle_transition_checks": 78804,
+          "invertible_coordinate_change_checks": 303,
+          "rotating_word_one_step_cases": 69904,
+          "rotating_u32_trace_steps": 16000,
+          "corrupt_or_stale_certificates_rejected": 13,
+          "prefix_reconstruction_cases": 5053,
+          "observer_monotonicity_cases": 100,
+          "rotating_state_dimensions": [
+            3,
+            2
+          ],
+          "full_inspection_dimension": 3,
+          "placement_dimensions": [
+            2,
+            1
+          ],
+          "return_to_inspection_dimensions": [
+            2,
+            2
+          ],
+          "reset_shortest_distinguishing_suffix": [
+            [
+              "m1",
+              0
+            ],
+            [
+              "m0",
+              0
+            ]
+          ],
+          "parity_family_dimensions": [
+            [
+              2,
+              1
+            ],
+            [
+              3,
+              1
+            ],
+            [
+              8,
+              1
+            ],
+            [
+              32,
+              1
+            ],
+            [
+              64,
+              1
+            ],
+            [
+              128,
+              1
+            ]
+          ],
+          "scope": "finite total affine Mealy machines; not Boundary IR, ownership, runtime performance, or source-to-IR verification"
+        }
+      }
+    ]
+  },
+  "g43DiagnosticCorrection": {
+    "status": "implemented-local-checks-passed",
+    "requirement": "G43: original/candidate origins or explicit ambiguity after semantic rewriting; never fabricate unique source attribution.",
+    "cause": "Existing translation clears stale indices after semantic stages but left origins.ambiguous false.",
+    "change": "Mark unenumerated semantic source origins explicitly ambiguous; preserve null source IDs, actual error and phase; success resets marker.",
+    "sourceHashes": {
+      "src/source/activation_lower.zig": "abb16e065157925a4eb0344916897b33411f04eb292e072d3b67a26831c80d1b",
+      "src/data/diagnostic.zig": "1ce14c2214554ca4b7da2ad15c97898b828a9c7bbffdc5a17944d5d48e5beb60",
+      "src/authoring_tests.zig": "7412020637123d466869e9fb7845c4f82522c9b3c0f450352bc09d81ab1ef182"
+    },
+    "red": {
+      "exitCode": 1,
+      "test": "semantic compilation reports unmapped origins explicitly after rewriting",
+      "failure": "Only ambiguous assertion fails; changed stages and null source IDs already hold.",
+      "logSha256": "2de418b7b26cff913d8fe91b1829cbd9663e19246da62786a799e6a6b31fb5ec"
+    },
+    "green": {
+      "exitCode": 0,
+      "tests": 1,
+      "logSha256": "b5ad93a3b783ed450fa2944dc9000a7c7d33e87915d9794e196ee3f21c521cab"
+    },
+    "authoring": {
+      "exitCode": 0,
+      "tests": 226,
+      "steps": 3,
+      "logSha256": "41f2db4b99478bebc4c188b256fbe1efdedd7e4c22db32cad920368a5cdece7a"
+    },
+    "publication": "Not committed or published: current profile makes Git metadata and other repos read-only."
+  },
+  "finalTupleObservation": {
+    "agentHead": "52059f6",
+    "boundaryInput": "5619ee81e89ebbeb18c5d24e9197dcade40196b1",
+    "worldInput": "cb52f4ff43bbf23daf9cacb31ea26d9e3648235f",
+    "aggregate": {
+      "status": "failed",
+      "stepsSucceeded": 406,
+      "stepsTotal": 411,
+      "failedSteps": 1,
+      "zigTestsPassed": 202,
+      "nodeTestsPassed": 95,
+      "exitCode": 1,
+      "logSha256": "db71447aa3bda0aba344b2c4d84e8ecd8c4c2ead4896260ca0b82b31d2169acd",
+      "failure": "parser_source_free selected old source/zig-out artifacts instead of requested prefix"
+    },
+    "g43Scope": "Successful image semantics unchanged; new diagnostic error-path proof applies only to current local source until successor publication and qualification.",
+    "parserPrefixDefect": {
+      "caller": "build_agent4.zig source_free command",
+      "implementation": "test/agent4/parser_source_free.mjs",
+      "cause": "Archive, link-only executable and objects are taken from source/zig-out rather than the selected build prefix; archive lock rejects delivered cb52 runtime.",
+      "minimumRepair": "Pass selected prefix from build command, consume all three artifact paths there, and deny the canonical prefix in the source-denial sandbox as well as the source root.",
+      "preparedPatch": "/tmp/agent-prefix-repair/repair.patch",
+      "patchSha256": "89de0f9ad323d836c2a16583e0cdf16c4f00a6c60a882f6932e305304a560a72",
+      "status": "Prepared and syntax-checked only; Agent is read-only under current profile.",
+      "decidingCheck": "check-parser-source-free using the selected prefix, followed by the required final aggregate"
+    }
+  },
+  "g41Interaction": {
+    "status": "native-witness-passed",
+    "requirement": "G41 combined branch/direct-call/dead-capture-argument/new-coalescing with omitted-stage controls.",
+    "scope": "Two constructors with one/two captured words, same eligible worker layouts. Branch proofs remove both capture-dependent paths; direct calls unlock removal of three formerly captured input words; final P01 shares the workers. Six program variants each execute three independent input/result cases.",
+    "exitCode": 0,
+    "sourceSha256": "5122bfe284c828f697fa4f4f4cf52a3542a58a3da245e59a781d1b476e9d1468",
+    "logSha256": "ba6b360507ec2afbefe82ce874f30a9602e83076270842a359dd6459f072b1e9",
+    "initialFixture": {
+      "exitCode": 1,
+      "reason": "Unequal worker layouts prevented structural coalescing; fixture corrected to equal compatible layouts without changing P01 or its acceptance rules.",
+      "logSha256": "ba630f60ebe54635c70adc6579e6ab614919d3b10d0e8a897129537287efbeb8"
+    },
+    "limitation": "Native interaction proof; existing package-specific source-free and cross-engine witnesses remain separate.",
+    "finalNative": {
+      "exitCode": 0,
+      "tests": 1,
+      "logSha256": "ba6b360507ec2afbefe82ce874f30a9602e83076270842a359dd6459f072b1e9"
+    },
+    "wasm": {
+      "exitCode": 0,
+      "status": "passed",
+      "kernelSha256": "9356b1264a215486b579a143dcc2ff73711f2a7e44898b3560922d68cdf1338d",
+      "scope": "Independent expected scalar result for original/staged/shared images; each quantum-one checkpoint resumes in a fresh WASM instance. Cross-image step equality is not claimed.",
+      "rows": [
+        {
+          "mode": "original",
+          "imageBytes": 197,
+          "imageSha256": "0620a95e5a7c64a87e89b1186c6b77b1f92d5124195d0173912a45efbf93cdc7",
+          "input": [
+            "7",
+            "11",
+            "13",
+            "42"
+          ],
+          "result": "42",
+          "steps": 10,
+          "checkpointBytes": 148
+        },
+        {
+          "mode": "original",
+          "imageBytes": 197,
+          "imageSha256": "0620a95e5a7c64a87e89b1186c6b77b1f92d5124195d0173912a45efbf93cdc7",
+          "input": [
+            "0",
+            "1",
+            "2",
+            "18446744073709551615"
+          ],
+          "result": "18446744073709551615",
+          "steps": 10,
+          "checkpointBytes": 148
+        },
+        {
+          "mode": "original",
+          "imageBytes": 197,
+          "imageSha256": "0620a95e5a7c64a87e89b1186c6b77b1f92d5124195d0173912a45efbf93cdc7",
+          "input": [
+            "99",
+            "98",
+            "97",
+            "0"
+          ],
+          "result": "0",
+          "steps": 10,
+          "checkpointBytes": 148
+        },
+        {
+          "mode": "selected",
+          "imageBytes": 113,
+          "imageSha256": "8c879608f260d35602c82137dd45e96847a48a1d193213ffbb89cd5766896420",
+          "input": [
+            "7",
+            "11",
+            "13",
+            "42"
+          ],
+          "result": "42",
+          "steps": 8,
+          "checkpointBytes": 104
+        },
+        {
+          "mode": "selected",
+          "imageBytes": 113,
+          "imageSha256": "8c879608f260d35602c82137dd45e96847a48a1d193213ffbb89cd5766896420",
+          "input": [
+            "0",
+            "1",
+            "2",
+            "18446744073709551615"
+          ],
+          "result": "18446744073709551615",
+          "steps": 8,
+          "checkpointBytes": 104
+        },
+        {
+          "mode": "selected",
+          "imageBytes": 113,
+          "imageSha256": "8c879608f260d35602c82137dd45e96847a48a1d193213ffbb89cd5766896420",
+          "input": [
+            "99",
+            "98",
+            "97",
+            "0"
+          ],
+          "result": "0",
+          "steps": 8,
+          "checkpointBytes": 104
+        },
+        {
+          "mode": "shared",
+          "imageBytes": 106,
+          "imageSha256": "2e14536008773b748bf3ff9ea1a42c9378def431f731ce1d50de0d3ce86f3442",
+          "input": [
+            "7",
+            "11",
+            "13",
+            "42"
+          ],
+          "result": "42",
+          "steps": 6,
+          "checkpointBytes": 104
+        },
+        {
+          "mode": "shared",
+          "imageBytes": 106,
+          "imageSha256": "2e14536008773b748bf3ff9ea1a42c9378def431f731ce1d50de0d3ce86f3442",
+          "input": [
+            "0",
+            "1",
+            "2",
+            "18446744073709551615"
+          ],
+          "result": "18446744073709551615",
+          "steps": 6,
+          "checkpointBytes": 104
+        },
+        {
+          "mode": "shared",
+          "imageBytes": 106,
+          "imageSha256": "2e14536008773b748bf3ff9ea1a42c9378def431f731ce1d50de0d3ce86f3442",
+          "input": [
+            "99",
+            "98",
+            "97",
+            "0"
+          ],
+          "result": "0",
+          "steps": 6,
+          "checkpointBytes": 104
+        }
+      ],
+      "harness": "test/optimization_interaction.mjs",
+      "harnessSha256": "ce7214a1f05f2884e4c2900ec870b496b8e62cf66f6147425648e9cfd85c78ff",
+      "emitter": "test/v2/optimization_interaction_emit.zig",
+      "emitterSha256": "2e729349f0ab3fe2fab95ff3e85befb72de5aa24c036998cab972e84f3fdf879",
+      "fixtureSha256": "fb4a94186dca9e5e0ecdc2a2e4bde6c0da8dc836d99b9961abb97b449e9e3867",
+      "buildCommand": "zig build-exe -O ReleaseSafe --dep boundary_data --dep world -Mroot=test/v2/optimization_interaction_emit.zig -Mboundary_data=src/data/root.zig --dep boundary_data -Mworld=<verified World>/src/root.zig -femit-bin=<emitter>",
+      "runCommand": "node test/optimization_interaction.mjs <emitter> <verified embedding> <verified kernel> <expected kernel SHA256> <output JSON>"
+    }
+  },
+  "g34SeedEvidence": {
+    "status": "passed",
+    "exitCode": 0,
+    "tests": 12,
+    "seeds": 8,
+    "forcedAllHashCollision": true,
+    "sourceSha256": "5b63e83257ae2ef318a960e80b1fef4f13a6f823a6e2673bf0d411282671dba6",
+    "logSha256": "58fc45757c1bf12e2a1d8b4a9a7d30a9758f516999e77be127089d7db8ac5b37",
+    "scope": "Private compile-time hash-seed variation agrees with independent pairwise partition; public compute remains fixed seed zero. Existing concurrent compilation tests remain separate.",
+    "aggregate": {
+      "status": "passed",
+      "exitCode": 0,
+      "tests": 536,
+      "steps": 3,
+      "command": "zig build check-data -Doptimize=ReleaseSafe --global-cache-dir <temporary> --summary all",
+      "logSha256": "43417ed089fbb270a92db55aaf7d678a674a6a6fec759ad1d42059238cb6e50e"
+    }
+  },
+  "executionBlocker": {
+    "status": "resolved",
+    "authority": "User restored unrestricted filesystem/network access and said Permissions granted",
+    "nextRequiredAction": "Apply and qualify Agent install-prefix repair; commit/publish pending Boundary successor and rebind package."
   }
 }

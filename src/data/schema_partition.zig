@@ -18,13 +18,13 @@ pub fn compute(a: std.mem.Allocator, program: ir.Program) Error![]const Id {
     return computeObserved(a, program, null);
 }
 pub fn computeObserved(a: std.mem.Allocator, program: ir.Program, statistics: ?*Statistics) Error![]const Id {
-    return computeImpl(a, program, statistics, false);
+    return computeImpl(a, program, statistics, false, 0);
 }
-fn KeyContext(comptime collide: bool) type {
+fn KeyContext(comptime collide: bool, comptime seed: u64) type {
     return struct {
         stats: *Statistics,
         pub fn hash(_: @This(), key: []const u8) u64 {
-            return if (collide) 0 else std.hash.Wyhash.hash(0, key);
+            return if (collide) 0 else std.hash.Wyhash.hash(seed, key);
         }
         pub fn eql(self: @This(), left: []const u8, right: []const u8) bool {
             self.stats.comparisons += 1;
@@ -40,7 +40,7 @@ fn encodeKey(a: std.mem.Allocator, shape: p.Schema) Error![]const u8 {
     try record.write(p.Schema, shape, &writer);
     return bytes;
 }
-fn computeImpl(a: std.mem.Allocator, program: ir.Program, statistics: ?*Statistics, comptime collide: bool) Error![]const Id {
+fn computeImpl(a: std.mem.Allocator, program: ir.Program, statistics: ?*Statistics, comptime collide: bool, comptime seed: u64) Error![]const Id {
     var stats: Statistics = .{};
     defer if (statistics) |out| {
         out.* = stats;
@@ -57,8 +57,8 @@ fn computeImpl(a: std.mem.Allocator, program: ir.Program, statistics: ?*Statisti
         const mapper: relocate.Mapper = .{ .allocator = pass.allocator(), .maps = maps };
         const shapes = try pass.allocator().alloc(p.Schema, classes.len);
         var distinct: usize = 0;
-        var index: std.HashMapUnmanaged([]const u8, Id, KeyContext(collide), 80) = .empty;
-        const context: KeyContext(collide) = .{ .stats = &stats };
+        var index: std.HashMapUnmanaged([]const u8, Id, KeyContext(collide, seed), 80) = .empty;
+        const context: KeyContext(collide, seed) = .{ .stats = &stats };
         var indexed = false;
         for (shapes, program.schemas, 0..) |*shape, original, i| {
             shape.* = try mapper.schema(original);
@@ -147,7 +147,15 @@ test "indexed partition agrees with pairwise reference under forced hash collisi
     admitted.deinit();
     const expected = try reference(a, program);
     try std.testing.expectEqualSlices(Id, expected, try compute(a, program));
-    try std.testing.expectEqualSlices(Id, expected, try computeImpl(a, program, null, true));
+    try std.testing.expectEqualSlices(Id, expected, try computeImpl(a, program, null, true, 0));
+    const seeds = comptime blk: {
+        var random = std.Random.DefaultPrng.init(0x473334);
+        var values: [8]u64 = undefined;
+        for (&values) |*value| value.* = random.random().int(u64);
+        break :blk values;
+    };
+    inline for (seeds) |seed|
+        try std.testing.expectEqualSlices(Id, expected, try computeImpl(a, program, null, false, seed));
 }
 test "recursive definitions and nominal leaves are reindexed from each current input" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

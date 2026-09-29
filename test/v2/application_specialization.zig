@@ -555,3 +555,82 @@ test "checked product field feeds facts branch pruning and direct calls through 
         std.debug.print("product-field/branch/direct-call field {d}: {d} -> {d} bytes\n", .{ field, try data.program_image.encodedLength(original), try data.program_image.encodedLength(optimized.program) });
     }
 }
+
+pub const interaction: ir.Program = .{
+    .roots = .{ .entry = 0, .result = 0, .failure = 1 },
+    .schemas = &.{ .u64, .unit, .{ .internal = .{ .computation = .{ .parameters = &.{0}, .result = 0, .capture_bound = &.{0}, .use = .linear } } }, .{ .internal = .{ .computation = .{ .parameters = &.{0}, .result = 0, .capture_bound = &.{ 0, 0 }, .use = .linear } } }, .boolean },
+    .constants = &.{.{ .schema = 4, .bytes = &.{1} }},
+    .effects = &.{},
+    .functions = &.{
+        .{ .entry = 0, .inputs = &.{ 0, 1, 2, 3 }, .layout = .{ .slots = &.{ 0, 0, 0, 0, 2, 3, 0 } }, .result = 0 },
+        .{ .entry = 3, .inputs = &.{ 0, 1 }, .layout = .{ .slots = &.{ 0, 0, 4, 0, 0 } }, .result = 0 },
+        .{ .entry = 6, .inputs = &.{ 0, 1, 2 }, .layout = .{ .slots = &.{ 0, 0, 0, 4, 0 } }, .result = 0 },
+    },
+    .blocks = &.{
+        .{ .function = 0, .instructions = &.{.{ .destination = 4, .opcode = .computation, .operands = &.{0}, .immediate = 0 }}, .terminator = .{ .apply = .{ .computation = 4, .arguments = &.{3}, .next = .{ .block = 1, .assignments = &.{.{ .destination = 6, .source = .returned }} } } } },
+        .{ .function = 0, .instructions = &.{.{ .destination = 5, .opcode = .computation, .operands = &.{ 1, 2 }, .immediate = 1 }}, .terminator = .{ .apply = .{ .computation = 5, .arguments = &.{3}, .next = .{ .block = 2, .assignments = &.{.{ .destination = 6, .source = .returned }} } } } },
+        .{ .function = 0, .instructions = &.{}, .terminator = .{ .return_value = 6 } },
+        .{ .function = 1, .instructions = &.{.{ .destination = 2, .opcode = .constant, .immediate = 0 }}, .terminator = .{ .branch = .{ .condition = 2, .when_true = .{ .block = 4 }, .when_false = .{ .block = 5 } } } },
+        .{ .function = 1, .instructions = &.{}, .terminator = .{ .return_value = 1 } },
+        .{ .function = 1, .instructions = &.{}, .terminator = .{ .return_value = 0 } },
+        .{ .function = 2, .instructions = &.{.{ .destination = 3, .opcode = .constant, .immediate = 0 }}, .terminator = .{ .branch = .{ .condition = 3, .when_true = .{ .block = 7 }, .when_false = .{ .block = 8 } } } },
+        .{ .function = 2, .instructions = &.{}, .terminator = .{ .return_value = 2 } },
+        .{ .function = 2, .instructions = &.{.{ .destination = 4, .opcode = .integer_bit_xor, .operands = &.{ 0, 1 } }}, .terminator = .{ .return_value = 4 } },
+    },
+    .scopes = .{ .captures = &.{ .{ .fields = &.{0}, .use = .linear }, .{ .fields = &.{ 0, 0 }, .use = .linear } } },
+    .constructors = &.{ .{ .function = 1, .capture = 0, .schema = 2 }, .{ .function = 2, .capture = 1, .schema = 3 } },
+};
+
+test "G41 branch specialization dead capture arguments and coalescing have separate contributions" {
+    const a = std.testing.allocator;
+    const original = interaction;
+    var branches: data.branch_reduction.Statistics = .{};
+    var pruned = try data.branch_reduction.run(a, original, &branches, .{});
+    defer pruned.deinit();
+    try std.testing.expectEqual(@as(usize, 2), branches.branches_removed);
+    var direct_stats: data.application_specialization.Statistics = .{};
+    var direct = try data.application_specialization.run(a, pruned.program, &direct_stats, .{});
+    defer direct.deinit();
+    try std.testing.expectEqual(@as(usize, 2), direct_stats.direct_applications);
+    try std.testing.expectEqual(@as(usize, 3), direct.program.functions.len);
+    var removed: data.dead_arguments.Statistics = .{};
+    var p01: data.coalescing.Statistics = .{};
+    var selected = try data.dead_arguments.run(a, direct.program, &removed, .{ .statistics = &p01 });
+    defer selected.deinit();
+    try std.testing.expectEqual(@as(usize, 3), removed.parameters_removed);
+    try std.testing.expectEqual(@as(usize, 3), removed.call_arguments_removed);
+    const function_kind = @intFromEnum(data.relocation.Kind.function);
+    // The admitted pre-P01 candidate still has three declarations. Mandatory
+    // P01 then shares the two workers whose formerly captured inputs disappeared.
+    try std.testing.expectEqual(@as(usize, 3), p01.baseline.catalogs[function_kind]);
+    try std.testing.expectEqual(@as(usize, 2), selected.program.functions.len);
+
+    var without_branch = try data.application_specialization.run(a, original, null, .{});
+    defer without_branch.deinit();
+    var branch_ablation = try data.dead_arguments.run(a, without_branch.program, &removed, .{});
+    defer branch_ablation.deinit();
+    try std.testing.expectEqual(@as(usize, 0), removed.parameters_removed);
+    var call_ablation = try data.dead_arguments.run(a, pruned.program, &removed, .{});
+    defer call_ablation.deinit();
+    try std.testing.expectEqual(@as(usize, 0), removed.parameters_removed);
+    try std.testing.expectEqual(@as(usize, 2), call_ablation.program.constructors.len);
+    var argument_ablation = try data.coalescing.run(a, direct.program, .{});
+    defer argument_ablation.deinit();
+    try std.testing.expectEqual(@as(usize, 3), argument_ablation.program.functions.len);
+
+    var combined = try data.closed_compilation.run(a, original, .{ .contract = .semantic });
+    defer combined.deinit();
+    for ([_][4]u64{ .{ 7, 11, 13, 42 }, .{ 0, 1, 2, std.math.maxInt(u64) }, .{ 99, 98, 97, 0 } }) |words| {
+        var args: [32]u8 = undefined;
+        for (words, 0..) |word, i| std.mem.writeInt(u64, args[i * 8 ..][0..8], word, .little);
+        for ([_]ir.Program{ original, selected.program, branch_ablation.program, call_ablation.program, argument_ablation.program, combined.program }) |program| {
+            const bytes = try a.alloc(u8, try data.program_image.encodedLength(program));
+            defer a.free(bytes);
+            _ = try data.program_image.encode(a, program, bytes);
+            var outcome = try world.invocation.invoke(a, .{ .image = bytes, .instance = .{ .initial_args = &args } });
+            defer outcome.deinit();
+            try std.testing.expect(outcome.record == .completed);
+            try std.testing.expectEqual(words[3], std.mem.readInt(u64, outcome.record.completed[0..8], .little));
+        }
+    }
+}

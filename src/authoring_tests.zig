@@ -1979,6 +1979,44 @@ test "typed and direct compilation share explicit contracts and mandatory P01" {
     };
 }
 
+test "semantic compilation reports unmapped origins explicitly after rewriting" {
+    const data = @import("boundary_data");
+    var raw = source.Builder.init(testing.allocator);
+    defer raw.deinit();
+    const c = try a.Context.init(&raw);
+    const integer = try c.scalar(u64);
+    const unit = try c.scalar(void);
+    const entry = try c.function("entry", &.{.{ .name = "x", .schema = integer }}, integer, &.{});
+    const body = try c.body(entry);
+    const x = try body.parameter("x");
+    const schema = try c.callable(&.{}, integer, &.{}, .{ .use = .reusable, .captures = &.{integer} });
+    const nested = try c.functionFor("nested", schema);
+    const inner = try body.closureBody(nested);
+    try c.define(nested, try inner.ret(x));
+    try c.define(entry, try body.ret(try body.apply(try body.lambda(nested, schema), &.{})));
+    var diagnostic: source.Diagnostic = .{};
+    var statistics: data.closed_compilation.Statistics = .{};
+    try testing.expectError(error.Capacity, source.lowerObserved(testing.allocator, try c.module(entry, unit), .{
+        .contract = .semantic,
+        .max_image_bytes = 0,
+        .diagnostic = &diagnostic,
+        .semantic_statistics = &statistics,
+    }));
+    try testing.expect(statistics.changed_stages > 0);
+    try testing.expectEqual(@as(?data.program.Id, null), diagnostic.function);
+    try testing.expectEqual(@as(?data.program.Id, null), diagnostic.variable);
+    try testing.expectEqual(@as(usize, 0), diagnostic.origins.count);
+    try testing.expect(diagnostic.origins.ambiguous);
+    var valid = try source.lowerObserved(testing.allocator, try c.module(entry, unit), .{
+        .contract = .semantic,
+        .diagnostic = &diagnostic,
+    });
+    defer valid.deinit();
+    try testing.expectEqual(source.CompileStage.complete, diagnostic.phase);
+    try testing.expect(!diagnostic.origins.ambiguous);
+    try testing.expectEqual(@as(?anyerror, null), diagnostic.code);
+}
+
 test "semantic typed compilation cannot erase an original named capture violation" {
     var raw = source.Builder.init(testing.allocator);
     defer raw.deinit();

@@ -34,9 +34,9 @@
     "scope": "Before final portable test-size expression correction; production source unchanged by that correction."
   },
   "remaining": [
-    "Decision for six recorded P22 costs",
-    "Authenticated changed-source runtime delivery and final consumer tuple",
-    "Full programme requirement reconciliation and final installed serial reviews"
+    "Updated Boundary package and Agent binding/qualification for delivered cb52f4f tuple",
+    "Full programme reconciliation and final installed serial reviews",
+    "Historical package cost decisions remain pending separately"
   ],
   "focused": {
     "tests": 21,
@@ -77335,9 +77335,9 @@
       ]
     },
     "costDecision": {
-      "status": "pending",
-      "scope": "Four native storage +10–83ns (6.1–8.0%), two native pause +41ns (10.9%); exact recorded cells only",
-      "question": "Accept these bounded P22 costs; asynchronous user decision requested"
+      "status": "accepted",
+      "authority": "User reply: Accept these bounded P22 costs (Recommended)",
+      "scope": "Only final four native storage +10–83ns (6.1–8.0%) and two native pause +41ns (10.9%); does not accept prior or separate package decisions."
     },
     "limitations": [
       "Native shortest pause samples approach 41.7ns clock resolution; observed costs retained.",
@@ -77345,7 +77345,16 @@
       "Direct storage probe benefits are synthetic; no real-Agent gain inferred.",
       "Authenticated changed-source runtime delivery and Agent rebinding remain open."
     ],
-    "worldCommit": "cb52f4ff43bbf23daf9cacb31ea26d9e3648235f"
+    "worldCommit": "cb52f4ff43bbf23daf9cacb31ea26d9e3648235f",
+    "agentBinding": {
+      "head": "52059f6",
+      "boundary": "5619ee81e89ebbeb18c5d24e9197dcade40196b1",
+      "world": "cb52f4ff43bbf23daf9cacb31ea26d9e3648235f",
+      "package": "boundary-3.0.0-dev.0-flclaM0OfQCwp2OIaSSFu35e4V13OtS2X6QJLtUW_mhb",
+      "verificationSha256": "9c75f3d01842e7a106cdfe02e3ed9c0a608d63d76f53e5930c66f3728d6d6f88",
+      "status": "full-integrated-check-running",
+      "scope": "Real committed Agent checkout; normal managed-package paths and authentic delivered artifact. Preserved outputs use a separate build prefix, not a new branch/worktree."
+    }
   },
   "publication": {
     "url": "https://github.com/tkersey/world/pull/59",
@@ -77354,10 +77363,15 @@
     "receiptSha256": "ca332fe53f18df3539d898d2c77037f60ca814856cc758288da82da414f99c03"
   },
   "authenticatedDelivery": {
-    "status": "in-progress",
+    "status": "producer-success-acquired-smoke-passed",
     "runId": 36629384504,
     "url": "https://github.com/tkersey/world/actions/runs/36629384504",
-    "head": "cb52f4ff43bbf23daf9cacb31ea26d9e3648235f"
+    "head": "cb52f4ff43bbf23daf9cacb31ea26d9e3648235f",
+    "artifactId": 11062197659,
+    "archiveSha256": "6a28619b4f119eccba2ed78203666d905ee2d5409ae31f2a6fd86f2627268cdf",
+    "manifestSha256": "ba156ccc4999af1d5ada4ea01615bd33528653a55d4797366df333ffc16b00cd",
+    "kernelSha256": "9356b1264a215486b579a143dcc2ff73711f2a7e44898b3560922d68cdf1338d",
+    "expiry": "2026-10-29T21:00:30Z"
   },
   "boundaryConsumerRepair": {
     "status": "passed-on-candidate-and-baseline",

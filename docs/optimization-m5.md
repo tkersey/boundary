@@ -1670,3 +1670,79 @@ WASM storage, 237 canonical boundaries/23 transfers, 159 cross-engine transfer
 boundaries and unchanged-input capacity retries. Authenticated producer run
 `36629384504` is active on exactly `cb52f4f`; no delivered-artifact result is claimed
 before its terminal result and verified acquisition.
+
+### Requirement reconciliation: G43 and G45
+
+All three Python reference blocks extracted from the accepted attachment execute
+with their stated counts. Annex A checks 4,330 exhaustive graphs and 500 seeded
+graphs; Annex B checks 69,904 XOR inputs, 19,683 action associativity cases and
+7,736 toy quantum cases; Annex C reproduces 78,804 independent transitions and
+its other recorded counts. Exact source hashes and complete results are retained
+in `performance/m5-runtime-delivery.json::referenceModels`. These results prove
+only their finite-model claims and receive no production-performance credit.
+
+G43 inspection found that semantic error translation already removed stale source
+indices but did not explicitly mark the unavailable origin set as ambiguous.
+The local correction sets that existing marker. An admitted source undergoes real
+semantic changes, then fails its hard image limit; the test requires no fabricated
+function/variable identity and explicit ambiguity, and checks that a subsequent
+success clears the diagnostic. The exact ambiguity assertion fails before the
+correction and passes afterward. The 226-test authoring aggregate also passes.
+Coalescing's existing many-origin/projection tests remain the independent evidence
+for its own original-input maps. This diagnostic correction adds no authoring
+uniformity prerequisite and does not change successful program bytes.
+
+The active environment now allows writes only in Boundary and temporary folders;
+Git metadata, Agent and World are read-only. The diagnostic successor is local and
+unpublished. Agent `52059f6` remains committed with Boundary `5619ee8` and delivered
+World `cb52f4f`; its original aggregate has no terminal summary available and its
+tool process handle is missing. No restart, terminal pass, successor package
+binding or review completion is inferred. Requirement reconciliation and the
+remaining historical cost decisions stay open.
+
+### Requirement reconciliation: G34, G41 and the concrete prefix defect
+
+G34 now varies eight deterministically generated hash seeds inside the private
+schema-partition test implementation, alongside forced all-hash collision and
+the independent pairwise reference. All 12 focused tests pass. The public entry
+still fixes seed zero; no runtime option or alternate optimization policy exists.
+
+G41 now has one combined executable-record witness. Two capture-dependent branches
+are removed, two applications become direct calls, three formerly captured worker
+arguments become removable, and final P01 shares the newly equal workers. Omitting
+branch pruning, application specialization or argument removal prevents its named
+contribution; P01's admitted baseline has three functions and its selected result
+has two. The first fixture's unequal layouts correctly prevented structural
+sharing; the retained fixture gives the workers compatible layouts without
+weakening P01. Six native variants preserve three independently expected results.
+Original/staged/shared images are 197/113/106 bytes. Nine Node/WASM cases preserve
+their results across 72 quantum-one boundaries, restoring each checkpoint in a
+fresh instance. The retained emitter and harness are
+`test/v2/optimization_interaction_emit.zig` and `test/optimization_interaction.mjs`.
+
+The continuing Agent aggregate's partial log identifies a concrete integration
+failure: `parser_source_free.mjs` reads its archive, link-only executable and object
+fixtures from `source/zig-out`, although this run uses a different install prefix.
+The old archive's lock correctly rejects the selected runtime. The necessary
+repair passes the build-selected prefix to this script, reads those three artifact
+inputs there, and extends its source-denial checks to that canonical prefix.
+The exact patch is prepared and syntax-checked at
+`/tmp/agent-prefix-repair/repair.patch`; it is not applied because Agent is read-only.
+This closes a named qualification dependency, not another authoring migration.
+No aggregate success or executed repair qualification is claimed.
+
+The current local data aggregate is terminal and passes **536/536 tests, 3/3
+steps** after the private seed variation. The G43 authoring aggregate passes
+226/226; G41's retained native and WASM harnesses pass. These are the available
+local successor checks, not proof of a published final tuple. Further execution
+is blocked at the prepared Agent prefix repair and publication/rebinding: the
+current profile makes the owning repository and Git metadata read-only and
+disables approval escalation. Preserve the existing branches, local changes,
+qualified bundles and prepared patch when restoring access. The full programme,
+unanswered historical cost dispositions and installed final reviews remain open.
+
+Access was subsequently restored by the user. The original Agent aggregate is
+now terminal: 406/411 steps succeeded, 202/202 Zig tests and 95/95 Node tests
+passed, with one failed install-prefix step. The prepared repair is applied to
+the existing Agent branch and its focused source-denial check is running. No
+aggregate pass is inferred from the successful test subsets.

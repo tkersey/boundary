@@ -186,7 +186,7 @@ fn coalesce(allocator: std.mem.Allocator, program: ir.Program, compiler: *Compil
             if (statistics.stages_run != 0 or (statistics.failed_stage != null and statistics.failed_stage != .p01)) {
                 // Semantic records no longer use the source's original indices.
                 diagnostic.target = .{};
-                diagnostic.origins = .{};
+                diagnostic.origins = .{ .ambiguous = true };
                 diagnostic.function = null;
                 diagnostic.variable = null;
                 return err;

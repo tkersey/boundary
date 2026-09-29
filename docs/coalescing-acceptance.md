@@ -1,5 +1,13 @@
 # Coalescing v2 acceptance inventory
 
+**Historical snapshot:** the inventory below records the earlier optional-default
+cutover and its original tuples. Its `off`/`safe` wording is historical evidence,
+not a current API or workflow instruction. Closed compilation and final linking
+now invoke checked P01 mandatorily; current compiler/runtime bindings and remaining
+qualification are recorded in [optimization-m5.md](optimization-m5.md). The T01–T42
+obligations remain in force; earlier observations are not relabeled as results for
+the current tuple.
+
 This is a current evidence inventory, not a completion certificate. It follows
 the September 25 version 2 specification as amended by the user in
 [v2.1](coalescing-spec.md). The compiler/linker default is **safe**. Current
