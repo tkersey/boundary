@@ -2029,3 +2029,41 @@ test "typed publication resets reused compilation observations before rejection"
         }
     }
 }
+
+test "indexed named assembly preserves declaration-order diagnostic priority" {
+    for (0..3) |which| {
+        var b = source.Builder.init(testing.allocator);
+        defer b.deinit();
+        var foreign = source.Builder.init(testing.allocator);
+        defer foreign.deinit();
+        const c = try a.Context.init(&b);
+        const other = try a.Context.init(&foreign);
+        const boolean = try c.scalar(bool);
+        const record = try c.record(&.{ .{ .name = "a", .schema = boolean }, .{ .name = "b", .schema = boolean } });
+        const main = try c.function("main", &.{}, record, &.{});
+        const body = try c.body(main);
+        const value = try body.constant(bool, true);
+        const other_boolean = try other.scalar(bool);
+        const other_main = try other.function("foreign", &.{}, other_boolean, &.{});
+        const other_body = try other.body(other_main);
+        const foreign_value = try other_body.constant(bool, true);
+        switch (which) {
+            0 => try testing.expectError(error.UnknownName, body.product(record, &.{ .{ .name = "b", .value = value }, .{ .name = "b", .value = value } })),
+            1 => try testing.expectError(error.DuplicateName, body.product(record, &.{ .{ .name = "a", .value = value }, .{ .name = "a", .value = value } })),
+            2 => try testing.expectError(error.ForeignHandle, body.product(record, &.{ .{ .name = "a", .value = foreign_value }, .{ .name = "unknown", .value = value } })),
+            else => unreachable,
+        }
+    }
+}
+
+test "indexed field declarations check schema authority before a duplicate name" {
+    var b = source.Builder.init(testing.allocator);
+    defer b.deinit();
+    var foreign = source.Builder.init(testing.allocator);
+    defer foreign.deinit();
+    const c = try a.Context.init(&b);
+    const other = try a.Context.init(&foreign);
+    const local = try c.scalar(bool);
+    const elsewhere = try other.scalar(bool);
+    try testing.expectError(error.ForeignHandle, c.record(&.{ .{ .name = "same", .schema = local }, .{ .name = "same", .schema = elsewhere } }));
+}

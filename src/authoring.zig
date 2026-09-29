@@ -372,10 +372,16 @@ pub const Context = opaque {
     }
     fn fields(self: *Context, input: []const Field) Error![]const Field {
         errdefer |err| self.poison(err);
-        const output = try contextData(self).raw.allocator().alloc(Field, input.len);
+        const allocator = contextData(self).raw.allocator();
+        const output = try allocator.alloc(Field, input.len);
+        const scratch = contextData(self).raw.arena.child_allocator;
+        var names: std.StringHashMapUnmanaged(void) = .empty;
+        defer names.deinit(scratch);
+        try names.ensureTotalCapacity(scratch, std.math.cast(u32, input.len) orelse return error.OutOfMemory);
         for (input, 0..) |field, i| {
             _ = try self.schemaId(field.schema);
-            for (input[0..i]) |prior| if (std.mem.eql(u8, prior.name, field.name))
+            const entry = try names.getOrPut(scratch, field.name);
+            if (entry.found_existing)
                 return @as(Error![]const Field, self.reject(error.DuplicateName, "declaration", "duplicate field name"));
             output[i] = .{ .name = try self.label(field.name), .schema = field.schema };
         }
@@ -1366,15 +1372,24 @@ pub const Body = opaque {
         if (fields.len != args.len)
             return c.reject(error.SchemaMismatch, "arguments", "wrong number of named arguments");
         errdefer |err| c.poison(err);
-        const ids = try contextData(c).raw.allocator().alloc(p.Id, fields.len);
+        const allocator = contextData(c).raw.allocator();
+        const ids = try allocator.alloc(p.Id, fields.len);
+        const Match = struct { value: *const Value, duplicate: bool = false };
+        const scratch = contextData(c).raw.arena.child_allocator;
+        var matches: std.StringHashMapUnmanaged(Match) = .empty;
+        defer matches.deinit(scratch);
+        try matches.ensureTotalCapacity(scratch, std.math.cast(u32, args.len) orelse return error.OutOfMemory);
+        for (args) |arg| {
+            const entry = try matches.getOrPut(scratch, arg.name);
+            if (entry.found_existing) entry.value_ptr.duplicate = true else entry.value_ptr.* = .{ .value = arg.value };
+        }
+        // Validate in declaration order, as before. In particular, a duplicate
+        // later argument must not hide an earlier missing name or foreign value.
         for (fields, ids) |named, *id| {
-            var found: ?*const Value = null;
-            for (args) |arg| if (std.mem.eql(u8, named.name, arg.name)) {
-                if (found != null) return @as(Error![]const p.Id, c.reject(error.DuplicateName, "arguments", "duplicate name"));
-                found = arg.value;
-            };
-            const v = try self.useValue(found orelse
-                return @as(Error![]const p.Id, c.reject(error.UnknownName, "arguments", "missing declared name")));
+            const found = matches.get(named.name) orelse
+                return @as(Error![]const p.Id, c.reject(error.UnknownName, "arguments", "missing declared name"));
+            if (found.duplicate) return @as(Error![]const p.Id, c.reject(error.DuplicateName, "arguments", "duplicate name"));
+            const v = try self.useValue(found.value);
             c.same(named.schema, v.schema) catch |err| {
                 contextData(c).diagnostic.entity = named.name;
                 contextData(c).diagnostic.relationship = "argument or product field differs from its declared schema";

@@ -257,6 +257,13 @@ test/v2/common_tails_platform.zig
 test/v2/compact_fixtures.zig
 test/v2/compact_wasm.zig
 test/v2/compare_activation_flow.zig
+test/v2/construction.zig
+test/v2/construction_bench.zig
+test/v2/construction_capture_bench.zig
+test/v2/construction_fields_bench.zig
+test/v2/construction_platform.zig
+test/v2/construction_rows_bench.zig
+test/v2/construction_typed_bench.zig
 test/v2/constructor_contexts.zig
 test/v2/constructor_contexts_platform.zig
 test/v2/context_compression.zig
