@@ -1746,3 +1746,28 @@ now terminal: 406/411 steps succeeded, 202/202 Zig tests and 95/95 Node tests
 passed, with one failed install-prefix step. The prepared repair is applied to
 the existing Agent branch and its focused source-denial check is running. No
 aggregate pass is inferred from the successful test subsets.
+
+### Final authenticated tuple and terminal consumer qualification
+
+Agent `cbf1d47` binds Boundary `9912ffb` and authenticated World `cb52f4f`
+(kernel `9356b126`). The applied prefix repair passes its source-denial proof.
+The final ReleaseSafe `check-agent4 check-agent4-integration
+check-compiled-tool-browser` aggregate terminates successfully: **411/411 steps,
+202/202 Zig tests and 95/95 final Node tests, no skips**. This is a new passing
+aggregate; the previous prefix-failing aggregate remains failed.
+
+All six final consumer timing runs also terminate successfully. The 18 local
+admission and 30 local replay comparisons have no confirmed slowdown or memory
+increase. Cumulative replay has no confirmed fresh-invocation slowdown in the
+30 scenarios. The six cumulative admission-memory increases exactly match the
+previously accepted before/after values; review-model admission now measures
++63.374 µs (13.83%), compared with the earlier accepted approximately +62.7 µs
+(13.6%). The local comparison confirms no additional runtime slowdown.
+
+Fifteen cumulative document/consequence execution-memory threshold increases,
+up to 9,332 bytes, remain within the pending historical M3 cost decision. Neither
+permissions restoration nor acceptance of P22's separate six cells accepts them.
+The complete six-run samples, identity bindings, commands and dispositions are
+retained in `performance/m5-runtime-delivery.json` under `resumedFinalTuple.timing`.
+Historical M3/P13/P16/P18/P19/P20/P24 cost dispositions and final installed serial
+reviews remain open. No merge, release or final programme completion is claimed.

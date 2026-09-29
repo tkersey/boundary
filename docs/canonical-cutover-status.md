@@ -10,8 +10,11 @@ Stage A finishes the existing canonical authoring/P01/runtime-delivery cutover i
 [Boundary #161](https://github.com/tkersey/boundary/pull/161),
 [World #59](https://github.com/tkersey/world/pull/59), and
 [Agent #39](https://github.com/tkersey/agent/pull/39).
-Stage B follows the validated checkpoint on focused successor drafts and
-implements all of Part II, starting with M2 and M2.5. Neither stage is complete.
+The exact predecessor list below is closed. Part II work continues on the same
+existing branch and draft PR in each repository, as subsequently directed by the
+user; do not create successor branches or worktrees. Implementation has progressed
+through the supplied programme, including P22/P25/P26 runtime work. Final tuple,
+economic disposition and installed serial-review obligations remain open.
 
 SQLite, replacement databases/journals, new durable application sessions and
 recovery orchestration, including former D01–D36/C01–C12, are **superseded by scope
@@ -101,6 +104,44 @@ semantic/authority behavior, and final cumulative economics. Do not turn raw IDs
 source construction or frontend uniformity into findings without a violated
 accepted requirement. Code reviews are separate from executed qualification.
 The user waived code review before optimization; no Stage A review campaign will be started.
+
+The final review subject includes the implemented Part II packages and their
+cross-package witnesses, not another authoring migration. Freeze corrected heads
+only after required technical qualification. Follow the installed serial-review
+contract without inventing counts, changing its model/reasoning, or treating
+unaccepted costs as accepted. Keep the three existing drafts and their histories.
+
+## Current optimizer tuple — September 29
+
+- Boundary `9912ffb`: G34 seed variation, G41 combined interaction and G43 explicit
+  diagnostic ambiguity; 536 data and 226 authoring tests pass. G41 additionally
+  passes native controls and nine WASM cases across 72 fresh-instance boundaries.
+- World `cb52f4f`: producer run `36629384504`, artifact `11062197659`, kernel
+  `9356b1264a215486b579a143dcc2ff73711f2a7e44898b3560922d68cdf1338d`.
+  Authenticated acquisition and execution smoke pass. P22's six recorded native
+  costs have explicit user acceptance; this does not accept earlier package costs.
+- Agent `cbf1d47`: verified Boundary package and World binding plus corrected
+  source-free install-prefix selection. The focused repair check passes. The
+  prior aggregate ended with 202 Zig and 95 Node tests passing and one failed
+  prefix step. The final aggregate now passes all 411 steps, 202 Zig tests and
+  95 Node tests, with no skips. The original failed aggregate remains failed.
+- Fresh emission from the new package produces the same 18 image hashes as the
+  prior qualified corpus. Retain the pre-cutover comparisons and exact older
+  artifacts; neither image equality nor a smaller image proves faster execution.
+
+The three listed equality adapters remain absent from the current Agent module;
+`create` and no-code `checkPortableSchema` retain their separate responsibilities.
+No new authoring retirement is admitted. The source-free prefix repair is a
+concrete retained qualification defect, not a family migration. Earlier sections
+below retain their historical heads and results rather than being relabeled.
+
+The six final timing runs are terminal. All 48 local comparisons show no
+confirmed slowdown or memory growth. Cumulative execution has no confirmed
+slowdown in 30 scenarios; six admission-memory increases match the previously
+accepted values exactly. Review-model admission measures +63.374 µs (13.83%),
+with no confirmed new local slowdown. Fifteen document/consequence memory
+increases remain part of the pending historical M3 cost disposition. Final
+serial reviews and the other pending historical cost decisions remain open.
 
 ## Remaining Stage A acceptance
 
