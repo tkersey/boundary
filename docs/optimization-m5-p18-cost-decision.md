@@ -1,5 +1,12 @@
 # P18 measured-cost decision
 
+> **Current disposition — September 29, 2026:** The user explicitly accepted
+> all recorded costs ("All costs are accepted."). This includes the measured
+> costs below and their recorded cumulative comparisons. Earlier pending
+> language is historical and superseded; future unmeasured costs are not
+> preaccepted. Correctness and final review obligations remain unchanged.
+
+
 Status: explicit acceptance or correction pending under §9.5. Sources, images, all 116 final paired timing cells and raw memory observations are in [the report](performance/m5-p18.json).
 
 ## Confirmed timing increases

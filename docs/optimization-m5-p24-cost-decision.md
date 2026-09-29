@@ -1,5 +1,12 @@
 # P24 measured costs — decision pending
 
+> **Current disposition — September 29, 2026:** The user explicitly accepted
+> all recorded costs ("All costs are accepted."). This includes the measured
+> costs below and their recorded cumulative comparisons. Earlier pending
+> language is historical and superseded; future unmeasured costs are not
+> preaccepted. Correctness and final review obligations remain unchanged.
+
+
 Exact source, image, emitter, runtime and control identities and raw observations
 are retained in [m5-p24.json](performance/m5-p24.json). The P23 control's production
 module hashes match the recorded P23 qualification; it was reconstructed in a

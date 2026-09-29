@@ -1,5 +1,12 @@
 # P20 measured costs — decision pending
 
+> **Current disposition — September 29, 2026:** The user explicitly accepted
+> all recorded costs ("All costs are accepted."). This includes the measured
+> costs below and their recorded cumulative comparisons. Earlier pending
+> language is historical and superseded; future unmeasured costs are not
+> preaccepted. Correctness and final review obligations remain unchanged.
+
+
 The candidate contains checked affine recurrence/guard reductions and World's
 same-image sequence-access bounds reuse. Boundary is based on `7c7b586`; World
 is based on `0ba2120`; both P20 changes remain uncommitted. Exact relevant source

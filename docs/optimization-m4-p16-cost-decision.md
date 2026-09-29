@@ -1,5 +1,12 @@
 # P16 measured-cost decision
 
+> **Current disposition — September 29, 2026:** The user explicitly accepted
+> all recorded costs ("All costs are accepted."). This includes the measured
+> costs below and their recorded cumulative comparisons. Earlier pending
+> language is historical and superseded; future unmeasured costs are not
+> preaccepted. Correctness and final review obligations remain unchanged.
+
+
 Status: explicit acceptance or correction pending under specification §9.5.
 
 Sources, exact image hashes and raw samples are in [the report](performance/m4-p16.json). The frozen P15 compiler produces byte-identical controls. World and Agent package bindings remain unchanged.

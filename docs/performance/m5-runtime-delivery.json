@@ -21294,7 +21294,7 @@
     "agent": "cbf1d47b5d504c2ebba6f19df354eed41a54ec1d",
     "package": "boundary-3.0.0-dev.0-flclaH4_fQBzxBAbmZ6WQ5pyAF2z7A1pbGkgI_QhJ0KV",
     "verificationSha256": "e3ad4cda4c67f45057d41993fed69d2612b82876908c20e76e4a5254783f33ec",
-    "status": "published-drafts-integrated-and-timing-qualified-cost-dispositions-and-final-reviews-open",
+    "status": "qualified-costs-accepted-final-serial-reviews-open",
     "log": "/tmp/g-agent-final-aggregate.log",
     "receipts": {
       "boundary": "0a0d8a9c29ba3a833221a4d430a032d589b9e508f00cfcb3da0f5a09cb0d0b5c",
@@ -40508,8 +40508,14 @@
             "delta": 9332
           }
         ],
-        "remaining": "Historical M3/P13/P16/P18/P19/P20/P24 cost decision and installed final serial reviews remain open."
+        "remaining": "All recorded costs explicitly accepted by user; installed final serial reviews remain open."
       }
+    },
+    "costAcceptance": {
+      "status": "accepted",
+      "authority": "User: All costs are accepted.",
+      "scope": "All currently recorded measured costs, including M3/P13/P16/P18/P19/P20/P24 and final cumulative comparisons; prior individual acceptances retained.",
+      "exclusions": "Future unmeasured costs; correctness and review obligations are unchanged."
     }
   }
 }

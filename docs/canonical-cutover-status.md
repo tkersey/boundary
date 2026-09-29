@@ -207,3 +207,11 @@ Stage A proof. Start M2 (P02/P03 and early P04/P05/P07/P08), then M2.5 affine
 synthesis, with P31 source-free integration throughout. Preserve structural versus
 semantic contracts and exact same-image World observations. No merge, release,
 paid inference, user-data changes or global configuration changes are authorized.
+
+## Current cost disposition — September 29
+
+The user explicitly stated **"All costs are accepted."** All currently recorded
+M3/P13/P16/P18/P19/P20/P24 and final cumulative costs are accepted. Earlier
+pending-cost statements above are historical and superseded. Correctness,
+authenticated bindings and installed final serial reviews remain required;
+this decision does not preaccept future unmeasured costs.

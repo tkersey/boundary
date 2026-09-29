@@ -1,5 +1,12 @@
 # P13 measured cost decision
 
+> **Current disposition — September 29, 2026:** The user explicitly accepted
+> all recorded costs ("All costs are accepted."). This includes the measured
+> costs below and their recorded cumulative comparisons. Earlier pending
+> language is historical and superseded; future unmeasured costs are not
+> preaccepted. Correctness and final review obligations remain unchanged.
+
+
 Candidate: the map/fold and delayed-successor transformations on top of Boundary
 `57672e765db5d13123e2141ace02e948ba533ee7`. Exact source, image, tool and runtime
 hashes and raw samples are in `performance/m4-p13.json`. World remains at its
