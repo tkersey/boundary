@@ -71,3 +71,7 @@ test {
 test {
     _ = @import("thunk_forwarding_tests.zig");
 }
+
+test {
+    _ = @import("context_compression_tests.zig");
+}

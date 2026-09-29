@@ -20,6 +20,7 @@ pub const reader_fusion = @import("reader_fusion.zig");
 pub const sequence_fusion = @import("sequence_fusion.zig");
 pub const unfold_fusion = @import("unfold_fusion.zig");
 pub const thunk_forwarding = @import("thunk_forwarding.zig");
+pub const context_compression = @import("context_compression.zig");
 pub const handler_elimination = @import("handler_elimination.zig");
 pub const tail_clauses = @import("tail_clauses.zig");
 pub const evidence_forwarding = @import("evidence_forwarding.zig");

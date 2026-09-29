@@ -30,6 +30,7 @@ src/coalescing_recursive_cases.zig
 src/coalescing_state_cases.zig
 src/coalescing_tests.zig
 src/coalescing_tree_cases.zig
+src/data/action_laws.zig
 src/data/activation.zig
 src/data/activation_borrow_tests.zig
 src/data/activation_flow.zig
@@ -93,6 +94,8 @@ src/data/compact_sequence_tests.zig
 src/data/component.zig
 src/data/component_tests.zig
 src/data/constant_origin.zig
+src/data/context_compression.zig
+src/data/context_compression_tests.zig
 src/data/contification.zig
 src/data/contification_escape_tests.zig
 src/data/contification_recursive_tests.zig
@@ -252,6 +255,8 @@ test/v2/common_tails_platform.zig
 test/v2/compact_fixtures.zig
 test/v2/compact_wasm.zig
 test/v2/compare_activation_flow.zig
+test/v2/context_compression.zig
+test/v2/context_compression_platform.zig
 test/v2/contification.zig
 test/v2/contification_platform.zig
 test/v2/decode_retention.zig

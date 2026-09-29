@@ -478,3 +478,85 @@ Agent remains bound to its independently qualified c1f4baf package; World and it
 kernel are unchanged. P14 acceptance does not resolve the separate M3/P13 cost
 decisions. P15–P16, the remaining programme, package bindings and final serial
 reviews remain required.
+
+## P15: action-summary loop selected
+
+The first record rule targets a private recursive sequence worker that applies
+one total action to the recursive result, with no intervening observer, effect,
+yield, custody change or escaped function value. Its loop invariant is that the
+summary denotes the outer composition of the already visited actions. The final
+result is `act(summary, seed)`; extension is `compose(summary, next_action)`, so
+noncommutative order is explicit. Every input/action is still admitted and visited.
+
+The closed native registry supplies only fixed-width XOR and Boolean transition
+tables, with identity, composition and application emitted as existing primitives.
+The independent checker inspects the actual loop, table orientation and all
+unchanged records. Checked arithmetic and context-observing/control/resource cases
+remain outside this rule. Runtime-length and existing generated-code witnesses,
+source-free linking and retained-context measurements are required; algebraic
+models alone do not discharge P15. The existing affine synthesis remains distinct.
+
+The initial shared selector compared only static work, bytes and closure captures;
+it could reject a summary loop with a few extra instructions while retaining an
+unbounded recursive context. Balanced/speed comparison now includes the actual
+number of non-tail self-call sites. This is a labelled structural estimate, not a
+runtime speed claim. Size objectives, exact image limits, admission-cost guards,
+work budgets and independent transformation validation remain unchanged.
+
+The Boolean table summary uses two scalar images (false and true) and two
+scratch bits. Each next table is evaluated against the old summary; simultaneous
+loop-edge transfers install both new images. This retains the selected action-law
+owner and composition orientation while removing the intermediate product and
+three scratch slots. The prior seven-slot representation was independently valid
+but rejected by the unchanged shared admission-cost guard. The deciding checks
+are shared compiler/source-free selection, exhaustive finite-chain execution,
+and an independently admitted reversed-composition mutant that must be rejected.
+This representation adjustment does not authorize a guard change or establish
+latency savings without measurements.
+
+The four-new-slot candidate passes shared selection and the 170 finite cases,
+but measured WASM admission still grows. Retain the action-law boundary and reuse
+only the original worker's now-dead recursive-result, action-result and table-field
+slots. The recognizer already proves all these roles distinct and private; the
+checker now requires the entire function catalog/layout to remain unchanged.
+The high summary and scratch slots are explicitly bound, not assumed adjacent.
+Application reads both summary bits before overwriting the original result slot.
+No resource, custody or frame-observation domain is enlarged. Exact slot-alias
+mutants and same-image restoration falsify this representation if unsafe.
+
+Current native evidence after slot reuse: XOR at lengths 1/16/256/4096 changes
+pending continuation counts from N to zero and deepest-return checkpoint sizes
+from 104/434/5,844/94,164 bytes to 93 bytes. Steps are 12/132/2,052/32,772 before
+and 14/119/1,799/28,679 after. Boolean tables at the same lengths change pending
+continuations from N to zero and deepest-return checkpoints from
+101/334/4,064/65,504 bytes to 104 bytes. Their steps are 14/164/2,564/40,964 before
+and 18/168/2,568/40,968 after: composition is constant work per action, not a
+claimed instruction-count speedup. These checkpoints sample deepest pending
+context; separate memory probes measure runtime peak payload.
+
+The six native tests pass, including 170 exhaustive short Boolean chains across
+original/checked/shared/linked arms, long noncommutative chains, ordinary source
+lowering, checked-overflow order and retained nonlinear/resource examples.
+Wrong identity, reversed composition and exchanged scalar transfers are ordinary
+admission-valid mutants rejected by the independent checker. Both action families
+have allocation-failure coverage. The final implementation aggregate terminates
+successfully with 319 steps and 742 tests. All 18 freshly emitted Agent images
+match P14 exactly; no real-Agent gain or new package binding is claimed.
+The final platform and cost disposition below supersede that provisional checkpoint.
+
+Final P15 platform evidence passes 24 arms / 294 native, Node WASM and Wasmtime
+boundaries, with 24 malformed-input, same-image-restore and wrong-image checks.
+The exact frozen P14 compiler emits byte-identical controls for both new families;
+source-free final linking emits byte-identical optimized images. Reuse of the
+structural-baseline timing observations for the local comparison is therefore
+bound to actual equal inputs and images. Prior pre-cutover consumer reports stay
+in force; unchanged Agent bytes do not erase their accepted or pending costs.
+
+The 32 native/WASM timing cells and separate quantum-one/64 memory observations
+are complete. Ten confirmed timing increases concern admission and one-action
+inputs; larger fresh invocations show no confirmed slowdown. Remaining memory
+increases and the complete tradeoff are in `optimization-m4-p15-cost-decision.md`.
+The user explicitly accepts these bounded P15 costs. This closes the P15
+economic gate for the qualified candidate, without changing the separate M3/P13
+decisions or accepting future costs. Continue P16 without calling M4 or the full
+programme complete. Final binding and installed serial reviews remain outstanding.
