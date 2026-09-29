@@ -83,3 +83,7 @@ test {
 test {
     _ = @import("loop_motion_tests.zig");
 }
+
+test {
+    _ = @import("loop_unswitch_tests.zig");
+}

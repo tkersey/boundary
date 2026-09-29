@@ -48,20 +48,25 @@ fn eligible(program: ir.Program, function: usize, op: ir.Instruction) bool {
 /// Heuristic repeated work: scalar operations weighted by natural-loop nesting.
 /// Direct branch-condition producers are excluded so guarded entry copies do
 /// not masquerade as repeated body work. This is not a latency measurement.
+pub const RepeatedWork = struct { scalars: u64 = 0, branch_tests: u64 = 0 };
 pub fn repeatedScalarWork(allocator: std.mem.Allocator, program: ir.Program) std.mem.Allocator.Error!?u64 {
+    const result = (try repeatedWorkEstimate(allocator, program)) orelse return null;
+    return result.scalars;
+}
+pub fn repeatedWorkEstimate(allocator: std.mem.Allocator, program: ir.Program) std.mem.Allocator.Error!?RepeatedWork {
     return repeatedWork(allocator, program) catch |err| switch (err) {
         error.LoopWorkLimit => null,
         error.OutOfMemory => error.OutOfMemory,
     };
 }
-fn repeatedWork(allocator: std.mem.Allocator, program: ir.Program) loops.Error!u64 {
-    if (!possible(program)) return 0;
+fn repeatedWork(allocator: std.mem.Allocator, program: ir.Program) loops.Error!RepeatedWork {
+    if (!possible(program)) return .{};
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     const a = arena.allocator();
     var budget: loops.Budget = .{ .remaining = 1_000_000 };
     try budget.record(ir.Program, program);
-    var total: u64 = 0;
+    var total: RepeatedWork = .{};
     for (program.functions, 0..) |_, fid| {
         const graph = (try loops.Graph.init(a, program, fid, &budget)) orelse continue;
         if (!try graph.cyclic(&budget)) continue;
@@ -74,10 +79,21 @@ fn repeatedWork(allocator: std.mem.Allocator, program: ir.Program) loops.Error!u
             const members = (try graph.region(h, dominated, &budget)) orelse continue;
             for (graph.blocks, members) |bid, inside| if (inside) {
                 const block = program.blocks[bid];
+                var local_condition = false;
                 for (block.instructions) |op| {
                     try budget.take(1);
-                    if (block.terminator == .branch and block.terminator.branch.condition == op.destination) continue;
-                    if (scalarOperation(program, fid, op)) total +|= 1;
+                    if (block.terminator == .branch and block.terminator.branch.condition == op.destination) {
+                        local_condition = true;
+                        continue;
+                    }
+                    if (scalarOperation(program, fid, op)) total.scalars +|= 1;
+                }
+                // Prefer a removed dispatch block, not merely replacing a
+                // condition read with a same-cost jump after a live prefix.
+                if (block.terminator == .branch and !local_condition and block.instructions.len == 0) {
+                    const branch = block.terminator.branch;
+                    if ((branch.when_true.assignments.len == 0 and branch.when_true.block != bid) or
+                        (branch.when_false.assignments.len == 0 and branch.when_false.block != bid)) total.branch_tests +|= 1;
                 }
             };
         }

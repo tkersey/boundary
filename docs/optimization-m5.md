@@ -182,3 +182,114 @@ pending. No initial experiment is relabelled as final evidence.
 P19 onward, M3/P13/P16/P18 economic decisions, final package bindings and installed
 serial reviews remain open. Native dynamic operation counts establish actual
 hoisting; they do not substitute for the measured cost matrix.
+
+## P19: loop unswitching in flight
+
+`loop_unswitch.zig` keeps the original loop guard and first dispatch. It copies
+both natural-loop paths and fixes the branch in each copy. Empty specialized
+branch blocks are bypassed only when they have no instructions or selected-edge
+assignments; mandatory P01 removes the resulting unreachable records. An initial
+copy retained those empty jumps; the revised copy avoids their repeated cost.
+
+All internal edges map to the selected copy, with exits retaining their original
+targets. Slots use an identity bijection within the same activation: the two paths
+are mutually exclusive, preserve their original layout, and cannot cross copies.
+Custody remains the same single scope. The independent validator uses header-cut
+reachability, rechecks every condition write/edge transfer, and checks the complete
+instruction and edge correspondence. No source function, schema, region or nominal
+identity is duplicated. The final P01 image must satisfy the exact local added-byte
+budget and the existing shared compiler guards.
+
+Pure loops and loops using cells in an already-established region are eligible;
+external control effects, cleanup/custody transitions, borrows and nondroppable
+state remain excluded. Cell creation, reads and writes stay in their original
+per-iteration positions. This is code specialization, not allocation sharing.
+The runtime Boolean is never treated as a compile-time constant at entry, and
+its original zero-trip guard precedes the first dispatch.
+
+Focused tests currently pass 25 cases including independent admitted wrong-copy
+and wrong-selector mutations, condition writes/transfers, custody exclusion,
+allocation cleanup and exact P01 fallback for zero work/insufficient code budget.
+Four native tests pass both Boolean paths, zero trips, shared compilation and
+source-free linking, structural-contract preservation, per-iteration region-local
+cell operations, and a failing prefix that remains absent on zero trips.
+
+At 257 iterations the ordinary witness reduces runtime selector tests from 257
+to one. Initial guard counts and results remain unchanged. The cell witness
+retains N creations, 2N reads and N writes on both paths. The shared selector now
+also estimates repeated externally-defined Boolean tests without treating that
+estimate as measured speed. It reuses P18's bounded loop analysis.
+
+P19 remains unqualified for delivery: final integrated checks, current consumer
+comparison, complete runtime/cost measurements and draft publication remain. The
+cell component's original borrow vocabulary must be checked before claiming a
+source-free result for that fixture. P20 onward and all outstanding economic and
+final review obligations remain in scope.
+
+### P19 technical qualification progress
+
+The retained implementation passes 319 ReleaseSafe aggregate steps / 774 tests,
+25 focused tests and four native tests. Full shared compilation and source-free
+linking also preserve the cell witness's N creations and N writes; the standalone
+unswitch pass preserves both reads per iteration. Other independently validated
+passes may eliminate an unused read, which is not attributed to unswitching.
+
+Original component publication succeeds for the cell fixture; no borrow-vocabulary
+exception is needed. Linked images equal shared compiler images for both fixtures.
+The exact P18 semantic control differs from the structural baseline, so both
+comparisons remain separate. All 18 Agent images are unchanged. Cross-engine
+qualification and final costs are still in flight; no P19 cost gate is waived.
+
+### P19 economic selection correction
+
+The first full matrix passed 80 arms / 804 cross-engine boundaries and completed
+152 paired timing cells, but 92 comparisons confirmed regressions. In particular,
+a cell-creation prefix left a specialized jump in place of the old branch: the
+condition read disappeared, but logical control work did not. That was insufficient
+to justify the code/admission footprint. The initial measurements and exact emitter
+identity are retained in `performance/m5-p19-initial.json`; they are not accepted
+tradeoffs and will not be relabelled as the revised candidate.
+
+The shared cost estimate now credits removal of an empty repeated dispatch block,
+not a condition-read-to-jump substitution after a live prefix. The transformation
+checker still supports the complete ordered clone; the canonical compiler selects
+the P01 baseline when that candidate lacks the demonstrated control-work benefit.
+This is ordinary per-candidate economic selection, not an off switch or a second
+product. The original cell-prefix workload stays in the comparison as a fallback
+witness rather than being discarded.
+
+A distinct branch-local cell fixture exercises profitable specialization while
+retaining N cell creations and writes. It does not replace or rename the original
+prefix fixture. Five revised native tests pass: both canonical selected loops and
+both fallback paths retain results, guard behavior, failure timing and allocations.
+At 257 iterations the pure selected loop executes 1550 logical steps instead of
+1806. Final integrated, consumer and cost qualification must be refreshed for this
+revised selector before P19 delivery. P20 onward and all pending economic/final
+review obligations remain in scope.
+
+### P19 final revised qualification
+
+The revised candidate passes 319 ReleaseSafe aggregate steps / 775 tests and five
+native tests. Source-free linking succeeds for all three fixtures. The final
+matrix passes 120 arms and 1280 native/Node WASM/Wasmtime execution boundaries, plus
+120 each of malformed-input, same-image-restore and wrong-image checks. All 18
+Agent images remain unchanged.
+
+The original cell-prefix case now selects its structural P01 baseline. It stays
+in the measured corpus; its two structural comparisons are exact-image cases.
+The pure and branch-local allocation cases remove the repeated dispatch block.
+The complete final report contains 188 timed comparisons and two exact-image
+comparisons against distinct local semantic/structural controls.
+
+The revised selection does not eliminate every cost. Seventy-four comparisons
+confirm remaining increases, including about 15% WASM fresh-invocation slowdown
+at 256 branch-local allocations against the semantic control. Code/admission and
+checkpoint-memory increases are also explicit. These are not described as only
+empty-input overhead, and fewer dynamic tests are not treated as a speed proof.
+The final §9.5 decision is pending in `optimization-m5-p19-cost-decision.md`.
+Initial adverse evidence remains in `performance/m5-p19-initial.json`; final data
+are in `performance/m5-p19.json`.
+
+P20 onward, separate M3/P13/P16/P18/P19 economic decisions, final package bindings
+and installed serial reviews remain open. No cost acceptance is inferred from
+technical qualification or draft publication.

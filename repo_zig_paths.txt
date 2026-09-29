@@ -125,6 +125,8 @@ src/data/linker.zig
 src/data/loop_motion.zig
 src/data/loop_motion_tests.zig
 src/data/loop_regions.zig
+src/data/loop_unswitch.zig
+src/data/loop_unswitch_tests.zig
 src/data/outlining.zig
 src/data/outlining_tests.zig
 src/data/partial_redundancy.zig
@@ -291,6 +293,8 @@ test/v2/hyper_fusion_platform.zig
 test/v2/hyper_memo.zig
 test/v2/loop_motion.zig
 test/v2/loop_motion_platform.zig
+test/v2/loop_unswitch.zig
+test/v2/loop_unswitch_platform.zig
 test/v2/oracle_scopes.zig
 test/v2/outlining.zig
 test/v2/outlining_platform.zig

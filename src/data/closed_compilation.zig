@@ -35,10 +35,11 @@ const thunk_forwarding = @import("thunk_forwarding.zig");
 const contexts = @import("context_compression.zig");
 const constructors = @import("constructor_contexts.zig");
 const motion = @import("loop_motion.zig");
+const unswitch = @import("loop_unswitch.zig");
 const unpack = @import("capture_unpack.zig");
 pub const Contract = enum { structural, semantic };
 pub const Objective = enum { size, balanced, speed };
-pub const Stage = enum { p01, branch, applications, aggregates, expressions, cells, dead_computation, dead_arguments, dead_captures, capture_projection, capture_summary, affine_state, capture_unpack, partial_redundancy, call_patterns, leaf_inlining, contification, common_tails, tail_duplication, outlining, slot_packing, tail_clauses, evidence_forwarding, handler_elimination, reader_fusion, sequence_fusion, unfold_fusion, thunk_forwarding, context_compression, constructor_contexts, loop_motion };
+pub const Stage = enum { p01, branch, applications, aggregates, expressions, cells, dead_computation, dead_arguments, dead_captures, capture_projection, capture_summary, affine_state, capture_unpack, partial_redundancy, call_patterns, leaf_inlining, contification, common_tails, tail_duplication, outlining, slot_packing, tail_clauses, evidence_forwarding, handler_elimination, reader_fusion, sequence_fusion, unfold_fusion, thunk_forwarding, context_compression, constructor_contexts, loop_motion, loop_unswitch };
 // Prospective construction policy for the expanded four-round schedule.
 // Caller-supplied limits remain exact; this does not change P01's allowance.
 pub const default_work_limit: u64 = 400_000_000_000;
@@ -76,8 +77,8 @@ pub const Options = struct {
         if (self.statistics) |stats| stats.* = .{};
     }
 };
-pub const Error = branch.Error || applications.Error || aggregates.Error || expressions.Error || cells.Error || dead.Error || arguments.Error || captures.Error || projections.Error || summaries.Error || affine.Error || unpack.Error || pre.Error || patterns.Error || leaves.Error || joins.Error || tails.Error || duplicate_tails.Error || outlining.Error || packing.Error || handler_tail.ValidationError || evidence.Error || handlers.Error || readers.Error || sequences.Error || unfolds.Error || thunk_forwarding.Error || contexts.Error || constructors.Error || motion.Error;
-const schedule = [_]Stage{ .loop_motion, .constructor_contexts, .context_compression, .unfold_fusion, .sequence_fusion, .thunk_forwarding, .branch, .capture_unpack, .aggregates, .dead_computation, .affine_state, .call_patterns, .branch, .applications, .leaf_inlining, .contification, .tail_clauses, .evidence_forwarding, .handler_elimination, .reader_fusion, .aggregates, .expressions, .partial_redundancy, .cells, .dead_computation, .dead_arguments, .dead_captures, .capture_projection, .capture_summary, .dead_computation, .dead_arguments, .applications, .dead_computation, .tail_duplication, .common_tails, .outlining, .slot_packing };
+pub const Error = branch.Error || applications.Error || aggregates.Error || expressions.Error || cells.Error || dead.Error || arguments.Error || captures.Error || projections.Error || summaries.Error || affine.Error || unpack.Error || pre.Error || patterns.Error || leaves.Error || joins.Error || tails.Error || duplicate_tails.Error || outlining.Error || packing.Error || handler_tail.ValidationError || evidence.Error || handlers.Error || readers.Error || sequences.Error || unfolds.Error || thunk_forwarding.Error || contexts.Error || constructors.Error || motion.Error || unswitch.Error;
+const schedule = [_]Stage{ .loop_unswitch, .loop_motion, .constructor_contexts, .context_compression, .unfold_fusion, .sequence_fusion, .thunk_forwarding, .branch, .capture_unpack, .aggregates, .dead_computation, .affine_state, .call_patterns, .branch, .applications, .leaf_inlining, .contification, .tail_clauses, .evidence_forwarding, .handler_elimination, .reader_fusion, .aggregates, .expressions, .partial_redundancy, .cells, .dead_computation, .dead_arguments, .dead_captures, .capture_projection, .capture_summary, .dead_computation, .dead_arguments, .applications, .dead_computation, .tail_duplication, .common_tails, .outlining, .slot_packing };
 fn notify(options: Options, stage: Stage) void {
     if (options.observer) |observer| observer.enter(observer.context, stage);
 }
@@ -149,7 +150,7 @@ fn reservation(program: ir.Program, stage: Stage) Error!u64 {
         // These bounded passes index whole-record scans by functions, blocks,
         // parameters or slots. Instruction-level searches have their own
         // counted allowances below; they do not each rescan the entire Program.
-        .call_patterns, .leaf_inlining, .contification, .common_tails, .tail_duplication, .outlining, .slot_packing, .tail_clauses, .evidence_forwarding, .handler_elimination, .reader_fusion, .sequence_fusion, .unfold_fusion, .thunk_forwarding, .context_compression, .constructor_contexts, .loop_motion => std.math.mul(u64, try sumWork(&.{ program.functions.len, max_inputs, max_slots, program.blocks.len, 1 }), shape.records) catch return error.Capacity,
+        .call_patterns, .leaf_inlining, .contification, .common_tails, .tail_duplication, .outlining, .slot_packing, .tail_clauses, .evidence_forwarding, .handler_elimination, .reader_fusion, .sequence_fusion, .unfold_fusion, .thunk_forwarding, .context_compression, .constructor_contexts, .loop_motion, .loop_unswitch => std.math.mul(u64, try sumWork(&.{ program.functions.len, max_inputs, max_slots, program.blocks.len, 1 }), shape.records) catch return error.Capacity,
         .applications => std.math.mul(u64, try sumWork(&.{ applications_count, 1 }), shape.records) catch return error.Capacity,
         .aggregates => block_squares,
         .expressions => 0,
@@ -171,14 +172,14 @@ fn reservation(program: ir.Program, stage: Stage) Error!u64 {
         .expressions, .partial_redundancy => 1_000_000,
         .leaf_inlining, .contification, .common_tails, .outlining => 2_000_000,
         .tail_duplication => 26_000_000, // Search/checker plus fresh branch facts/proofs.
-        .slot_packing, .tail_clauses, .evidence_forwarding, .reader_fusion, .sequence_fusion, .unfold_fusion, .thunk_forwarding, .context_compression, .constructor_contexts, .loop_motion => 20_000_000,
+        .slot_packing, .tail_clauses, .evidence_forwarding, .reader_fusion, .sequence_fusion, .unfold_fusion, .thunk_forwarding, .context_compression, .constructor_contexts, .loop_motion, .loop_unswitch => 20_000_000,
         .handler_elimination => 2_000_000,
         .affine_state => std.math.mul(u64, try sumWork(&.{ program.constructors.len, program.functions.len }), 6_000_000) catch return error.Capacity,
         else => 0,
     };
     return std.math.add(u64, std.math.add(u64, scans, byte_work) catch return error.Capacity, facts) catch return error.Capacity;
 }
-const Cost = struct { bytes: usize, work: u64, path_work: ?u64 = null, retention: u64, recursive_contexts: u64 = 0, repeated_scalar_work: ?u64 = null, admission_sets: [4]u64 };
+const Cost = struct { bytes: usize, work: u64, path_work: ?u64 = null, retention: u64, recursive_contexts: u64 = 0, repeated_scalar_work: ?u64 = null, repeated_branch_tests: ?u64 = null, admission_sets: [4]u64 };
 // Zig 0.16's geometric growth starts with cache_line / node_size. Cover
 // 64/128-byte cache lines and 16/24-byte nodes without querying the build host.
 const node_growth_starts = [_]u64{ 2, 4, 5, 8 };
@@ -287,7 +288,8 @@ fn cost(allocator: std.mem.Allocator, owned: *const p01.Owned) Error!Cost {
     // allocator resize success, or native versus wasm node representation.
     // This models the retained analysis containers, not World runtime memory.
     const admission_sets = try admissionSetCost(owned.flow.pool.nodeCount(), owned.flow.pool.interned.capacity());
-    var result: Cost = .{ .bytes = try image.encodedLength(program), .work = 0, .path_work = try pathWork(allocator, program), .repeated_scalar_work = try motion.repeatedScalarWork(allocator, program), .retention = 0, .admission_sets = admission_sets };
+    const repeated_work = try motion.repeatedWorkEstimate(allocator, program);
+    var result: Cost = .{ .bytes = try image.encodedLength(program), .work = 0, .path_work = try pathWork(allocator, program), .repeated_scalar_work = if (repeated_work) |work| work.scalars else null, .repeated_branch_tests = if (repeated_work) |work| work.branch_tests else null, .retention = 0, .admission_sets = admission_sets };
     for (program.blocks) |block| {
         result.work +|= blockWork(block);
         if (block.terminator == .call and block.terminator.call.function == block.function) {
@@ -320,7 +322,7 @@ fn allowBaseline(options: Options, bytes: usize) Error!void {
 fn better(candidate: Cost, baseline: Cost, objective: Objective) bool {
     // Deterministic, explicitly heuristic estimates; never runtime measurements.
     if (objective == .size) return candidate.bytes < baseline.bytes or (candidate.bytes == baseline.bytes and candidate.work < baseline.work);
-    return (candidate.repeated_scalar_work != null and baseline.repeated_scalar_work != null and candidate.repeated_scalar_work.? < baseline.repeated_scalar_work.?) or candidate.recursive_contexts < baseline.recursive_contexts or candidate.retention < baseline.retention or candidate.work < baseline.work or candidate.bytes < baseline.bytes or
+    return (candidate.repeated_branch_tests != null and baseline.repeated_branch_tests != null and candidate.repeated_branch_tests.? < baseline.repeated_branch_tests.?) or (candidate.repeated_scalar_work != null and baseline.repeated_scalar_work != null and candidate.repeated_scalar_work.? < baseline.repeated_scalar_work.?) or candidate.recursive_contexts < baseline.recursive_contexts or candidate.retention < baseline.retention or candidate.work < baseline.work or candidate.bytes < baseline.bytes or
         (candidate.path_work != null and baseline.path_work != null and candidate.path_work.? < baseline.path_work.?);
 }
 fn possible(allocator: std.mem.Allocator, owned: *const p01.Owned, stage: Stage) Error!bool {
@@ -407,6 +409,7 @@ fn possible(allocator: std.mem.Allocator, owned: *const p01.Owned, stage: Stage)
         .context_compression => return contexts.possible(program),
         .constructor_contexts => return constructors.possible(program),
         .loop_motion => return motion.possible(program),
+        .loop_unswitch => return unswitch.possible(program),
         .p01 => return true,
     }
     return false;
@@ -613,6 +616,12 @@ fn apply(a: std.mem.Allocator, program: ir.Program, stage: Stage, options: p01.O
         .expressions => blk: {
             var stats: expressions.Statistics = .{};
             const result = try expressions.run(a, program, &stats, .{ .coalescing = options });
+            exhausted.* = stats.work_limit;
+            break :blk result;
+        },
+        .loop_unswitch => blk: {
+            var stats: unswitch.Statistics = .{};
+            const result = try unswitch.run(a, program, &stats, .{ .coalescing = options });
             exhausted.* = stats.work_limit;
             break :blk result;
         },
