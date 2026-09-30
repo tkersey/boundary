@@ -3,6 +3,7 @@ const data = @import("boundary_data");
 const empty = @import("handler_elimination.zig");
 const reader = @import("reader_fusion.zig");
 const capture = @import("capture_unpack.zig");
+const arguments = @import("call_pattern_retention.zig");
 fn save(init: std.process.Init, directory: []const u8, name: []const u8, arm: []const u8, program: data.activation.Program) !void {
     const bytes = try init.gpa.alloc(u8, try data.program_image.encodedLength(program));
     defer init.gpa.free(bytes);
@@ -40,6 +41,22 @@ pub fn main(init: std.process.Init) !void {
         var linked = try data.linker.linkWithCompilation(init.gpa, &.{.{ .key = "handlers", .object = encoded }}, &.{}, .{ .instance = "handlers", .symbol = "main" }, .{ .contract = .semantic });
         defer linked.deinit();
         @memset(encoded, 0xff);
+        try save(init, directory, name, "linked", linked.program);
+    }
+    inline for (@typeInfo(arguments.Case).@"enum".fields) |field| {
+        const original = try arguments.fixture(arena.allocator(), @enumFromInt(field.value));
+        const name = "argument-" ++ field.name;
+        var baseline = try data.closed_compilation.run(init.gpa, original, .{});
+        defer baseline.deinit();
+        try save(init, directory, name, "structural", baseline.program);
+        var checked = try data.call_patterns.run(init.gpa, original, null, .{});
+        defer checked.deinit();
+        try save(init, directory, name, "checked", checked.program);
+        var semantic = try data.closed_compilation.run(init.gpa, original, .{ .contract = .semantic });
+        defer semantic.deinit();
+        try save(init, directory, name, "shared-semantic", semantic.program);
+        var linked = try arguments.linked(init.gpa, original);
+        defer linked.deinit();
         try save(init, directory, name, "linked", linked.program);
     }
 }

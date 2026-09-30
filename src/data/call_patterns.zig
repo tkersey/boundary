@@ -33,11 +33,88 @@ pub const Candidate = struct {
 };
 const Budget = struct {
     remaining: u64,
+    fn take(self: *Budget, amount: usize) Error!void {
+        if (amount > self.remaining) return error.CallPatternLimit;
+        self.remaining -= amount;
+    }
     fn tick(self: *Budget) Error!void {
         if (self.remaining == 0) return error.CallPatternLimit;
         self.remaining -= 1;
     }
 };
+
+/// A private parameter may be implicitly retained by a continuation even when
+/// every explicit use is specializable. Record that observation during original
+/// admission; a proposed representation must satisfy each observed capture.
+const ParameterCaptures = struct {
+    const Capture = struct { function: p.Id, slot: p.Id, effect: p.Id };
+    allocator: std.mem.Allocator,
+    program: ir.Program,
+    budget: *Budget,
+    captures: std.ArrayList(Capture) = .empty,
+    failure: ?Error = null,
+    query_cost: usize = 0,
+
+    fn observe(context: *anyopaque, function: p.Id, effect: p.Id, slot: p.Id) void {
+        const self: *@This() = @ptrCast(@alignCast(context));
+        if (self.failure != null) return;
+        const inputs = self.program.functions[@intCast(function)].inputs;
+        self.budget.tick() catch |err| {
+            self.failure = err;
+            return;
+        };
+        self.budget.take(inputs.len) catch |err| {
+            self.failure = err;
+            return;
+        };
+        if (std.mem.indexOfScalar(p.Id, inputs, slot) == null) return;
+        self.captures.append(self.allocator, .{ .function = function, .slot = slot, .effect = effect }) catch |err| {
+            self.failure = err;
+        };
+    }
+
+    fn prepare(self: *@This()) Error!void {
+        if (self.failure) |err| return err;
+        if (self.captures.items.len == 0) return;
+        // Charge a conservative complete handler/bound scan for each query.
+        // The predicate itself remains owned by activation_ownership.
+        self.query_cost = 2;
+        for (self.program.handlers) |handler| {
+            try self.budget.tick();
+            self.query_cost = std.math.add(usize, self.query_cost, 1) catch return error.CallPatternLimit;
+            for (handler.clauses) |clause| {
+                try self.budget.tick();
+                const bound = self.program.schemas[@intCast(clause.resumption)].internal.resumption.capture_bound;
+                self.query_cost = std.math.add(usize, self.query_cost, 1) catch return error.CallPatternLimit;
+                self.query_cost = std.math.add(usize, self.query_cost, bound.len) catch return error.CallPatternLimit;
+            }
+        }
+    }
+
+    fn allows(self: *@This(), key: Key, permissions: traits.Facts) Error!bool {
+        const replacement = replacementSchemas(self.program, key);
+        if (replacement.len == 0) return true;
+        const input = self.program.functions[@intCast(key.function)].inputs[key.parameter];
+        for (self.captures.items) |capture| {
+            try self.budget.tick();
+            if (capture.function != key.function or capture.slot != input) continue;
+            for (replacement) |schema| {
+                try self.budget.take(self.query_cost);
+                if (!try ownership.captureSchemaAllowed(self.program, permissions, capture.effect, schema)) return false;
+            }
+        }
+        return true;
+    }
+};
+
+fn replacementSchemas(program: ir.Program, key: Key) []const p.Id {
+    return switch (key.value) {
+        .constructor => captureFields(program, key),
+        .variant => |tag| program.schemas[@intCast(key.schema)].sum[@intCast(tag)..][0..1],
+        .boolean, .unsigned => &.{},
+    };
+}
+
 fn closedLeaf(program: ir.Program, constructor_id: p.Id, permissions: traits.Facts, budget: *Budget) Error!bool {
     try budget.tick();
     if (constructor_id >= program.constructors.len or !privacy.privateWorker(program, @intCast(constructor_id))) return false;
@@ -321,14 +398,22 @@ pub fn construct(allocator: std.mem.Allocator, original: ir.Program, options: Op
     if (options.profile) |record| try profiles.validate(allocator, original, record);
     // The default covers shared P02 analysis as in branch/application
     // specialization. An explicit pass limit still caps every phase.
-    var discovered = try facts.analyzeWithLimit(allocator, original, options.work_limit);
+    var budget: Budget = .{ .remaining = options.work_limit };
+    var captured: ParameterCaptures = .{ .allocator = allocator, .program = original, .budget = &budget };
+    defer captured.captures.deinit(allocator);
+    var discovered = facts.analyzeObservedWithLimit(allocator, original, options.work_limit, .{ .context = &captured, .capture = ParameterCaptures.observe }) catch |err| {
+        // The observer cannot throw through the admission callback. Preserve its
+        // allocation failure even if the subsequent fact search exhausts work.
+        if (captured.failure) |failure| if (failure == error.OutOfMemory) return error.OutOfMemory;
+        return err;
+    };
     defer discovered.deinit();
+    try captured.prepare();
     var arena = std.heap.ArenaAllocator.init(allocator);
     var keep = false;
     defer if (!keep) arena.deinit();
     const a = arena.allocator();
     const permissions = try traits.derive(a, original.schemas);
-    var budget: Budget = .{ .remaining = options.work_limit };
     var proof: origin.Prover = .{ .allocator = a, .program = original, .work_limit = options.work_limit };
     defer proof.deinit();
     var variants: std.ArrayList(Variant) = .empty;
@@ -362,6 +447,7 @@ pub fn construct(allocator: std.mem.Allocator, original: ir.Program, options: Op
             if (!matches(known, certified)) continue;
             const callee = original.functions[@intCast(call.function)];
             const key: Key = .{ .epoch = discovered.epoch, .function = call.function, .parameter = parameter, .schema = callee.layout.slots[@intCast(callee.inputs[parameter])], .value = known };
+            if (!try captured.allows(key, permissions)) continue;
             const fields = captureFields(original, key);
             const captures: []const p.Id = if (fields.len != 0) (try discoveredCaptures(block, block_facts, argument, known.constructor, &budget)) orelse continue else &.{};
             const literal: ?p.Id = if (known == .unsigned) (try findLiteral(original, key.schema, known.unsigned, &budget)) orelse continue else null;
@@ -433,7 +519,7 @@ pub fn construct(allocator: std.mem.Allocator, original: ir.Program, options: Op
             }
         } else {
             const slots = try a.dupe(p.Id, before.layout.slots);
-            slots[@intCast(before.inputs[variant.key.parameter])] = original.schemas[@intCast(variant.key.schema)].sum[@intCast(variant.key.value.variant)];
+            slots[@intCast(before.inputs[variant.key.parameter])] = replacementSchemas(original, variant.key)[0];
             worker.layout.slots = slots;
         }
         functions[@intCast(variant.function)] = worker;

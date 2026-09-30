@@ -57,6 +57,7 @@ src/data/branch_reduction.zig
 src/data/call_contexts.zig
 src/data/call_pattern_capture_tests.zig
 src/data/call_pattern_constant_tests.zig
+src/data/call_pattern_retention_tests.zig
 src/data/call_pattern_variant_tests.zig
 src/data/call_pattern_word_tests.zig
 src/data/call_patterns.zig
@@ -266,6 +267,7 @@ test/v2/aggregate_reduction.zig
 test/v2/application_specialization.zig
 test/v2/bitvector_fixtures.zig
 test/v2/borrow_returns.zig
+test/v2/call_pattern_retention.zig
 test/v2/call_patterns.zig
 test/v2/call_patterns_platform.zig
 test/v2/capture_projection.zig

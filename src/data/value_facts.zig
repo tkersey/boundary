@@ -92,7 +92,12 @@ pub fn analyze(allocator: std.mem.Allocator, program: ir.Program) Error!Facts {
     return analyzeWithLimit(allocator, program, default_work_limit);
 }
 pub fn analyzeWithLimit(allocator: std.mem.Allocator, program: ir.Program, work_limit: u64) Error!Facts {
-    var checked = try ownership.analyze(allocator, program);
+    return analyzeObservedWithLimit(allocator, program, work_limit, null);
+}
+/// Observe original continuation captures during the same mandatory admission
+/// pass. Observations cannot replace or weaken any of its checks.
+pub fn analyzeObservedWithLimit(allocator: std.mem.Allocator, program: ir.Program, work_limit: u64, observer: ?ownership.CaptureObserver) Error!Facts {
+    var checked = try ownership.analyzeObserved(allocator, program, null, observer);
     defer checked.deinit();
     var budget: Work = .{ .remaining = work_limit };
     const epoch = try image.identity(allocator, program);
