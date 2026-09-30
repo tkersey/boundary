@@ -45,3 +45,10 @@ loop/overwrite/native/WASM/source-free checks and the 844-test aggregate pass;
 18 Agent images remain unchanged. All review credit is reset. The repair is published as `4d24fca` and bound by
 Agent `5dbd639`; new installation/archive checks pass and all integrated input
 artifacts match. Freeze the successor and rerun final reviews; preserve cleanup.
+
+Standalone-caller review follow-up: Boundary `d43448a` migrates seven stale export
+references in three retained test/probe files. The committed package check, category
+diagnostics, rejection tests and timing probe pass. Agent `5f4999f`
+binds the authenticated successor; emission, installation and use-archive checks
+pass, with all runtime input artifacts unchanged. Review credit is zero; fresh
+final reviews remain required. See consolidated acceptance for exact evidence.

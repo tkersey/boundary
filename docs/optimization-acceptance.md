@@ -1,7 +1,7 @@
 # Optimization acceptance
 
-**State:** repository cleanup is retained. A final-review counterexample requires
-a qualified compiler repair and authenticated package binding; fresh final serial
+**State:** repository cleanup is retained. The compiler and standalone-caller
+review repairs are qualified with authenticated package bindings; fresh final serial
 reviews remain open. This is the consolidated acceptance report for
 Boundary #161, World #59 and Agent #39. No merge or release is authorized.
 
@@ -314,3 +314,26 @@ and the new use-archive command suite (3/3) passed. Agent host code and kernel `
 are unchanged. The earlier 411-step runtime result retains its original tuple;
 reuse is limited to those identical inputs, while the newly admitted transfer
 cases have their own native/WASM proof. No historical measurement is relabeled.
+
+### Final-review follow-up: retained standalone callers
+
+Invariant review of `42b1a26` found three retained package/probe callers still
+using the retired `computation` export. Boundary `d43448a` changes seven references
+to the existing `source` export. No compiler/runtime implementation or assertion
+changes. The aggregate omitted these standalone entrypoints; all review credit
+was reset and all six initial outcomes were folded before repair.
+
+The four rejection tests pass, the category fixture now emits its intended
+Schema/Operation diagnostic, and the timing probe builds and emits 20 samples.
+The committed public-package check passes every rejection diagnostic and six
+native/Node/Wasmtime scenarios. A scan of 363 tracked Zig files and 53 named
+Boundary import bindings found no remaining retired-export dereferences.
+
+Agent `5f4999fd6ffcef6243ff59a452782228ceb4a312` binds the independently authenticated published package.
+Both package profiles verify; only the three repaired test/probe files differ
+from the preceding package. Emission passes 231 steps and one test, with 30
+additional parser steps. All 75 image/object/argument files, 41 binary fixtures
+and 67 distribution files match the prior qualified artifacts exactly. Outside-tree
+authoring and all three use-archive command tests pass. Historical aggregate/runtime
+results keep their original subjects and are reused only for unchanged inputs;
+the new standalone checks are recorded separately. Fresh final reviews remain open.
