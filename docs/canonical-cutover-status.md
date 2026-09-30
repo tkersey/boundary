@@ -61,3 +61,12 @@ Agent `da16920` binds the authenticated package; 259-step emission,
 A02 and all three archive-command tests pass. All 75+41 runtime input artifacts
 and 67 distribution files remain unchanged. All six initial review outcomes were
 folded before repair; review credit is zero and final serial reviews remain open.
+
+Capture-retention follow-up: footgun review of `74517e8` found private closures
+and worker inputs retained across continuations. Boundary `6e0e88d` preserves
+their representations using the existing ownership observer. The 847-test
+aggregate, native execution, source-free linking and 390 cross-runtime comparisons
+pass. Agent `61db493` binds the authenticated package; 259-step emission, A02 and
+all three archive-command tests pass. All runtime input and distribution bytes
+remain unchanged. The full six-lens evidence cut was folded before repair;
+review credit is zero and fresh final serial reviews remain required.

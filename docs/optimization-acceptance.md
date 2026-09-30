@@ -372,3 +372,38 @@ performance results keep their original subjects; reuse covers only identical
 runtime inputs and unchanged hosts/kernel. The new Reader cases have separate
 current proof. Cleanup and accepted cost accounting remain intact. Fresh final
 serial reviews are still required.
+
+### Final-review follow-up: continuation-retained capture representations
+
+Footgun review of `74517e8` found that private application uses do not exclude
+continuation retention. Unpacking a retained closure or worker product input
+could invalidate an admitted program. All six initial outcomes were folded
+before repair; all review credit was reset.
+
+Boundary `6e0e88d28f525d460f8a52180d23ce2e07209468` reuses the existing ownership
+analysis and retained-slot observer to preserve those representations. Original
+and candidate admission and the independent validator remain unchanged. No new
+analysis pass, allocation or public API was introduced. Matching-schema retained
+slots require a constructor-site scan; historical timings keep their subjects.
+
+The regression fails before repair and passes afterward. The full ReleaseSafe
+aggregate passes **319 steps / 847 tests**. Five cases cover retention across
+perform and indirect call, worker-input retention, and eligible operations before
+construction or after application. Three u64 vectors and both recursive branches
+pass native execution and source-free linking, including quantum-one execution.
+The expanded native/Node/Wasmtime harness passes **390 comparisons**, **39**
+malformed rejections, **39** checkpoint restores and **39** wrong-image rejections.
+The committed public-package check passes all diagnostics and six execution cases.
+These are bounded siblings; they do not establish universal family elimination.
+
+Agent `61db493a683f656d89ad9aea04851fea6b3c8e9d` binds the authenticated package.
+Emission passes **259 steps / one test**; all **75** image/object/argument files,
+**41** binary fixtures, **67** distribution files and inventory JSON match the
+preceding qualified inputs. A02 and **3/3** archive-command tests pass with no
+skips. The archive differs only in its dependency lock and checksum manifest.
+Its receipt retains the actual precommit build observation; no later head is
+substituted. World runtime `cb52f4f` and kernel `9356b126` remain unchanged.
+Historical full integration is reused only for identical runtime inputs and
+unchanged hosts/kernel. Cleanup and accepted cost accounting remain intact.
+Fresh final serial reviews are required. Canonical counterexample custody remains
+unavailable; historical horizon claims remain explicitly incomplete.
