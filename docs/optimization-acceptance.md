@@ -1,6 +1,6 @@
 # Optimization acceptance
 
-**State:** repository cleanup is retained. The compiler and standalone-caller
+**State:** repository cleanup is retained. The compiler, standalone-caller and Reader-ordering
 review repairs are qualified with authenticated package bindings; fresh final serial
 reviews remain open. This is the consolidated acceptance report for
 Boundary #161, World #59 and Agent #39. No merge or release is authorized.
@@ -337,3 +337,38 @@ and 67 distribution files match the prior qualified artifacts exactly. Outside-t
 authoring and all three use-archive command tests pass. Historical aggregate/runtime
 results keep their original subjects and are reused only for unchanged inputs;
 the new standalone checks are recorded separately. Fresh final reviews remain open.
+
+### Final-review follow-up: Reader effect ordering
+
+Invariant review of `6e68888` found that Reader fusion reused nesting-ordered
+handled evidence as a canonical effect row. Admitted descending effect-ID pairs
+therefore failed with `NonCanonical`. All six initial reviews were folded before
+repair; all credit was reset.
+
+Boundary `4d0649e9c93a3d9659f5899ad8d479c8eda205e2` preserves positional handled
+and capability evidence while separately constructing the sorted effect row.
+Independent validation uses original effect membership and candidate admission,
+with handler/state ordering unchanged. The regression fails before repair and
+passes afterward; deliberately corrupted handled evidence and rows are rejected.
+The full ReleaseSafe aggregate passes **319/319 steps and 845/845 tests**.
+
+Both ID orders pass the existing Boolean state/operation cases and noncommuting
+return cases through standalone fusion, semantic compilation and source-free
+linking. Native/Node/Wasmtime qualification passes **300 comparisons**, **24**
+malformed-input rejections, **24** checkpoint restores and **24** wrong-image
+rejections, including quantum-one execution. The committed public-package check
+also passes all rejection diagnostics and six execution scenarios.
+
+Agent `da16920dbf2ad879b243265c17decbb34fcd9ce4` binds the independently authenticated
+package; both package profiles verify. Emission passes **259/259 steps and one
+test**. All **75** image/object/argument files, **41** binary fixtures and **67**
+distribution files match the preceding qualified inputs. A02 outside-tree
+authoring and all **3/3** archive-command tests pass. The archive was built with
+the two dependency edits before their commit; its original receipt preserves
+that source observation. No later source change is hidden or relabeled.
+
+World runtime remains `cb52f4f`, kernel `9356b126`. Earlier full integration and
+performance results keep their original subjects; reuse covers only identical
+runtime inputs and unchanged hosts/kernel. The new Reader cases have separate
+current proof. Cleanup and accepted cost accounting remain intact. Fresh final
+serial reviews are still required.

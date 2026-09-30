@@ -52,3 +52,12 @@ diagnostics, rejection tests and timing probe pass. Agent `5f4999f`
 binds the authenticated successor; emission, installation and use-archive checks
 pass, with all runtime input artifacts unchanged. Review credit is zero; fresh
 final reviews remain required. See consolidated acceptance for exact evidence.
+
+Reader-ordering follow-up: invariant review of `6e68888` found that fusion conflated
+positional handled evidence with canonical effect rows. Boundary `4d0649e`
+separates them and preserves either effect-ID order. The 845-test aggregate,
+expanded native/source-free tests and 300 native/Node/Wasmtime comparisons pass.
+Agent `da16920` binds the authenticated package; 259-step emission,
+A02 and all three archive-command tests pass. All 75+41 runtime input artifacts
+and 67 distribution files remain unchanged. All six initial review outcomes were
+folded before repair; review credit is zero and final serial reviews remain open.
