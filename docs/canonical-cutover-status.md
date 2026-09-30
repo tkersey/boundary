@@ -37,3 +37,10 @@ subject. The specified cleanup and affected reference/package checks now pass. F
 the corrected scope and run the installed final serial-review contract.
 Historical narratives are archived at their exact original commits, not rewritten
 as current results. The goal remains incomplete until final review closure.
+
+A later fresh-eyes counterexample on `44505a4` found predecessor definitions lost
+by DCE local transfer pinning. The successor routes DCE through the existing
+CFG-wide executable-demand owner and retires both local pinning helpers. Focused
+loop/overwrite/native/WASM/source-free checks and the 844-test aggregate pass;
+18 Agent images remain unchanged. All review credit is reset. Publish/rebind this
+bounded repair and rerun final reviews; preserve the completed artifact cleanup.

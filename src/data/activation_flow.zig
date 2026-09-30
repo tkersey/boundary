@@ -56,7 +56,7 @@ pub fn analyze(allocator: std.mem.Allocator, image: ir.Program) Error!Facts {
 }
 
 /// Executable reads required before redefining an input, including transfers
-/// whose destinations have no downstream demand. Compiler ABI removal only;
+/// whose destinations have no downstream demand. Compiler deletion eligibility only;
 /// this must not replace capture/retention liveness.
 pub fn analyzeInputDemand(allocator: std.mem.Allocator, image: ir.Program) Error!Facts {
     return analyzeComponentDemand(allocator, image, &.{}, true);

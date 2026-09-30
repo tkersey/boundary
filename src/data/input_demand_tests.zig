@@ -112,3 +112,64 @@ test "operational input demand inverts simultaneous transfers before killing def
         try std.testing.expectEqual(@as(usize, @intFromBool(overwrite)), stats.parameters_removed);
     }
 }
+
+pub const cross_block_transfer: ir.Program = .{
+    .roots = .{ .entry = 0, .result = 0, .failure = 1 },
+    .schemas = &.{ .u64, .unit },
+    .constants = &.{.{ .schema = 0, .bytes = &.{ 7, 0, 0, 0, 0, 0, 0, 0 } }},
+    .effects = &.{},
+    .functions = &.{.{ .entry = 0, .inputs = &.{0}, .layout = .{ .slots = &.{ 0, 0, 0 } }, .result = 0 }},
+    .blocks = &.{
+        .{ .function = 0, .instructions = &.{.{ .destination = 1, .opcode = .constant, .immediate = 0 }}, .terminator = .{ .jump = .{ .block = 1 } } },
+        .{ .function = 0, .instructions = &.{}, .terminator = .{ .jump = .{ .block = 2, .assignments = &.{.{ .destination = 2, .source = .{ .slot = 1 } }} } } },
+        .{ .function = 0, .instructions = &.{}, .terminator = .{ .return_value = 0 } },
+    },
+};
+
+test "definition removal propagates retained transfer reads across blocks" {
+    const dce = @import("dead_computation.zig");
+    for ([_]bool{ false, true }) |yielding| for ([_]bool{ false, true }) |transfer| for ([_]bool{ false, true }) |overwrite| {
+        var original = cross_block_transfer;
+        var blocks = cross_block_transfer.blocks[0..3].*;
+        const next: ir.Edge = .{ .block = 2, .assignments = if (transfer) cross_block_transfer.blocks[1].terminator.jump.assignments else &.{} };
+        blocks[1].terminator = if (yielding) .{ .yield_value = next } else .{ .jump = next };
+        if (overwrite) blocks[1].instructions = cross_block_transfer.blocks[0].instructions;
+        original.blocks = &blocks;
+        var admitted = try ownership.analyze(a, original);
+        defer admitted.deinit();
+        var stats: dce.Statistics = .{};
+        var result = try dce.run(a, original, &stats, .{});
+        defer result.deinit();
+        const expected: usize = if (transfer and !overwrite) 0 else if (!transfer and overwrite) 2 else 1;
+        try std.testing.expectEqual(expected, stats.instructions_removed);
+        var compiled = try @import("closed_compilation.zig").run(a, original, .{ .contract = .semantic });
+        defer compiled.deinit();
+        if (transfer and !overwrite) {
+            blocks[0].instructions = &.{};
+            var invalid = original;
+            invalid.blocks = &blocks;
+            try std.testing.expectError(error.UnavailableSlot, ownership.analyze(a, invalid));
+            try std.testing.expectError(error.UnavailableSlot, dce.validate(a, cross_block_transfer, invalid, &.{.{ .block = 0, .removed = &.{0} }}));
+        }
+    };
+}
+
+test "definition removal propagates transfer reads through a loop backedge" {
+    const dce = @import("dead_computation.zig");
+    var original = cross_block_transfer;
+    original.schemas = &.{ .u64, .unit, .boolean };
+    original.constants = &.{ cross_block_transfer.constants[0], .{ .schema = 2, .bytes = &.{0} } };
+    original.functions = &.{.{ .entry = 0, .inputs = &.{ 0, 3 }, .layout = .{ .slots = &.{ 0, 0, 0, 2 } }, .result = 0 }};
+    original.blocks = &.{
+        cross_block_transfer.blocks[0],
+        .{ .function = 0, .instructions = &.{}, .terminator = .{ .branch = .{ .condition = 3, .when_true = .{ .block = 2 }, .when_false = .{ .block = 3 } } } },
+        .{ .function = 0, .instructions = &.{.{ .destination = 3, .opcode = .constant, .immediate = 1 }}, .terminator = .{ .yield_value = .{ .block = 1, .assignments = cross_block_transfer.blocks[1].terminator.jump.assignments } } },
+        cross_block_transfer.blocks[2],
+    };
+    var stats: dce.Statistics = .{};
+    var result = try dce.run(a, original, &stats, .{});
+    defer result.deinit();
+    try std.testing.expectEqual(@as(usize, 0), stats.instructions_removed);
+    var compiled = try @import("closed_compilation.zig").run(a, original, .{ .contract = .semantic });
+    defer compiled.deinit();
+}

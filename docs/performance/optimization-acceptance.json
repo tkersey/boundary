@@ -1,6 +1,6 @@
 {
   "format": "optimization-acceptance/v1",
-  "status": "technical-qualification-and-cleanup-passed-final-serial-reviews-open",
+  "status": "review-followup-locally-qualified-package-binding-and-fresh-reviews-open",
   "scope": "P01-P31, T01-T42, G01-G45, L01-L20. Historical measurements keep their original subjects; this report does not relabel them as new measurements.",
   "qualifiedTuple": {
     "boundary": "42c089c9c07cf01054ecd057d39a95660db919de",
@@ -8696,5 +8696,505 @@
         }
       }
     }
+  },
+  "reviewFollowup": {
+    "subject": "44505a4fe38e21cbd1a0ca083bdfb75e58723b35",
+    "finding": "DCE local edge pinning does not propagate retained transfer reads to predecessor definitions; admitted programs fail UnavailableSlot.",
+    "credit": "All review credit reset; six initial outcomes folded, invalidated epoch closed.",
+    "architecture": {
+      "outcome": "retain ordinary executable-demand owner; extend its consumer coverage",
+      "owner": "activation_flow.analyzeInputDemand",
+      "change": "DCE finder and independent validator consume CFG-wide executable demand; delete pinEdge/pinExplicitTransfers. Original/candidate ownership admission and normal capture/retention liveness stay separate.",
+      "scope": "Existing statement-elimination slice; no new cleanup target or authoring migration.",
+      "discriminator": "Cross-block transfer, overwrite-before-transfer, genuine dead constants and loop backedge; all must preserve admitted compilation."
+    },
+    "validation": {
+      "red": {
+        "exitCode": 1,
+        "testsFailed": 2,
+        "sourceHead": "44505a4fe38e21cbd1a0ca083bdfb75e58723b35",
+        "logSha256": "35cfbb6bd56e3159dce4e38d3b442c183f39fb98302aaf1a544c809ca55fe0d0"
+      },
+      "focused": {
+        "exitCode": 0,
+        "tests": 2,
+        "logSha256": "30887c94e28a62979b319b9b971b59bdd2bbbde8181699ce2fc8c6913ab115cd"
+      },
+      "native": {
+        "exitCode": 0,
+        "tests": 1,
+        "scope": "Original/DCE/shared/source-free linked programs, three independent expected inputs, quantum-one fresh invocations and exactly one authored yield.",
+        "logSha256": "6080083c24944f111aa322c6eae4a87fbf144939ebe1bc2cfe9346742ec67d69"
+      },
+      "wasm": {
+        "status": "passed",
+        "kernelSha256": "9356b1264a215486b579a143dcc2ff73711f2a7e44898b3560922d68cdf1338d",
+        "scope": "Independent expected scalar result for interaction and predecessor-transfer original/selected/shared/linked images; each quantum-one checkpoint resumes in a fresh WASM instance. Cross-image step equality is not claimed.",
+        "rows": [
+          {
+            "mode": "original",
+            "imageBytes": 197,
+            "imageSha256": "0620a95e5a7c64a87e89b1186c6b77b1f92d5124195d0173912a45efbf93cdc7",
+            "input": [
+              "7",
+              "11",
+              "13",
+              "42"
+            ],
+            "result": "42",
+            "steps": 10,
+            "yields": 0,
+            "checkpointBytes": 148
+          },
+          {
+            "mode": "original",
+            "imageBytes": 197,
+            "imageSha256": "0620a95e5a7c64a87e89b1186c6b77b1f92d5124195d0173912a45efbf93cdc7",
+            "input": [
+              "0",
+              "1",
+              "2",
+              "18446744073709551615"
+            ],
+            "result": "18446744073709551615",
+            "steps": 10,
+            "yields": 0,
+            "checkpointBytes": 148
+          },
+          {
+            "mode": "original",
+            "imageBytes": 197,
+            "imageSha256": "0620a95e5a7c64a87e89b1186c6b77b1f92d5124195d0173912a45efbf93cdc7",
+            "input": [
+              "99",
+              "98",
+              "97",
+              "0"
+            ],
+            "result": "0",
+            "steps": 10,
+            "yields": 0,
+            "checkpointBytes": 148
+          },
+          {
+            "mode": "selected",
+            "imageBytes": 113,
+            "imageSha256": "8c879608f260d35602c82137dd45e96847a48a1d193213ffbb89cd5766896420",
+            "input": [
+              "7",
+              "11",
+              "13",
+              "42"
+            ],
+            "result": "42",
+            "steps": 8,
+            "yields": 0,
+            "checkpointBytes": 104
+          },
+          {
+            "mode": "selected",
+            "imageBytes": 113,
+            "imageSha256": "8c879608f260d35602c82137dd45e96847a48a1d193213ffbb89cd5766896420",
+            "input": [
+              "0",
+              "1",
+              "2",
+              "18446744073709551615"
+            ],
+            "result": "18446744073709551615",
+            "steps": 8,
+            "yields": 0,
+            "checkpointBytes": 104
+          },
+          {
+            "mode": "selected",
+            "imageBytes": 113,
+            "imageSha256": "8c879608f260d35602c82137dd45e96847a48a1d193213ffbb89cd5766896420",
+            "input": [
+              "99",
+              "98",
+              "97",
+              "0"
+            ],
+            "result": "0",
+            "steps": 8,
+            "yields": 0,
+            "checkpointBytes": 104
+          },
+          {
+            "mode": "shared",
+            "imageBytes": 106,
+            "imageSha256": "2e14536008773b748bf3ff9ea1a42c9378def431f731ce1d50de0d3ce86f3442",
+            "input": [
+              "7",
+              "11",
+              "13",
+              "42"
+            ],
+            "result": "42",
+            "steps": 6,
+            "yields": 0,
+            "checkpointBytes": 104
+          },
+          {
+            "mode": "shared",
+            "imageBytes": 106,
+            "imageSha256": "2e14536008773b748bf3ff9ea1a42c9378def431f731ce1d50de0d3ce86f3442",
+            "input": [
+              "0",
+              "1",
+              "2",
+              "18446744073709551615"
+            ],
+            "result": "18446744073709551615",
+            "steps": 6,
+            "yields": 0,
+            "checkpointBytes": 104
+          },
+          {
+            "mode": "shared",
+            "imageBytes": 106,
+            "imageSha256": "2e14536008773b748bf3ff9ea1a42c9378def431f731ce1d50de0d3ce86f3442",
+            "input": [
+              "99",
+              "98",
+              "97",
+              "0"
+            ],
+            "result": "0",
+            "steps": 6,
+            "yields": 0,
+            "checkpointBytes": 104
+          },
+          {
+            "mode": "transfer-original",
+            "imageBytes": 68,
+            "imageSha256": "5ee6995b3ff3c33c448c6b7c3d84f169dcf84fbff7ead511db2114cd440f4eb6",
+            "input": [
+              "0"
+            ],
+            "result": "0",
+            "steps": 4,
+            "yields": 1,
+            "checkpointBytes": 82
+          },
+          {
+            "mode": "transfer-original",
+            "imageBytes": 68,
+            "imageSha256": "5ee6995b3ff3c33c448c6b7c3d84f169dcf84fbff7ead511db2114cd440f4eb6",
+            "input": [
+              "42"
+            ],
+            "result": "42",
+            "steps": 4,
+            "yields": 1,
+            "checkpointBytes": 82
+          },
+          {
+            "mode": "transfer-original",
+            "imageBytes": 68,
+            "imageSha256": "5ee6995b3ff3c33c448c6b7c3d84f169dcf84fbff7ead511db2114cd440f4eb6",
+            "input": [
+              "18446744073709551615"
+            ],
+            "result": "18446744073709551615",
+            "steps": 4,
+            "yields": 1,
+            "checkpointBytes": 82
+          },
+          {
+            "mode": "transfer-selected",
+            "imageBytes": 68,
+            "imageSha256": "5ee6995b3ff3c33c448c6b7c3d84f169dcf84fbff7ead511db2114cd440f4eb6",
+            "input": [
+              "0"
+            ],
+            "result": "0",
+            "steps": 4,
+            "yields": 1,
+            "checkpointBytes": 82
+          },
+          {
+            "mode": "transfer-selected",
+            "imageBytes": 68,
+            "imageSha256": "5ee6995b3ff3c33c448c6b7c3d84f169dcf84fbff7ead511db2114cd440f4eb6",
+            "input": [
+              "42"
+            ],
+            "result": "42",
+            "steps": 4,
+            "yields": 1,
+            "checkpointBytes": 82
+          },
+          {
+            "mode": "transfer-selected",
+            "imageBytes": 68,
+            "imageSha256": "5ee6995b3ff3c33c448c6b7c3d84f169dcf84fbff7ead511db2114cd440f4eb6",
+            "input": [
+              "18446744073709551615"
+            ],
+            "result": "18446744073709551615",
+            "steps": 4,
+            "yields": 1,
+            "checkpointBytes": 82
+          },
+          {
+            "mode": "transfer-shared",
+            "imageBytes": 68,
+            "imageSha256": "5ee6995b3ff3c33c448c6b7c3d84f169dcf84fbff7ead511db2114cd440f4eb6",
+            "input": [
+              "0"
+            ],
+            "result": "0",
+            "steps": 4,
+            "yields": 1,
+            "checkpointBytes": 82
+          },
+          {
+            "mode": "transfer-shared",
+            "imageBytes": 68,
+            "imageSha256": "5ee6995b3ff3c33c448c6b7c3d84f169dcf84fbff7ead511db2114cd440f4eb6",
+            "input": [
+              "42"
+            ],
+            "result": "42",
+            "steps": 4,
+            "yields": 1,
+            "checkpointBytes": 82
+          },
+          {
+            "mode": "transfer-shared",
+            "imageBytes": 68,
+            "imageSha256": "5ee6995b3ff3c33c448c6b7c3d84f169dcf84fbff7ead511db2114cd440f4eb6",
+            "input": [
+              "18446744073709551615"
+            ],
+            "result": "18446744073709551615",
+            "steps": 4,
+            "yields": 1,
+            "checkpointBytes": 82
+          },
+          {
+            "mode": "transfer-linked",
+            "imageBytes": 68,
+            "imageSha256": "5ee6995b3ff3c33c448c6b7c3d84f169dcf84fbff7ead511db2114cd440f4eb6",
+            "input": [
+              "0"
+            ],
+            "result": "0",
+            "steps": 4,
+            "yields": 1,
+            "checkpointBytes": 82
+          },
+          {
+            "mode": "transfer-linked",
+            "imageBytes": 68,
+            "imageSha256": "5ee6995b3ff3c33c448c6b7c3d84f169dcf84fbff7ead511db2114cd440f4eb6",
+            "input": [
+              "42"
+            ],
+            "result": "42",
+            "steps": 4,
+            "yields": 1,
+            "checkpointBytes": 82
+          },
+          {
+            "mode": "transfer-linked",
+            "imageBytes": 68,
+            "imageSha256": "5ee6995b3ff3c33c448c6b7c3d84f169dcf84fbff7ead511db2114cd440f4eb6",
+            "input": [
+              "18446744073709551615"
+            ],
+            "result": "18446744073709551615",
+            "steps": 4,
+            "yields": 1,
+            "checkpointBytes": 82
+          }
+        ]
+      },
+      "fullBoundary": {
+        "exitCode": 0,
+        "steps": 319,
+        "tests": 844,
+        "command": "zig build check -Doptimize=ReleaseSafe --summary all",
+        "logSha256": "dbe718e70ead58352fd937c55994eb3b2f89dbc77ee3de84281a111bab836c3a"
+      },
+      "consumerCorpus": {
+        "status": "complete",
+        "rows": [
+          {
+            "name": "clarify-first.bpi3",
+            "beforeBytes": 9428,
+            "afterBytes": 9428,
+            "beforeSha256": "4216be2b0e0f840405ae45bec038b098475e12a1a17b047b655de3372c35cd87",
+            "afterSha256": "4216be2b0e0f840405ae45bec038b098475e12a1a17b047b655de3372c35cd87",
+            "equal": true
+          },
+          {
+            "name": "conversation.bpi3",
+            "beforeBytes": 375,
+            "afterBytes": 375,
+            "beforeSha256": "e4b837164f3299d76e71f35329069d2d1f2cb8a60c4567705ab40d4ca6d90537",
+            "afterSha256": "e4b837164f3299d76e71f35329069d2d1f2cb8a60c4567705ab40d4ca6d90537",
+            "equal": true
+          },
+          {
+            "name": "direct.bpi3",
+            "beforeBytes": 90,
+            "afterBytes": 90,
+            "beforeSha256": "0868302e26c48ef5920ed4bef1746dab60edbc618f2e540ba6e5ea1049e6ed7b",
+            "afterSha256": "0868302e26c48ef5920ed4bef1746dab60edbc618f2e540ba6e5ea1049e6ed7b",
+            "equal": true
+          },
+          {
+            "name": "document-consequence.bpi3",
+            "beforeBytes": 11473,
+            "afterBytes": 11473,
+            "beforeSha256": "c7b779c95f6aa42ddbd155c8d3d6d263c4f7dce7a3e909ed8d35227abeec7adc",
+            "afterSha256": "c7b779c95f6aa42ddbd155c8d3d6d263c4f7dce7a3e909ed8d35227abeec7adc",
+            "equal": true
+          },
+          {
+            "name": "document.bpi3",
+            "beforeBytes": 7379,
+            "afterBytes": 7379,
+            "beforeSha256": "c29636f62a7ee369b35176d604f38a71b692f045f04c78f9efc768a87daa2f1f",
+            "afterSha256": "c29636f62a7ee369b35176d604f38a71b692f045f04c78f9efc768a87daa2f1f",
+            "equal": true
+          },
+          {
+            "name": "facade.bpi3",
+            "beforeBytes": 90,
+            "afterBytes": 90,
+            "beforeSha256": "0868302e26c48ef5920ed4bef1746dab60edbc618f2e540ba6e5ea1049e6ed7b",
+            "afterSha256": "0868302e26c48ef5920ed4bef1746dab60edbc618f2e540ba6e5ea1049e6ed7b",
+            "equal": true
+          },
+          {
+            "name": "inquiry-react.bpi3",
+            "beforeBytes": 40995,
+            "afterBytes": 40995,
+            "beforeSha256": "c94376159a951ba86be58732163807b798513e4f45b809156d2ab159f0d3107c",
+            "afterSha256": "c94376159a951ba86be58732163807b798513e4f45b809156d2ab159f0d3107c",
+            "equal": true
+          },
+          {
+            "name": "inquiry-repair.bpi3",
+            "beforeBytes": 35268,
+            "afterBytes": 35268,
+            "beforeSha256": "2ff4cc898acb038bebd42cffb7a9c57722031627f6f691514a7837f5eeb9ee57",
+            "afterSha256": "2ff4cc898acb038bebd42cffb7a9c57722031627f6f691514a7837f5eeb9ee57",
+            "equal": true
+          },
+          {
+            "name": "inquiry-repeated.bpi3",
+            "beforeBytes": 35632,
+            "afterBytes": 35632,
+            "beforeSha256": "d27f2b32197e1455c1ed3e63263324abd551438cfac1c9c8d722c59608fffccc",
+            "afterSha256": "d27f2b32197e1455c1ed3e63263324abd551438cfac1c9c8d722c59608fffccc",
+            "equal": true
+          },
+          {
+            "name": "review-clarify_first.bpi3",
+            "beforeBytes": 3038,
+            "afterBytes": 3038,
+            "beforeSha256": "d39f58b356cc89f881610a499b69e20ccb55ca343ef75be92ba45b00c8e97b4a",
+            "afterSha256": "d39f58b356cc89f881610a499b69e20ccb55ca343ef75be92ba45b00c8e97b4a",
+            "equal": true
+          },
+          {
+            "name": "review-human.bpi3",
+            "beforeBytes": 414,
+            "afterBytes": 414,
+            "beforeSha256": "222e18e156a1a93d19cbbe3787725cf6f298e2b2e57a914c2e3e1a34be77af72",
+            "afterSha256": "222e18e156a1a93d19cbbe3787725cf6f298e2b2e57a914c2e3e1a34be77af72",
+            "equal": true
+          },
+          {
+            "name": "review-mid_review.bpi3",
+            "beforeBytes": 3039,
+            "afterBytes": 3039,
+            "beforeSha256": "5ed04eb3bfb41dc37905f90c9b643cd7333b0466afb86ab4a8f071cb49482e09",
+            "afterSha256": "5ed04eb3bfb41dc37905f90c9b643cd7333b0466afb86ab4a8f071cb49482e09",
+            "equal": true
+          },
+          {
+            "name": "review-model.bpi3",
+            "beforeBytes": 2331,
+            "afterBytes": 2331,
+            "beforeSha256": "927469ff6b1b7c95ea9aac4124a4b6303961d585c858416d9fc5466b3a8612bd",
+            "afterSha256": "927469ff6b1b7c95ea9aac4124a4b6303961d585c858416d9fc5466b3a8612bd",
+            "equal": true
+          },
+          {
+            "name": "review-react.bpi3",
+            "beforeBytes": 248,
+            "afterBytes": 248,
+            "beforeSha256": "2aa59a11c5a318e8820c158e7ea045878ad5e37c4b8f37b210e2eff7ae879a4d",
+            "afterSha256": "2aa59a11c5a318e8820c158e7ea045878ad5e37c4b8f37b210e2eff7ae879a4d",
+            "equal": true
+          },
+          {
+            "name": "review-rule.bpi3",
+            "beforeBytes": 269,
+            "afterBytes": 269,
+            "beforeSha256": "e159594845f0d01375a92eb46b2fc04bf3017881b9b69fbdff728384198c164e",
+            "afterSha256": "e159594845f0d01375a92eb46b2fc04bf3017881b9b69fbdff728384198c164e",
+            "equal": true
+          },
+          {
+            "name": "sharing-1.bpi3",
+            "beforeBytes": 292,
+            "afterBytes": 292,
+            "beforeSha256": "f0a17ed97f5e5e66829fd1a10a990394c444aa2331fc2686abb3157eb72319c7",
+            "afterSha256": "f0a17ed97f5e5e66829fd1a10a990394c444aa2331fc2686abb3157eb72319c7",
+            "equal": true
+          },
+          {
+            "name": "sharing-64.bpi3",
+            "beforeBytes": 2032,
+            "afterBytes": 2032,
+            "beforeSha256": "0b3dfa0f5598bfd365ade0fbd3b6052846eea524aeba4e28144053b6b373d328",
+            "afterSha256": "0b3dfa0f5598bfd365ade0fbd3b6052846eea524aeba4e28144053b6b373d328",
+            "equal": true
+          },
+          {
+            "name": "sharing-8.bpi3",
+            "beforeBytes": 460,
+            "afterBytes": 460,
+            "beforeSha256": "89a257a0c46c711c342aa92d1507bea537358e1140b753ac585ca3a805167458",
+            "afterSha256": "89a257a0c46c711c342aa92d1507bea537358e1140b753ac585ca3a805167458",
+            "equal": true
+          }
+        ]
+      }
+    },
+    "remaining": "Publish and authenticate successor package; qualify affected consumer artifacts; fresh final review with all previous credit reset. Completed cleanup remains retained.",
+    "sourceInputs": [
+      {
+        "path": "src/data/dead_computation.zig",
+        "sha256": "b925e431f6192a25a8c409330d6d82db3c80f5dd5e6ecb90506a572ea9e9bcf3"
+      },
+      {
+        "path": "src/data/activation_flow.zig",
+        "sha256": "9a631e363f81bfd6ff70697c9ccd6e012918ed250a013012d1649c8eba569fa7"
+      },
+      {
+        "path": "src/data/input_demand_tests.zig",
+        "sha256": "0c4a55c116fe59509bac3b5cfa1ca90e8f1d325d36a47a500eee463f99808801"
+      },
+      {
+        "path": "test/v2/application_specialization.zig",
+        "sha256": "2056220d9e7e44be7f003d44cd07d049241c9bf00dbd7276a217c059ff6afc96"
+      },
+      {
+        "path": "test/v2/optimization_interaction_emit.zig",
+        "sha256": "f39c45981b6bca9db8f43575b9c6f8eb8ae228af1d93e344db0a692385d6921c"
+      },
+      {
+        "path": "test/optimization_interaction.mjs",
+        "sha256": "5415598e5434723bf56fe1c91d218470e22835880ae4af91fa0e633fa4b41f24"
+      }
+    ]
   }
 }

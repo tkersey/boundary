@@ -634,3 +634,57 @@ test "G41 branch specialization dead capture arguments and coalescing have separ
         }
     }
 }
+
+pub const predecessor_transfer: ir.Program = .{
+    .roots = .{ .entry = 0, .result = 0, .failure = 1 },
+    .schemas = &.{ .u64, .unit },
+    .constants = &.{.{ .schema = 0, .bytes = &.{ 7, 0, 0, 0, 0, 0, 0, 0 } }},
+    .effects = &.{},
+    .functions = &.{.{ .entry = 0, .inputs = &.{0}, .layout = .{ .slots = &.{ 0, 0, 0 } }, .result = 0 }},
+    .blocks = &.{
+        .{ .function = 0, .instructions = &.{.{ .destination = 1, .opcode = .constant, .immediate = 0 }}, .terminator = .{ .jump = .{ .block = 1 } } },
+        .{ .function = 0, .instructions = &.{}, .terminator = .{ .yield_value = .{ .block = 2, .assignments = &.{.{ .destination = 2, .source = .{ .slot = 1 } }} } } },
+        .{ .function = 0, .instructions = &.{}, .terminator = .{ .return_value = 0 } },
+    },
+};
+
+test "World executes retained transfer reads across predecessor blocks and closed linking" {
+    const a = std.testing.allocator;
+    var direct = try data.dead_computation.run(a, predecessor_transfer, null, .{});
+    defer direct.deinit();
+    var compiled = try data.closed_compilation.run(a, predecessor_transfer, .{ .contract = .semantic });
+    defer compiled.deinit();
+    const object: data.component.Object = .{ .program = predecessor_transfer, .exports = &.{.{ .name = "main", .reference = .{ .kind = .function, .id = 0 } }}, .borrows = &.{.{ .function = 0 }} };
+    const encoded = try a.alloc(u8, try data.component.encodedLength(object));
+    defer a.free(encoded);
+    _ = try data.component.encode(a, object, encoded);
+    var linked = try data.linker.linkWithCompilation(a, &.{.{ .key = "transfer", .object = encoded }}, &.{}, .{ .instance = "transfer", .symbol = "main" }, .{ .contract = .semantic });
+    defer linked.deinit();
+    @memset(encoded, 0xff);
+    for ([_]u64{ 0, 42, std.math.maxInt(u64) }) |word| {
+        var args: [8]u8 = undefined;
+        std.mem.writeInt(u64, &args, word, .little);
+        for ([_]ir.Program{ predecessor_transfer, direct.program, compiled.program, linked.program }) |program| {
+            const bytes = try a.alloc(u8, try data.program_image.encodedLength(program));
+            defer a.free(bytes);
+            _ = try data.program_image.encode(a, program, bytes);
+            var result = try world.invocation.invoke(a, .{ .image = bytes, .instance = .{ .initial_args = &args }, .quantum = 1 });
+            defer result.deinit();
+            var yields: usize = 0;
+            var steps: usize = 0;
+            while (result.record == .progressed or result.record == .yielded) {
+                try std.testing.expect(steps < 16);
+                const yielded = result.record == .yielded;
+                yields += @intFromBool(yielded);
+                const state = if (yielded) result.record.yielded.? else result.record.progressed.?;
+                const next = try world.invocation.invoke(a, .{ .image = bytes, .instance = .{ .state = state }, .control = if (yielded) .resume_yield else .none, .quantum = 1 });
+                result.deinit();
+                result = next;
+                steps += 1;
+            }
+            try std.testing.expectEqual(@as(usize, 1), yields);
+            try std.testing.expect(result.record == .completed);
+            try std.testing.expectEqualSlices(u8, &args, result.record.completed);
+        }
+    }
+}

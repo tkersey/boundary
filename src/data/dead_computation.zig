@@ -7,33 +7,11 @@ const p = @import("program.zig");
 const ownership = @import("activation_ownership.zig");
 const traits = @import("traits.zig");
 const equal = @import("record_equal.zig").equal;
-const sets = @import("analysis_sets.zig");
 const coalescing = @import("coalescing.zig");
 pub const Error = coalescing.Error || error{InvalidDeadComputation};
 pub const Options = struct { work_limit: u64 = std.math.maxInt(u64), round_limit: usize = std.math.maxInt(usize), coalescing: coalescing.Options = .{} };
 pub const Statistics = struct { instructions_removed: usize = 0, constructions_removed: usize = 0, rounds: usize = 0, round_attempts: usize = 0, work: u64 = 0, work_limit: bool = false };
 pub const Witness = struct { block: usize, removed: []const usize };
-
-fn pinEdge(pool: *sets.Pool, root: sets.Root, edge: ir.Edge) Error!sets.Root {
-    var result = root;
-    for (edge.assignments) |assignment| if (assignment.source == .slot) {
-        result = try pool.insert(result, assignment.source.slot);
-    };
-    return result;
-}
-fn pinExplicitTransfers(pool: *sets.Pool, root: sets.Root, term: ir.Terminator) Error!sets.Root {
-    return switch (term) {
-        .return_value, .fail => root,
-        .jump, .yield_value => |edge| pinEdge(pool, root, edge),
-        .branch => |branch| pinEdge(pool, try pinEdge(pool, root, branch.when_true), branch.when_false),
-        .switch_variant => |branch| blk: {
-            var result = root;
-            for (branch.cases) |edge| result = try pinEdge(pool, result, edge);
-            break :blk result;
-        },
-        inline else => |control| pinEdge(pool, root, control.next),
-    };
-}
 
 pub fn run(allocator: std.mem.Allocator, original: ir.Program, statistics: ?*Statistics, options: Options) Error!coalescing.Owned {
     var stats: Statistics = .{};
@@ -52,7 +30,9 @@ pub fn run(allocator: std.mem.Allocator, original: ir.Program, statistics: ?*Sta
             return coalescing.run(allocator, original, options.coalescing);
         }
         stats.round_attempts += 1;
-        var flow = try ownership.analyze(allocator, current);
+        var admitted = try ownership.analyze(allocator, current);
+        defer admitted.deinit();
+        var flow = try @import("activation_flow.zig").analyzeInputDemand(allocator, current);
         defer flow.deinit();
         var next_arena = std.heap.ArenaAllocator.init(allocator);
         defer next_arena.deinit();
@@ -67,12 +47,6 @@ pub fn run(allocator: std.mem.Allocator, original: ir.Program, statistics: ?*Sta
             @memset(remove, false);
             if (flow.live[id].len != 0) {
                 var demand = flow.live[id][block.instructions.len];
-                // Liveness may omit a source assigned to a dead successor slot.
-                // The explicit assignment still executes and must remain valid
-                // until a separate checked edge rewrite removes it.
-                // Control operands are already in the admitted liveness root.
-                // Add only the explicit edge sources that demand can omit.
-                demand = try pinExplicitTransfers(flow.pool, demand, block.terminator);
                 var index = block.instructions.len;
                 while (index != 0) {
                     if (stats.work == options.work_limit) {
@@ -146,7 +120,9 @@ fn totalDroppable(program: ir.Program, function: p.Id, instruction: ir.Instructi
 pub fn validate(allocator: std.mem.Allocator, original: ir.Program, candidate: ir.Program, witnesses: []const Witness) Error!void {
     var original_flow = try ownership.analyze(allocator, original);
     defer original_flow.deinit();
-    var candidate_flow = try ownership.analyze(allocator, candidate);
+    var admitted_candidate = try ownership.analyze(allocator, candidate);
+    defer admitted_candidate.deinit();
+    var candidate_flow = try @import("activation_flow.zig").analyzeInputDemand(allocator, candidate);
     defer candidate_flow.deinit();
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();

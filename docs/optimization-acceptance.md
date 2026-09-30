@@ -1,7 +1,7 @@
 # Optimization acceptance
 
-**State:** technical qualification and repository cleanup passed; final serial
-reviews remain open. This is the consolidated acceptance report for
+**State:** repository cleanup is retained. A final-review counterexample requires
+a qualified compiler repair and new package binding; final serial reviews remain open. This is the consolidated acceptance report for
 Boundary #161, World #59 and Agent #39. No merge or release is authorized.
 
 The [current specification](canonical-cutover-and-optimization-spec.md) owns all
@@ -283,3 +283,23 @@ verification results are retained in the measurement record.
 This final evidence update is outside the dependency package allowlist. It does
 not change the authenticated compiler package or require another runtime build.
 Final reviews must cover the current corrected heads, including this cleanup.
+
+### Final-review follow-up: predecessor transfer demand
+
+Fresh-eyes review of `44505a4` found that dead-computation removal pinned explicit
+transfer sources only in their own block. An admitted predecessor definition could
+therefore be erased and cause `UnavailableSlot` during semantic compilation.
+This invalidates that candidate and resets all review credit; all six initial
+outcomes were collected before reopening implementation.
+
+The successor reuses the existing CFG-wide executable-demand fixed point in the
+DCE finder and independent validator, retiring `pinEdge` and
+`pinExplicitTransfers`. Ordinary capture/retention liveness and original/candidate
+ownership admission remain separate. Cross-block jump/yield, overwrite, genuine
+dead-definition and loop-backedge regressions pass. Native/source-free execution
+and fresh-instance WASM quantum-one checkpoints preserve expected values and
+authored yields. Full Boundary qualification passes 319/319 steps and 844/844 tests;
+all 18 current Agent corpus images remain byte-identical. Publication, package
+binding and fresh final reviews remain open.
+The machine-readable follow-up preserves the red result and scoped green evidence.
+No additional report family, authoring migration or runtime rebuild is introduced.
