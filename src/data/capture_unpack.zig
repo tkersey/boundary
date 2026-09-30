@@ -61,10 +61,43 @@ fn project(a: std.mem.Allocator, layout: *std.ArrayList(p.Id), instructions: *st
     }
     return slots;
 }
+
+/// Private apply uses do not exclude retention in an effect continuation.
+/// Keep both representations unchanged when ownership observes such retention:
+/// the constructed closure's schema and the worker's product input contract.
+const RepresentationRetention = struct {
+    program: ir.Program,
+    constructor: usize,
+    retained: bool = false,
+
+    fn observe(context: *anyopaque, function: p.Id, _: p.Id, slot: p.Id) void {
+        const self: *@This() = @ptrCast(@alignCast(context));
+        if (self.retained or self.constructor >= self.program.constructors.len) return;
+        const ctor = self.program.constructors[self.constructor];
+        const worker = self.program.functions[@intCast(ctor.function)];
+        if (function == ctor.function and worker.inputs.len != 0 and slot == worker.inputs[0]) {
+            self.retained = true;
+            return;
+        }
+        if (self.program.functions[@intCast(function)].layout.slots[@intCast(slot)] != ctor.schema) return;
+        for (self.program.blocks) |block| {
+            if (block.function != function) continue;
+            for (block.instructions) |op| {
+                if (op.opcode == .computation and op.immediate == self.constructor and op.destination == slot) {
+                    self.retained = true;
+                    return;
+                }
+            }
+        }
+    }
+};
+
 pub fn construct(allocator: std.mem.Allocator, original: ir.Program, id: usize) Error!?Candidate {
-    var admitted = try own.analyze(allocator, original);
+    var retention: RepresentationRetention = .{ .program = original, .constructor = id };
+    var admitted = try own.analyzeObserved(allocator, original, null, .{ .context = &retention, .capture = RepresentationRetention.observe });
     defer admitted.deinit();
     const field_types = fields(original, id) orelse return null;
+    if (retention.retained) return null;
     var arena = std.heap.ArenaAllocator.init(allocator);
     errdefer arena.deinit();
     const a = arena.allocator();
