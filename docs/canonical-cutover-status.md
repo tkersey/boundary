@@ -42,5 +42,6 @@ A later fresh-eyes counterexample on `44505a4` found predecessor definitions los
 by DCE local transfer pinning. The successor routes DCE through the existing
 CFG-wide executable-demand owner and retires both local pinning helpers. Focused
 loop/overwrite/native/WASM/source-free checks and the 844-test aggregate pass;
-18 Agent images remain unchanged. All review credit is reset. Publish/rebind this
-bounded repair and rerun final reviews; preserve the completed artifact cleanup.
+18 Agent images remain unchanged. All review credit is reset. The repair is published as `4d24fca` and bound by
+Agent `5dbd639`; new installation/archive checks pass and all integrated input
+artifacts match. Freeze the successor and rerun final reviews; preserve cleanup.

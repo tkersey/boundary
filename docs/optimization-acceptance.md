@@ -1,7 +1,8 @@
 # Optimization acceptance
 
 **State:** repository cleanup is retained. A final-review counterexample requires
-a qualified compiler repair and new package binding; final serial reviews remain open. This is the consolidated acceptance report for
+a qualified compiler repair and authenticated package binding; fresh final serial
+reviews remain open. This is the consolidated acceptance report for
 Boundary #161, World #59 and Agent #39. No merge or release is authorized.
 
 The [current specification](canonical-cutover-and-optimization-spec.md) owns all
@@ -299,7 +300,17 @@ ownership admission remain separate. Cross-block jump/yield, overwrite, genuine
 dead-definition and loop-backedge regressions pass. Native/source-free execution
 and fresh-instance WASM quantum-one checkpoints preserve expected values and
 authored yields. Full Boundary qualification passes 319/319 steps and 844/844 tests;
-all 18 current Agent corpus images remain byte-identical. Publication, package
-binding and fresh final reviews remain open.
+all 18 current Agent corpus images remain byte-identical. The successor is published and bound; fresh final reviews remain open.
 The machine-readable follow-up preserves the red result and scoped green evidence.
 No additional report family, authoring migration or runtime rebuild is introduced.
+
+The published repair is Boundary `4d24fca7faa43e29dae70b19522a31e1cd2a007b`,
+bound by Agent `5dbd639eb66add423eefc4ae49db8c43f3a5bdaf`. Its source tree and
+both package profiles are independently authenticated. Re-emission passed
+231 steps plus one test, with 30 additional parser-artifact steps; all 75
+image/object/argument files, 41 binary fixtures and the 67 declared distribution
+files match the original integrated inputs exactly. Outside-tree A02 authoring
+and the new use-archive command suite (3/3) passed. Agent host code and kernel `9356b126`
+are unchanged. The earlier 411-step runtime result retains its original tuple;
+reuse is limited to those identical inputs, while the newly admitted transfer
+cases have their own native/WASM proof. No historical measurement is relabeled.
