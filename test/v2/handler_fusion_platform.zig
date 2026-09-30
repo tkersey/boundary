@@ -17,8 +17,8 @@ pub fn main(init: std.process.Init) !void {
     if (args.next() != null) return error.Arguments;
     var arena = std.heap.ArenaAllocator.init(init.gpa);
     defer arena.deinit();
-    const programs = [_]data.activation.Program{ empty.identity, try empty.composedReturns(arena.allocator()), reader.readers, try reader.composedReturns(arena.allocator()) };
-    for (programs, [_][]const u8{ "empty", "empty-composed", "reader", "reader-composed" }, 0..) |original, name, index| {
+    const programs = [_]data.activation.Program{ empty.identity, try empty.composedReturns(arena.allocator()), reader.readers, try reader.composedReturns(arena.allocator()), try reader.reverseReaderEffects(arena.allocator(), reader.readers), try reader.reverseReaderEffects(arena.allocator(), try reader.composedReturns(arena.allocator())) };
+    for (programs, [_][]const u8{ "empty", "empty-composed", "reader", "reader-composed", "reader-reversed", "reader-composed-reversed" }, 0..) |original, name, index| {
         var baseline = try data.coalescing.run(init.gpa, original, .{});
         defer baseline.deinit();
         try save(init, directory, name, "structural", baseline.program);

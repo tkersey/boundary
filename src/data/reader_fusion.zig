@@ -265,7 +265,10 @@ pub fn construct(allocator: std.mem.Allocator, original: ir.Program, options: Op
     const inner = entry.terminator.handle;
     const os = original.schemas[@intCast(oc.schema)].internal.computation;
     const is = original.schemas[@intCast(ic.schema)].internal.computation;
-    const effects = try a.dupe(p.Id, &.{ oh.clauses[0].effect, ih.clauses[0].effect });
+    // Handled evidence follows clause/capability positions; escaping effect
+    // rows are sets in canonical ID order, independent of handler nesting.
+    const handled = try a.dupe(p.Id, &.{ oh.clauses[0].effect, ih.clauses[0].effect });
+    const effects = try a.dupe(p.Id, &.{ @min(handled[0], handled[1]), @max(handled[0], handled[1]) });
     const states = try a.dupe(p.Id, &.{ oh.state[0], ih.state[0] });
     const base_f = original.functions.len;
     const base_b = original.blocks.len;
@@ -292,7 +295,7 @@ pub fn construct(allocator: std.mem.Allocator, original: ir.Program, options: Op
     const capture_bound = try bound.toOwnedSlice(a);
     for ([_]ir.Clause{ oh.clauses[0], ih.clauses[0] }, 0..) |clause, index| {
         var signature = original.schemas[@intCast(clause.resumption)].internal.resumption;
-        signature.handled = effects;
+        signature.handled = handled;
         signature.effects = &.{};
         signature.escaping = &.{};
         signature.capture_bound = capture_bound;
@@ -459,7 +462,7 @@ pub fn validate(allocator: std.mem.Allocator, original: ir.Program, candidate: i
         restored.state = outer.state;
         try proof.require(@TypeOf(outer), outer, restored);
     }
-    const effects = [_]p.Id{ oh.clauses[0].effect, ih.clauses[0].effect };
+    const handled = [_]p.Id{ oh.clauses[0].effect, ih.clauses[0].effect };
     const states = [_]p.Id{ oh.state[0], ih.state[0] };
     var allowed_bound: std.ArrayList(p.Id) = .empty;
     for ([_]p.Id{ oh.clauses[0].resumption, ih.clauses[0].resumption }) |id| for (original.schemas[@intCast(id)].internal.resumption.capture_bound) |schema| {
@@ -473,7 +476,7 @@ pub fn validate(allocator: std.mem.Allocator, original: ir.Program, candidate: i
         if (schema != .internal or schema.internal != .resumption) return error.InvalidReaderFusion;
         var signature = schema.internal.resumption;
         const old = original.schemas[@intCast(clause.resumption)].internal.resumption;
-        try proof.require([]const p.Id, &effects, signature.handled);
+        try proof.require([]const p.Id, &handled, signature.handled);
         try proof.require([]const p.Id, allowed_bound.items, signature.capture_bound);
         if (signature.effects.len != 0 or signature.escaping.len != 0) return error.InvalidReaderFusion;
         signature.handled = old.handled;
@@ -487,7 +490,10 @@ pub fn validate(allocator: std.mem.Allocator, original: ir.Program, candidate: i
     var body_type = body_schema.internal.computation;
     if (body_type.parameters.len != os.parameters.len + 1 or body_type.parameters[0] != os.parameters[0] or body_type.parameters[1] != is.parameters[0]) return error.InvalidReaderFusion;
     try proof.require([]const p.Id, os.parameters[1..], body_type.parameters[2..]);
-    try proof.require([]const p.Id, &effects, body_type.effects);
+    // Candidate admission has independently established canonical row order.
+    // Check the original effect set without using the constructor's ordering.
+    try proof.require(usize, 2, body_type.effects.len);
+    for (handled) |effect| try proof.require(bool, true, std.mem.indexOfScalar(p.Id, body_type.effects, effect) != null);
     body_type.parameters = os.parameters;
     body_type.effects = os.effects;
     try proof.require(p.ComputationType, os, body_type);
@@ -505,7 +511,7 @@ pub fn validate(allocator: std.mem.Allocator, original: ir.Program, candidate: i
     for (of.layout.slots, body.layout.slots, 0..) |old_schema, new_schema, slot| {
         try proof.require(p.Id, if (slot == inner.body) is.parameters[0] else old_schema, new_schema);
     }
-    try proof.require([]const p.Id, &effects, body.effects);
+    try proof.require([]const p.Id, candidate.schemas[s + 2].internal.computation.effects, body.effects);
     const new_entry = candidate.blocks[b];
     var entry_metadata = new_entry;
     entry_metadata.function = old_entry.function;

@@ -43,46 +43,73 @@ pub const readers: ir.Program = .{
     .scopes = .{ .captures = &.{ .{ .fields = &.{ 0, 0, 0 }, .use = .reusable }, .{ .fields = &.{ 3, 0, 0 }, .use = .reusable } } },
 };
 
+/// Rename the two nominal Reader effects without changing nesting or positions.
+pub fn reverseReaderEffects(allocator: std.mem.Allocator, original: ir.Program) !ir.Program {
+    std.debug.assert(original.effects.len == 2);
+    var maps = try data.relocation.identityMaps(allocator, try data.relocation.sizes(original));
+    maps[@intFromEnum(data.relocation.Kind.effect)] = &.{ 1, 0 };
+    const mapper: data.relocation.Mapper = .{ .allocator = allocator, .maps = maps };
+    var result = original;
+    const schemas = try allocator.alloc(data.program.Schema, original.schemas.len);
+    for (original.schemas, schemas) |old, *new| new.* = try mapper.schema(old);
+    const functions = try allocator.alloc(ir.Function, original.functions.len);
+    for (original.functions, functions) |old, *new| new.* = try mapper.function(old);
+    const blocks = try allocator.alloc(ir.Block, original.blocks.len);
+    for (original.blocks, blocks) |old, *new| new.* = try mapper.block(old);
+    const handlers = try allocator.alloc(ir.Handler, original.handlers.len);
+    for (original.handlers, handlers) |old, *new| new.* = try mapper.handler(old);
+    result.schemas = schemas;
+    result.functions = functions;
+    result.blocks = blocks;
+    result.handlers = handlers;
+    result.effects = try allocator.dupe(@TypeOf(original.effects[0]), &.{ original.effects[1], original.effects[0] });
+    return result;
+}
+
 test "disjoint Reader fusion preserves every Boolean state and operation choice through closed linking" {
-    var baseline = try data.closed_compilation.run(a, readers, .{});
-    defer baseline.deinit();
-    var fused = try data.reader_fusion.run(a, readers, null, .{});
-    defer fused.deinit();
-    var stats: data.closed_compilation.Statistics = .{};
-    var compiled = try data.closed_compilation.run(a, readers, .{ .contract = .semantic, .statistics = &stats });
-    defer compiled.deinit();
-    const object: data.component.Object = .{ .program = readers, .exports = &.{.{ .name = "main", .reference = .{ .kind = .function, .id = 0 } }}, .borrows = &.{ .{ .function = 0 }, .{ .function = 1 }, .{ .function = 2 }, .{ .function = 3 }, .{ .function = 4 }, .{ .function = 5 } } };
-    const encoded = try a.alloc(u8, try data.component.encodedLength(object));
-    defer a.free(encoded);
-    _ = try data.component.encode(a, object, encoded);
-    var linked = try data.linker.linkWithCompilation(a, &.{.{ .key = "readers", .object = encoded }}, &.{}, .{ .instance = "readers", .symbol = "main" }, .{ .contract = .semantic });
-    defer linked.deinit();
-    @memset(encoded, 0xff);
-    std.debug.print("readers standalone={d} shared={d} linked={d}; {any}\n", .{ fused.program.handlers.len, compiled.program.handlers.len, linked.program.handlers.len, stats });
-    try std.testing.expectEqual(@as(usize, 1), fused.program.handlers.len);
-    try std.testing.expectEqual(@as(usize, 1), compiled.program.handlers.len);
-    try std.testing.expectEqual(@as(usize, 1), linked.program.handlers.len);
-    for (0..2) |left| for (0..2) |right| for (0..2) |first| for (0..2) |second| {
-        const input = [_]u8{ @intCast(left), @intCast(right), @intCast(first), @intCast(second) };
-        const expected = [_]u8{ @intCast(if (first == 1) left else right), @intCast(if (second == 1) left else right) };
-        for ([_]ir.Program{ baseline.program, fused.program, compiled.program, linked.program }) |program| {
-            const bytes = try a.alloc(u8, try data.program_image.encodedLength(program));
-            defer a.free(bytes);
-            _ = try data.program_image.encode(a, program, bytes);
-            var result = try world.invocation.invoke(a, .{ .image = bytes, .instance = .{ .initial_args = &input }, .quantum = 1 });
-            defer result.deinit();
-            var steps: usize = 1;
-            while (result.record == .progressed) {
-                try std.testing.expect(steps < 128);
-                const next = try world.invocation.invoke(a, .{ .image = bytes, .instance = .{ .state = result.record.progressed.? }, .quantum = 1 });
-                result.deinit();
-                result = next;
-                steps += 1;
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    for ([_]ir.Program{ readers, try reverseReaderEffects(arena.allocator(), readers) }) |original| {
+        var baseline = try data.closed_compilation.run(a, original, .{});
+        defer baseline.deinit();
+        var fused = try data.reader_fusion.run(a, original, null, .{});
+        defer fused.deinit();
+        var stats: data.closed_compilation.Statistics = .{};
+        var compiled = try data.closed_compilation.run(a, original, .{ .contract = .semantic, .statistics = &stats });
+        defer compiled.deinit();
+        const object: data.component.Object = .{ .program = original, .exports = &.{.{ .name = "main", .reference = .{ .kind = .function, .id = 0 } }}, .borrows = &.{ .{ .function = 0 }, .{ .function = 1 }, .{ .function = 2 }, .{ .function = 3 }, .{ .function = 4 }, .{ .function = 5 } } };
+        const encoded = try a.alloc(u8, try data.component.encodedLength(object));
+        defer a.free(encoded);
+        _ = try data.component.encode(a, object, encoded);
+        var linked = try data.linker.linkWithCompilation(a, &.{.{ .key = "original", .object = encoded }}, &.{}, .{ .instance = "original", .symbol = "main" }, .{ .contract = .semantic });
+        defer linked.deinit();
+        @memset(encoded, 0xff);
+        std.debug.print("original standalone={d} shared={d} linked={d}; {any}\n", .{ fused.program.handlers.len, compiled.program.handlers.len, linked.program.handlers.len, stats });
+        try std.testing.expectEqual(@as(usize, 1), fused.program.handlers.len);
+        try std.testing.expectEqual(@as(usize, 1), compiled.program.handlers.len);
+        try std.testing.expectEqual(@as(usize, 1), linked.program.handlers.len);
+        for (0..2) |left| for (0..2) |right| for (0..2) |first| for (0..2) |second| {
+            const input = [_]u8{ @intCast(left), @intCast(right), @intCast(first), @intCast(second) };
+            const expected = [_]u8{ @intCast(if (first == 1) left else right), @intCast(if (second == 1) left else right) };
+            for ([_]ir.Program{ baseline.program, fused.program, compiled.program, linked.program }) |program| {
+                const bytes = try a.alloc(u8, try data.program_image.encodedLength(program));
+                defer a.free(bytes);
+                _ = try data.program_image.encode(a, program, bytes);
+                var result = try world.invocation.invoke(a, .{ .image = bytes, .instance = .{ .initial_args = &input }, .quantum = 1 });
+                defer result.deinit();
+                var steps: usize = 1;
+                while (result.record == .progressed) {
+                    try std.testing.expect(steps < 128);
+                    const next = try world.invocation.invoke(a, .{ .image = bytes, .instance = .{ .state = result.record.progressed.? }, .quantum = 1 });
+                    result.deinit();
+                    result = next;
+                    steps += 1;
+                }
+                try std.testing.expect(result.record == .completed);
+                try std.testing.expectEqualSlices(u8, &expected, result.record.completed);
             }
-            try std.testing.expect(result.record == .completed);
-            try std.testing.expectEqualSlices(u8, &expected, result.record.completed);
-        }
-    };
+        };
+    }
 }
 
 pub fn composedReturns(allocator: std.mem.Allocator) !ir.Program {
@@ -118,64 +145,66 @@ pub fn composedReturns(allocator: std.mem.Allocator) !ir.Program {
 test "Reader fusion composes noncommuting pure returns in their original order" {
     var arena = std.heap.ArenaAllocator.init(a);
     defer arena.deinit();
-    const original = try composedReturns(arena.allocator());
-    var candidate = (try data.reader_fusion.construct(a, original, .{})).?;
-    defer candidate.deinit();
-    try data.reader_fusion.validate(a, original, candidate.program, candidate.shape.site, .{});
-    var fused = try data.reader_fusion.run(a, original, null, .{});
-    defer fused.deinit();
-    var compiled = try data.closed_compilation.run(a, original, .{ .contract = .semantic });
-    defer compiled.deinit();
-    const borrows = try arena.allocator().alloc(data.borrow_contract.Summary, original.functions.len);
-    for (borrows, 0..) |*summary, id| summary.* = .{ .function = id };
-    const object: data.component.Object = .{ .program = original, .exports = &.{.{ .name = "main", .reference = .{ .kind = .function, .id = 0 } }}, .borrows = borrows };
-    const encoded = try a.alloc(u8, try data.component.encodedLength(object));
-    defer a.free(encoded);
-    _ = try data.component.encode(a, object, encoded);
-    var linked = try data.linker.linkWithCompilation(a, &.{.{ .key = "composed-readers", .object = encoded }}, &.{}, .{ .instance = "composed-readers", .symbol = "main" }, .{ .contract = .semantic });
-    defer linked.deinit();
-    @memset(encoded, 0xff);
-    try std.testing.expectEqual(@as(usize, 1), compiled.program.handlers.len);
-    try std.testing.expectEqual(@as(usize, 1), linked.program.handlers.len);
-    for (0..2) |left| for (0..2) |right| for (0..2) |first| for (0..2) |second| {
-        const input = [_]u8{ @intCast(left), @intCast(right), @intCast(first), @intCast(second) };
-        const selected_first = if (first == 1) left else right;
-        const selected_second = if (second == 1) left else right;
-        const expected = [_]u8{ @intCast((selected_first | right) ^ left), @intCast(selected_second) };
-        for ([_]ir.Program{ original, fused.program, compiled.program, linked.program }) |program| {
-            const bytes = try a.alloc(u8, try data.program_image.encodedLength(program));
-            defer a.free(bytes);
-            _ = try data.program_image.encode(a, program, bytes);
-            var result = try world.invocation.invoke(a, .{ .image = bytes, .instance = .{ .initial_args = &input }, .quantum = 1 });
-            defer result.deinit();
-            var steps: usize = 1;
-            while (result.record == .progressed) {
-                try std.testing.expect(steps < 128);
-                const next = try world.invocation.invoke(a, .{ .image = bytes, .instance = .{ .state = result.record.progressed.? }, .quantum = 1 });
-                result.deinit();
-                result = next;
-                steps += 1;
+    const base = try composedReturns(arena.allocator());
+    for ([_]ir.Program{ base, try reverseReaderEffects(arena.allocator(), base) }) |original| {
+        var candidate = (try data.reader_fusion.construct(a, original, .{})).?;
+        defer candidate.deinit();
+        try data.reader_fusion.validate(a, original, candidate.program, candidate.shape.site, .{});
+        var fused = try data.reader_fusion.run(a, original, null, .{});
+        defer fused.deinit();
+        var compiled = try data.closed_compilation.run(a, original, .{ .contract = .semantic });
+        defer compiled.deinit();
+        const borrows = try arena.allocator().alloc(data.borrow_contract.Summary, original.functions.len);
+        for (borrows, 0..) |*summary, id| summary.* = .{ .function = id };
+        const object: data.component.Object = .{ .program = original, .exports = &.{.{ .name = "main", .reference = .{ .kind = .function, .id = 0 } }}, .borrows = borrows };
+        const encoded = try a.alloc(u8, try data.component.encodedLength(object));
+        defer a.free(encoded);
+        _ = try data.component.encode(a, object, encoded);
+        var linked = try data.linker.linkWithCompilation(a, &.{.{ .key = "composed-readers", .object = encoded }}, &.{}, .{ .instance = "composed-readers", .symbol = "main" }, .{ .contract = .semantic });
+        defer linked.deinit();
+        @memset(encoded, 0xff);
+        try std.testing.expectEqual(@as(usize, 1), compiled.program.handlers.len);
+        try std.testing.expectEqual(@as(usize, 1), linked.program.handlers.len);
+        for (0..2) |left| for (0..2) |right| for (0..2) |first| for (0..2) |second| {
+            const input = [_]u8{ @intCast(left), @intCast(right), @intCast(first), @intCast(second) };
+            const selected_first = if (first == 1) left else right;
+            const selected_second = if (second == 1) left else right;
+            const expected = [_]u8{ @intCast((selected_first | right) ^ left), @intCast(selected_second) };
+            for ([_]ir.Program{ original, fused.program, compiled.program, linked.program }) |program| {
+                const bytes = try a.alloc(u8, try data.program_image.encodedLength(program));
+                defer a.free(bytes);
+                _ = try data.program_image.encode(a, program, bytes);
+                var result = try world.invocation.invoke(a, .{ .image = bytes, .instance = .{ .initial_args = &input }, .quantum = 1 });
+                defer result.deinit();
+                var steps: usize = 1;
+                while (result.record == .progressed) {
+                    try std.testing.expect(steps < 128);
+                    const next = try world.invocation.invoke(a, .{ .image = bytes, .instance = .{ .state = result.record.progressed.? }, .quantum = 1 });
+                    result.deinit();
+                    result = next;
+                    steps += 1;
+                }
+                try std.testing.expect(result.record == .completed);
+                try std.testing.expectEqualSlices(u8, &expected, result.record.completed);
             }
-            try std.testing.expect(result.record == .completed);
-            try std.testing.expectEqualSlices(u8, &expected, result.record.completed);
-        }
-    };
-    var wrong = candidate.program;
-    const blocks = try arena.allocator().dupe(ir.Block, candidate.program.blocks);
-    const start = original.blocks.len + 2;
-    blocks[start].terminator.call.function = 6;
-    blocks[start + 1].terminator.call.function = 3;
-    wrong.blocks = blocks;
-    var admitted = try data.activation_ownership.analyze(a, wrong);
-    admitted.deinit();
-    try std.testing.expectError(error.InvalidReaderFusion, data.reader_fusion.validate(a, original, wrong, candidate.shape.site, .{}));
-    const bytes = try a.alloc(u8, try data.program_image.encodedLength(wrong));
-    defer a.free(bytes);
-    _ = try data.program_image.encode(a, wrong, bytes);
-    var result = try world.invocation.invoke(a, .{ .image = bytes, .instance = .{ .initial_args = &.{ 1, 1, 1, 1 } } });
-    defer result.deinit();
-    try std.testing.expect(result.record == .completed);
-    try std.testing.expectEqualSlices(u8, &.{ 1, 1 }, result.record.completed); // Correct order yields {0,1}.
+        };
+        var wrong = candidate.program;
+        const blocks = try arena.allocator().dupe(ir.Block, candidate.program.blocks);
+        const start = original.blocks.len + 2;
+        blocks[start].terminator.call.function = 6;
+        blocks[start + 1].terminator.call.function = 3;
+        wrong.blocks = blocks;
+        var admitted = try data.activation_ownership.analyze(a, wrong);
+        admitted.deinit();
+        try std.testing.expectError(error.InvalidReaderFusion, data.reader_fusion.validate(a, original, wrong, candidate.shape.site, .{}));
+        const bytes = try a.alloc(u8, try data.program_image.encodedLength(wrong));
+        defer a.free(bytes);
+        _ = try data.program_image.encode(a, wrong, bytes);
+        var result = try world.invocation.invoke(a, .{ .image = bytes, .instance = .{ .initial_args = &.{ 1, 1, 1, 1 } } });
+        defer result.deinit();
+        try std.testing.expect(result.record == .completed);
+        try std.testing.expectEqualSlices(u8, &.{ 1, 1 }, result.record.completed); // Correct order yields {0,1}.
+    }
 }
 
 test "mutable, shallow, scoped-body and cleanup handlers retain their images" {

@@ -111,6 +111,64 @@ test "Reader law is recognized from admitted records and actual capability bindi
     try std.testing.expectError(error.InvalidReference, fusion.run(a, invalid, null, .{ .work_limit = 0 }));
 }
 
+test "Reader fusion separates canonical rows from positional handled evidence" {
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    const scratch = arena.allocator();
+    var reversed = readers;
+    const schemas = try scratch.dupe(p.Schema, readers.schemas);
+    schemas[3].internal.capability = 1;
+    schemas[4].internal.capability = 0;
+    schemas[5].internal.computation.effects = &.{1};
+    schemas[7].internal.resumption.effect = 1;
+    schemas[7].internal.resumption.handled = &.{1};
+    schemas[8].internal.resumption.effect = 0;
+    schemas[8].internal.resumption.handled = &.{0};
+    schemas[8].internal.resumption.effects = &.{1};
+    const functions = try scratch.dupe(ir.Function, readers.functions);
+    functions[1].effects = &.{1};
+    const blocks = try scratch.dupe(ir.Block, readers.blocks);
+    for ([_]usize{ 5, 6, 8, 9 }) |id| blocks[id].terminator.perform.effect = 1 - blocks[id].terminator.perform.effect;
+    const handlers = try scratch.dupe(ir.Handler, readers.handlers);
+    handlers[0].clauses = &.{.{ .effect = 1, .function = 4, .resumption = 7, .strategy = .tail }};
+    handlers[1].clauses = &.{.{ .effect = 0, .function = 5, .resumption = 8, .strategy = .tail }};
+    handlers[1].effects = &.{1};
+    reversed.schemas = schemas;
+    reversed.functions = functions;
+    reversed.blocks = blocks;
+    reversed.handlers = handlers;
+    reversed.effects = &.{ readers.effects[1], readers.effects[0] };
+    for ([_]ir.Program{ readers, reversed }) |original| {
+        var admitted = try @import("activation_ownership.zig").analyze(a, original);
+        admitted.deinit();
+        var candidate = (try fusion.construct(a, original, .{})).?;
+        defer candidate.deinit();
+        try fusion.validate(a, original, candidate.program, candidate.shape.site, .{});
+        const handled = [_]p.Id{ original.handlers[0].clauses[0].effect, original.handlers[1].clauses[0].effect };
+        try std.testing.expectEqualSlices(p.Id, &.{ 0, 1 }, candidate.program.functions[original.functions.len].effects);
+        try std.testing.expectEqualSlices(p.Id, &.{ 0, 1 }, candidate.program.schemas[original.schemas.len + 2].internal.computation.effects);
+        for (candidate.program.schemas[original.schemas.len..][0..2]) |schema| {
+            try std.testing.expectEqualSlices(p.Id, &handled, schema.internal.resumption.handled);
+        }
+        var stats: fusion.Statistics = .{};
+        var fused = try fusion.run(a, original, &stats, .{});
+        defer fused.deinit();
+        try std.testing.expectEqual(@as(usize, 1), stats.pairs_fused);
+        var compiled = try @import("closed_compilation.zig").run(a, original, .{ .contract = .semantic });
+        defer compiled.deinit();
+        try std.testing.expectEqual(@as(usize, 1), compiled.program.handlers.len);
+
+        var wrong = candidate.program;
+        const changed = try scratch.dupe(p.Schema, candidate.program.schemas);
+        wrong.schemas = changed;
+        changed[original.schemas.len].internal.resumption.handled = &.{ handled[1], handled[0] };
+        try std.testing.expectError(error.InvalidEffect, fusion.validate(a, original, wrong, candidate.shape.site, .{}));
+        @memcpy(changed, candidate.program.schemas);
+        changed[original.schemas.len + 2].internal.computation.effects = &.{ 1, 0 };
+        try std.testing.expectError(error.NonCanonical, fusion.validate(a, original, wrong, candidate.shape.site, .{}));
+    }
+}
+
 test "overlapping Reader effects are admitted but cannot use the disjoint law" {
     var arena = std.heap.ArenaAllocator.init(a);
     defer arena.deinit();

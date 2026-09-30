@@ -14,11 +14,11 @@ function fixtures(name){
  return Array.from({length:1<<width},(_,i)=>{const args=Buffer.from(Array.from({length:width},(_,j)=>(i>>j)&1));
   if(width===3)return {args,expected:Buffer.from([(args[0]|args[2])^args[1]])};
   const [left,right,first,second]=args,one=first?left:right,two=second?left:right;
-  return {args,expected:Buffer.from([name==='reader-composed'?(one|right)^left:one,two])};
+  return {args,expected:Buffer.from([name.startsWith('reader-composed')?(one|right)^left:one,two])};
  });
 }
 const rows=[];
-for(const name of ['empty','empty-composed','reader','reader-composed']){
+for(const name of ['empty','empty-composed','reader','reader-composed','reader-reversed','reader-composed-reversed']){
  const images=Object.fromEntries(['structural','checked','shared-semantic','linked'].map(arm=>[arm,readFileSync(join(corpus,`${name}-${arm}.bpi3`))]));
  const row={name,images:{},cases:[]};
  for(const [arm,image] of Object.entries(images)){
@@ -52,5 +52,5 @@ for(const name of ['empty','empty-composed','reader','reader-composed']){
  }
  row.malformed=malformed;row.restores=restores;row.wrongImages=wrongImages;rows.push(row);
 }
-const report={status:'complete',scope:'All Boolean input/state/operation-choice combinations for composed empty handlers and identity/composed Readers; three u64 identity-handler samples. Native, Node WASM, Wasmtime, and quantum-one same-image checkpoints.',sourceBaseCommit:baseCommit,unpublishedWorkingTree:true,kernelSha256:runtime.kernelSha256,emitterSha256:sha256(readFileSync(emitter)),nativeSha256:sha256(readFileSync(native)),runnerSha256:sha256(readFileSync(new URL(import.meta.url))),rows};
+const report={status:'complete',scope:'All Boolean input/state/operation-choice combinations for composed empty handlers and identity/composed Readers in both nominal effect-ID orders; three u64 identity-handler samples. Native, Node WASM, Wasmtime, and quantum-one same-image checkpoints.',sourceBaseCommit:baseCommit,unpublishedWorkingTree:true,kernelSha256:runtime.kernelSha256,emitterSha256:sha256(readFileSync(emitter)),nativeSha256:sha256(readFileSync(native)),runnerSha256:sha256(readFileSync(new URL(import.meta.url))),rows};
 writeFileSync(output,JSON.stringify(report,null,2)+'\n');console.log(JSON.stringify({comparisons:rows.reduce((n,r)=>n+r.cases.length*4,0),malformed:rows.reduce((n,r)=>n+r.malformed,0),restores:rows.reduce((n,r)=>n+r.restores,0),wrongImages:rows.reduce((n,r)=>n+r.wrongImages,0)}));
