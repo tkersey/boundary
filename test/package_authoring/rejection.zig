@@ -22,9 +22,9 @@ test "public package retires raw effect handler and region facades" {
 }
 
 test "foreign effect rejects in public package while local binding succeeds" {
-    var first = b.computation.Builder.init(std.testing.allocator);
+    var first = b.source.Builder.init(std.testing.allocator);
     defer first.deinit();
-    var second = b.computation.Builder.init(std.testing.allocator);
+    var second = b.source.Builder.init(std.testing.allocator);
     defer second.deinit();
     const left = try b.authoring.Context.init(&first);
     const right = try b.authoring.Context.init(&second);
@@ -42,9 +42,9 @@ test "foreign effect rejects in public package while local binding succeeds" {
 }
 
 test "foreign failure literal rejects through public package" {
-    var first = b.computation.Builder.init(std.testing.allocator);
+    var first = b.source.Builder.init(std.testing.allocator);
     defer first.deinit();
-    var second = b.computation.Builder.init(std.testing.allocator);
+    var second = b.source.Builder.init(std.testing.allocator);
     defer second.deinit();
     const left = try b.authoring.Context.init(&first);
     const right = try b.authoring.Context.init(&second);
@@ -60,7 +60,7 @@ test "foreign failure literal rejects through public package" {
 }
 
 test "same-name local capabilities and sibling values remain distinct" {
-    var raw = b.computation.Builder.init(std.testing.allocator);
+    var raw = b.source.Builder.init(std.testing.allocator);
     defer raw.deinit();
     const c = try b.authoring.Context.init(&raw);
     const unit = try c.scalar(void);

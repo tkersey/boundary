@@ -6,7 +6,7 @@ pub fn main(init: std.process.Init) !void {
     var buffer: [4096]u8 = undefined;
     var output = std.Io.File.stdout().writer(init.io, &buffer);
     for (0..21) |iteration| {
-        var raw = b.computation.Builder.init(init.gpa);
+        var raw = b.source.Builder.init(init.gpa);
         defer raw.deinit();
         const start = std.Io.Clock.awake.now(init.io);
         const module = try workload.Application.emit(&raw);
