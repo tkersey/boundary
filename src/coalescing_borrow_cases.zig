@@ -5,7 +5,7 @@ const Id = @import("boundary_data").program.Id;
 
 pub fn build(b: *source.Builder, escape: bool) !source.Module {
     const original = try source.examples.resourceScalar(b);
-    const acquired = b.terms.items[@intCast(b.functions.items[@intCast(original.entry)].body.?)].bind;
+    const acquired = try @import("source/fixture_inspection.zig").resourceEntry(b, original.entry);
     const protected = b.terms.items[@intCast(acquired.next)].protect;
     const body_value = b.values.items[@intCast(protected.body)];
     const first_body = body_value.expression.lambda;

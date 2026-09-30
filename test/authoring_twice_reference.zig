@@ -1,7 +1,7 @@
 //! Frozen low-level twice construction from the accepted baseline, kept independent.
 const std = @import("std");
 const boundary = @import("boundary");
-const source = boundary.computation;
+const source = boundary.source;
 fn build(b: *source.Builder) !source.Module {
     const integer = try b.scalar(u64);
     const unit = try b.scalar(void);

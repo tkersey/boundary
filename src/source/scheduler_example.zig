@@ -1,71 +1,82 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
-//! Two tasks, an actual pending join, and FIFO execution are authored source.
+//! Two tasks, an actual pending join, and FIFO execution use typed authoring.
 const source = @import("../source.zig");
+const a = @import("../authoring.zig");
 const generator = @import("../library/generator.zig");
 const scheduler = @import("../library/scheduler.zig");
 const writer = @import("../library/writer.zig");
-const p = @import("boundary_data").program;
-const Error = source.Error;
 
-pub fn build(b: *source.Builder) Error!source.ast.Module {
-    const unit = try b.scalar(void);
-    const integer = try b.scalar(u64);
-    const r = b.region();
-    const region = try b.schema(.{ .internal = .{ .region = r } });
-    const join = try scheduler.joinType(b, integer, r);
-    const w = try writer.family(b, "example/task-log", integer);
-    const tasks = try generator.defineScoped(b, "example/task-yield", unit, &.{ unit, integer, join.cell, w.capability }, &.{}, &.{r}, .{ .effects = &.{w.effect} });
-    const fifo = try scheduler.fifo(b, tasks, .{ .effects = &.{w.effect} }, &.{r});
-    const await_join = try scheduler.awaiting(b, tasks, join, integer, &.{r});
-    const written = try writer.interpret(b, w, integer, r, &.{ unit, integer, join.cell, tasks.capability, tasks.package, tasks.answer, tasks.yielded, fifo.queue }, .{ .effects = &.{} });
-    const main = try b.declare(&.{}, written.answer, &.{}, &.{});
-    const inside = try b.declare(&.{region}, written.answer, &.{}, &.{r});
-    const body = try b.declare(&.{w.capability}, integer, &.{w.effect}, &.{r});
-    const task1 = try b.declare(&.{tasks.capability}, unit, &.{ w.effect, tasks.effect }, &.{r});
-    const task2 = try b.declare(&.{tasks.capability}, unit, &.{ w.effect, tasks.effect }, &.{r});
-    const join1 = try b.variable(join.cell);
-    const join2 = try b.variable(join.cell);
-    const logging = try b.reference(b.parameter(body, 0));
-    const yield1 = try b.term(.{ .perform = .{ .effect = tasks.effect, .capability = try b.reference(b.parameter(task1, 0)), .payload = try b.constant(void, {}) } });
-    const yield2 = try b.term(.{ .perform = .{ .effect = tasks.effect, .capability = try b.reference(b.parameter(task2, 0)), .payload = try b.constant(void, {}) } });
-    const log1 = try b.term(.{ .perform = .{ .effect = w.effect, .capability = logging, .payload = try b.constant(u64, 1) } });
-    const log2 = try b.term(.{ .perform = .{ .effect = w.effect, .capability = logging, .payload = try b.constant(u64, 2) } });
-    const log3 = try b.term(.{ .perform = .{ .effect = w.effect, .capability = logging, .payload = try b.constant(u64, 3) } });
-    const log4 = try b.term(.{ .perform = .{ .effect = w.effect, .capability = logging, .payload = try b.constant(u64, 4) } });
-    const finish1 = try scheduler.complete(b, join, try b.reference(join1), try b.constant(u64, 10));
-    try b.define(task1, try b.bind(try b.variable(unit), log1, try b.bind(try b.variable(unit), yield1, try b.bind(try b.variable(unit), log3, try b.bind(try b.variable(unit), yield1, finish1)))));
-    const joined = try b.variable(integer);
-    const doubled = try b.value(.{ .schema = integer, .expression = .{ .primitive = .{ .opcode = .integer_mul, .operands = &.{ try b.reference(joined), try b.constant(u64, 2) }, .failures = &.{.{ .kind = .arithmetic_overflow, .value = try b.failureLiteral(try b.constant(void, {})) }} } } });
-    const finish2 = try scheduler.complete(b, join, try b.reference(join2), doubled);
-    const await_first = try b.term(.{ .call = .{ .function = await_join, .arguments = &.{ try b.reference(join1), try b.reference(b.parameter(task2, 0)) } } });
-    try b.define(task2, try b.bind(try b.variable(unit), log2, try b.bind(try b.variable(unit), yield2, try b.bind(joined, await_first, try b.bind(try b.variable(unit), log4, finish2)))));
-    const task_type = try b.schema(.{ .internal = .{ .computation = .{ .parameters = &.{tasks.capability}, .result = unit, .effects = &.{ w.effect, tasks.effect }, .capture_bound = &.{ join.cell, w.capability }, .regions = &.{r} } } });
-    const first = try b.variable(tasks.answer);
-    const second = try b.variable(tasks.answer);
-    const queue1 = try b.variable(fifo.queue);
-    const queue2 = try b.variable(fifo.queue);
-    const started1 = try b.term(.{ .handle = .{ .handler = tasks.handler, .body = try b.lambda(task1, task_type) } });
-    const started2 = try b.term(.{ .handle = .{ .handler = tasks.handler, .body = try b.lambda(task2, task_type) } });
-    const pushed1 = try b.term(.{ .call = .{ .function = fifo.enqueue, .arguments = &.{ try b.reference(first), try b.primitive(fifo.queue, .sequence, &.{}, 0) } } });
-    const pushed2 = try b.term(.{ .call = .{ .function = fifo.enqueue, .arguments = &.{ try b.reference(second), try b.reference(queue1) } } });
-    const read_join = try b.declare(&.{join.cell}, integer, &.{}, &.{r});
-    const missing = try b.variable(unit);
-    const present = try b.variable(integer);
-    try b.define(read_join, try b.term(.{ .match_sum = .{ .value = try b.primitive(join.result, .cell_get, &.{try b.reference(b.parameter(read_join, 0))}, 0), .cases = &.{ .{ .variable = missing, .body = try b.term(.{ .fail = try b.constant(void, {}) }) }, .{ .variable = present, .body = try b.pure(try b.reference(present)) } } } }));
-    const a = try b.variable(integer);
-    const c = try b.variable(integer);
-    const sum = try b.value(.{ .schema = integer, .expression = .{ .primitive = .{ .opcode = .integer_add, .operands = &.{ try b.reference(a), try b.reference(c) }, .failures = &.{.{ .kind = .arithmetic_overflow, .value = try b.failureLiteral(try b.constant(void, {})) }} } } });
-    const results = try b.bind(a, try b.term(.{ .call = .{ .function = read_join, .arguments = &.{try b.reference(join1)} } }), try b.bind(c, try b.term(.{ .call = .{ .function = read_join, .arguments = &.{try b.reference(join2)} } }), try b.pure(sum)));
-    const drained = try b.bind(try b.variable(unit), try b.term(.{ .call = .{ .function = fifo.drain, .arguments = &.{try b.reference(queue2)} } }), results);
-    const queue_ready = try b.bind(first, started1, try b.bind(queue1, pushed1, try b.bind(second, started2, try b.bind(queue2, pushed2, try b.term(.{ .yield_then = drained })))));
-    const empty_join = try b.primitive(join.result, .variant, &.{try b.constant(void, {})}, 0);
-    const region_ref = try b.reference(b.parameter(inside, 0));
-    try b.define(body, try b.bind(join1, try b.pure(try b.primitive(join.cell, .cell_new, &.{ region_ref, empty_join }, 0)), try b.bind(join2, try b.pure(try b.primitive(join.cell, .cell_new, &.{ region_ref, empty_join }, 0)), queue_ready)));
-    const log_cell = try b.variable(written.cell);
-    const body_type = try b.schema(.{ .internal = .{ .computation = .{ .parameters = &.{w.capability}, .result = integer, .effects = &.{w.effect}, .capture_bound = &.{region}, .regions = &.{r} } } });
-    const handled = try b.term(.{ .handle = .{ .handler = written.handler, .body = try b.lambda(body, body_type), .state = &.{try b.reference(log_cell)} } });
-    try b.define(inside, try b.bind(log_cell, try b.pure(try b.primitive(written.cell, .cell_new, &.{ region_ref, try b.primitive(written.sequence, .sequence, &.{}, 0) }, 0)), handled));
-    const inside_type = try b.schema(.{ .internal = .{ .computation = .{ .parameters = &.{region}, .result = written.answer, .regions = &.{r} } } });
-    try b.define(main, try b.term(.{ .with_region = .{ .region = r, .body = try b.lambda(inside, inside_type) } }));
-    return b.module(main, unit);
+pub fn build(b: *source.Builder) source.Error!source.Module {
+    return authored(b) catch |err| return a.sourceError(err);
+}
+fn authored(b: *source.Builder) a.Error!source.Module {
+    const c = try a.Context.init(b);
+    const unit = try c.scalar(void);
+    const integer = try c.scalar(u64);
+    const region = try c.region();
+    const join = try scheduler.joinType(c, integer, region);
+    const logging = try writer.family(c, "example/task-log", integer);
+    const tasks = try generator.create(c, "example/task-yield", unit, unit, unit, .{
+        .captures = .{ .continuation = &.{ unit, integer, join.cell(), logging.capability() }, .body = &.{ join.cell(), logging.capability() } },
+        .borrowed_regions = &.{region},
+        .residual = &.{logging.effect()},
+        .body_use = .reusable,
+    });
+    const fifo = try scheduler.fifo(c, tasks, &.{logging.effect()}, &.{region});
+    const await_join = try scheduler.awaiting(c, tasks, join, &.{region});
+    const written = try writer.interpret(c, logging, integer, region, .{
+        .continuation = &.{ unit, integer, join.cell(), tasks.capability(), tasks.package(), tasks.answer(), tasks.yielded(), fifo.queue },
+        .body = &.{try c.regionSchema(region)},
+    }, &.{});
+    const main_fn = try c.function("entry", &.{}, written.answer, &.{});
+    const main_body = try c.body(main_fn);
+    const inside_type = try c.regionBodySchema(region, &.{}, written.answer, &.{}, .{ .use = .reusable, .captures = &.{} });
+    const inside_fn = try c.functionFor("scheduler region", inside_type);
+    const inside = try c.body(inside_fn);
+    const token = try inside.parameter("region");
+    const body_type = try c.handledSchema(written.handler);
+    const body_fn = try c.functionFor("scheduled work", body_type);
+    const body = try inside.closureBody(body_fn);
+    const log = try body.parameter("capability");
+    const empty = try body.variant(join.state(), "pending", try body.constant(void, {}));
+    const first_join = try body.newCell(join.cell(), token, empty);
+    const second_join = try body.newCell(join.cell(), token, empty);
+    const task_type = try c.handledSchema(tasks.handler());
+    const first_fn = try c.functionFor("first task", task_type);
+    const first = try body.closureBody(first_fn);
+    const first_cap = try first.parameter("capability");
+    _ = try first.performLocal(logging.effect(), log, try first.constant(u64, 1));
+    _ = try first.performLocal(tasks.effect(), first_cap, try first.constant(void, {}));
+    _ = try first.performLocal(logging.effect(), log, try first.constant(u64, 3));
+    _ = try first.performLocal(tasks.effect(), first_cap, try first.constant(void, {}));
+    try c.define(first_fn, try first.ret(try scheduler.complete(first, join, first_join, try first.constant(u64, 10))));
+    const second_fn = try c.functionFor("second task", task_type);
+    const second = try body.closureBody(second_fn);
+    const second_cap = try second.parameter("capability");
+    _ = try second.performLocal(logging.effect(), log, try second.constant(u64, 2));
+    _ = try second.performLocal(tasks.effect(), second_cap, try second.constant(void, {}));
+    const joined = try second.call(await_join, &.{ .{ .name = "cell", .value = first_join }, .{ .name = "capability", .value = second_cap } });
+    _ = try second.performLocal(logging.effect(), log, try second.constant(u64, 4));
+    const doubled = try second.checked(.multiply, joined, try second.constant(u64, 2), .{ .overflow = try c.literalFailure(void, {}) });
+    try c.define(second_fn, try second.ret(try scheduler.complete(second, join, second_join, doubled)));
+    const first_step = try body.handleWith(tasks.handler(), try body.lambda(first_fn, task_type), &.{});
+    const first_queue = try body.call(fifo.enqueue, &.{ .{ .name = "step", .value = first_step }, .{ .name = "queue", .value = try body.sequenceValue(fifo.queue, &.{}) } });
+    const second_step = try body.handleWith(tasks.handler(), try body.lambda(second_fn, task_type), &.{});
+    const queue = try body.call(fifo.enqueue, &.{ .{ .name = "step", .value = second_step }, .{ .name = "queue", .value = first_queue } });
+    _ = try body.yieldNow();
+    _ = try body.call(fifo.drain, &.{.{ .name = "queue", .value = queue }});
+    const read_type = try c.callable(&.{.{ .name = "cell", .schema = join.cell() }}, integer, &.{}, .{ .use = .reusable, .captures = &.{}, .regions = &.{region} });
+    const read_fn = try c.functionFor("read completed join", read_type);
+    const read = try c.body(read_fn);
+    const value = try read.readCell(try read.parameter("cell"));
+    const pending = try read.caseOf(value, "pending");
+    const done = try read.caseOf(value, "done");
+    try c.define(read_fn, try read.ret(try read.match(value, &.{ try pending.fail(integer, try pending.body().constant(void, {})), try done.ret(done.payload()) })));
+    const first_value = try body.call(read_fn, &.{.{ .name = "cell", .value = first_join }});
+    const second_value = try body.call(read_fn, &.{.{ .name = "cell", .value = second_join }});
+    try c.define(body_fn, try body.ret(try body.checkedAdd(first_value, second_value, try c.literalFailure(void, {}))));
+    const log_cell = try inside.newCell(written.cell, token, try inside.sequenceValue(written.sequence, &.{}));
+    try c.define(inside_fn, try inside.ret(try inside.handleWith(written.handler, try inside.lambda(body_fn, body_type), &.{.{ .name = "log", .value = log_cell }})));
+    try c.define(main_fn, try main_body.ret(try main_body.withRegion(region, try main_body.lambda(inside_fn, inside_type), &.{})));
+    return c.module(main_fn, unit);
 }

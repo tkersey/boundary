@@ -38,6 +38,20 @@ pub fn analyzeComponent(
 ) Error!flow.Facts {
     return analyzeInternal(allocator, image, imports, true, borrows, null, null);
 }
+
+/// Capture compatibility for an admitted image and its derived schema traits.
+/// This is a schema predicate, not program admission: analyze still derives the
+/// retained slots and traits independently from the complete immutable image.
+pub fn captureSchemaAllowed(image: ir.Program, uses: @import("traits.zig").Facts, effect: p.Id, schema: p.Id) Error!bool {
+    if (image.effects[@intCast(effect)].control_use == .multi and !uses.clone[@intCast(schema)]) return false;
+    for (image.handlers) |handler| for (handler.clauses) |clause| {
+        if (clause.effect != effect) continue;
+        const signature = try contracts.resumption(image, clause.resumption);
+        if (std.mem.indexOfScalar(p.Id, signature.capture_bound, schema) == null) return false;
+    };
+    return true;
+}
+
 fn analyzeInternal(
     allocator: std.mem.Allocator,
     image: ir.Program,
@@ -169,13 +183,6 @@ const Check = struct {
         }
         if (self.observer) |observer| observer.capture(observer.context, self.function, effect, slot);
         const schema = slots[@intCast(slot)];
-        if (self.image.effects[@intCast(effect)].control_use == .multi and
-            !self.uses.clone[@intCast(schema)]) return error.InvalidOwnership;
-        for (self.image.handlers) |handler| for (handler.clauses) |clause| {
-            if (clause.effect != effect) continue;
-            const signature = try contracts.resumption(self.image, clause.resumption);
-            if (std.mem.indexOfScalar(p.Id, signature.capture_bound, schema) == null)
-                return error.InvalidOwnership;
-        };
+        if (!try captureSchemaAllowed(self.image, self.uses, effect, schema)) return error.InvalidOwnership;
     }
 };

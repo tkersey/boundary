@@ -2,7 +2,7 @@
 const std = @import("std");
 const boundary = @import("boundary");
 pub const Application = struct {
-    pub fn emit(raw: *boundary.computation.Builder) !boundary.computation.Module {
+    pub fn emit(raw: *boundary.source.Builder) !boundary.source.Module {
         const c = try boundary.authoring.Context.init(raw);
         const integer = try c.scalar(u64);
         const boolean = try c.scalar(bool);

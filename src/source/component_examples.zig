@@ -2,10 +2,10 @@
 //! Three independently authored effectful objects and a second closed wrapper.
 const std = @import("std");
 const source = @import("../source.zig");
+const authoring = @import("../authoring.zig");
 const data = @import("boundary_data");
 const p = data.program;
 const gen = @import("../library/generator.zig");
-const cleanup = @import("../library/cleanup.zig");
 pub const Kind = enum { call, state, suspended, double, even, odd };
 const Common = struct { unit: p.Id, integer: p.Id, pair: p.Id, read: p.Id, cap: p.Id, callback: p.Id };
 fn common(b: *source.Builder) !Common {
@@ -48,7 +48,9 @@ pub fn emitWithOptions(allocator: std.mem.Allocator, kind: Kind, options: source
 }
 const Built = struct { entry: p.Id, interface: source.component.Interface };
 fn caller(b: *source.Builder, c: Common) !Built {
-    const function = try @import("../library/combinators.zig").twice(b, c.callback);
+    const context = try authoring.Context.init(b);
+    const callback = try authoring.interop.schema(context, c.callback);
+    const function = try authoring.interop.functionId(context, try context.twice(callback));
     return .{ .entry = function, .interface = .{
         .imports = try b.allocator().dupe(data.component.Symbol, &.{symbol("read", .effect, c.read)}),
         .exports = try b.allocator().dupe(data.component.Symbol, &.{symbol("twice", .function, function)}),
@@ -79,36 +81,55 @@ fn stateful(b: *source.Builder, c: Common) !Built {
         .exports = try b.allocator().dupe(data.component.Symbol, &.{ symbol("compute", .function, main), symbol("read", .effect, c.read) }),
     } };
 }
-fn suspension(b: *source.Builder, c: Common) !Built {
-    const compute = try b.declare(&.{}, c.integer, &.{c.read}, &.{});
-    const release = try b.effect(.{ .identity = "component/release", .payload = c.integer, .result = c.unit });
-    const generator = try gen.define(b, "component/yield", c.integer, &.{ c.unit, c.integer }, &.{}, .{ .effects = &.{release} });
-    const start = try b.declare(&.{generator.capability}, c.unit, &.{ release, generator.effect }, &.{});
-    const value = try b.variable(c.integer);
-    const body = try b.declare(&.{}, c.unit, &.{generator.effect}, &.{});
-    try b.define(body, try b.bind(try b.variable(c.unit), try b.term(.{ .perform = .{ .effect = generator.effect, .capability = try b.reference(b.parameter(start, 0)), .payload = try b.reference(value) } }), try b.pure(try b.constant(void, {}))));
-    const finalizer = try b.declare(&.{try cleanup.exitInfo(b, c.unit)}, c.unit, &.{release}, &.{});
-    try b.define(finalizer, try b.term(.{ .perform = .{ .effect = release, .payload = try b.reference(value) } }));
-    const body_type = try b.schema(.{ .internal = .{ .computation = .{ .parameters = &.{}, .result = c.unit, .effects = &.{generator.effect}, .capture_bound = &.{ generator.capability, c.integer } } } });
-    const cleanup_type = try b.schema(.{ .internal = .{ .computation = .{ .parameters = &.{try cleanup.exitInfo(b, c.unit)}, .result = c.unit, .effects = &.{release}, .capture_bound = &.{c.integer} } } });
-    try b.define(start, try b.term(.{ .protect = .{ .body = try b.lambda(body, body_type), .cleanup = try b.lambda(finalizer, cleanup_type) } }));
-    const start_type = try b.schema(.{ .internal = .{ .computation = .{ .parameters = &.{generator.capability}, .result = c.unit, .effects = &.{ release, generator.effect }, .capture_bound = &.{c.integer} } } });
-    const main = try b.declare(&.{}, c.integer, &.{ c.read, release }, &.{});
-    const answer = try b.variable(generator.answer);
-    const done = try b.variable(c.unit);
-    const yielded = try b.variable(generator.yielded);
-    const label = try b.variable(c.integer);
-    const package = try b.variable(generator.package);
-    const close = try b.bind(try b.variable(c.unit), try gen.close(b, generator, try b.reference(package)), try b.pure(try b.reference(label)));
-    const unpack = try b.term(.{ .unpack_product = .{ .value = try b.reference(yielded), .variables = &.{ label, package }, .body = try b.term(.{ .yield_then = close }) } });
-    const matched = try b.term(.{ .match_sum = .{ .value = try b.reference(answer), .cases = &.{ .{ .variable = done, .body = try b.term(.{ .fail = try b.constant(void, {}) }) }, .{ .variable = yielded, .body = unpack } } } });
-    try b.define(main, try b.bind(value, try b.term(.{ .call = .{ .function = compute, .arguments = &.{} } }), try b.bind(answer, try b.term(.{ .handle = .{ .handler = generator.handler, .body = try b.lambda(start, start_type) } }), matched)));
+fn suspension(b: *source.Builder, common_types: Common) !Built {
+    const c = try authoring.Context.init(b);
+    const unit = try authoring.interop.schema(c, common_types.unit);
+    const integer = try authoring.interop.schema(c, common_types.integer);
+    const read = try authoring.interop.operation(c, common_types.read);
+    const compute_fn = try c.function("imported compute", &.{}, integer, &.{read});
+    const release = try c.external("component/release", integer, unit);
+    const generator = try gen.create(c, "component/yield", unit, integer, unit, .{
+        .captures = .{ .continuation = &.{ unit, integer }, .body = &.{integer} },
+        .residual = &.{release},
+        .body_use = .reusable,
+    });
+    const main_fn = try c.function("suspended component", &.{}, integer, &.{ read, release });
+    const main_body = try c.body(main_fn);
+    const value = try main_body.call(compute_fn, &.{});
+    const start_type = try c.handledSchema(generator.handler());
+    const start_fn = try c.functionFor("component producer", start_type);
+    const start = try main_body.closureBody(start_fn);
+    const capability = try start.parameter("capability");
+    const body_type = try c.callable(&.{}, unit, &.{generator.effect()}, .{ .use = .reusable, .captures = &.{ generator.capability(), integer } });
+    const body_fn = try c.functionFor("component suspension", body_type);
+    const body = try start.closureBody(body_fn);
+    _ = try body.performLocal(generator.effect(), capability, value);
+    try c.define(body_fn, try body.ret(try body.constant(void, {})));
+    const cleanup_type = try c.callable(&.{.{ .name = "exit", .schema = try c.cleanupInfo(unit) }}, unit, &.{release}, .{ .use = .reusable, .captures = &.{integer} });
+    const cleanup_fn = try c.functionFor("component release", cleanup_type);
+    const cleanup = try start.closureBody(cleanup_fn);
+    try c.define(cleanup_fn, try cleanup.ret(try cleanup.perform(release, value)));
+    try c.define(start_fn, try start.ret(try start.protect(try start.lambda(body_fn, body_type), try start.lambda(cleanup_fn, cleanup_type), &.{})));
+    const answer = try main_body.handleWith(generator.handler(), try main_body.lambda(start_fn, start_type), &.{});
+    const done = try main_body.caseOf(answer, "done");
+    const yielded = try main_body.caseOf(answer, "yielded");
+    const resumed = yielded.body();
+    const parts = try resumed.destructure(yielded.payload());
+    const label = try parts.get("value");
+    const future = try parts.get("future");
+    _ = try resumed.yieldNow();
+    _ = try resumed.disposePackage(future);
+    try c.define(main_fn, try main_body.ret(try main_body.match(answer, &.{ try done.fail(integer, try done.body().constant(void, {})), try yielded.ret(label) })));
+    const compute = try authoring.interop.functionId(c, compute_fn);
+    const main = try authoring.interop.functionId(c, main_fn);
+    const release_id = try authoring.interop.operationId(c, release);
     return .{ .entry = main, .interface = .{
-        .imports = try b.allocator().dupe(data.component.Symbol, &.{ symbol("compute", .function, compute), symbol("read", .effect, c.read) }),
+        .imports = try b.allocator().dupe(data.component.Symbol, &.{ symbol("compute", .function, compute), symbol("read", .effect, common_types.read) }),
         .borrows = try b.allocator().dupe(data.borrow_contract.Summary, &.{.{ .function = compute }}),
-        .exports = try b.allocator().dupe(data.component.Symbol, &.{ symbol("main", .function, main), symbol("read", .effect, c.read), symbol("release", .effect, release) }),
+        .exports = try b.allocator().dupe(data.component.Symbol, &.{ symbol("main", .function, main), symbol("read", .effect, common_types.read), symbol("release", .effect, release_id) }),
     } };
 }
+
 fn doubled(b: *source.Builder, c: Common) !Built {
     const release = try b.effect(.{ .identity = "component/release", .payload = c.integer, .result = c.unit });
     const imported = try b.declare(&.{}, c.integer, &.{ c.read, release }, &.{});

@@ -20,6 +20,7 @@ pub const Diagnostic = struct {
 pub const Origins = struct {
     functions: [8]p.Id = @splat(0),
     count: usize = 0,
+    /// Multiple possible origins, or an unenumerated origin set after rewriting.
     ambiguous: bool = false,
     truncated: bool = false,
 

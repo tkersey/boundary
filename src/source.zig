@@ -17,7 +17,7 @@ pub const lowerObserved = @import("source/activation_lower.zig").lowerObserved;
 pub const Diagnostic = @import("source/diagnostic.zig").Diagnostic;
 pub const CompileOptions = @import("source/diagnostic.zig").Options;
 pub const CompileStage = @import("source/diagnostic.zig").Stage;
-pub const Error = data.coalescing.Error || data.admission.Error || data.activation_flow.Error ||
+pub const Error = data.closed_compilation.Error || data.admission.Error || data.activation_flow.Error ||
     error{ UndefinedFunction, InvalidSource, UnboundVariable };
 
 /// Application.emit constructs a checked source Module. Its Zig body runs only
@@ -215,13 +215,50 @@ pub fn Specialization(comptime Result: type) type {
 /// Row-polymorphic Zig helpers pass a row value without inspecting its members.
 pub const Row = struct {
     effects: []const p.Id,
+    /// Preserve left multiplicities and add only missing right IDs, as before.
+    /// Canonical sorted rows take linear work; unsorted inputs are sorted in
+    /// private copies so caller-owned evidence remains unchanged.
     pub fn unionWith(self: Row, allocator: std.mem.Allocator, other: Row) Error!Row {
-        var values: std.ArrayList(p.Id) = .empty;
-        errdefer values.deinit(allocator);
-        try values.appendSlice(allocator, self.effects);
-        for (other.effects) |effect| if (std.mem.indexOfScalar(p.Id, values.items, effect) == null) try values.append(allocator, effect);
-        std.mem.sort(p.Id, values.items, {}, std.sort.asc(p.Id));
-        return .{ .effects = try values.toOwnedSlice(allocator) };
+        _ = std.math.add(usize, self.effects.len, other.effects.len) catch return error.OutOfMemory;
+        const left = try sortedRow(allocator, self.effects);
+        defer if (left.owned) allocator.free(left.ids);
+        const right = try sortedRow(allocator, other.effects);
+        defer if (right.owned) allocator.free(right.ids);
+        const count = mergeRows(left.ids, right.ids, null);
+        const output = try allocator.alloc(p.Id, count);
+        const written = mergeRows(left.ids, right.ids, output);
+        std.debug.assert(written == count);
+        return .{ .effects = output };
+    }
+    const SortedRow = struct { ids: []const p.Id, owned: bool };
+    fn sortedRow(allocator: std.mem.Allocator, ids: []const p.Id) Error!SortedRow {
+        var ordered = true;
+        if (ids.len > 1) for (1..ids.len) |i| {
+            if (ids[i - 1] > ids[i]) {
+                ordered = false;
+                break;
+            }
+        };
+        if (ordered) return .{ .ids = ids, .owned = false };
+        const copy = try allocator.dupe(p.Id, ids);
+        std.mem.sort(p.Id, copy, {}, std.sort.asc(p.Id));
+        return .{ .ids = copy, .owned = true };
+    }
+    fn mergeRows(left: []const p.Id, right: []const p.Id, output: ?[]p.Id) usize {
+        var l: usize = 0;
+        var r: usize = 0;
+        var count: usize = 0;
+        while (l < left.len or r < right.len) {
+            const from_left = l < left.len and (r == right.len or left[l] <= right[r]);
+            const id = if (from_left) left[l] else right[r];
+            if (output) |values| values[count] = id;
+            count += 1;
+            if (from_left) l += 1;
+            // Right duplicates, including those already represented on the
+            // left, must not add another occurrence. Left duplicates survive.
+            while (r < right.len and right[r] == id) r += 1;
+        }
+        return count;
     }
     pub fn subtract(self: Row, allocator: std.mem.Allocator, removed: Row) Error!Row {
         var values: std.ArrayList(p.Id) = .empty;
@@ -272,4 +309,45 @@ fn equal(comptime T: type, left: T, right: T) bool {
         .void => true,
         else => left == right,
     };
+}
+
+test "row merge preserves the original duplicate policy order and caller storage" {
+    const a = std.testing.allocator;
+    const cases = [_]Row{ .{ .effects = &.{} }, .{ .effects = &.{0} }, .{ .effects = &.{ 3, 1, 1, 0 } }, .{ .effects = &.{ 2, 2, 4 } }, .{ .effects = &.{ std.math.maxInt(p.Id), 0 } } };
+    for (cases) |left| for (cases) |right| {
+        var expected: std.ArrayList(p.Id) = .empty;
+        defer expected.deinit(a);
+        try expected.appendSlice(a, left.effects);
+        for (right.effects) |id| if (std.mem.indexOfScalar(p.Id, expected.items, id) == null) try expected.append(a, id);
+        std.mem.sort(p.Id, expected.items, {}, std.sort.asc(p.Id));
+        const left_before = try a.dupe(p.Id, left.effects);
+        defer a.free(left_before);
+        const right_before = try a.dupe(p.Id, right.effects);
+        defer a.free(right_before);
+        const result = try left.unionWith(a, right);
+        defer a.free(result.effects);
+        try std.testing.expectEqualSlices(p.Id, expected.items, result.effects);
+        try std.testing.expectEqualSlices(p.Id, left_before, left.effects);
+        try std.testing.expectEqualSlices(p.Id, right_before, right.effects);
+    };
+}
+fn rowAllocationAttempt(a: std.mem.Allocator) !void {
+    const result = try (Row{ .effects = &.{ 4, 1, 1, 0 } }).unionWith(a, .{ .effects = &.{ 8, 2, 2, 0 } });
+    defer a.free(result.effects);
+}
+test "row merge frees every failed allocation without mutating evidence" {
+    try std.testing.checkAllAllocationFailures(std.testing.allocator, rowAllocationAttempt, .{});
+}
+
+test "raw literal edits remain visible to subsequent lookup and existing source occurrences" {
+    var builder = Builder.init(std.testing.allocator);
+    defer builder.deinit();
+    _ = try builder.constant(u64, 1);
+    _ = try builder.constant(u64, 2);
+    builder.constants.items[0].bytes = &.{ 2, 0, 0, 0, 0, 0, 0, 0 };
+    const found = try builder.constant(u64, 2);
+    try std.testing.expectEqual(@as(p.Id, 0), try builder.failureLiteral(found));
+    builder.constants.items[0].bytes = &.{ 3, 0, 0, 0, 0, 0, 0, 0 };
+    const index = builder.values.items[@intCast(found)].expression.literal;
+    try std.testing.expectEqual(@as(u8, 3), builder.constants.items[@intCast(index)].bytes[0]);
 }

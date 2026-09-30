@@ -10,9 +10,8 @@ const discovery = @import("coalescing_discovery.zig");
 const candidate = @import("coalescing_candidate.zig");
 const origins = @import("coalescing_origins.zig");
 pub const Diagnostic = origins.Diagnostic;
-pub const Mode = enum { off, safe };
 pub const Outcome = enum {
-    disabled,
+    not_run,
     deferred_open_component,
     no_change,
     applied,
@@ -46,7 +45,7 @@ pub const Statistics = struct {
     rounds: []Round = &.{},
     round_count: usize = 0,
     rounds_recorded: usize = 0,
-    outcome: Outcome = .disabled,
+    outcome: Outcome = .not_run,
     baseline: Counts = .{},
     full: Counts = .{},
     descriptions: Counts = .{},
@@ -70,7 +69,6 @@ pub const Round = struct {
     work: u64,
 };
 pub const Options = struct {
-    mode: Mode = .safe,
     statistics: ?*Statistics = null,
     diagnostic: ?*Diagnostic = null,
     /// Deterministic discovery-work units; unlimited unless a caller selects a bound.
@@ -143,22 +141,20 @@ fn runInternal(allocator: std.mem.Allocator, original: ir.Program, options: Opti
     defer {
         if (options.statistics) |output| output.* = stats;
     }
-    if (options.mode == .safe) {
-        const selected = attempt(allocator, baseline.program, &stats, if (trace) |*t| t else null, options.diagnostic) catch |err| switch (err) {
-            error.WorkLimit => blk: {
-                stats.outcome = .work_limit;
-                stats.selected = counts;
-                stats.extraction_rounds = 0;
-                stats.selected_profile = null;
-                break :blk null;
-            },
-            else => return err,
-        };
-        if (selected) |result| {
-            flow.deinit();
-            baseline_arena.deinit();
-            return result;
-        }
+    const selected = attempt(allocator, baseline.program, &stats, if (trace) |*t| t else null, options.diagnostic) catch |err| switch (err) {
+        error.WorkLimit => blk: {
+            stats.outcome = .work_limit;
+            stats.selected = counts;
+            stats.extraction_rounds = 0;
+            stats.selected_profile = null;
+            break :blk null;
+        },
+        else => return err,
+    };
+    if (selected) |result| {
+        flow.deinit();
+        baseline_arena.deinit();
+        return result;
     }
     return .{ .arena = baseline_arena, .program = baseline.program, .flow = flow };
 }

@@ -65,8 +65,7 @@ fn lowerInternal(
     borrows: []const data.borrow_contract.Summary,
     options: source.CompileOptions,
 ) Error!Construction {
-    options.coalescing.resetObservations();
-    if (options.diagnostic) |diagnostic| diagnostic.* = .{};
+    options.resetObservations();
     errdefer |err| if (options.diagnostic) |diagnostic| {
         diagnostic.code = err;
     };
@@ -125,36 +124,39 @@ fn lowerInternal(
     original_facts.deinit();
     options.stage(.direct_optimization);
     const threaded = try @import("thread_jumps.zig").optimize(a, program);
-    const selected = try @import("tail_clauses.zig").optimize(a, threaded, traits);
+    const selected = try data.tail_clauses.optimize(a, threaded, traits);
     const ordered = try @import("slot_order.zig").optimize(a, selected);
-    if (!component and options.coalescing.mode == .safe)
-        return coalesce(allocator, ordered, &compiler, options);
+    if (!component) return coalesce(allocator, ordered, &compiler, options);
+    if (options.semantic_statistics) |stats| stats.outcome = .deferred_open_component;
     if (options.coalescing.statistics) |stats| stats.* = .{
         .rounds = stats.rounds,
-        .outcome = if (component) .deferred_open_component else .disabled,
+        .outcome = .deferred_open_component,
     };
     var output = std.heap.ArenaAllocator.init(allocator);
     errdefer output.deinit();
-    options.stage(if (component) .source_copy else .canonicalization);
-    const projected: data.relocation.Projection = if (component)
-        .{ .program = try source.own(ir.Program, output.allocator(), ordered), .function_origins = &.{} }
-    else
-        try data.relocation.ownReachable(output.allocator(), a, ordered);
-    const result = projected.program;
+    options.stage(.source_copy);
+    const result = try source.own(ir.Program, output.allocator(), ordered);
     options.stage(.target_check);
-    var flow = try checkTarget(allocator, &compiler, result, imports, component, borrows, if (component) null else projected.function_origins, options);
-    errdefer flow.deinit();
-    if (!component) if (options.coalescing.statistics) |stats| {
-        stats.baseline = try data.coalescing.Counts.of(result);
-        stats.selected = stats.baseline;
-    };
+    const flow = try checkTarget(allocator, &compiler, result, imports, true, borrows, null, options);
     options.stage(.complete);
     if (options.diagnostic) |diagnostic| diagnostic.* = .{ .phase = .complete };
     return .{ .arena = output, .program = result, .flow = flow };
 }
 
+const CompilationObserver = struct {
+    options: source.CompileOptions,
+    fn enter(context: *anyopaque, stage: data.closed_compilation.Stage) void {
+        const self: *CompilationObserver = @ptrCast(@alignCast(context));
+        self.options.stage(if (stage == .p01) .coalescing else .semantic_optimization);
+        if (self.options.compilation_observer) |observer| observer.enter(observer.context, stage);
+    }
+};
 fn coalesce(allocator: std.mem.Allocator, program: ir.Program, compiler: *Compiler, options: source.CompileOptions) Error!Construction {
-    options.stage(.coalescing);
+    var observation: CompilationObserver = .{ .options = options };
+    var statistics: data.closed_compilation.Statistics = .{};
+    defer if (options.semantic_statistics) |out| {
+        out.* = statistics;
+    };
     var detail: data.coalescing.Diagnostic = .{};
     var selected = options.coalescing;
     if (options.diagnostic) |diagnostic| {
@@ -169,8 +171,27 @@ fn coalesce(allocator: std.mem.Allocator, program: ir.Program, compiler: *Compil
             out.* = detail;
         };
     }
-    const result = data.coalescing.run(allocator, program, selected) catch |err| {
+    const result = data.closed_compilation.run(allocator, program, .{
+        .contract = options.contract,
+        .objective = options.objective,
+        .image_growth_bytes = options.image_growth_bytes,
+        .max_image_bytes = options.max_image_bytes,
+        .profile = options.profile,
+        .work_limit = options.semantic_work_limit,
+        .round_limit = options.semantic_round_limit,
+        .statistics = &statistics,
+        .observer = .{ .context = &observation, .enter = CompilationObserver.enter },
+        .coalescing = selected,
+    }) catch |err| {
         if (options.diagnostic) |diagnostic| {
+            if (statistics.stages_run != 0 or (statistics.failed_stage != null and statistics.failed_stage != .p01)) {
+                // Semantic records no longer use the source's original indices.
+                diagnostic.target = .{};
+                diagnostic.origins = .{ .ambiguous = true };
+                diagnostic.function = null;
+                diagnostic.variable = null;
+                return err;
+            }
             diagnostic.target = detail.target;
             diagnostic.origins = detail.origins;
             if (detail.origins.count != 0) {
@@ -416,6 +437,40 @@ const Function = struct {
     }
 
     fn term(self: *Function, block: *Block, task: Task) Error!ir.Terminator {
+        var current = task;
+        var traversed: usize = 0;
+        while (true) {
+            const expression = self.compiler.source.terms[@intCast(current.term)];
+            if (expression != .bind) break;
+            const binding = expression.bind;
+            const value_term = self.compiler.source.terms[@intCast(binding.value)];
+            const schema = self.compiler.source.variables[@intCast(binding.variable)];
+            // Owned bindings introduce custody scopes and keep their original
+            // boundaries. A copyable value has no such scope transition.
+            if (value_term != .value or !self.compiler.uses.copy[@intCast(schema)]) break;
+            if (traversed >= self.compiler.source.terms.len) return error.InvalidSource;
+            traversed += 1;
+            const first_fresh = self.slots.items.len;
+            const value = try block.value(value_term.value);
+            if (value < first_fresh) {
+                // Preserve distinct named-variable provenance for aliases.
+                const environment = try self.bind(current.environment, binding.variable);
+                const rest = try self.schedule(binding.next, environment, current.next, current.custody);
+                return .{ .jump = try self.edge(.{ .block = rest, .destination = try self.resolve(environment, binding.variable) }, .{ .slot = value }) };
+            }
+            if (self.compiler.capture_observer != null) self.slot_variables.items[@intCast(value)] = binding.variable;
+            current.environment = try self.bindings.bind(current.environment, binding.variable, value);
+            current.term = binding.next;
+            block.environment = current.environment;
+            // Staging remains eager. A repeated cell read after a write must
+            // execute again, even when source expressions share an ID.
+            block.computed.clearRetainingCapacity();
+            block.products.clearRetainingCapacity();
+        }
+        return self.termAfterValues(block, current);
+    }
+
+    fn termAfterValues(self: *Function, block: *Block, task: Task) Error!ir.Terminator {
         const expression = self.compiler.source.terms[@intCast(task.term)];
         switch (expression) {
             .bind => |binding| {
@@ -426,6 +481,23 @@ const Function = struct {
                     .block = rest,
                     .destination = try self.resolve(env, binding.variable),
                 };
+                // A control operation ends this block in the same custody
+                // scope. Its result still enters the binding's successor scope.
+                // Do not add an empty edge after eagerly staged operands.
+                const value_term = self.compiler.source.terms[@intCast(binding.value)];
+                switch (value_term) {
+                    .call,
+                    .apply,
+                    .perform,
+                    .handle,
+                    .with_region,
+                    .protect,
+                    .resume_value,
+                    .resume_with,
+                    .resume_computation,
+                    => return self.control(block, value_term, next),
+                    else => {},
+                }
                 return .{ .jump = .{
                     .block = try self.schedule(binding.value, task.environment, next, task.custody),
                 } };

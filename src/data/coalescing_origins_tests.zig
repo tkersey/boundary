@@ -102,7 +102,6 @@ fn allocationCase(a: std.mem.Allocator) !void {
     };
     var stats: pass.Statistics = .{};
     var result = pass.run(a, fixture, .{
-        .mode = .safe,
         .diagnostic = &diagnostic,
         .statistics = &stats,
     }) catch |err| {
@@ -126,10 +125,10 @@ test "coalescing diagnostics do not change the selected image" {
     var observed = try pass.run(
         testing.allocator,
         fixture,
-        .{ .mode = .safe, .diagnostic = &diagnostic },
+        .{ .diagnostic = &diagnostic },
     );
     defer observed.deinit();
-    var ordinary = try pass.run(testing.allocator, fixture, .{ .mode = .safe });
+    var ordinary = try pass.run(testing.allocator, fixture, .{});
     defer ordinary.deinit();
     const image = @import("program_image.zig");
     try testing.expectEqual(

@@ -2,9 +2,9 @@ const std = @import("std");
 const b = @import("boundary");
 pub fn main(init: std.process.Init) !void {
     const a = init.gpa;
-    var builder = b.computation.Builder.init(a);
+    var builder = b.source.Builder.init(a);
     defer builder.deinit();
-    const module = try b.computation.examples.installations(&builder, 64);
+    const module = try b.source.examples.installations(&builder, 64);
     var compiled = try b.program.compile(a, module);
     defer compiled.deinit();
     const bytes = try a.alloc(u8, try b.data.program_image.encodedLength(compiled.program));

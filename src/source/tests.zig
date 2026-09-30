@@ -223,7 +223,20 @@ test "a nested suspension package retains implicit handler and region borrows" {
         const region = try b.schema(.{ .internal = .{ .region = r } });
         const uses_region = form == 2 or form == 4;
         const regions: []const data.program.Id = if (uses_region) &.{r} else &.{};
-        const generator = try gen.define(&b, "implicit-package-borrow", unit, &.{unit}, &.{}, .{ .effects = &.{} });
+        const a = @import("../authoring.zig");
+        const c = try a.Context.init(&b);
+        const typed_unit = try c.scalar(void);
+        const definition = try gen.create(c, "implicit-package-borrow", typed_unit, typed_unit, typed_unit, .{ .captures = .{ .continuation = &.{typed_unit} } });
+        // Project the checked family for deliberate lexical-borrow IR variants.
+        const generator = .{
+            .capability = try a.interop.schemaId(c, definition.capability()),
+            .effect = try a.interop.operationId(c, definition.effect()),
+            .handler = try a.interop.handlerId(c, definition.handler()),
+            .answer = try a.interop.schemaId(c, definition.answer()),
+            .yielded = try a.interop.schemaId(c, definition.yielded()),
+            .package = try a.interop.schemaId(c, definition.package()),
+            .resumption = try a.interop.schemaId(c, definition.resumption()),
+        };
         const yielded_body = try b.declare(&.{generator.capability}, unit, &.{generator.effect}, &.{});
         try b.define(yielded_body, try b.term(.{ .perform = .{ .effect = generator.effect, .capability = try b.reference(b.parameter(yielded_body, 0)), .payload = try b.constant(void, {}) } }));
         const yielded_type = try b.schema(.{ .internal = .{ .computation = .{ .parameters = &.{generator.capability}, .result = unit, .effects = &.{generator.effect} } } });
@@ -233,7 +246,7 @@ test "a nested suspension package retains implicit handler and region borrows" {
         const yielded = try b.variable(generator.yielded);
         const payload = try b.variable(unit);
         const package = try b.variable(generator.package);
-        const unpack = try b.term(.{ .unpack_product = .{ .value = try b.reference(yielded), .variables = &.{ payload, package }, .body = try gen.close(&b, generator, try b.reference(package)) } });
+        const unpack = try b.term(.{ .unpack_product = .{ .value = try b.reference(yielded), .variables = &.{ payload, package }, .body = try b.term(.{ .dispose = try b.primitive(generator.resumption, .unpack, &.{try b.reference(package)}, 0) }) } });
         try b.define(consume, try b.term(.{ .match_sum = .{ .value = try b.reference(b.parameter(consume, 0)), .cases = &.{ .{ .variable = done, .body = try b.pure(try b.constant(void, {})) }, .{ .variable = yielded, .body = unpack } } } }));
         const inside_result = if (form >= 3) unit else generator.answer;
         const scope = try b.declare(if (uses_region) &.{region} else &.{}, inside_result, &.{}, regions);
@@ -487,36 +500,25 @@ test "tail clauses reject well-typed authored failure and hidden effects at pure
 
 test "library specializations share declarations at one eight and sixty-four installations" {
     const choice = @import("../library/choice.zig");
-    const state = @import("../library/state.zig");
     const generator = @import("../library/generator.zig");
-    const reader = @import("../library/reader.zig");
-    const writer = @import("../library/writer.zig");
-    const raise = @import("../library/raise.zig");
-    const search = @import("../library/search.zig");
     const scheduler = @import("../library/scheduler.zig");
     var b = source.Builder.init(std.testing.allocator);
     defer b.deinit();
-    const integer = try b.scalar(u64);
     const unit = try b.scalar(void);
-    const region = b.region();
-    const choices = try choice.family(&b, "sharing/choice");
-    const states = try state.family(&b, "sharing/state", integer);
-    const logs = try writer.family(&b, "sharing/log", integer);
-    const raises = try raise.family(&b, "sharing/raise", integer);
-    const joined = try scheduler.joinType(&b, integer, region);
+    const typed = @import("../authoring.zig");
+    const author = try typed.Context.init(&b);
+    const choices = try choice.family(author, "sharing/choice");
+    const region = try author.region();
+    const joined = try scheduler.joinType(author, try author.scalar(u64), region);
+    const task_unit = try author.scalar(void);
+    const tasks = try generator.create(author, "sharing/generator", task_unit, task_unit, task_unit, .{ .captures = .{ .continuation = &.{} } });
     var declarations: ?usize = null;
     var handlers: ?usize = null;
-    var first_handler: data.program.Id = 0;
+    var first_handler: *const typed.Handler = undefined;
     for (0..64) |index| {
-        const interpreted = try choice.all(&b, choices, integer, &.{}, .{ .effects = &.{} });
-        _ = try state.interpret(&b, states, integer, region, &.{}, .{ .effects = &.{} }, .value);
-        const tasks = try generator.define(&b, "sharing/generator", unit, &.{}, &.{}, .{ .effects = &.{} });
-        _ = try reader.define(&b, "sharing/reader", integer, integer, integer, .{ .continuation = &.{} }, .{ .effects = &.{} }, &.{});
-        _ = try writer.interpret(&b, logs, integer, region, &.{}, .{ .effects = &.{} });
-        _ = try raise.catching(&b, raises, integer, &.{}, .{ .effects = &.{} }, &.{});
-        _ = try search.define(&b, "sharing/search", integer, &.{}, .{ .effects = &.{} }, &.{}, &.{}, .depth_first);
-        _ = try scheduler.fifo(&b, tasks, .{ .effects = &.{} }, &.{});
-        _ = try scheduler.awaiting(&b, tasks, joined, integer, &.{region});
+        const interpreted = try choice.all(author, choices, try author.scalar(u64), .{ .captures = .{ .continuation = &.{} }, .residual = &.{} });
+        _ = try scheduler.fifo(author, tasks, &.{}, &.{});
+        _ = try scheduler.awaiting(author, tasks, joined, &.{region});
         if (index == 0) {
             declarations = b.functions.items.len;
             handlers = b.handlers.items.len;
@@ -529,7 +531,7 @@ test "library specializations share declarations at one eight and sixty-four ins
         }
     }
     const residual = try b.effect(.{ .identity = "sharing/residual", .payload = unit, .result = unit });
-    const changed = try choice.all(&b, choices, integer, &.{}, .{ .effects = &.{residual} });
+    const changed = try choice.all(author, choices, try author.scalar(u64), .{ .captures = .{ .continuation = &.{} }, .residual = &.{try typed.interop.operation(author, residual)} });
     try std.testing.expect(changed.handler != first_handler);
     try std.testing.expectEqual(declarations.? + 2, b.functions.items.len);
     try std.testing.expectEqual(handlers.? + 1, b.handlers.items.len);
@@ -557,8 +559,8 @@ test "converting an owned capture consumes the original before any template acti
     const resumed = b.terms.items[@intCast(saved.next)].bind.value;
     const original = try b.reference(b.parameter(clause, 3));
     b.terms.items[@intCast(resumed)].resume_value.resumption = original;
-    for ([_]data.coalescing.Mode{ .off, .safe }) |mode| {
-        try std.testing.expectError(error.UnavailableSlot, source.lowerObserved(std.testing.allocator, b.module(module.entry, module.failure), .{ .coalescing = .{ .mode = mode } }));
+    {
+        try std.testing.expectError(error.UnavailableSlot, source.lowerObserved(std.testing.allocator, b.module(module.entry, module.failure), .{}));
     }
 }
 
@@ -606,7 +608,7 @@ test "a resource borrow cannot escape its protected body even when immediately r
     var b = source.Builder.init(std.testing.allocator);
     defer b.deinit();
     const original = try examples.resourceScalar(&b);
-    const main_bind = b.terms.items[@intCast(b.functions.items[@intCast(original.entry)].body.?)].bind;
+    const main_bind = try @import("fixture_inspection.zig").resourceEntry(&b, original.entry);
     const protected = main_bind.next;
     const body_value = b.terms.items[@intCast(protected)].protect.body;
     const body_function = b.values.items[@intCast(body_value)].expression.lambda;
@@ -624,8 +626,8 @@ test "a resource borrow cannot escape its protected body even when immediately r
     const next = try b.bind(escaped, protected, read);
     const changed = try b.bind(main_bind.variable, main_bind.value, next);
     b.functions.items[@intCast(original.entry)].body = changed;
-    for ([_]data.coalescing.Mode{ .off, .safe }) |mode| {
-        try std.testing.expectError(error.InvalidOwnership, source.lowerObserved(std.testing.allocator, b.module(original.entry, original.failure), .{ .coalescing = .{ .mode = mode } }));
+    {
+        try std.testing.expectError(error.InvalidOwnership, source.lowerObserved(std.testing.allocator, b.module(original.entry, original.failure), .{}));
     }
 }
 
@@ -724,7 +726,7 @@ test "large sparse region names preserve alpha-equivalent canonical images" {
     var large_bytes: [512]u8 = undefined;
     try std.testing.expectEqualSlices(u8, try small.encode(std.testing.allocator, &small_bytes), try large.encode(std.testing.allocator, &large_bytes));
     var diagnostic: data.coalescing.Diagnostic = .{};
-    var optimized = try Example.compileObserved(std.testing.allocator, std.math.maxInt(data.program.Id) - 1, .{ .coalescing = .{ .mode = .safe, .diagnostic = &diagnostic } });
+    var optimized = try Example.compileObserved(std.testing.allocator, std.math.maxInt(data.program.Id) - 1, .{ .coalescing = .{ .diagnostic = &diagnostic } });
     defer optimized.deinit();
     var optimized_bytes: [512]u8 = undefined;
     try std.testing.expectEqualSlices(u8, try large.encode(std.testing.allocator, &large_bytes), try optimized.encode(std.testing.allocator, &optimized_bytes));
@@ -732,7 +734,7 @@ test "large sparse region names preserve alpha-equivalent canonical images" {
 }
 
 test "capture diagnostics name the responsible source variable without changing compiled bytes" {
-    inline for (.{ data.coalescing.Mode.off, data.coalescing.Mode.safe }) |mode| {
+    {
         const Trace = struct {
             stages: std.ArrayList(source.CompileStage) = .empty,
             fn enter(context: *anyopaque, stage: source.CompileStage) void {
@@ -743,14 +745,14 @@ test "capture diagnostics name the responsible source variable without changing 
         var b = source.Builder.init(std.testing.allocator);
         defer b.deinit();
         const module = try examples.lexical(&b);
-        var original = try source.lowerObserved(std.testing.allocator, module, .{ .coalescing = .{ .mode = mode } });
+        var original = try source.lowerObserved(std.testing.allocator, module, .{});
         defer original.deinit();
         var trace: Trace = .{};
         defer trace.stages.deinit(std.testing.allocator);
         var diagnostic: source.Diagnostic = .{};
-        var observed = try source.lowerObserved(std.testing.allocator, module, .{ .coalescing = .{ .mode = mode }, .diagnostic = &diagnostic, .observer = .{ .context = &trace, .enter = Trace.enter } });
+        var observed = try source.lowerObserved(std.testing.allocator, module, .{ .diagnostic = &diagnostic, .observer = .{ .context = &trace, .enter = Trace.enter } });
         defer observed.deinit();
-        try std.testing.expectEqualSlices(source.CompileStage, if (mode == .off) &.{ .source_check, .lowering, .target_check, .direct_optimization, .canonicalization, .target_check, .complete } else &.{ .source_check, .lowering, .target_check, .direct_optimization, .coalescing, .complete }, trace.stages.items);
+        try std.testing.expectEqualSlices(source.CompileStage, &.{ .source_check, .lowering, .target_check, .direct_optimization, .coalescing, .complete }, trace.stages.items);
         try std.testing.expect(diagnostic.code == null and diagnostic.phase == .complete);
         var a: [1024]u8 = undefined;
         var c: [1024]u8 = undefined;
@@ -758,7 +760,7 @@ test "capture diagnostics name the responsible source variable without changing 
         for (b.schemas.items) |*schema| if (schema.* == .internal and schema.internal == .computation) {
             schema.internal.computation.capture_bound = &.{};
         };
-        try std.testing.expectError(error.InvalidOwnership, source.lowerObserved(std.testing.allocator, b.module(module.entry, module.failure), .{ .coalescing = .{ .mode = mode }, .diagnostic = &diagnostic }));
+        try std.testing.expectError(error.InvalidOwnership, source.lowerObserved(std.testing.allocator, b.module(module.entry, module.failure), .{ .diagnostic = &diagnostic }));
         try std.testing.expectEqual(source.CompileStage.target_check, diagnostic.phase);
         try std.testing.expectEqual(@as(data.program.Id, 1), diagnostic.function.?);
         try std.testing.expectEqual(b.parameter(module.entry, 0), diagnostic.variable.?);
@@ -864,8 +866,15 @@ test "choice returns borrowed cells to a caller inside their live region" {
     const region = try b.schema(.{ .internal = .{ .region = r } });
     const cell = try b.schema(.{ .internal = .{ .cell = .{ .element = integer, .region = r } } });
     const sequence = try b.schema(.{ .seq = cell });
-    const c = try choice.family(&b, "borrowed-choice");
-    const all = try choice.allScoped(&b, c, cell, &.{ unit, boolean, cell, sequence, c.capability }, .{ .effects = &.{} }, &.{}, &.{r});
+    const typed = @import("../authoring.zig");
+    const author = try typed.Context.init(&b);
+    const family = try choice.family(author, "borrowed-choice");
+    const c = .{ .effect = try typed.interop.operationId(author, family.effect()), .capability = try typed.interop.schemaId(author, family.capability()) };
+    const capture_ids = [_]data.program.Id{ unit, boolean, cell, sequence, c.capability };
+    var captures: [capture_ids.len]*const typed.Schema = undefined;
+    for (capture_ids, &captures) |id, *schema| schema.* = try typed.interop.schema(author, id);
+    const interpreted = try choice.all(author, family, try typed.interop.schema(author, cell), .{ .captures = .{ .continuation = &captures }, .residual = &.{}, .owned_regions = &.{}, .borrowed_regions = &.{try typed.interop.region(author, r)} });
+    const all = .{ .handler = try typed.interop.handlerId(author, interpreted.handler), .answer = try typed.interop.schemaId(author, interpreted.answer) };
     const body = try b.declare(&.{ c.capability, cell }, cell, &.{c.effect}, &.{r});
     const choose = try b.term(.{ .perform = .{ .effect = c.effect, .capability = try b.reference(b.parameter(body, 0)), .payload = try b.constant(void, {}) } });
     try b.define(body, try b.bind(try b.variable(boolean), choose, try b.pure(try b.reference(b.parameter(body, 1)))));
@@ -894,8 +903,15 @@ test "escaping choice captures own even a region with no live cells" {
         const boolean = try b.scalar(bool);
         const r = b.region();
         const region = try b.schema(.{ .internal = .{ .region = r } });
-        const c = try choice.family(&b, "empty-region-choice");
-        const all = try choice.allScoped(&b, c, boolean, &.{ boolean, c.capability }, .{ .effects = &.{} }, if (bounded) &.{r} else &.{}, &.{});
+        const typed = @import("../authoring.zig");
+        const author = try typed.Context.init(&b);
+        const family = try choice.family(author, "empty-region-choice");
+        const c = .{ .effect = try typed.interop.operationId(author, family.effect()), .capability = try typed.interop.schemaId(author, family.capability()) };
+        const capture_ids = [_]data.program.Id{ boolean, c.capability };
+        var captures: [capture_ids.len]*const typed.Schema = undefined;
+        for (capture_ids, &captures) |id, *schema| schema.* = try typed.interop.schema(author, id);
+        const interpreted = try choice.all(author, family, try typed.interop.schema(author, boolean), .{ .captures = .{ .continuation = &captures }, .residual = &.{}, .owned_regions = if (bounded) &.{try typed.interop.region(author, r)} else &.{}, .borrowed_regions = &.{} });
+        const all = .{ .handler = try typed.interop.handlerId(author, interpreted.handler), .answer = try typed.interop.schemaId(author, interpreted.answer) };
         const body = try b.declare(&.{c.capability}, boolean, &.{c.effect}, &.{});
         const inside = try b.declare(&.{region}, boolean, &.{c.effect}, &.{r});
         try b.define(inside, try b.term(.{ .perform = .{ .effect = c.effect, .capability = try b.reference(b.parameter(body, 0)), .payload = try b.constant(void, {}) } }));

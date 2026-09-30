@@ -7,8 +7,8 @@ const trees = @import("coalescing_tree_cases.zig");
 const edges = @import("coalescing_edge_cases.zig");
 const recursive = @import("coalescing_recursive_cases.zig");
 
-fn emitComponent(init: std.process.Init, kind: components.Kind, mode: data.coalescing.Mode) !void {
-    const object = try components.emit(init.gpa, kind, mode);
+fn emitComponent(init: std.process.Init, kind: components.Kind) !void {
+    const object = try components.emit(init.gpa, kind);
     defer init.gpa.free(object);
     var buffer: [4096]u8 = undefined;
     var output = std.Io.File.stdout().writer(init.io, &buffer);
@@ -19,13 +19,10 @@ fn emitComponent(init: std.process.Init, kind: components.Kind, mode: data.coale
 pub fn main(init: std.process.Init) !void {
     var args = init.minimal.args.iterate();
     _ = args.next();
-    const mode_name = args.next() orelse return error.MissingMode;
-    const mode = std.meta.stringToEnum(data.coalescing.Mode, mode_name) orelse
-        return error.InvalidMode;
     const selection = args.next() orelse return error.MissingCount;
     if (std.meta.stringToEnum(components.Kind, selection)) |kind| {
         if (args.next() != null) return error.UnexpectedArgument;
-        return emitComponent(init, kind, mode);
+        return emitComponent(init, kind);
     }
     const tree = std.meta.stringToEnum(trees.Kind, selection);
     const edge = std.meta.stringToEnum(edges.Kind, selection);
@@ -39,7 +36,7 @@ pub fn main(init: std.process.Init) !void {
     if (args.next() != null or count == 0 or count > 256) return error.InvalidCount;
     var rounds: [16]data.coalescing.Round = undefined;
     var statistics: data.coalescing.Statistics = .{ .rounds = &rounds };
-    const options: data.coalescing.Options = .{ .mode = mode, .statistics = &statistics };
+    const options: data.coalescing.Options = .{ .statistics = &statistics };
     var compiled = if (recursion) |kind|
         try recursive.compile(init.gpa, kind, options)
     else if (seed) |value|
@@ -67,7 +64,7 @@ pub fn main(init: std.process.Init) !void {
     var errors = std.Io.File.stderr().writer(init.io, &buffer);
     try std.json.Stringify.value(.{
         .count = count,
-        .mode = mode,
+        .pipeline = "canonical",
         .bytes = bytes.len,
         .functions = compiled.program.functions.len,
         .constructors = compiled.program.constructors.len,

@@ -10,8 +10,9 @@ for qualification and live review/readiness status.
 
 ## Author and compile
 
-Import the Zig build module `boundary`. Its public namespaces include `effect`,
-`computation`, `handler`, `region`, `program`, `data`, and `library`.
+Import the Zig build module `boundary`. Use `authoring` for ordinary construction,
+`program` for compilation, `data` for portable records, and `library` for reusable
+compositions. The `effect`, `handler`, and `region` raw-Builder facades have been removed.
 
 Start with the [typed structured authoring guide](docs/typed-authoring.md) and
 `boundary.authoring` for named values, forward sequencing and derived handlers.
@@ -30,8 +31,8 @@ where applicable. Observation does not change emitted bytes. The compiler checks
 the original target before specialization and the final target after normalization.
 
 [Whole-program coalescing](docs/coalescing.md) shares checked code and immutable
-descriptions by default during compilation and final linking. Select `off` for
-diagnostics or an unoptimized comparison.
+descriptions automatically during compilation and final linking. The retired
+mode selector is rejected. Diagnostics and bounded discovery remain available.
 
 The [public example](examples/one_effect.zig) compiles without a runtime:
 
@@ -44,10 +45,58 @@ returns a typed `example.lookup.v2` request, and the environment supplies its
 result. Application handlers, search, scheduling and cleanup remain Program code.
 
 `library` provides State, Reader/local, Writer, Raise/catch, answer-transforming
-choice, first/all results, DFS/BFS search, owned generators, protect/bracket and
-FIFO cooperative scheduling. Ownership, borrowing, nominal identities, failure
+choice, first/all results, DFS/BFS search, owned generators and FIFO cooperative
+scheduling. Typed bodies provide `protect` and `bracket`. Ownership, borrowing, nominal identities, failure
 order and cleanup remain checked. Stable slots retain earlier bindings without
 copying them into every intermediate continuation interface.
+
+Choice, Search, State, Reader, Writer and Raise families use an `authoring.Context` and typed handles.
+Choice/Writer/Raise expose `effect()` and `capability()`; State exposes `get()`, `put()`
+and their capability schemas. Interpretations return typed handler and answer
+handles. Repeated interpretations share definitions
+without merging distinct named schemas. The
+[Writer/Raise example](src/source/writer_raise_example.zig) includes typed cell
+allocation, logging, abortive catch and protected cleanup.
+
+`CaptureBounds` separates retained continuation values from the callable body's
+captures. These bounds have different effect-scope meanings; admitting a captured
+capability to a continuation does not give the body access to an older handler.
+`Context.handlerSet` constructs one handler with named capabilities and multiple
+clauses sharing its state and return arm. Select each clause or resumption schema
+by operation with `clauseFunctionFor` or `resumptionSchemaFor`.
+Use `body_parameters` and `handleWithArguments` for named inputs after the supplied
+capabilities; handler state remains a separate named argument group.
+Choice's `all` and `first` use the same typed `Options`, including separate owned
+and borrowed regions. The [State/Choice examples](src/source/state_choice_example.zig)
+exercise local versus shared state and mutually recursive work through that API.
+
+`Context.resource` declares a nominal resource; `resourceAuthority` selects its
+representation introducers and eliminators. `Body.packResource` and
+`unpackResource` emit accesses checked by that authority. `Body.bracket` transfers
+the owner to cleanup and gives its body a scoped loan. The
+[resource example](src/source/resource_example.zig) runs one typed client against
+scalar and structured representations. `library.cleanup.exitInfo` remains a
+schema helper for explicit source-IR construction; typed code uses `cleanupInfo`.
+
+Recursive interfaces use `declareSchema` and typed definitions. A declaration is
+bound once, retains its named metadata through cycles, and must be complete before
+module publication. `HandlerOptions.resumption_slots` lets handler construction
+complete declared tokens for mutually retaining clauses. Reader/local uses these
+declarations in the [scoped forwarding example](src/source/scoped_reader_example.zig).
+
+Owned generators and bidirectional child exchanges share one Boundary constructor.
+Its recursive answer, linear package and handler use checked typed declarations.
+Agent's inquiry and child-dialogue consumers use this same mechanism. The remaining
+raw Generator call surface and its consumers are still undergoing typed migration.
+Exchange composition now uses typed matching, package consumption and recursive
+calls. A terminal identity binding is normalized by `Body.ret` without moving
+intervening work.
+
+Search uses `family`, `interpret` and typed `collect`, with explicit DFS/BFS
+worklist order. The [queens example](src/source/queens_example.zig) uses typed
+sequence queries, integer ordering, scoped cells and resource cleanup throughout.
+Lowering keeps straight-line copyable value bindings in one block while retaining
+owned custody boundaries, named provenance and statement-level evaluation order.
 
 ## Pure data and components
 

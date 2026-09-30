@@ -14,6 +14,8 @@ pub const Error = source.Error || error{
     InvalidCategory,
     InvalidBranch,
     UndefinedBody,
+    UndefinedSchema,
+    SchemaAlreadyDefined,
 };
 pub const Schema = opaque {
     pub fn fields(self: *const Schema) []const Field {
@@ -24,6 +26,7 @@ pub const Schema = opaque {
     }
     pub fn describe(self: *const Schema, writer: *std.Io.Writer) !void {
         const item = data(SchemaData, self);
+        if (item.pending) |kind| return writer.print("unresolved {s}", .{@tagName(kind)});
         const shape = contextData(item.owner).raw.schemas.items[@intCast(item.id)];
         if (shape == .internal and shape.internal == .capability) {
             const instance = shape.internal.capability;
@@ -57,6 +60,12 @@ pub const Schema = opaque {
     }
 };
 pub const Operation = opaque {};
+pub const SchemaKind = enum { alternatives, callable, resumption };
+pub const SchemaDeclaration = opaque {
+    pub fn schema(self: *const SchemaDeclaration) *const Schema {
+        return data(SchemaDeclarationData, self).schema;
+    }
+};
 pub const Function = opaque {};
 pub const Value = opaque {};
 pub const FailureLiteral = opaque {};
@@ -75,28 +84,51 @@ pub const Case = opaque {
         const computation = try item.body.ret(value);
         return handle(FinishedCase, try bodyData(item.body).context.save(FinishedCaseData, .{ .case = self, .computation = computation }));
     }
+    pub fn fail(self: *const Case, result: *const Schema, failure: *const Value) Error!*const FinishedCase {
+        const item = data(CaseData, self);
+        const computation = try item.body.fail(result, failure);
+        return handle(FinishedCase, try bodyData(item.body).context.save(FinishedCaseData, .{ .case = self, .computation = computation }));
+    }
 };
 pub const FinishedCase = opaque {};
+pub const ProductParts = opaque {
+    pub fn get(self: *const ProductParts, name: []const u8) Error!*const Value {
+        const parts = data(ProductPartsData, self);
+        try parts.body.ready();
+        for (parts.fields) |field| if (std.mem.eql(u8, field.name, name)) return field.value;
+        return bodyData(parts.body).context.reject(error.UnknownName, "product", "unknown field");
+    }
+};
 pub const CallableOptions = struct {
     use: p.Use,
     captures: []const *const Schema,
     regions: []const *const Region = &.{},
 };
 pub const HandlerOptions = struct {
+    /// Optional forward declarations, in operation order, completed by this handler.
+    resumption_slots: ?[]const *const SchemaDeclaration = null,
     /// Permit protected cleanup obligations in captured resumptions.
     obligations: bool = false,
     mode: p.Mode,
     use: p.Use,
     residual: []const *const Operation,
+    /// Null preserves the handler's residual row; an empty row declares a pure return arm.
+    return_effects: ?[]const *const Operation = null,
+    /// Null preserves the residual row; a packaging-only clause can be pure.
+    clause_effects: ?[]const *const Operation = null,
     escaping: []const *const Operation = &.{},
     captures: []const *const Schema,
     body_use: p.Use = .linear,
     body_captures: []const *const Schema = &.{},
+    /// Explicit inputs following the automatically supplied capabilities.
+    body_parameters: []const Field = &.{},
     owned_regions: []const *const Region = &.{},
     borrowed_regions: []const *const Region = &.{},
     state: []const Field = &.{},
 };
 pub const Field = struct { name: []const u8, schema: *const Schema };
+pub const CaptureBounds = struct { continuation: []const *const Schema, body: []const *const Schema = &.{} };
+pub const HandledOperation = struct { name: []const u8, operation: *const Operation };
 pub const Argument = struct { name: []const u8, value: *const Value };
 pub const Arithmetic = enum { add, subtract, multiply, divide, remainder };
 pub const ArithmeticFailures = struct {
@@ -141,7 +173,9 @@ const SchemaData = struct {
     fields: []const Field = &.{},
     result: ?*const Schema = null,
     captures: []const *const Schema = &.{},
+    pending: ?SchemaKind = null,
 };
+const SchemaDeclarationData = struct { schema: *const Schema };
 const OperationData = struct {
     owner: *Context,
     id: p.Id,
@@ -180,15 +214,14 @@ const ComputationData = struct {
 const HandlerData = struct {
     owner: *Context,
     id: p.Id,
-    operation: *const Operation,
+    clauses: []const HandlerClauseData,
     input: *const Schema,
     answer: *const Schema,
-    resumption: *const Schema,
     body_schema: *const Schema,
     returns: *const Function,
-    clause: *const Function,
     state: []const Field,
 };
+const HandlerClauseData = struct { operation: *const Operation, resumption: *const Schema, function: *const Function };
 const CaseData = struct {
     body: *Body,
     payload: *const Value,
@@ -207,7 +240,12 @@ const PublicationUse = struct {
         function_scope: struct { declaration: *const Function, scope: *Scope },
     },
 };
-const Binding = struct { variable: p.Id, term: p.Id };
+const ProductPartsData = struct { body: *Body, fields: []const Argument };
+const Binding = union(enum) {
+    bind: struct { variable: p.Id, term: p.Id },
+    unpack: struct { value: p.Id, variables: []const p.Id },
+    yield_now,
+};
 fn data(comptime T: type, pointer: anytype) *const T {
     return @ptrCast(@alignCast(pointer));
 }
@@ -223,6 +261,7 @@ const ContextData = struct {
     schemas: std.ArrayList(*const Schema) = .empty,
     imported: std.AutoHashMapUnmanaged(p.Id, *const Schema) = .empty,
     functions: std.ArrayList(*const Function) = .empty,
+    twice_definitions: std.AutoHashMapUnmanaged(*const Schema, *const Function) = .empty,
     publication_uses: std.ArrayList(PublicationUse) = .empty,
     variable_schemas: std.AutoHashMapUnmanaged(p.Id, *const Schema) = .empty,
     lambda_schemas: std.AutoHashMapUnmanaged(p.Id, *const Schema) = .empty,
@@ -333,10 +372,16 @@ pub const Context = opaque {
     }
     fn fields(self: *Context, input: []const Field) Error![]const Field {
         errdefer |err| self.poison(err);
-        const output = try contextData(self).raw.allocator().alloc(Field, input.len);
+        const allocator = contextData(self).raw.allocator();
+        const output = try allocator.alloc(Field, input.len);
+        const scratch = contextData(self).raw.arena.child_allocator;
+        var names: std.StringHashMapUnmanaged(void) = .empty;
+        defer names.deinit(scratch);
+        try names.ensureTotalCapacity(scratch, std.math.cast(u32, input.len) orelse return error.OutOfMemory);
         for (input, 0..) |field, i| {
             _ = try self.schemaId(field.schema);
-            for (input[0..i]) |prior| if (std.mem.eql(u8, prior.name, field.name))
+            const entry = try names.getOrPut(scratch, field.name);
+            if (entry.found_existing)
                 return @as(Error![]const Field, self.reject(error.DuplicateName, "declaration", "duplicate field name"));
             output[i] = .{ .name = try self.label(field.name), .schema = field.schema };
         }
@@ -387,6 +432,54 @@ pub const Context = opaque {
         errdefer |err| self.poison(err);
         return self.intern(try contextData(self).raw.scalar(T), &.{});
     }
+    /// A checked forward reference. Every declaration must be completed before publication.
+    pub fn declareSchema(self: *Context, kind: SchemaKind) Error!*const SchemaDeclaration {
+        try self.ready();
+        errdefer |err| self.poison(err);
+        const raw = contextData(self).raw;
+        const id = try raw.reserveSchema();
+        // This invalid nominal index cannot alias any ordinary schema, including
+        // the empty sum used by raw source binders.
+        raw.schemas.items[@intCast(id)] = .{ .internal = .{ .abstract_resource = std.math.maxInt(p.Id) } };
+        const schema = handle(Schema, try self.save(SchemaData, .{ .owner = self, .id = id, .pending = kind }));
+        try contextData(self).schemas.append(raw.allocator(), schema);
+        return handle(SchemaDeclaration, try self.save(SchemaDeclarationData, .{ .schema = schema }));
+    }
+    fn declarationSlot(self: *Context, declaration: *const SchemaDeclaration, kind: SchemaKind) Error!*SchemaData {
+        const item = @constCast(data(SchemaData, declaration.schema()));
+        try self.origin(item.owner);
+        const pending = item.pending orelse return self.reject(error.SchemaAlreadyDefined, "schema", "declaration is already complete");
+        if (pending != kind) return self.reject(error.InvalidCategory, "schema", "declaration kind differs from its definition");
+        return item;
+    }
+    fn bindSchema(self: *Context, declaration: *const SchemaDeclaration, kind: SchemaKind, shape: p.Schema, names: []const Field, result: ?*const Schema, captures: []const *const Schema) Error!*const Schema {
+        const item = try self.declarationSlot(declaration, kind);
+        errdefer |err| self.poison(err);
+        const allocator = contextData(self).raw.allocator();
+        const fields_copy = try self.fields(names);
+        if (result) |value| _ = try self.schemaId(value);
+        _ = try self.schemaIds(captures);
+        const captures_copy = try allocator.dupe(*const Schema, captures);
+        const owned_shape = try source.own(p.Schema, allocator, shape);
+        contextData(self).raw.schemas.items[@intCast(item.id)] = owned_shape;
+        item.fields = fields_copy;
+        item.result = result;
+        item.captures = captures_copy;
+        item.pending = null;
+        return declaration.schema();
+    }
+    pub fn defineAlternatives(self: *Context, declaration: *const SchemaDeclaration, cases: []const Field) Error!void {
+        _ = try self.declarationSlot(declaration, .alternatives);
+        const completed = try self.alternatives(cases);
+        const info = data(SchemaData, completed);
+        _ = try self.bindSchema(declaration, .alternatives, contextData(self).raw.schemas.items[@intCast(info.id)], info.fields, null, &.{});
+    }
+    pub fn defineCallable(self: *Context, declaration: *const SchemaDeclaration, parameters: []const Field, result: *const Schema, allowed: []const *const Operation, options: CallableOptions) Error!void {
+        _ = try self.declarationSlot(declaration, .callable);
+        const completed = try self.callable(parameters, result, allowed, options);
+        const info = data(SchemaData, completed);
+        _ = try self.bindSchema(declaration, .callable, contextData(self).raw.schemas.items[@intCast(info.id)], info.fields, info.result, info.captures);
+    }
     pub fn record(self: *Context, names: []const Field) Error!*const Schema {
         try self.ready();
         errdefer |err| self.poison(err);
@@ -425,7 +518,8 @@ pub const Context = opaque {
         for (names, ids) |item, *id| {
             id.* = try self.schemaId(item.schema);
             const shape = contextData(self).raw.schemas.items[@intCast(id.*)];
-            if (shape != .internal or shape.internal != .computation) return @as(Error!*const Operation, self.reject(error.InvalidCategory, "scoped operation", "body operands must be callable"));
+            if ((shape != .internal or shape.internal != .computation) and data(SchemaData, item.schema).pending != .callable)
+                return @as(Error!*const Operation, self.reject(error.InvalidCategory, "scoped operation", "body operands must be callable"));
         }
         const id = try contextData(self).raw.effect(.{
             .identity = name,
@@ -530,11 +624,35 @@ pub const Context = opaque {
             try self.origin(r.owner);
             id.* = r.id;
         }
-        return ids;
+        std.mem.sort(p.Id, ids, {}, std.sort.asc(p.Id));
+        var length: usize = 0;
+        for (ids) |id| {
+            if (length == 0 or ids[length - 1] != id) {
+                ids[length] = id;
+                length += 1;
+            }
+        }
+        return ids[0..length];
     }
     pub fn region(self: *Context) Error!*const Region {
         try self.ready();
         return handle(Region, try self.save(RegionData, .{ .owner = self, .id = contextData(self).raw.region() }));
+    }
+    pub fn regionSchema(self: *Context, region_handle: *const Region) Error!*const Schema {
+        const r = data(RegionData, region_handle);
+        try self.origin(r.owner);
+        errdefer |err| self.poison(err);
+        return self.intern(try contextData(self).raw.schema(.{ .internal = .{ .region = r.id } }), &.{});
+    }
+    pub fn cell(self: *Context, region_handle: *const Region, element: *const Schema) Error!*const Schema {
+        const r = data(RegionData, region_handle);
+        try self.origin(r.owner);
+        errdefer |err| self.poison(err);
+        const id = try contextData(self).raw.schema(.{ .internal = .{ .cell = .{
+            .region = r.id,
+            .element = try self.schemaId(element),
+        } } });
+        return self.internResult(id, &.{}, element);
     }
     /// The first parameter is supplied by withRegion, not by the caller's arguments.
     pub fn regionBodySchema(
@@ -548,7 +666,7 @@ pub const Context = opaque {
         const r = data(RegionData, region_handle);
         try self.origin(r.owner);
         errdefer |err| self.poison(err);
-        const token = try self.intern(try contextData(self).raw.schema(.{ .internal = .{ .region = r.id } }), &.{});
+        const token = try self.regionSchema(region_handle);
         const names = try contextData(self).raw.allocator().alloc(Field, parameters.len + 1);
         names[0] = .{ .name = "region", .schema = token };
         @memcpy(names[1..], parameters);
@@ -573,6 +691,37 @@ pub const Context = opaque {
             .value = try self.schemaId(schema),
             .region = r.id,
         } } }), &.{}, schema);
+    }
+    pub fn resource(self: *Context, representation: *const Schema) Error!*const Schema {
+        const id = try self.schemaId(representation);
+        errdefer |err| self.poison(err);
+        return self.internResult(try contextData(self).raw.resource(id), &.{}, representation);
+    }
+    fn authorityIds(self: *Context, functions: []const *const Function) Error![]const p.Id {
+        const ids = try contextData(self).raw.allocator().alloc(p.Id, functions.len);
+        for (functions, ids) |function_handle, *id| {
+            const f = data(FunctionData, function_handle);
+            try self.origin(f.owner);
+            id.* = f.id;
+        }
+        std.mem.sort(p.Id, ids, {}, std.sort.asc(p.Id));
+        var length: usize = 0;
+        for (ids) |id| {
+            if (length == 0 or ids[length - 1] != id) {
+                ids[length] = id;
+                length += 1;
+            }
+        }
+        return ids[0..length];
+    }
+    /// Bind the existing nominal representation authority to typed declarations.
+    pub fn resourceAuthority(self: *Context, schema: *const Schema, introducers: []const *const Function, eliminators: []const *const Function) Error!void {
+        const id = try self.schemaId(schema);
+        const shape = contextData(self).raw.schemas.items[@intCast(id)];
+        if (shape != .internal or shape.internal != .abstract_resource)
+            return self.reject(error.InvalidCategory, "resource authority", "requires a nominal resource schema");
+        errdefer |err| self.poison(err);
+        try contextData(self).raw.resourceAuthority(id, try self.authorityIds(introducers), try self.authorityIds(eliminators));
     }
     pub fn cleanupInfo(self: *Context, failure: *const Schema) Error!*const Schema {
         _ = try self.schemaId(failure);
@@ -600,6 +749,17 @@ pub const Context = opaque {
         errdefer |err| self.poison(err);
         const id = try contextData(self).raw.schema(.{ .seq = try self.schemaId(element) });
         return self.internResult(id, &.{}, element);
+    }
+    pub fn suspensionPackage(self: *Context, resumption: *const Schema) Error!*const Schema {
+        const id = try self.schemaId(resumption);
+        const shape = contextData(self).raw.schemas.items[@intCast(id)];
+        if (shape != .internal or shape.internal != .resumption)
+            return self.reject(error.InvalidCategory, "package", "requires a resumption schema");
+        errdefer |err| self.poison(err);
+        const package_id = try contextData(self).raw.schema(.{
+            .internal = .{ .suspension_package = id },
+        });
+        return self.internResult(package_id, &.{}, resumption);
     }
     pub fn alternatives(self: *Context, cases: []const Field) Error!*const Schema {
         try self.ready();
@@ -662,6 +822,7 @@ pub const Context = opaque {
     pub fn twice(self: *Context, schema: *const Schema) Error!*const Function {
         errdefer |err| if (err == error.OutOfMemory) self.poison(err);
         const id = try self.schemaId(schema);
+        if (contextData(self).twice_definitions.get(schema)) |existing| return existing;
         const shape = contextData(self).raw.schemas.items[@intCast(id)];
         if (shape != .internal or shape.internal != .computation) return @as(Error!*const Function, self.reject(error.InvalidCategory, "twice", "requires a reusable zero-argument callable"));
         const signature = shape.internal.computation;
@@ -687,109 +848,126 @@ pub const Context = opaque {
             .{ .name = "second", .value = second },
         });
         try self.define(function_handle, try forward.ret(result));
+        try contextData(self).twice_definitions.put(
+            contextData(self).raw.allocator(),
+            schema,
+            function_handle,
+        );
         return function_handle;
     }
-    const HandlerFunctions = struct { returns: *const Function, clause: *const Function };
-    fn handlerFunctions(
-        self: *Context,
-        op: *const OperationData,
-        input: *const Schema,
-        answer: *const Schema,
-        resumption: *const Schema,
-        options: HandlerOptions,
-    ) Error!HandlerFunctions {
-        const borrowed_ids = try self.regionIds(options.borrowed_regions);
-        const returns_fields = try contextData(self).raw.allocator().alloc(Field, 1 + options.state.len);
-        @memcpy(returns_fields[0..options.state.len], options.state);
-        returns_fields[options.state.len] = .{ .name = "result", .schema = input };
-        const clause_fields = try contextData(self).raw.allocator().alloc(Field, 2 + options.state.len + op.bodies.len);
-        @memcpy(clause_fields[0..options.state.len], options.state);
-        clause_fields[options.state.len] = .{ .name = "payload", .schema = op.payload };
-        @memcpy(clause_fields[options.state.len + 1 .. clause_fields.len - 1], op.bodies);
-        clause_fields[clause_fields.len - 1] = .{ .name = "resumption", .schema = resumption };
-        const returns = try self.function("handler return", returns_fields, answer, options.residual);
-        const clause = try self.function("operation clause", clause_fields, answer, options.residual);
-        const rf = data(FunctionData, returns).id;
-        const cf = data(FunctionData, clause).id;
-        contextData(self).raw.functions.items[@intCast(rf)].regions = borrowed_ids;
-        contextData(self).raw.functions.items[@intCast(cf)].regions = borrowed_ids;
-        return .{ .returns = returns, .clause = clause };
+    fn handlerReturn(self: *Context, input: *const Schema, answer: *const Schema, options: HandlerOptions) Error!*const Function {
+        const parameter_fields = try contextData(self).raw.allocator().alloc(Field, 1 + options.state.len);
+        @memcpy(parameter_fields[0..options.state.len], options.state);
+        parameter_fields[options.state.len] = .{ .name = "result", .schema = input };
+        const function_handle = try self.function("handler return", parameter_fields, answer, options.return_effects orelse options.residual);
+        contextData(self).raw.functions.items[@intCast(data(FunctionData, function_handle).id)].regions = try self.regionIds(options.borrowed_regions);
+        return function_handle;
     }
-    fn handlerBodySchema(
-        self: *Context,
-        operation_handle: *const Operation,
-        input: *const Schema,
-        options: HandlerOptions,
-    ) Error!*const Schema {
-        const body_effects = try contextData(self).raw.allocator().alloc(*const Operation, options.residual.len + 1);
+    fn handlerClause(self: *Context, op: *const OperationData, answer: *const Schema, resumption: *const Schema, options: HandlerOptions) Error!*const Function {
+        const parameter_fields = try contextData(self).raw.allocator().alloc(Field, 2 + options.state.len + op.bodies.len);
+        @memcpy(parameter_fields[0..options.state.len], options.state);
+        parameter_fields[options.state.len] = .{ .name = "payload", .schema = op.payload };
+        @memcpy(parameter_fields[options.state.len + 1 .. parameter_fields.len - 1], op.bodies);
+        parameter_fields[parameter_fields.len - 1] = .{ .name = "resumption", .schema = resumption };
+        const function_handle = try self.function("operation clause", parameter_fields, answer, options.clause_effects orelse options.residual);
+        contextData(self).raw.functions.items[@intCast(data(FunctionData, function_handle).id)].regions = try self.regionIds(options.borrowed_regions);
+        return function_handle;
+    }
+    pub fn handler(self: *Context, operation_handle: *const Operation, input: *const Schema, answer: *const Schema, options: HandlerOptions) Error!*const Handler {
+        return self.handlerSet(&.{.{ .name = "capability", .operation = operation_handle }}, input, answer, options);
+    }
+    /// One return arm and state vector, with a named capability and clause for each operation.
+    pub fn handlerSet(self: *Context, operations: []const HandledOperation, input: *const Schema, answer: *const Schema, options: HandlerOptions) Error!*const Handler {
+        try self.ready();
+        if (operations.len == 0) return self.reject(error.InvalidCategory, "handler", "requires at least one local operation");
+        if (options.resumption_slots) |slots| {
+            if (slots.len != operations.len) return self.reject(error.SchemaMismatch, "handler", "one resumption declaration is required per operation");
+            for (slots, 0..) |slot, index| {
+                _ = try self.declarationSlot(slot, .resumption);
+                for (slots[0..index]) |previous| if (previous == slot)
+                    return self.reject(error.DuplicateName, "handler", "resumption declarations must be distinct");
+            }
+        }
+        for (operations, 0..) |item, index| {
+            const op = data(OperationData, item.operation);
+            try self.origin(op.owner);
+            if (op.external) return self.reject(error.InvalidCategory, op.name, "handler requires local operation");
+            for (operations[0..index]) |previous| {
+                if (data(OperationData, previous.operation).id == op.id)
+                    return self.reject(error.InvalidEffect, op.name, "operation occurs twice in handler");
+                if (std.mem.eql(u8, previous.name, item.name))
+                    return self.reject(error.DuplicateName, item.name, "handler capability name occurs twice");
+            }
+        }
+        const allocator = contextData(self).raw.allocator();
+        errdefer |err| self.poison(err);
+        const handled = try allocator.alloc(p.Id, operations.len);
+        const parameters = try allocator.alloc(Field, operations.len + options.body_parameters.len);
+        const body_effects = try allocator.alloc(*const Operation, options.residual.len + operations.len);
         @memcpy(body_effects[0..options.residual.len], options.residual);
-        body_effects[options.residual.len] = operation_handle;
-        return self.callable(&.{
-            .{
-                .name = "capability",
-                .schema = try self.capability(operation_handle),
-            },
-        }, input, body_effects, .{
+        for (operations, handled, parameters[0..operations.len], 0..) |item, *id, *parameter, index| {
+            const op = data(OperationData, item.operation);
+            id.* = op.id;
+            parameter.* = .{ .name = item.name, .schema = try self.capability(item.operation) };
+            body_effects[options.residual.len + index] = item.operation;
+        }
+        @memcpy(parameters[operations.len..], options.body_parameters);
+        const body_schema = try self.callable(parameters, input, body_effects, .{
             .use = options.body_use,
             .captures = options.body_captures,
             .regions = options.borrowed_regions,
         });
-    }
-    pub fn handler(
-        self: *Context,
-        operation_handle: *const Operation,
-        input: *const Schema,
-        answer: *const Schema,
-        options: HandlerOptions,
-    ) Error!*const Handler {
-        const op = data(OperationData, operation_handle);
-        try self.origin(op.owner);
-        if (op.external) return self.reject(error.InvalidCategory, op.name, "handler requires local operation");
-        errdefer |err| self.poison(err);
         const residual = try self.row(options.residual);
         const answer_id = try self.schemaId(answer);
         const resume_answer = if (options.mode == .deep) answer else input;
-        const resume_id = try contextData(self).raw.schema(.{ .internal = .{ .resumption = .{
-            .effect = op.id,
-            .input = try self.schemaId(op.result),
-            .answer = try self.schemaId(resume_answer),
-            .effects = residual,
-            .escaping = try self.row(options.escaping),
-            .capture_bound = try self.schemaIds(options.captures),
-            .handled = &.{op.id},
-            .mode = options.mode,
-            .use = options.use,
-            .owned_regions = try self.regionIds(options.owned_regions),
-            .obligations = options.obligations,
-        } } });
-        const resumption = try self.internComplete(resume_id, &.{.{ .name = "reply", .schema = op.result }}, resume_answer, options.captures);
-        const functions = try self.handlerFunctions(op, input, answer, resumption, options);
-        const rf = data(FunctionData, functions.returns).id;
-        const cf = data(FunctionData, functions.clause).id;
-        const state_ids = try contextData(self).raw.allocator().alloc(p.Id, options.state.len);
+        const returns = try self.handlerReturn(input, answer, options);
+        const clauses = try allocator.alloc(p.Clause, operations.len);
+        const metadata = try allocator.alloc(HandlerClauseData, operations.len);
+        for (operations, clauses, metadata, 0..) |item, *clause, *meta, index| {
+            const op = data(OperationData, item.operation);
+            const resume_shape: p.Schema = .{ .internal = .{ .resumption = .{
+                .effect = op.id,
+                .input = try self.schemaId(op.result),
+                .answer = try self.schemaId(resume_answer),
+                .effects = residual,
+                .escaping = try self.row(options.escaping),
+                .capture_bound = try self.schemaIds(options.captures),
+                .handled = handled,
+                .mode = options.mode,
+                .use = options.use,
+                .owned_regions = try self.regionIds(options.owned_regions),
+                .obligations = options.obligations,
+            } } };
+            const resumption = if (options.resumption_slots) |slots|
+                try self.bindSchema(slots[index], .resumption, resume_shape, &.{.{ .name = "reply", .schema = op.result }}, resume_answer, options.captures)
+            else
+                try self.internComplete(try contextData(self).raw.schema(resume_shape), &.{.{ .name = "reply", .schema = op.result }}, resume_answer, options.captures);
+            const resume_id = try self.schemaId(resumption);
+            const function_handle = try self.handlerClause(op, answer, resumption, options);
+            clause.* = .{ .effect = op.id, .function = data(FunctionData, function_handle).id, .resumption = resume_id };
+            meta.* = .{ .operation = item.operation, .function = function_handle, .resumption = resumption };
+        }
+        const state_ids = try allocator.alloc(p.Id, options.state.len);
         for (options.state, state_ids) |item, *id| id.* = try self.schemaId(item.schema);
-        const body_schema = try self.handlerBodySchema(operation_handle, input, options);
         const result = handle(Handler, try self.save(HandlerData, .{
             .owner = self,
             .id = try contextData(self).raw.handler(.{
                 .mode = options.mode,
                 .input = try self.schemaId(input),
                 .answer = answer_id,
-                .return_function = rf,
-                .clauses = &.{.{ .effect = op.id, .function = cf, .resumption = resume_id }},
+                .return_function = data(FunctionData, returns).id,
+                .clauses = clauses,
                 .state = state_ids,
                 .effects = residual,
             }),
-            .operation = operation_handle,
+            .clauses = metadata,
             .input = input,
             .answer = answer,
-            .resumption = resumption,
             .body_schema = body_schema,
-            .returns = functions.returns,
-            .clause = functions.clause,
+            .returns = returns,
             .state = try self.fields(options.state),
         }));
-        try contextData(self).handlers.append(contextData(self).raw.allocator(), result);
+        try contextData(self).handlers.append(allocator, result);
         return result;
     }
     /// Derive the resumption clause from a responder with an explicit residual contract.
@@ -812,7 +990,7 @@ pub const Context = opaque {
         const hd = data(HandlerData, h);
         const returns = try self.body(hd.returns);
         try self.define(hd.returns, try returns.ret(try returns.parameter("result")));
-        const clause = try self.body(hd.clause);
+        const clause = try self.body(hd.clauses[0].function);
         const reply = try clause.call(responder_function, &.{
             .{
                 .name = f.parameters[0].name,
@@ -820,7 +998,7 @@ pub const Context = opaque {
             },
         });
         const resumed = try clause.resumeValue(try clause.parameter("resumption"), reply);
-        try self.define(hd.clause, try clause.ret(resumed));
+        try self.define(hd.clauses[0].function, try clause.ret(resumed));
         return h;
     }
     pub fn returnFunction(self: *Context, handler_handle: *const Handler) Error!*const Function {
@@ -831,7 +1009,21 @@ pub const Context = opaque {
     pub fn clauseFunction(self: *Context, handler_handle: *const Handler) Error!*const Function {
         const h = data(HandlerData, handler_handle);
         try self.origin(h.owner);
-        return h.clause;
+        if (h.clauses.len != 1) return self.reject(error.InvalidCategory, "clause", "select an operation for a multi-clause handler");
+        return h.clauses[0].function;
+    }
+    pub fn clauseFunctionFor(self: *Context, handler_handle: *const Handler, operation_handle: *const Operation) Error!*const Function {
+        return (try self.clauseFor(handler_handle, operation_handle)).function;
+    }
+    pub fn resumptionSchemaFor(self: *Context, handler_handle: *const Handler, operation_handle: *const Operation) Error!*const Schema {
+        return (try self.clauseFor(handler_handle, operation_handle)).resumption;
+    }
+    fn clauseFor(self: *Context, handler_handle: *const Handler, operation_handle: *const Operation) Error!*const HandlerClauseData {
+        const h = data(HandlerData, handler_handle);
+        try self.origin(h.owner);
+        try self.origin(data(OperationData, operation_handle).owner);
+        for (h.clauses) |*clause| if (data(OperationData, clause.operation).id == data(OperationData, operation_handle).id) return clause;
+        return self.reject(error.InvalidEffect, "clause", "operation is not handled here");
     }
     pub fn handledSchema(self: *Context, handler_handle: *const Handler) Error!*const Schema {
         const h = data(HandlerData, handler_handle);
@@ -890,7 +1082,19 @@ pub const Context = opaque {
         failure: *const Schema,
         coalescing: @import("boundary_data").coalescing.Options,
     ) Error!source.Compiled {
-        return self.lowerNamedWithOptions(allocator, try self.publish(entry, failure, false), coalescing);
+        return self.compileWithCompilation(allocator, entry, failure, .{ .coalescing = coalescing });
+    }
+    /// Select cross-build observation guarantees while retaining the Context's
+    /// original-occurrence capture observer and mandatory P01 validation.
+    pub fn compileWithCompilation(
+        self: *Context,
+        allocator: std.mem.Allocator,
+        entry: *const Function,
+        failure: *const Schema,
+        compilation: @import("boundary_data").closed_compilation.Options,
+    ) Error!source.Compiled {
+        compilation.resetObservations();
+        return self.lowerNamedWithCompilation(allocator, try self.publish(entry, failure, false), compilation);
     }
     fn lowerNamed(self: *Context, allocator: std.mem.Allocator, module_value: source.Module) Error!source.Compiled {
         return self.lowerNamedWithOptions(allocator, module_value, .{});
@@ -901,10 +1105,27 @@ pub const Context = opaque {
         module_value: source.Module,
         coalescing: @import("boundary_data").coalescing.Options,
     ) Error!source.Compiled {
+        return self.lowerNamedWithCompilation(allocator, module_value, .{ .coalescing = coalescing });
+    }
+    fn lowerNamedWithCompilation(
+        self: *Context,
+        allocator: std.mem.Allocator,
+        module_value: source.Module,
+        compilation: @import("boundary_data").closed_compilation.Options,
+    ) Error!source.Compiled {
         var diagnostic: source.Diagnostic = .{};
         var result = source.lowerObserved(allocator, module_value, .{
             .diagnostic = &diagnostic,
-            .coalescing = coalescing,
+            .coalescing = compilation.coalescing,
+            .contract = compilation.contract,
+            .objective = compilation.objective,
+            .image_growth_bytes = compilation.image_growth_bytes,
+            .max_image_bytes = compilation.max_image_bytes,
+            .profile = compilation.profile,
+            .semantic_work_limit = compilation.work_limit,
+            .semantic_round_limit = compilation.round_limit,
+            .semantic_statistics = compilation.statistics,
+            .compilation_observer = compilation.observer,
             .captures = if (contextData(self).lambda_schemas.count() != 0 or contextData(self).handlers.items.len != 0) .{ .context = self, .capture = observeCapture, .closure = observeClosure } else null,
         }) catch |err| {
             if (contextData(self).capture_failure) |failure| return failure;
@@ -1018,11 +1239,13 @@ pub const Context = opaque {
         if (contextData(self).capture_failure != null) return;
         for (contextData(self).handlers.items) |handler_handle| {
             const h = data(HandlerData, handler_handle);
-            if (data(OperationData, h.operation).id != effect) continue;
-            self.checkCapture(data(SchemaData, h.resumption).captures, variable) catch |err| {
-                contextData(self).capture_failure = err;
-                return;
-            };
+            for (h.clauses) |clause| {
+                if (data(OperationData, clause.operation).id != effect) continue;
+                self.checkCapture(data(SchemaData, clause.resumption).captures, variable) catch |err| {
+                    contextData(self).capture_failure = err;
+                    return;
+                };
+            }
         }
     }
     fn observeClosure(pointer: *anyopaque, value_id: p.Id, variable: p.Id) void {
@@ -1051,6 +1274,11 @@ pub const Context = opaque {
         const f = data(FunctionData, entry);
         try self.origin(f.owner);
         const failure_id = try self.schemaId(failure);
+        for (contextData(self).schemas.items) |schema| if (data(SchemaData, schema).pending != null) {
+            const err = self.reject(error.UndefinedSchema, "schema", "forward declaration has no definition");
+            contextData(self).diagnostic.actual = schema;
+            return err;
+        };
         for (contextData(self).raw.functions.items, 0..) |function_item, id| if (function_item.body == null)
             return self.reject(error.UndefinedBody, self.functionName(id) orelse "unnamed source function", "declaration has no body");
         errdefer |err| self.poison(err);
@@ -1112,7 +1340,9 @@ pub const Body = opaque {
         errdefer |err| c.poison(err);
         const variable = try contextData(c).raw.variable(try c.schemaId(schema));
         const result = try self.makeValue(try contextData(c).raw.reference(variable), schema);
-        try bodyData(self).bindings.append(contextData(c).raw.allocator(), .{ .variable = variable, .term = term });
+        try bodyData(self).bindings.append(contextData(c).raw.allocator(), .{
+            .bind = .{ .variable = variable, .term = term },
+        });
         return result;
     }
     pub fn parameter(self: *Body, name: []const u8) Error!*const Value {
@@ -1143,15 +1373,24 @@ pub const Body = opaque {
         if (fields.len != args.len)
             return c.reject(error.SchemaMismatch, "arguments", "wrong number of named arguments");
         errdefer |err| c.poison(err);
-        const ids = try contextData(c).raw.allocator().alloc(p.Id, fields.len);
+        const allocator = contextData(c).raw.allocator();
+        const ids = try allocator.alloc(p.Id, fields.len);
+        const Match = struct { value: *const Value, duplicate: bool = false };
+        const scratch = contextData(c).raw.arena.child_allocator;
+        var matches: std.StringHashMapUnmanaged(Match) = .empty;
+        defer matches.deinit(scratch);
+        try matches.ensureTotalCapacity(scratch, std.math.cast(u32, args.len) orelse return error.OutOfMemory);
+        for (args) |arg| {
+            const entry = try matches.getOrPut(scratch, arg.name);
+            if (entry.found_existing) entry.value_ptr.duplicate = true else entry.value_ptr.* = .{ .value = arg.value };
+        }
+        // Validate in declaration order, as before. In particular, a duplicate
+        // later argument must not hide an earlier missing name or foreign value.
         for (fields, ids) |named, *id| {
-            var found: ?*const Value = null;
-            for (args) |arg| if (std.mem.eql(u8, named.name, arg.name)) {
-                if (found != null) return @as(Error![]const p.Id, c.reject(error.DuplicateName, "arguments", "duplicate name"));
-                found = arg.value;
-            };
-            const v = try self.useValue(found orelse
-                return @as(Error![]const p.Id, c.reject(error.UnknownName, "arguments", "missing declared name")));
+            const found = matches.get(named.name) orelse
+                return @as(Error![]const p.Id, c.reject(error.UnknownName, "arguments", "missing declared name"));
+            if (found.duplicate) return @as(Error![]const p.Id, c.reject(error.DuplicateName, "arguments", "duplicate name"));
+            const v = try self.useValue(found.value);
             c.same(named.schema, v.schema) catch |err| {
                 contextData(c).diagnostic.entity = named.name;
                 contextData(c).diagnostic.relationship = "argument or product field differs from its declared schema";
@@ -1318,6 +1557,51 @@ pub const Body = opaque {
             },
         }), op.result);
     }
+    pub fn package(self: *Body, resumption: *const Value) Error!*const Value {
+        const token = try self.useValue(resumption);
+        const c = bodyData(self).context;
+        const schema = try c.suspensionPackage(token.schema);
+        errdefer |err| c.poison(err);
+        const value = try contextData(c).raw.primitive(
+            try c.schemaId(schema),
+            .package,
+            &.{token.id},
+            0,
+        );
+        return self.bind(try contextData(c).raw.pure(value), schema);
+    }
+    pub fn unpack(self: *Body, package_value: *const Value) Error!*const Value {
+        const value = try self.unpackOperand(package_value);
+        const c = bodyData(self).context;
+        errdefer |err| c.poison(err);
+        const info = data(ValueData, value);
+        return self.bind(try contextData(c).raw.pure(info.id), info.schema);
+    }
+    /// Consume a suspension package directly, without exposing an intermediate
+    /// continuation owner to the caller's statement scope.
+    pub fn resumePackage(self: *Body, package_value: *const Value, reply: *const Value) Error!*const Value {
+        return self.resumeValue(try self.unpackOperand(package_value), reply);
+    }
+    pub fn disposePackage(self: *Body, package_value: *const Value) Error!*const Value {
+        return self.dispose(try self.unpackOperand(package_value));
+    }
+    fn unpackOperand(self: *Body, package_value: *const Value) Error!*const Value {
+        const packaged = try self.useValue(package_value);
+        const c = bodyData(self).context;
+        const info = data(SchemaData, packaged.schema);
+        const shape = contextData(c).raw.schemas.items[@intCast(info.id)];
+        if (shape != .internal or shape.internal != .suspension_package)
+            return c.reject(error.InvalidCategory, "unpack", "requires a suspension package");
+        const result = info.result orelse return error.InvalidSchema;
+        errdefer |err| c.poison(err);
+        const value = try contextData(c).raw.primitive(
+            try c.schemaId(result),
+            .unpack,
+            &.{packaged.id},
+            0,
+        );
+        return self.makeValue(value, result);
+    }
     pub fn resumeValue(
         self: *Body,
         resumption: *const Value,
@@ -1341,6 +1625,9 @@ pub const Body = opaque {
         callable_value: *const Value,
         state: []const Argument,
     ) Error!*const Value {
+        return self.handleWithArguments(handler_handle, callable_value, &.{}, state);
+    }
+    pub fn handleWithArguments(self: *Body, handler_handle: *const Handler, callable_value: *const Value, args: []const Argument, state: []const Argument) Error!*const Value {
         const c = bodyData(self).context;
         const h = data(HandlerData, handler_handle);
         try c.origin(h.owner);
@@ -1351,6 +1638,7 @@ pub const Body = opaque {
             .handle = .{
                 .handler = h.id,
                 .body = v.id,
+                .arguments = try self.arguments(data(SchemaData, h.body_schema).fields[h.clauses.len..], args),
                 .state = try self.arguments(h.state, state),
             },
         }), h.answer);
@@ -1402,6 +1690,251 @@ pub const Body = opaque {
         try c.notePublication(.{ .anchor = .{ .value = value_id }, .contract = .{ .failure = data(ValueData, overflow.value).schema } });
         if (division) try c.notePublication(.{ .anchor = .{ .value = value_id }, .contract = .{ .failure = data(ValueData, data(FailureLiteralData, failures.division_by_zero.?).value).schema } });
         return self.bind(try contextData(c).raw.pure(value_id), a.schema);
+    }
+    /// Consume one product and bind its fields in the current lexical body.
+    pub fn destructure(self: *Body, product_value: *const Value) Error!*const ProductParts {
+        const tuple = try self.useValue(product_value);
+        const c = bodyData(self).context;
+        const info = data(SchemaData, tuple.schema);
+        if (contextData(c).raw.schemas.items[@intCast(info.id)] != .product)
+            return c.reject(error.InvalidCategory, "destructure", "requires a product value");
+        errdefer |err| c.poison(err);
+        const allocator = contextData(c).raw.allocator();
+        const variables = try allocator.alloc(p.Id, info.fields.len);
+        const fields = try allocator.alloc(Argument, info.fields.len);
+        for (info.fields, variables, fields) |named, *variable, *out| {
+            variable.* = try contextData(c).raw.variable(try c.schemaId(named.schema));
+            out.* = .{ .name = named.name, .value = try self.makeValue(
+                try contextData(c).raw.reference(variable.*),
+                named.schema,
+            ) };
+        }
+        const result = handle(ProductParts, try c.save(ProductPartsData, .{
+            .body = self,
+            .fields = fields,
+        }));
+        try bodyData(self).bindings.append(allocator, .{
+            .unpack = .{ .value = tuple.id, .variables = variables },
+        });
+        return result;
+    }
+    pub fn equal(self: *Body, left: *const Value, right: *const Value) Error!*const Value {
+        const a = try self.useValue(left);
+        const b = try self.useValue(right);
+        const c = bodyData(self).context;
+        try c.same(a.schema, b.schema);
+        errdefer |err| c.poison(err);
+        const boolean = try c.scalar(bool);
+        return self.bind(try contextData(c).raw.pure(try contextData(c).raw.primitive(
+            try c.schemaId(boolean),
+            .equal,
+            &.{ a.id, b.id },
+            0,
+        )), boolean);
+    }
+    /// Select between already-staged values. Ownership admission still checks
+    /// that the unselected value may be dropped.
+    pub fn select(self: *Body, condition: *const Value, yes: *const Value, no: *const Value) Error!*const Value {
+        const flag = try self.useValue(condition);
+        const left = try self.useValue(yes);
+        const right = try self.useValue(no);
+        const c = bodyData(self).context;
+        try c.same(try c.scalar(bool), flag.schema);
+        try c.same(left.schema, right.schema);
+        errdefer |err| c.poison(err);
+        return self.bind(try contextData(c).raw.pure(try contextData(c).raw.primitive(try c.schemaId(left.schema), .select, &.{ flag.id, left.id, right.id }, 0)), left.schema);
+    }
+    pub fn less(self: *Body, left: *const Value, right: *const Value) Error!*const Value {
+        const lhs = try self.useValue(left);
+        const rhs = try self.useValue(right);
+        const c = bodyData(self).context;
+        try c.same(lhs.schema, rhs.schema);
+        const id = try c.schemaId(lhs.schema);
+        switch (contextData(c).raw.schemas.items[@intCast(id)]) {
+            .i8, .i16, .i32, .i64, .u8, .u16, .u32, .u64 => {},
+            else => return c.reject(error.InvalidCategory, "less", "requires matching integer values"),
+        }
+        errdefer |err| c.poison(err);
+        const boolean = try c.scalar(bool);
+        return self.bind(try contextData(c).raw.pure(try contextData(c).raw.primitive(try c.schemaId(boolean), .less, &.{ lhs.id, rhs.id }, 0)), boolean);
+    }
+    pub fn enumTag(self: *Body, value: *const Value) Error!*const Value {
+        return self.tagValue(value, .enumeration, .enum_tag, u32);
+    }
+    pub fn variantTag(self: *Body, value: *const Value) Error!*const Value {
+        return self.tagValue(value, .sum, .variant_tag, u64);
+    }
+    fn tagValue(self: *Body, value: *const Value, comptime kind: p.SchemaTag, comptime opcode: p.Opcode, comptime T: type) Error!*const Value {
+        const item = try self.useValue(value);
+        const c = bodyData(self).context;
+        if (std.meta.activeTag(contextData(c).raw.schemas.items[@intCast(try c.schemaId(item.schema))]) != kind)
+            return c.reject(error.InvalidCategory, "tag", "value has the wrong category for this tag operation");
+        errdefer |err| c.poison(err);
+        const result = try c.scalar(T);
+        return self.bind(try contextData(c).raw.pure(try contextData(c).raw.primitive(try c.schemaId(result), opcode, &.{item.id}, 0)), result);
+    }
+    /// Checked projection of a named alternative with an explicit authored fault.
+    pub fn variantPayload(self: *Body, value: *const Value, name: []const u8, failure: *const FailureLiteral) Error!*const Value {
+        const item = try self.useValue(value);
+        const c = bodyData(self).context;
+        const info = data(SchemaData, item.schema);
+        if (contextData(c).raw.schemas.items[@intCast(info.id)] != .sum)
+            return c.reject(error.InvalidCategory, "variant payload", "requires an alternative value");
+        const fault = data(FailureLiteralData, failure);
+        try c.origin(fault.owner);
+        for (info.fields, 0..) |alternative, index| if (std.mem.eql(u8, alternative.name, name)) {
+            errdefer |err| c.poison(err);
+            const id = try contextData(c).raw.value(.{ .schema = try c.schemaId(alternative.schema), .expression = .{ .primitive = .{
+                .opcode = .variant_payload,
+                .operands = &.{item.id},
+                .immediate = index,
+                .failures = &.{.{ .kind = .invalid_variant, .value = fault.literal }},
+            } } });
+            try c.notePublication(.{ .anchor = .{ .value = id }, .contract = .{ .failure = data(ValueData, fault.value).schema } });
+            return self.bind(try contextData(c).raw.pure(id), alternative.schema);
+        };
+        return c.reject(error.UnknownName, "variant payload", "unknown alternative");
+    }
+    pub fn sequenceLength(self: *Body, sequence: *const Value) Error!*const Value {
+        const value = try self.useValue(sequence);
+        const c = bodyData(self).context;
+        const shape = contextData(c).raw.schemas.items[@intCast(try c.schemaId(value.schema))];
+        if (shape != .seq and shape != .vector and shape != .array) return c.reject(error.InvalidCategory, "length", "requires a sequence, vector, or array");
+        errdefer |err| c.poison(err);
+        const integer = try c.scalar(u64);
+        return self.bind(try contextData(c).raw.pure(try contextData(c).raw.primitive(try c.schemaId(integer), .sequence_length, &.{value.id}, 0)), integer);
+    }
+    pub fn sequenceGet(self: *Body, sequence: *const Value, index: *const Value) Error!*const Value {
+        const value = try self.useValue(sequence);
+        const offset = try self.useValue(index);
+        const c = bodyData(self).context;
+        const info = data(SchemaData, value.schema);
+        const shape = contextData(c).raw.schemas.items[@intCast(info.id)];
+        if (shape != .seq and shape != .vector and shape != .array)
+            return c.reject(error.InvalidCategory, "sequence get", "requires a sequence, vector, or array");
+        try c.same(try c.scalar(u64), offset.schema);
+        errdefer |err| c.poison(err);
+        const optional = try c.alternatives(&.{ .{ .name = "none", .schema = try c.scalar(void) }, .{ .name = "some", .schema = info.result orelse return error.InvalidSchema } });
+        return self.bind(try contextData(c).raw.pure(try contextData(c).raw.primitive(try c.schemaId(optional), .sequence_get, &.{ value.id, offset.id }, 0)), optional);
+    }
+    pub fn blobLength(self: *Body, blob: *const Value) Error!*const Value {
+        const value = try self.blobValue(blob);
+        const c = bodyData(self).context;
+        errdefer |err| c.poison(err);
+        const integer = try c.scalar(u64);
+        return self.bind(try contextData(c).raw.pure(try contextData(c).raw.primitive(try c.schemaId(integer), .blob_length, &.{value.id}, 0)), integer);
+    }
+    /// Byte indexing, including for UTF-8 text; absence is an explicit case.
+    pub fn blobByte(self: *Body, blob: *const Value, index: *const Value) Error!*const Value {
+        const value = try self.blobValue(blob);
+        const offset = try self.useValue(index);
+        const c = bodyData(self).context;
+        try c.same(try c.scalar(u64), offset.schema);
+        errdefer |err| c.poison(err);
+        const optional = try c.alternatives(&.{ .{ .name = "none", .schema = try c.scalar(void) }, .{ .name = "some", .schema = try c.scalar(u8) } });
+        return self.bind(try contextData(c).raw.pure(try contextData(c).raw.primitive(try c.schemaId(optional), .blob_byte, &.{ value.id, offset.id }, 0)), optional);
+    }
+    pub fn blobCompare(self: *Body, left: *const Value, right: *const Value) Error!*const Value {
+        const lhs = try self.blobValue(left);
+        const rhs = try self.blobValue(right);
+        const c = bodyData(self).context;
+        try c.same(lhs.schema, rhs.schema);
+        errdefer |err| c.poison(err);
+        const result = try c.scalar(i8);
+        return self.bind(try contextData(c).raw.pure(try contextData(c).raw.primitive(try c.schemaId(result), .blob_compare, &.{ lhs.id, rhs.id }, 0)), result);
+    }
+    fn blobValue(self: *Body, blob: *const Value) Error!*const ValueData {
+        const value = try self.useValue(blob);
+        const c = bodyData(self).context;
+        switch (contextData(c).raw.schemas.items[@intCast(try c.schemaId(value.schema))]) {
+            .bytes, .text, .bounded_bytes, .bounded_text => return value,
+            else => return c.reject(error.InvalidCategory, "blob", "requires bytes or UTF-8 text"),
+        }
+    }
+    pub fn yieldNow(self: *Body) Error!*const Value {
+        try self.ready();
+        const c = bodyData(self).context;
+        errdefer |err| c.poison(err);
+        try bodyData(self).bindings.append(contextData(c).raw.allocator(), .yield_now);
+        return self.constant(void, {});
+    }
+    pub fn newCell(self: *Body, schema: *const Schema, region: *const Value, initial: *const Value) Error!*const Value {
+        try self.ready();
+        const c = bodyData(self).context;
+        const id = try c.schemaId(schema);
+        const shape = contextData(c).raw.schemas.items[@intCast(id)];
+        if (shape != .internal or shape.internal != .cell)
+            return c.reject(error.InvalidCategory, "cell", "requires a cell schema");
+        const token = try self.useValue(region);
+        const token_shape = contextData(c).raw.schemas.items[@intCast(try c.schemaId(token.schema))];
+        if (token_shape != .internal or token_shape.internal != .region or token_shape.internal.region != shape.internal.cell.region)
+            return c.reject(error.SchemaMismatch, "cell", "allocation requires its region token");
+        const value = try self.useValue(initial);
+        try c.same(data(SchemaData, schema).result orelse return error.InvalidSchema, value.schema);
+        errdefer |err| c.poison(err);
+        return self.bind(try contextData(c).raw.pure(try contextData(c).raw.primitive(id, .cell_new, &.{ token.id, value.id }, 0)), schema);
+    }
+    pub fn readCell(self: *Body, cell_value: *const Value) Error!*const Value {
+        const value = try self.useValue(cell_value);
+        const c = bodyData(self).context;
+        const info = data(SchemaData, value.schema);
+        const shape = contextData(c).raw.schemas.items[@intCast(info.id)];
+        if (shape != .internal or shape.internal != .cell)
+            return c.reject(error.InvalidCategory, "cell", "read requires a cell");
+        const element = info.result orelse return error.InvalidSchema;
+        errdefer |err| c.poison(err);
+        return self.bind(try contextData(c).raw.pure(try contextData(c).raw.primitive(try c.schemaId(element), .cell_get, &.{value.id}, 0)), element);
+    }
+    pub fn writeCell(self: *Body, cell_value: *const Value, new_value: *const Value) Error!*const Value {
+        const target = try self.useValue(cell_value);
+        const value = try self.useValue(new_value);
+        const c = bodyData(self).context;
+        const info = data(SchemaData, target.schema);
+        const shape = contextData(c).raw.schemas.items[@intCast(info.id)];
+        if (shape != .internal or shape.internal != .cell)
+            return c.reject(error.InvalidCategory, "cell", "write requires a cell");
+        try c.same(info.result orelse return error.InvalidSchema, value.schema);
+        errdefer |err| c.poison(err);
+        const unit = try c.scalar(void);
+        return self.bind(try contextData(c).raw.pure(try contextData(c).raw.primitive(try c.schemaId(unit), .cell_set, &.{ target.id, value.id }, 0)), unit);
+    }
+    pub fn append(self: *Body, sequence: *const Value, element: *const Value) Error!*const Value {
+        const seq = try self.useValue(sequence);
+        const item = try self.useValue(element);
+        const c = bodyData(self).context;
+        const info = data(SchemaData, seq.schema);
+        if (contextData(c).raw.schemas.items[@intCast(info.id)] != .seq)
+            return c.reject(error.InvalidCategory, "append", "requires an unbounded sequence");
+        try c.same(info.result orelse return error.InvalidSchema, item.schema);
+        errdefer |err| c.poison(err);
+        return self.bind(try contextData(c).raw.pure(try contextData(c).raw.primitive(
+            info.id,
+            .sequence_append,
+            &.{ seq.id, item.id },
+            0,
+        )), seq.schema);
+    }
+    pub fn pop(self: *Body, sequence: *const Value) Error!*const Value {
+        const seq = try self.useValue(sequence);
+        const c = bodyData(self).context;
+        const info = data(SchemaData, seq.schema);
+        if (contextData(c).raw.schemas.items[@intCast(info.id)] != .seq)
+            return c.reject(error.InvalidCategory, "pop", "requires an unbounded sequence");
+        errdefer |err| c.poison(err);
+        const item = try c.record(&.{
+            .{ .name = "head", .schema = info.result orelse return error.InvalidSchema },
+            .{ .name = "tail", .schema = seq.schema },
+        });
+        const result = try c.alternatives(&.{
+            .{ .name = "empty", .schema = try c.scalar(void) },
+            .{ .name = "item", .schema = item },
+        });
+        return self.bind(try contextData(c).raw.pure(try contextData(c).raw.primitive(
+            try c.schemaId(result),
+            .sequence_pop,
+            &.{seq.id},
+            0,
+        )), result);
     }
     pub fn sequenceValue(
         self: *Body,
@@ -1592,6 +2125,66 @@ pub const Body = opaque {
         try c.notePublication(.{ .anchor = .{ .term = term }, .contract = .{ .cleanup = cleanup_info.fields[0].schema } });
         return self.bind(term, info.result orelse return @as(Error!*const Value, c.reject(error.InvalidSchema, "protection", "requires callable body and cleanup contracts")));
     }
+    pub fn packResource(self: *Body, schema: *const Schema, representation: *const Value) Error!*const Value {
+        try self.ready();
+        const c = bodyData(self).context;
+        const id = try c.schemaId(schema);
+        const shape = contextData(c).raw.schemas.items[@intCast(id)];
+        if (shape != .internal or shape.internal != .abstract_resource)
+            return c.reject(error.InvalidCategory, "resource pack", "requires a nominal resource schema");
+        const value = try self.useValue(representation);
+        try c.same(data(SchemaData, schema).result orelse return error.InvalidSchema, value.schema);
+        errdefer |err| c.poison(err);
+        return self.bind(try contextData(c).raw.pure(try contextData(c).raw.primitive(id, .resource_pack, &.{value.id}, 0)), schema);
+    }
+    pub fn unpackResource(self: *Body, resource_value: *const Value) Error!*const Value {
+        const value = try self.useValue(resource_value);
+        const c = bodyData(self).context;
+        var info = data(SchemaData, value.schema);
+        var shape = contextData(c).raw.schemas.items[@intCast(info.id)];
+        if (shape == .internal and shape.internal == .borrowed) {
+            info = data(SchemaData, info.result orelse return error.InvalidSchema);
+            shape = contextData(c).raw.schemas.items[@intCast(info.id)];
+        }
+        if (shape != .internal or shape.internal != .abstract_resource)
+            return c.reject(error.InvalidCategory, "resource unpack", "requires an owned or borrowed nominal resource");
+        const representation = info.result orelse return error.InvalidSchema;
+        errdefer |err| c.poison(err);
+        return self.bind(try contextData(c).raw.pure(try contextData(c).raw.primitive(try c.schemaId(representation), .resource_unpack, &.{value.id}, 0)), representation);
+    }
+    /// Transfer an owner to cleanup; the body receives only its scoped loan.
+    pub fn bracket(self: *Body, resource_value: *const Value, region_handle: *const Region, work: *const Value, cleanup: *const Value, args: []const Argument) Error!*const Value {
+        const owned = try self.useValue(resource_value);
+        const v = try self.useValue(work);
+        const finalizer = try self.useValue(cleanup);
+        const c = bodyData(self).context;
+        const r = data(RegionData, region_handle);
+        try c.origin(r.owner);
+        const resource_shape = contextData(c).raw.schemas.items[@intCast(try c.schemaId(owned.schema))];
+        if (resource_shape != .internal or resource_shape.internal != .abstract_resource)
+            return c.reject(error.InvalidCategory, "bracket", "requires an owned nominal resource");
+        const info = data(SchemaData, v.schema);
+        const cleanup_info = data(SchemaData, finalizer.schema);
+        const work_shape = contextData(c).raw.schemas.items[@intCast(info.id)];
+        const cleanup_shape = contextData(c).raw.schemas.items[@intCast(cleanup_info.id)];
+        if (work_shape != .internal or work_shape.internal != .computation or cleanup_shape != .internal or cleanup_shape.internal != .computation)
+            return c.reject(error.InvalidCategory, "bracket", "requires callable body and cleanup contracts");
+        if (info.fields.len == 0 or cleanup_info.fields.len != 2)
+            return c.reject(error.SchemaMismatch, "bracket", "requires a body loan and cleanup exit-info/owner parameters");
+        try c.same(try c.borrowed(owned.schema, region_handle), info.fields[0].schema);
+        try c.same(owned.schema, cleanup_info.fields[1].schema);
+        try c.same(try c.scalar(void), cleanup_info.result orelse return error.InvalidSchema);
+        errdefer |err| c.poison(err);
+        const term = try contextData(c).raw.term(.{ .protect = .{
+            .body = v.id,
+            .cleanup = finalizer.id,
+            .resource = owned.id,
+            .loan_region = r.id,
+            .arguments = try self.arguments(info.fields[1..], args),
+        } });
+        try c.notePublication(.{ .anchor = .{ .term = term }, .contract = .{ .cleanup = cleanup_info.fields[0].schema } });
+        return self.bind(term, info.result orelse return error.InvalidSchema);
+    }
     pub fn branch(self: *Body) Error!*Body {
         try self.ready();
         return @ptrCast(try bodyData(self).context.save(BodyData, .{
@@ -1637,17 +2230,60 @@ pub const Body = opaque {
         const v = try self.useValue(result);
         const c = bodyData(self).context;
         errdefer |err| c.poison(err);
-        var term = try contextData(c).raw.pure(v.id);
+        const bindings = &bodyData(self).bindings;
+        const expression = contextData(c).raw.values.items[@intCast(v.id)].expression;
+        if (bindings.items.len != 0 and expression == .variable) {
+            const last = bindings.items[bindings.items.len - 1];
+            if (last == .bind and last.bind.variable == expression.variable) {
+                // bind x = operation; return x is exactly operation in tail position.
+                // Keep all preceding work; no other use or intervening effect moves.
+                bindings.items.len -= 1;
+                return self.finish(last.bind.term, v.schema);
+            }
+        }
+        return self.finish(try contextData(c).raw.pure(v.id), v.schema);
+    }
+    /// Fail with an authored value and close this body. The result schema lets
+    /// a failing branch compose with another branch that returns that type.
+    /// Publication checks the failure value against the module failure contract.
+    pub fn fail(
+        self: *Body,
+        result: *const Schema,
+        failure: *const Value,
+    ) Error!*const Computation {
+        const value = try self.useValue(failure);
+        const c = bodyData(self).context;
+        _ = try c.schemaId(result);
+        errdefer |err| c.poison(err);
+        const term = try contextData(c).raw.term(.{ .fail = value.id });
+        try c.notePublication(.{
+            .anchor = .{ .term = term },
+            .contract = .{ .failure = value.schema },
+        });
+        return self.finish(term, result);
+    }
+    fn finish(self: *Body, final: p.Id, schema: *const Schema) Error!*const Computation {
+        const c = bodyData(self).context;
+        errdefer |err| c.poison(err);
+        var term = final;
         var index = bodyData(self).bindings.items.len;
         while (index != 0) {
             index -= 1;
             const binding = bodyData(self).bindings.items[index];
-            term = try contextData(c).raw.bind(binding.variable, binding.term, term);
+            term = switch (binding) {
+                .bind => |value| try contextData(c).raw.bind(value.variable, value.term, term),
+                .yield_now => try contextData(c).raw.term(.{ .yield_then = term }),
+                .unpack => |value| try contextData(c).raw.term(.{ .unpack_product = .{
+                    .value = value.value,
+                    .variables = value.variables,
+                    .body = term,
+                } }),
+            };
         }
         const computation = handle(Computation, try c.save(ComputationData, .{
             .owner = c,
             .id = term,
-            .schema = v.schema,
+            .schema = schema,
             .scope = bodyData(self).scope,
         }));
         bodyData(self).scope.active = false;
@@ -1718,9 +2354,9 @@ pub const interop = struct {
         errdefer |err| c.poison(err);
         const shape = contextData(c).raw.schemas.items[@intCast(id)];
         switch (shape) {
-            .product, .sum, .seq => {},
+            .product, .sum, .seq, .vector, .array => {},
             .internal => |inner| switch (inner) {
-                .computation, .resumption, .borrowed => {},
+                .computation, .resumption, .borrowed, .suspension_package, .cell, .abstract_resource => {},
                 else => return c.intern(id, &.{}),
             },
             else => return c.intern(id, &.{}),
@@ -1738,10 +2374,18 @@ pub const interop = struct {
         info.fields = try positionalFields(c, ids);
         info.result = switch (shape) {
             .seq => |element| try schema(c, element),
+            .vector => |vector| try schema(c, vector.element),
+            .array => |array| try schema(c, array.element),
             .internal => |v| switch (v) {
                 .computation => |signature| try schema(c, signature.result),
                 .resumption => |signature| try schema(c, signature.answer),
                 .borrowed => |borrow| try schema(c, borrow.value),
+                .suspension_package => |token| try schema(c, token),
+                .cell => |cell_shape| try schema(c, cell_shape.element),
+                .abstract_resource => |resource_id| if (resource_id < contextData(c).raw.resources.items.len)
+                    try schema(c, contextData(c).raw.resources.items[@intCast(resource_id)].representation)
+                else
+                    return error.InvalidReference,
                 else => null,
             },
             else => null,
@@ -1802,10 +2446,29 @@ pub const interop = struct {
     pub fn schemaId(c: *Context, value: *const Schema) Error!p.Id {
         return c.schemaId(value);
     }
+    pub fn failureLiteralId(c: *Context, value: *const FailureLiteral) Error!p.Id {
+        const item = data(FailureLiteralData, value);
+        try c.origin(item.owner);
+        return item.literal;
+    }
+    pub fn regionId(c: *Context, value: *const Region) Error!p.Id {
+        const item = data(RegionData, value);
+        try c.origin(item.owner);
+        return item.id;
+    }
     pub fn operationId(c: *Context, value: *const Operation) Error!p.Id {
         const item = data(OperationData, value);
         try c.origin(item.owner);
         return item.id;
+    }
+    /// Recover a function already declared by this context, preserving its
+    /// named signature and lexical scope. This does not import raw functions.
+    pub fn declaredFunction(c: *Context, id: p.Id) Error!*const Function {
+        try c.ready();
+        for (contextData(c).functions.items) |function| {
+            if (data(FunctionData, function).id == id) return function;
+        }
+        return error.InvalidReference;
     }
     pub fn functionId(c: *Context, value: *const Function) Error!p.Id {
         const item = data(FunctionData, value);
@@ -1820,7 +2483,8 @@ pub const interop = struct {
     pub fn resumptionSchema(c: *Context, value: *const Handler) Error!*const Schema {
         const item = data(HandlerData, value);
         try c.origin(item.owner);
-        return item.resumption;
+        if (item.clauses.len != 1) return c.reject(error.InvalidCategory, "resumption", "select a clause through its function parameter");
+        return item.clauses[0].resumption;
     }
     pub fn resultSchema(c: *Context, value: *const Schema) Error!*const Schema {
         _ = try c.schemaId(value);
@@ -1831,7 +2495,7 @@ pub const interop = struct {
 /// Compatibility adapters retain the existing low-level error set.
 pub fn sourceError(err: Error) source.Error {
     return switch (err) {
-        error.ForeignHandle, error.OutOfScope, error.ClosedBody, error.PoisonedAuthoring, error.SchemaMismatch, error.UnknownName, error.DuplicateName, error.InvalidCategory, error.InvalidBranch, error.UndefinedBody => error.InvalidSource,
+        error.ForeignHandle, error.OutOfScope, error.ClosedBody, error.PoisonedAuthoring, error.SchemaMismatch, error.UnknownName, error.DuplicateName, error.InvalidCategory, error.InvalidBranch, error.UndefinedBody, error.UndefinedSchema, error.SchemaAlreadyDefined => error.InvalidSource,
         else => |other| other,
     };
 }

@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
 import {readFile} from 'node:fs/promises';
-import {resolve} from 'node:path';
+import {resolve,join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {createHash} from 'node:crypto';
 
@@ -24,8 +24,14 @@ const words = values => {
   values.forEach((value, i) => view.setBigUint64(i * 8, BigInt(value), true));
   return bytes;
 };
+function compileFixture(mode, count) {
+  const prior = process.env.BOUNDARY_PREDECESSOR_BIN;
+  if (mode === 'off') assert.ok(prior, 'comparison requires an external predecessor bin directory');
+  return spawnSync(mode === 'off' ? join(prior, 'coalescing-fixture') : emitter,
+    mode === 'off' ? ['off', String(count)] : [String(count)], {maxBuffer: 16 << 20});
+}
 function emit(mode, count) {
-  const process = spawnSync(emitter, [mode, String(count)], {maxBuffer: 16 << 20});
+  const process = compileFixture(mode, count);
   assert.equal(process.status, 0, process.stderr.toString());
   return {image: new Uint8Array(process.stdout), statistics: JSON.parse(process.stderr)};
 }
@@ -202,7 +208,7 @@ if (trees) {
   for(let ordinal=0;ordinal<36;ordinal++) {
     const seed=ordinal+128;
     for(const mode of ['off','safe']) {
-      const rejected=spawnSync(emitter,[mode,`generated-${seed}`],{maxBuffer:16<<20});
+      const rejected=compileFixture(mode,`generated-${seed}`);
       assert.notEqual(rejected.status,0);
       assert.match(rejected.stderr.toString(),/error: InvalidReference/);
       assert.equal(rejected.stdout.length,0,'invalid input published an image');

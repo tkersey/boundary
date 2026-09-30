@@ -156,7 +156,7 @@ const arithmetic: ir.Program = .{
 };
 
 test "coalescing rejects changed arithmetic opcode operands and failure payload independently" {
-    var equivalent = try pass.run(testing.allocator, arithmetic, .{ .mode = .safe });
+    var equivalent = try pass.run(testing.allocator, arithmetic, .{});
     defer equivalent.deinit();
     try testing.expectEqual(@as(usize, 2), equivalent.program.functions.len);
     const Mutation = enum { opcode, operands, failure_payload, returned_slot };
@@ -174,7 +174,7 @@ test "coalescing rejects changed arithmetic opcode operands and failure payload 
         blocks[1].instructions = &instructions;
         changed.blocks = &blocks;
         try rejectMutation(arithmetic, changed);
-        var result = try pass.run(testing.allocator, changed, .{ .mode = .safe });
+        var result = try pass.run(testing.allocator, changed, .{});
         defer result.deinit();
         try testing.expectEqual(@as(usize, 3), result.program.functions.len);
     }
@@ -300,7 +300,7 @@ test "coalescing rejects changed nominal effect use and forged many-to-one effec
     forged.representatives[@intFromEnum(r.Kind.effect)] = &.{ 0, 0 };
     forged.final[@intFromEnum(r.Kind.effect)] = &.{ 0, 0 };
     try testing.expectError(error.InvalidCorrespondence, validator.validate(testing.allocator, program, program, forged));
-    var optimized = try pass.run(testing.allocator, program, .{ .mode = .safe });
+    var optimized = try pass.run(testing.allocator, program, .{});
     defer optimized.deinit();
     try testing.expectEqual(@as(usize, 2), optimized.program.effects.len);
     try testing.expectEqual(@as(p.Id, 0), optimized.program.blocks[0].terminator.perform.effect);
@@ -345,7 +345,7 @@ test "coalescing does not erase same-shaped code type width sign bound or tag co
                 }}, .terminator = .{ .return_value = 4 } },
             },
         };
-        var result = try pass.run(testing.allocator, program, .{ .mode = .safe });
+        var result = try pass.run(testing.allocator, program, .{});
         defer result.deinit();
         try testing.expectEqual(@as(usize, 3), result.program.functions.len);
         const first = result.program.schemas[@intCast(result.program.functions[0].result)];
@@ -438,7 +438,7 @@ const handler_strategies: ir.Program = .{
 
 test "coalescing preserves distinct valid tail and general handler contracts" {
     try admitted(handler_strategies);
-    var result = try pass.run(testing.allocator, handler_strategies, .{ .mode = .safe });
+    var result = try pass.run(testing.allocator, handler_strategies, .{});
     defer result.deinit();
     try testing.expectEqual(@as(usize, 2), result.program.handlers.len);
     try testing.expect(result.program.handlers[0].clauses[0].strategy == .tail);

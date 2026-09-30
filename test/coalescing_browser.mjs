@@ -10,6 +10,8 @@ import {createHash} from 'node:crypto';
 const [emitter,runtime,digest,native,browserTools]=process.argv.slice(2);
 assert.ok(emitter&&runtime&&/^[a-f0-9]{64}$/.test(digest??'')&&native&&browserTools);
 assert.equal(process.argv.length,7);
+const predecessor=process.env.BOUNDARY_PREDECESSOR_BIN;
+assert.ok(predecessor,'comparison requires an external predecessor bin directory');
 const {chromium,firefox}=await import(pathToFileURL(resolve(browserTools,
   'node_modules/playwright-core/index.mjs')));
 const version=JSON.parse(await readFile(join(browserTools,'node_modules/playwright-core/package.json'))).version;
@@ -81,7 +83,8 @@ const cases=[
 for(const item of cases) {
   item.images={};
   for(const mode of ['off','safe']) {
-    const child=spawnSync(emitter,[item.kind,'bpi3',mode],{maxBuffer:16<<20});
+    const child=spawnSync(mode==='off'?join(predecessor,'authoring-cases'):emitter,
+      mode==='off'?[item.kind,'bpi3','off']:[item.kind,'bpi3'],{maxBuffer:16<<20});
     assert.equal(child.status,0,child.stderr.toString());
     item.images[mode]=new Uint8Array(child.stdout);
   }
@@ -157,4 +160,5 @@ try {
 } finally {await new Promise(resolve=>server.close(resolve));}
 console.log(JSON.stringify({scope:'Real Chromium/Firefox Worker/native/fresh Worker transfer for off/safe images',
   runtimeSha256:digest,playwright:version,emitterSha256:hash(await readFile(emitter)),
+  predecessorSha256:hash(await readFile(join(predecessor,'authoring-cases'))),
   nativeSha256:hash(await readFile(native)),servedPaths:[...served].sort(),results},null,2));

@@ -2,7 +2,41 @@
 
 Import `boundary.authoring`. It stages ordinary Boundary source; the existing
 source checker, lowering, target admission and unchanged World interpreter remain
-authoritative. The low-level `boundary.computation` API remains available.
+authoritative. `boundary.source` is the single low-level IR interface for source
+inspection, negative fixtures, component construction and internal generation.
+The duplicate `boundary.computation` export is removed. Ordinary construction
+uses the typed frontend; IR access does not select another compiler or checker.
+
+Handlers may declare `return_effects` separately from their residual row. Omit it
+to retain the full residual allowance, or use `&.{}` for a pure return arm while
+the operation clause still performs residual effects. Authoritative source
+admission rejects a return body that exceeds its declared row.
+`clause_effects` similarly narrows the operation clause's row, without changing
+the effects of its captured resumption. A clause that only packages a suspension
+can therefore be pure while later resumption performs residual effects.
+
+Use `Context.suspensionPackage` for its typed schema and `Body.package` /
+`Body.unpack` to move a resumption into or out of an owned suspension package.
+These emit the existing source operations. Their named schema metadata is retained;
+ordinary source admission still rejects repeated consumption and invalid custody.
+
+`Body.destructure(product)` consumes a product and returns named parts accessed
+with `parts.get(name)`. It is distinct from borrowing field projections: owned
+suspensions can move through the parts, and source admission rejects consuming
+the original product or an owned part twice. Parts retain their lexical scope.
+`Body.pop(sequence)` returns `empty` or `item`, whose product has `head` and `tail`;
+`append` and `equal` complete ordinary forward sequence-search construction.
+
+Construct handlers and regions through `authoring.Context.handler` and
+`authoring.Context.region`. The former top-level `boundary.handler` and
+`boundary.region` aliases are removed. Expert record inspection uses
+`boundary.data.program` types; it does not require those construction facades.
+
+Declare operations with `Context.external`, `local`, or `scoped`. The raw-ID
+`boundary.effect` facade and its indexed-declaration wrapper are removed. A finite
+native collection of typed operation handles retains each operation's result
+schema. The independent indexed source-IR fixture keeps its explicit source terms
+to test row-polymorphic composition, using checked operation declarations.
 
 ## Start here
 
@@ -72,6 +106,13 @@ and prevents publication. A closure legitimately captures ancestor values while
 being authored. The runtime lifetime of those captures is checked independently.
 Sibling values and branch-local values cannot escape directly: use `conditional`,
 `block` or `match` to produce a parent-scope result.
+
+`Body.fail(result_schema, failure_value)` closes a body with an explicit authored
+failure. The result schema lets a failing branch join a returning branch.
+The failure value keeps its lexical scope and named schema; module publication
+checks it against the declared failure contract. Discarded staging branches do
+not introduce executable failures. Protected cleanup follows the same runtime
+failure semantics, including when a failing clause still owns a continuation.
 
 Construction errors, including allocation and named-argument validation failures,
 may poison the context. After an error, retain its diagnostic, discard the context
@@ -181,12 +222,17 @@ the checked handle contract.
 
 ## Migrated constructions
 
-All four source consumers retain their existing behavior and public entry points:
-`one_effect`, `combinators.twice`, choice family/first/all/allScoped, and
+The migrated source consumers retain their existing behavior:
+`one_effect`, `Context.twice`, choice family/first/all/allScoped, and
 `hyper_demand`. The hyper bridge handles recursive interface setup and existing
 library calls; the example retains its own demands, runtime branch, checked
 additions, delayed descriptors and reciprocal startup. Two Need instances remain
 nominally distinct despite identical display strings.
+
+`Context.twice` shares its complete definition for repeated use of the same
+checked callable in one context. Its key preserves named result layouts and
+effect identities; it does not identify schemas solely by their raw record ID.
+The former raw-ID combinator wrapper has been removed.
 
 Before, `twice` allocated destination variables, built references, and nested two
 binds backward. Its implementation now expresses:

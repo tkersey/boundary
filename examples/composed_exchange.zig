@@ -1,68 +1,80 @@
 //! Three owned exchanges compose through the same input/output/package interface.
 const std = @import("std");
 const boundary = @import("boundary");
-const source = boundary.computation;
+const source = boundary.source;
+const a = boundary.authoring;
 const generator = boundary.library.generator;
-const Id = source.Id;
 const E = struct {
-    b: *source.Builder,
-    integer: Id,
-    unit: Id,
-    observe: Id,
-    release: Id,
-    fn add(e: E, value: Id, increment: u64) !Id {
-        return e.b.value(.{ .schema = e.integer, .expression = .{ .primitive = .{ .opcode = .integer_add, .operands = &.{ value, try e.b.constant(u64, increment) }, .failures = &.{.{ .kind = .arithmetic_overflow, .value = try e.b.failureLiteral(try e.b.constant(void, {})) }} } } });
+    c: *a.Context,
+    integer: *const a.Schema,
+    unit: *const a.Schema,
+    observe: *const a.Operation,
+    release: *const a.Operation,
+    fn add(e: E, body: *a.Body, value: *const a.Value, increment: u64) !*const a.Value {
+        return body.checkedAdd(value, try body.constant(u64, increment), try e.c.literalFailure(void, {}));
     }
-    fn participant(e: E, g: generator.Generator, identity: u64, increment: u64, observe: bool) !Id {
-        const b = e.b;
-        const loop = try b.declare(&.{ g.capability, e.integer }, e.integer, &.{ e.observe, g.effect }, &.{});
-        const input = try b.reference(b.parameter(loop, 1));
-        const seen = try b.variable(e.integer);
-        const next = try b.variable(e.integer);
-        const offer = try b.term(.{ .perform = .{ .effect = g.effect, .capability = try b.reference(b.parameter(loop, 0)), .payload = try e.add(try b.reference(seen), increment) } });
-        const recur = try b.term(.{ .call = .{ .function = loop, .arguments = &.{ try b.reference(b.parameter(loop, 0)), try b.reference(next) } } });
-        const read = if (observe) try b.term(.{ .perform = .{ .effect = e.observe, .payload = input } }) else try b.pure(input);
-        const work = try b.bind(seen, read, try b.bind(next, offer, recur));
-        const zero = try b.primitive(try b.scalar(bool), .equal, &.{ input, try b.constant(u64, if (Application.right_finish and identity == 2) 5 else 0) }, 0);
-        try b.define(loop, try b.term(.{ .conditional = .{ .condition = zero, .when_true = try b.pure(try b.constant(u64, identity)), .when_false = work } }));
-        const body = try b.declare(&.{ g.capability, e.integer }, e.integer, &.{ e.observe, e.release, g.effect }, &.{});
-        const run = try b.declare(&.{}, e.integer, &.{ e.observe, g.effect }, &.{});
-        const first = try b.variable(e.integer);
-        const ready = try b.term(.{ .perform = .{ .effect = g.effect, .capability = try b.reference(b.parameter(body, 0)), .payload = try b.reference(b.parameter(body, 1)) } });
-        try b.define(run, try b.bind(first, ready, try b.term(.{ .call = .{ .function = loop, .arguments = &.{ try b.reference(b.parameter(body, 0)), try b.reference(first) } } })));
-        const exit = try boundary.library.cleanup.exitInfo(b, e.unit);
-        const cleanup = try b.declare(&.{exit}, e.unit, &.{e.release}, &.{});
-        try b.define(cleanup, try b.term(.{ .perform = .{ .effect = e.release, .payload = try b.constant(u64, identity) } }));
-        const rt = try b.schema(.{ .internal = .{ .computation = .{ .parameters = &.{}, .result = e.integer, .effects = &.{ e.observe, g.effect }, .capture_bound = &.{ g.capability, e.integer } } } });
-        const ct = try b.schema(.{ .internal = .{ .computation = .{ .parameters = &.{exit}, .result = e.unit, .effects = &.{e.release} } } });
-        try b.define(body, try b.term(.{ .protect = .{ .body = try b.lambda(run, rt), .cleanup = try b.lambda(cleanup, ct) } }));
-        const signature = try b.schema(.{ .internal = .{ .computation = .{ .parameters = &.{ g.capability, e.integer }, .result = e.integer, .effects = &.{ e.observe, e.release, g.effect } } } });
-        return b.lambda(body, signature);
+    fn participant(e: E, g: *const generator.Exchange, identity: u64, increment: u64, observe: bool) !*const a.Function {
+        const c = e.c;
+        const loop_fn = try c.function("participant loop", &.{ .{ .name = "capability", .schema = g.capability() }, .{ .name = "input", .schema = e.integer } }, e.integer, &.{ e.observe, g.effect() });
+        const loop = try c.body(loop_fn);
+        const input = try loop.parameter("input");
+        const capability = try loop.parameter("capability");
+        const done = try loop.branch();
+        const step = try loop.branch();
+        const seen = if (observe) try step.perform(e.observe, input) else input;
+        const next = try step.performLocal(g.effect(), capability, try e.add(step, seen, increment));
+        const recur = try step.call(loop_fn, &.{ .{ .name = "capability", .value = capability }, .{ .name = "input", .value = next } });
+        const zero = try loop.equal(input, try loop.constant(u64, if (Application.right_finish and identity == 2) 5 else 0));
+        try c.define(loop_fn, try loop.ret(try loop.conditional(zero, try done.ret(try done.constant(u64, identity)), try step.ret(recur))));
+        const body_type = try c.handledSchema(g.handler());
+        const body_fn = try c.functionFor("participant", body_type);
+        const body = try c.body(body_fn);
+        const cap = try body.parameter("capability");
+        const initial = try body.parameter("input");
+        const work_type = try c.callable(&.{}, e.integer, &.{ e.observe, g.effect() }, .{ .use = .reusable, .captures = &.{ g.capability(), e.integer } });
+        const work_fn = try c.functionFor("protected participant", work_type);
+        const work = try body.closureBody(work_fn);
+        const first = try work.performLocal(g.effect(), cap, initial);
+        try c.define(work_fn, try work.ret(try work.call(loop_fn, &.{ .{ .name = "capability", .value = cap }, .{ .name = "input", .value = first } })));
+        const cleanup_type = try c.callable(&.{.{ .name = "exit", .schema = try c.cleanupInfo(e.unit) }}, e.unit, &.{e.release}, .{ .use = .reusable, .captures = &.{} });
+        const cleanup_fn = try c.functionFor("release participant", cleanup_type);
+        const cleanup = try c.body(cleanup_fn);
+        try c.define(cleanup_fn, try cleanup.ret(try cleanup.perform(e.release, try cleanup.constant(u64, identity))));
+        try c.define(body_fn, try body.ret(try body.protect(try body.lambda(work_fn, work_type), try body.lambda(cleanup_fn, cleanup_type), &.{})));
+        return body_fn;
     }
-    fn yielded(e: E, g: generator.Generator, answer: Id, expected: u64, owner: Id, next: Id) !Id {
-        const b = e.b;
-        const pair = try b.variable(g.yielded);
-        const value = try b.variable(g.element);
-        const same = try b.primitive(try b.scalar(bool), .equal, &.{ try b.reference(value), try b.constant(u64, expected) }, 0);
-        const failed = try b.bind(try b.variable(e.unit), try generator.close(b, g, try b.reference(owner)), try b.term(.{ .fail = try b.constant(void, {}) }));
-        return b.term(.{ .match_sum = .{ .value = answer, .cases = &.{
-            .{ .variable = try b.variable(g.result), .body = try b.term(.{ .fail = try b.constant(void, {}) }) },
-            .{ .variable = pair, .body = try b.term(.{ .unpack_product = .{ .value = try b.reference(pair), .variables = &.{ value, owner }, .body = try b.term(.{ .conditional = .{ .condition = same, .when_true = next, .when_false = failed } }) } }) },
-        } } });
+    const Check = struct {
+        e: E,
+        parent: *a.Body,
+        answer: *const a.Value,
+        selected: *const a.Case,
+        unexpected: *const a.Case,
+        condition: *const a.Value,
+        work: *a.Body,
+        rejected: *a.Body,
+        fn finish(self: @This(), result: *const a.Value) !*const a.Value {
+            const checked = try self.selected.body().conditional(self.condition, try self.work.ret(result), try self.rejected.fail(self.e.integer, try self.rejected.constant(void, {})));
+            return self.parent.match(self.answer, &.{ try self.unexpected.fail(self.e.integer, try self.unexpected.body().constant(void, {})), try self.selected.ret(checked) });
+        }
+    };
+    fn expect(e: E, work: **a.Body, checks: *std.ArrayList(Check), answer: *const a.Value, expected: u64, yielded: bool) !*const a.Value {
+        const parent = work.*;
+        const done = try parent.caseOf(answer, "done");
+        const offered = try parent.caseOf(answer, "yielded");
+        const parts = try offered.body().destructure(offered.payload());
+        const package = try parts.get("future");
+        const selected = if (yielded) offered else done;
+        const actual = if (yielded) try parts.get("value") else done.payload();
+        const condition = try selected.body().equal(actual, try selected.body().constant(u64, expected));
+        const valid = try selected.body().branch();
+        const invalid = try selected.body().branch();
+        _ = try (if (yielded) invalid else offered.body()).disposePackage(package);
+        try checks.append(a.interop.builder(e.c).allocator(), .{ .e = e, .parent = parent, .answer = answer, .selected = selected, .unexpected = if (yielded) done else offered, .condition = condition, .work = valid, .rejected = invalid });
+        work.* = valid;
+        return if (yielded) package else done.payload();
     }
-    fn completed(e: E, g: generator.Generator, answer: Id, expected: u64, next: Id) !Id {
-        const b = e.b;
-        const value = try b.variable(g.result);
-        const pair = try b.variable(g.yielded);
-        const payload = try b.variable(g.element);
-        const owned = try b.variable(g.package);
-        const fail = try b.term(.{ .fail = try b.constant(void, {}) });
-        const close = try b.term(.{ .unpack_product = .{ .value = try b.reference(pair), .variables = &.{ payload, owned }, .body = try b.bind(try b.variable(e.unit), try generator.close(b, g, try b.reference(owned)), fail) } });
-        const same = try b.primitive(try b.scalar(bool), .equal, &.{ try b.reference(value), try b.constant(u64, expected) }, 0);
-        return b.term(.{ .match_sum = .{ .value = answer, .cases = &.{
-            .{ .variable = value, .body = try b.term(.{ .conditional = .{ .condition = same, .when_true = next, .when_false = fail } }) },
-            .{ .variable = pair, .body = close },
-        } } });
+    fn start(e: E, work: *a.Body, g: *const generator.Exchange, identity: u64, increment: u64, observe: bool) !*const a.Value {
+        return work.handleWithArguments(g.handler(), try work.lambda(try e.participant(g, identity, increment, observe), try e.c.handledSchema(g.handler())), &.{.{ .name = "input", .value = try work.constant(u64, 0) }}, &.{});
     }
 };
 const Application = struct {
@@ -70,58 +82,51 @@ const Application = struct {
     var duplicate = false;
     var right_finish = false;
     pub fn emit(b: *source.Builder) !source.Module {
-        const unit = try b.scalar(void);
-        const integer = try b.scalar(u64);
-        const observe = try b.effect(.{ .identity = "pipe/observe", .payload = integer, .result = integer });
-        const release = try b.effect(.{ .identity = "pipe/release", .payload = integer, .result = unit });
-        const e = E{ .b = b, .integer = integer, .unit = unit, .observe = observe, .release = release };
-        const a = try generator.defineExchange(b, "pipe/a", integer, integer, integer, &.{ integer, unit }, &.{}, &.{}, .{ .effects = &.{ observe, release } });
-        const z = try generator.defineExchange(b, "pipe/b", integer, integer, integer, &.{ integer, unit }, &.{}, &.{}, .{ .effects = &.{ observe, release } });
-        const c = try generator.defineExchange(b, "pipe/c", integer, integer, integer, &.{ integer, unit }, &.{}, &.{}, .{ .effects = &.{ observe, release } });
-        const az = try generator.compose(b, "pipe/ab", a, z);
-        const azc = try generator.compose(b, "pipe/abc", az.generator, c);
-        const entry = try b.declare(&.{}, integer, &.{ observe, release }, &.{});
-        const aa = try b.variable(a.answer);
-        const za = try b.variable(z.answer);
-        const ca = try b.variable(c.answer);
-        const ap = try b.variable(a.package);
-        const zp = try b.variable(z.package);
-        const cp = try b.variable(c.package);
-        const da = try b.variable(c.answer);
-        const dp = try b.variable(c.package);
-        const aza = try b.variable(az.generator.answer);
-        const azp = try b.variable(az.generator.package);
-        const all = try b.variable(azc.generator.answer);
-        const allp = try b.variable(azc.generator.package);
-        const next = try b.variable(azc.generator.answer);
-        const np = try b.variable(azc.generator.package);
-        const sibling = try b.variable(c.answer);
-        const sibling_next = try b.variable(c.package);
-        const final = try b.bind(try b.variable(unit), try generator.close(b, c, try b.reference(sibling_next)), try b.pure(try b.constant(u64, 42)));
-        const done = try b.bind(sibling, try generator.exchange(b, c, try b.reference(dp), try b.constant(u64, 7)), try e.yielded(c, try b.reference(sibling), 1014, sibling_next, final));
-        var stop = try b.bind(try b.variable(unit), try generator.close(b, azc.generator, try b.reference(np)), done);
-        if (duplicate) stop = try b.bind(try b.variable(unit), try generator.close(b, azc.generator, try b.reference(np)), stop);
-        if (finish) {
-            const completed = try b.variable(azc.generator.result);
-            const unexpected = try b.variable(azc.generator.yielded);
-            const v = try b.variable(integer);
-            const p = try b.variable(azc.generator.package);
-            const ended = try b.variable(azc.generator.answer);
-            const good = try b.primitive(try b.scalar(bool), .equal, &.{ try b.reference(completed), try b.constant(u64, 1) }, 0);
-            const dispatch = try b.term(.{ .match_sum = .{ .value = try b.reference(ended), .cases = &.{
-                .{ .variable = completed, .body = try b.term(.{ .conditional = .{ .condition = good, .when_true = done, .when_false = try b.term(.{ .fail = try b.constant(void, {}) }) } }) },
-                .{ .variable = unexpected, .body = try b.term(.{ .unpack_product = .{ .value = try b.reference(unexpected), .variables = &.{ v, p }, .body = try b.bind(try b.variable(unit), try generator.close(b, azc.generator, try b.reference(p)), try b.term(.{ .fail = try b.constant(void, {}) })) } }) },
-            } } });
-            stop = try b.bind(ended, try generator.exchange(b, azc.generator, try b.reference(np), try b.constant(u64, 0)), dispatch);
+        const c = try a.Context.init(b);
+        const unit = try c.scalar(void);
+        const integer = try c.scalar(u64);
+        const observe = try c.external("pipe/observe", integer, integer);
+        const release = try c.external("pipe/release", integer, unit);
+        const e = E{ .c = c, .integer = integer, .unit = unit, .observe = observe, .release = release };
+        const options: generator.Options = .{ .captures = .{ .continuation = &.{ integer, unit } }, .residual = &.{ observe, release }, .parameters = &.{.{ .name = "input", .schema = integer }}, .body_use = .reusable };
+        const left = try generator.create(c, "pipe/a", integer, integer, integer, options);
+        const middle = try generator.create(c, "pipe/b", integer, integer, integer, options);
+        const right = try generator.create(c, "pipe/c", integer, integer, integer, options);
+        const pair = try generator.pipeline(c, "pipe/ab", left, middle);
+        const triple = try generator.pipeline(c, "pipe/abc", pair.generator, right);
+        const entry = try c.function("entry", &.{}, integer, &.{ observe, release });
+        const root = try c.body(entry);
+        var work = root;
+        var checks: std.ArrayList(E.Check) = .empty;
+        defer checks.deinit(b.allocator());
+        const lp = try e.expect(&work, &checks, try e.start(work, left, 1, 1, false), 0, true);
+        const mp = try e.expect(&work, &checks, try e.start(work, middle, 2, 10, true), 0, true);
+        const rp = try e.expect(&work, &checks, try e.start(work, right, 3, 100, false), 0, true);
+        const sibling = try e.expect(&work, &checks, try e.start(work, right, 4, 1000, true), 0, true);
+        const pp = try e.expect(&work, &checks, try work.call(pair.start, &.{ .{ .name = "left", .value = lp }, .{ .name = "right", .value = mp }, .{ .name = "input", .value = try work.constant(u64, 3) } }), 18, true);
+        const answer = try work.call(triple.start, &.{ .{ .name = "left", .value = pp }, .{ .name = "right", .value = rp }, .{ .name = "input", .value = try work.constant(u64, 4) } });
+        if (right_finish) {
+            _ = try e.expect(&work, &checks, answer, 2, false);
+        } else {
+            const all = try e.expect(&work, &checks, answer, 120, true);
+            const next = try e.expect(&work, &checks, try work.resumePackage(all, try work.constant(u64, 5)), 122, true);
+            if (finish) {
+                _ = try e.expect(&work, &checks, try work.resumePackage(next, try work.constant(u64, 0)), 1, false);
+            } else {
+                _ = try work.disposePackage(next);
+                if (duplicate) _ = try work.disposePackage(next);
+            }
         }
-        const second = try b.bind(next, try generator.exchange(b, azc.generator, try b.reference(allp), try b.constant(u64, 5)), try e.yielded(azc.generator, try b.reference(next), 122, np, stop));
-        const joined = try b.bind(all, try b.term(.{ .call = .{ .function = azc.start, .arguments = &.{ try b.reference(azp), try b.reference(cp), try b.constant(u64, 4) } } }), if (right_finish) try e.completed(azc.generator, try b.reference(all), 2, done) else try e.yielded(azc.generator, try b.reference(all), 120, allp, second));
-        const first = try b.bind(aza, try b.term(.{ .call = .{ .function = az.start, .arguments = &.{ try b.reference(ap), try b.reference(zp), try b.constant(u64, 3) } } }), try e.yielded(az.generator, try b.reference(aza), 18, azp, joined));
-        const retained = try b.bind(da, try generator.begin(b, c, try e.participant(c, 4, 1000, true), try b.constant(u64, 0)), try e.yielded(c, try b.reference(da), 0, dp, first));
-        const third = try b.bind(ca, try generator.begin(b, c, try e.participant(c, 3, 100, false), try b.constant(u64, 0)), try e.yielded(c, try b.reference(ca), 0, cp, retained));
-        const two = try b.bind(za, try generator.begin(b, z, try e.participant(z, 2, 10, true), try b.constant(u64, 0)), try e.yielded(z, try b.reference(za), 0, zp, third));
-        try b.define(entry, try b.bind(aa, try generator.begin(b, a, try e.participant(a, 1, 1, false), try b.constant(u64, 0)), try e.yielded(a, try b.reference(aa), 0, ap, two)));
-        return b.module(entry, unit);
+        const last = try e.expect(&work, &checks, try work.resumePackage(sibling, try work.constant(u64, 7)), 1014, true);
+        _ = try work.disposePackage(last);
+        var result = try work.constant(u64, 42);
+        var remaining = checks.items.len;
+        while (remaining != 0) {
+            remaining -= 1;
+            result = try checks.items[remaining].finish(result);
+        }
+        try c.define(entry, try root.ret(result));
+        return c.module(entry, unit);
     }
 };
 pub fn main(init: std.process.Init) !void {

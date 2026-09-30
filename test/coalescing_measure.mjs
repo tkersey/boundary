@@ -3,9 +3,12 @@ import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
 import {readFileSync,writeFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
-import {resolve} from 'node:path';
+import {resolve,join} from 'node:path';
 const [executable,output]=process.argv.slice(2);
 assert.ok(executable&&output&&process.argv.length===4);
+const predecessor=process.env.BOUNDARY_PREDECESSOR_BIN;
+assert.ok(predecessor,'comparison requires an external predecessor bin directory');
+const priorExecutable=join(predecessor,'coalescing-bench');
 const median=values=>[...values].sort((a,b)=>a-b)[Math.floor(values.length/2)];
 const fixtures=['arithmetic','deep','shallow','cleanup','twice','cells_independent',
   'memo_independent','hyper_duplicate','hyper_configured','hyper_lazy'];
@@ -17,7 +20,7 @@ for(const fixture of fixtures) {
     const order=index%2===0?['off','safe']:['safe','off'];
     const arms={};
     for(const mode of order) {
-      arms[mode]=JSON.parse(execFileSync(resolve(executable),[fixture,mode],
+      arms[mode]=JSON.parse(execFileSync(mode==='off'?priorExecutable:resolve(executable),mode==='off'?[fixture,'off']:[fixture],
         {encoding:'utf8',maxBuffer:16<<20}));
       assert.equal(arms[mode].warmups,3);assert.equal(arms[mode].samples.length,9);
       assert.equal(arms[mode].optimization,'ReleaseSafe');
@@ -54,12 +57,12 @@ for(const fixture of fixtures) {
     `cold admission ${summary.cold_admit.pairedMedianRatio.toFixed(2)}x\n`);
 }
 const hash=path=>createHash('sha256').update(readFileSync(path)).digest('hex');
-const result={scope:'Synthetic compiler and cold Boundary admission B1/B2; not World runtime or Agent qualification',
+const result={scope:'Synthetic construction and cold admission (World-side cost); not whole-runtime or Agent qualification',
   protocol:'Three independently launched alternating windows; three warmups and nine samples per process. Two confirmation windows when any initial cold-admission ratio exceeds 1.05.',
   clock:'std.Io.Clock.awake; measured operations exclude process startup and report formatting',
   allocationScope:'Requested bytes observed at source/lowering/encoding/admission allocator boundaries; excludes allocator metadata, RSS and runtime live memory',
   caveats:['Source construction includes any validation performed by the public typed module builder.',
     'No B0 control or runtime execution timing is included.',
     'Host contention is not controlled; raw per-window ratios are retained.'],
-  executableSha256:hash(executable),harnessSha256:hash(new URL(import.meta.url)),measurements};
+  executableSha256:hash(executable),predecessorSha256:hash(priorExecutable),harnessSha256:hash(new URL(import.meta.url)),measurements};
 writeFileSync(output,JSON.stringify(result,null,2)+'\n');

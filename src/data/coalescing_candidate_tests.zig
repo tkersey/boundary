@@ -122,7 +122,7 @@ test "coalescing public pass separates privileged and unprivileged identical cod
             .introducers = &.{0},
             .eliminators = if (both) &.{1} else &.{},
         }};
-        var result = try pass.run(testing.allocator, program, .{ .mode = .safe });
+        var result = try pass.run(testing.allocator, program, .{});
         defer result.deinit();
         try testing.expectEqual(@as(usize, 3), result.program.functions.len);
         try testing.expectEqual(@as(usize, 1), result.program.scopes.resources.len);
@@ -156,18 +156,17 @@ test "discarded authority neither pins live helpers nor hides an invalid unused 
             .introducers = &.{0},
             .eliminators = &.{1},
         }};
-        for ([_]pass.Mode{ .off, .safe }) |mode|
-            try testing.expectError(error.InvalidOwnership, pass.run(testing.allocator, program, .{ .mode = mode }));
+        try testing.expectError(error.InvalidOwnership, pass.run(testing.allocator, program, .{}));
         program.scopes.resources = &.{.{
             .representation = 0,
             .introducers = if (eliminate) &.{0} else &.{ 0, 3 },
             .eliminators = if (eliminate) &.{ 1, 3 } else &.{1},
         }};
-        var result = try pass.run(testing.allocator, program, .{ .mode = .safe });
+        var result = try pass.run(testing.allocator, program, .{});
         defer result.deinit();
         try testing.expectEqual(@as(usize, 0), result.program.scopes.resources.len);
         try testing.expectEqual(@as(usize, 2), result.program.functions.len);
-        var repeated = try pass.run(testing.allocator, result.program, .{ .mode = .safe });
+        var repeated = try pass.run(testing.allocator, result.program, .{});
         defer repeated.deinit();
         try testing.expectEqual(try image.identity(testing.allocator, result.program), try image.identity(testing.allocator, repeated.program));
     }

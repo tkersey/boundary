@@ -24,6 +24,30 @@ const golden = "ABL_BMO1".* ++ [_]u8{
     'a', 'i', 'n', 3, 0,  1, 0, 0, 0, 0,
 };
 
+test "link statistics describe the current invocation after early rejection" {
+    const compilation = data.closed_compilation;
+    for ([_]compilation.Contract{ .structural, .semantic }) |contract| {
+        var stats: compilation.Statistics = .{};
+        const options: compilation.Options = .{ .contract = contract, .statistics = &stats };
+        const entry: data.linker.Endpoint = .{ .instance = "case", .symbol = "main" };
+        const instance: data.linker.Instance = .{ .key = "case", .object = &golden };
+        for (0..4) |failure| {
+            var linked = try data.linker.linkWithCompilation(testing.allocator, &.{instance}, &.{}, entry, options);
+            linked.deinit();
+            try testing.expect(stats.outcome != .not_run);
+            try testing.expect(stats.final_bytes != 0);
+            switch (failure) {
+                0 => try testing.expectError(error.InvalidSymbol, data.linker.linkWithCompilation(testing.allocator, &.{.{ .key = "", .object = &golden }}, &.{}, entry, options)),
+                1 => try testing.expectError(error.Truncated, data.linker.linkWithCompilation(testing.allocator, &.{.{ .key = "case", .object = &.{} }}, &.{}, entry, options)),
+                2 => try testing.expectError(error.DuplicateInstance, data.linker.linkWithCompilation(testing.allocator, &.{ instance, instance }, &.{}, entry, options)),
+                3 => try testing.expectError(error.MissingSymbol, data.linker.linkWithCompilation(testing.allocator, &.{instance}, &.{}, .{ .instance = "case", .symbol = "absent" }, options)),
+                else => unreachable,
+            }
+            try testing.expectEqualDeep(compilation.Statistics{}, stats);
+        }
+    }
+}
+
 test "BMO1 golden framing and canonical owned decode" {
     var buffer: [256]u8 = undefined;
     try testing.expectEqualSlices(u8, &golden, try data.component.encode(testing.allocator, example, &buffer));
@@ -152,7 +176,7 @@ const borrow_bindings = [_]data.linker.Binding{.{
 }};
 
 test "public linker proves imported borrow promises against the actual implementation" {
-    inline for (.{ data.coalescing.Mode.off, data.coalescing.Mode.safe }) |mode| {
+    {
         inline for (.{ false, true }) |honest| {
             var object_value = borrow_example;
             var summaries = borrow_example.borrows[0..4].*;
@@ -164,7 +188,7 @@ test "public linker proves imported borrow promises against the actual implement
             var buffer: [1024]u8 = undefined;
             // Both clients are locally valid under their distinct import assumptions.
             const bytes = try data.component.encode(testing.allocator, object_value, &buffer);
-            const result = data.linker.linkWithOptions(testing.allocator, &.{.{ .key = "case", .object = bytes }}, &borrow_bindings, .{ .instance = "case", .symbol = "main" }, .{ .mode = mode });
+            const result = data.linker.linkWithOptions(testing.allocator, &.{.{ .key = "case", .object = bytes }}, &borrow_bindings, .{ .instance = "case", .symbol = "main" }, .{});
             if (honest) {
                 var linked = try result;
                 linked.deinit();
@@ -229,7 +253,7 @@ test "component guarantees bind cell writes and outlives requirements" {
 }
 
 test "imported handler and constructor functions cannot substitute different borrow provenance" {
-    inline for (.{ data.coalescing.Mode.off, data.coalescing.Mode.safe }) |mode| {
+    {
         inline for (.{ data.relocation.Kind.handler, data.relocation.Kind.constructor }) |kind| {
             inline for (.{ false, true }) |honest| {
                 const provider_input: data.program.Id = if (honest) 1 else 0;
@@ -280,7 +304,7 @@ test "imported handler and constructor functions cannot substitute different bor
                 const result = data.linker.linkWithOptions(testing.allocator, &.{.{ .key = "case", .object = bytes }}, &.{.{
                     .required = .{ .instance = "case", .symbol = "need" },
                     .supplied = .{ .instance = "case", .symbol = "provided" },
-                }}, .{ .instance = "case", .symbol = "main" }, .{ .mode = mode });
+                }}, .{ .instance = "case", .symbol = "main" }, .{});
                 if (honest) {
                     var linked = try result;
                     linked.deinit();

@@ -1,7 +1,7 @@
 //! The peer loops if demanded. Ordinary World execution must still return 42.
 const std = @import("std");
 const boundary = @import("boundary");
-const source = boundary.computation;
+const source = boundary.source;
 const hyper = boundary.library.hyper;
 
 pub const Application = struct {

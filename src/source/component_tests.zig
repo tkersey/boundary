@@ -3,12 +3,12 @@ const source = @import("../source.zig");
 const data = @import("boundary_data");
 const testing = std.testing;
 
-test "component coalescing mode defers without changing independent object bytes" {
+test "component emission defers coalescing and observation preserves object bytes" {
     for (std.enums.values(source.component_examples.Kind)) |kind| {
-        const off = try source.component_examples.emitWithOptions(testing.allocator, kind, .{ .coalescing = .{ .mode = .off } });
+        const off = try source.component_examples.emit(testing.allocator, kind);
         defer testing.allocator.free(off);
         var stats: data.coalescing.Statistics = .{};
-        const safe = try source.component_examples.emitWithOptions(testing.allocator, kind, .{ .coalescing = .{ .mode = .safe, .statistics = &stats } });
+        const safe = try source.component_examples.emitWithOptions(testing.allocator, kind, .{ .coalescing = .{ .statistics = &stats } });
         defer testing.allocator.free(safe);
         try testing.expectEqualSlices(u8, off, safe);
         try testing.expectEqual(data.coalescing.Outcome.deferred_open_component, stats.outcome);
@@ -163,7 +163,7 @@ test "public linker rejects missing duplicate wrong-kind and incompatible effect
 }
 
 test "same-named private declarations remain distinct across explicit component instances" {
-    inline for (.{ data.coalescing.Mode.off, data.coalescing.Mode.safe }) |mode| {
+    {
         const bytes = try object(true, false);
         defer testing.allocator.free(bytes);
         const client = try dualClient(true);
@@ -173,7 +173,7 @@ test "same-named private declarations remain distinct across explicit component 
             .{ .required = .{ .instance = "client", .symbol = "b" }, .supplied = .{ .instance = "two", .symbol = "value" } },
             .{ .required = .{ .instance = "client", .symbol = "read-a" }, .supplied = .{ .instance = "one", .symbol = "read" } },
             .{ .required = .{ .instance = "client", .symbol = "read-b" }, .supplied = .{ .instance = "two", .symbol = "read" } },
-        }, .{ .instance = "client", .symbol = "main" }, .{ .mode = mode });
+        }, .{ .instance = "client", .symbol = "main" }, .{});
         defer linked.deinit();
         try testing.expectEqual(2, linked.program.effects.len);
         try testing.expectEqualStrings(linked.program.effects[0].identity, linked.program.effects[1].identity);
@@ -269,25 +269,37 @@ test "component linking releases every partial owner on allocation failure" {
 test "one reusable combinator specializes for two residual effect contexts" {
     var b = source.Builder.init(testing.allocator);
     defer b.deinit();
-    const unit = try b.scalar(void);
-    const integer = try b.scalar(u64);
-    const read = try b.effect(.{ .identity = "polymorphic/read", .payload = unit, .result = integer });
-    const write = try b.effect(.{ .identity = "polymorphic/write", .payload = integer, .result = unit });
-    const first = try b.schema(.{ .internal = .{ .computation = .{ .parameters = &.{}, .result = integer, .effects = &.{read} } } });
-    const second = try b.schema(.{ .internal = .{ .computation = .{ .parameters = &.{}, .result = integer, .effects = &.{ read, write } } } });
-    const twice = @import("../library/combinators.zig").twice;
-    const one = try twice(&b, first);
-    const two = try twice(&b, second);
-    try testing.expect(one != two);
-    try testing.expectEqual(one, try twice(&b, first));
-    try testing.expectEqual(two, try twice(&b, second));
-    var compiled = try source.component.compile(testing.allocator, b.module(one, unit), .{ .exports = &.{
+    const a = @import("../authoring.zig");
+    const c = try a.Context.init(&b);
+    const unit = try c.scalar(void);
+    const integer = try c.scalar(u64);
+    const read = try c.external("polymorphic/read", unit, integer);
+    const write = try c.external("polymorphic/write", integer, unit);
+    const first = try c.callable(&.{}, integer, &.{read}, .{
+        .use = .reusable,
+        .captures = &.{},
+    });
+    const second = try c.callable(&.{}, integer, &.{ read, write }, .{
+        .use = .reusable,
+        .captures = &.{},
+    });
+    const one_handle = try c.twice(first);
+    const two_handle = try c.twice(second);
+    try testing.expect(one_handle != two_handle);
+    try testing.expectEqual(one_handle, try c.twice(first));
+    try testing.expectEqual(two_handle, try c.twice(second));
+    // Object exports and record inspection deliberately use the component IR boundary.
+    const one = try a.interop.functionId(c, one_handle);
+    const two = try a.interop.functionId(c, two_handle);
+    var compiled = try source.component.compile(testing.allocator, try c.module(one_handle, unit), .{ .exports = &.{
         .{ .name = "read", .reference = .{ .kind = .function, .id = one } },
         .{ .name = "read-write", .reference = .{ .kind = .function, .id = two } },
     } });
     defer compiled.deinit();
-    try testing.expectEqualSlices(data.program.Id, &.{read}, compiled.object.program.functions[@intCast(one)].effects);
-    try testing.expectEqualSlices(data.program.Id, &.{ read, write }, compiled.object.program.functions[@intCast(two)].effects);
+    const read_id = try a.interop.operationId(c, read);
+    const write_id = try a.interop.operationId(c, write);
+    try testing.expectEqualSlices(data.program.Id, &.{read_id}, compiled.object.program.functions[@intCast(one)].effects);
+    try testing.expectEqualSlices(data.program.Id, &.{ read_id, write_id }, compiled.object.program.functions[@intCast(two)].effects);
 }
 
 test "mutually recursive component implementations link as one closed group" {
@@ -305,7 +317,7 @@ test "an unrelated component import cannot hide a local protected borrow escape"
     var b = source.Builder.init(testing.allocator);
     defer b.deinit();
     const original = try source.examples.resourceScalar(&b);
-    const main_bind = b.terms.items[@intCast(b.functions.items[@intCast(original.entry)].body.?)].bind;
+    const main_bind = try @import("fixture_inspection.zig").resourceEntry(&b, original.entry);
     const protected = main_bind.next;
     const body_value = b.terms.items[@intCast(protected)].protect.body;
     const body_function = b.values.items[@intCast(body_value)].expression.lambda;
@@ -363,7 +375,7 @@ test "local protected borrow checking follows imported result provenance" {
         var b = source.Builder.init(testing.allocator);
         defer b.deinit();
         const original = try source.examples.resourceScalar(&b);
-        const main_bind = b.terms.items[@intCast(b.functions.items[@intCast(original.entry)].body.?)].bind;
+        const main_bind = try @import("fixture_inspection.zig").resourceEntry(&b, original.entry);
         const protected = main_bind.next;
         const body_value = b.terms.items[@intCast(protected)].protect.body;
         const body_function = b.values.items[@intCast(body_value)].expression.lambda;
@@ -403,4 +415,34 @@ test "local protected borrow checking follows imported result provenance" {
             accepted.deinit();
         }
     }
+}
+
+test "component emission defers semantic compilation regardless of selected closed contract" {
+    for (std.enums.values(source.component_examples.Kind)) |kind| {
+        const baseline = try source.component_examples.emit(testing.allocator, kind);
+        defer testing.allocator.free(baseline);
+        var stats: data.closed_compilation.Statistics = .{ .outcome = .applied, .changed_stages = 99 };
+        const object_bytes = try source.component_examples.emitWithOptions(testing.allocator, kind, .{ .contract = .semantic, .semantic_statistics = &stats });
+        defer testing.allocator.free(object_bytes);
+        try testing.expectEqualSlices(u8, baseline, object_bytes);
+        try testing.expectEqual(data.closed_compilation.Outcome.deferred_open_component, stats.outcome);
+        try testing.expectEqual(@as(usize, 0), stats.changed_stages);
+    }
+}
+
+test "component preparation resets observations before allocation failure" {
+    var builder = source.Builder.init(testing.allocator);
+    defer builder.deinit();
+    const unit = try builder.scalar(void);
+    const entry = try builder.declare(&.{}, unit, &.{}, &.{});
+    try builder.define(entry, try builder.pure(try builder.constant(void, {})));
+    var stats: data.closed_compilation.Statistics = .{ .outcome = .applied, .final_bytes = 42 };
+    var p01: data.coalescing.Statistics = .{};
+    var failing = testing.FailingAllocator.init(testing.allocator, .{ .fail_index = 0 });
+    try testing.expectError(error.OutOfMemory, source.component.compileObserved(failing.allocator(), builder.module(entry, unit), .{
+        .imports = &.{.{ .name = "worker", .reference = .{ .kind = .function, .id = entry } }},
+        .exports = &.{},
+    }, .{ .semantic_statistics = &stats, .coalescing = .{ .statistics = &p01 } }));
+    try testing.expectEqualDeep(data.closed_compilation.Statistics{}, stats);
+    try testing.expectEqualDeep(data.coalescing.Statistics{}, p01);
 }

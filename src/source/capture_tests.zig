@@ -1,7 +1,9 @@
 const std = @import("std");
 const boundary = @import("../root.zig");
-const source = boundary.computation;
+const source = boundary.source;
 const choice = boundary.library.choice;
+const typed = boundary.authoring;
+const ChoiceOperation = struct { effect: Id, capability: Id };
 const cleanup = boundary.library.cleanup;
 const Id = boundary.data.program.Id;
 const Mode = enum { handler_state, edge, unit_state };
@@ -48,7 +50,7 @@ fn closure(
     return b.lambda(function, schema);
 }
 
-fn innerBody(b: *source.Builder, r: Resource, c: choice.Family, unit: Id, mode: Mode) !Id {
+fn innerBody(b: *source.Builder, r: Resource, c: ChoiceOperation, unit: Id, mode: Mode) !Id {
     const inside = try b.declare(&.{ c.capability, r.borrowed }, unit, &.{c.effect}, &.{r.loan});
     const chosen = try b.variable(try b.scalar(bool));
     const operation = try b.term(.{ .perform = .{
@@ -69,7 +71,7 @@ fn innerBody(b: *source.Builder, r: Resource, c: choice.Family, unit: Id, mode: 
     return closure(b, inside, &.{ c.capability, r.borrowed }, unit, &.{c.effect}, &.{r.loan});
 }
 
-fn outerBody(b: *source.Builder, r: Resource, c: choice.Family, unit: Id, mode: Mode) !Id {
+fn outerBody(b: *source.Builder, r: Resource, c: ChoiceOperation, unit: Id, mode: Mode) !Id {
     const state = if (mode == .handler_state) r.borrowed else unit;
     const returns = try b.declare(&.{ state, unit }, unit, &.{}, &.{r.loan});
     try b.define(returns, try b.pure(try b.reference(b.parameter(returns, 1))));
@@ -97,16 +99,14 @@ fn program(b: *source.Builder, mode: Mode) !source.Module {
     const boolean = try b.scalar(bool);
     const sequence = try b.schema(.{ .seq = unit });
     const r = try resource(b, unit);
-    const c = try choice.family(b, "test/outer-choice");
-    const all = try choice.allScoped(
-        b,
-        c,
-        unit,
-        &.{ unit, boolean, sequence, c.capability },
-        .{ .effects = &.{} },
-        &.{},
-        &.{r.loan},
-    );
+    const author = try typed.Context.init(b);
+    const family = try choice.family(author, "test/outer-choice");
+    const c: ChoiceOperation = .{ .effect = try typed.interop.operationId(author, family.effect()), .capability = try typed.interop.schemaId(author, family.capability()) };
+    const capture_ids = [_]Id{ unit, boolean, sequence, c.capability };
+    var captures: [capture_ids.len]*const typed.Schema = undefined;
+    for (capture_ids, &captures) |id, *schema| schema.* = try typed.interop.schema(author, id);
+    const interpreted = try choice.all(author, family, try author.scalar(void), .{ .captures = .{ .continuation = &captures }, .residual = &.{}, .borrowed_regions = &.{try typed.interop.region(author, r.loan)} });
+    const all = .{ .handler = try typed.interop.handlerId(author, interpreted.handler) };
     const protected_body = try b.declare(&.{r.borrowed}, sequence, &.{}, &.{r.loan});
     try b.define(protected_body, try b.term(.{ .handle = .{
         .handler = all.handler,
@@ -117,7 +117,7 @@ fn program(b: *source.Builder, mode: Mode) !source.Module {
     const owned = try b.variable(r.owned);
     const body = try closure(b, protected_body, &.{r.borrowed}, sequence, &.{}, &.{r.loan});
     const finalizer = try closure(b, r.finalizer, &.{ r.info, r.owned }, unit, &.{}, &.{});
-    const protected = try cleanup.bracket(b, try b.reference(owned), r.loan, body, finalizer);
+    const protected = try b.term(.{ .protect = .{ .resource = try b.reference(owned), .loan_region = r.loan, .body = body, .cleanup = finalizer } });
     const acquired = try b.term(.{ .call = .{ .function = r.acquire, .arguments = &.{} } });
     try b.define(entry, try b.bind(owned, acquired, protected));
     return b.module(entry, unit);

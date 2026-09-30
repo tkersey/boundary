@@ -1,7 +1,7 @@
 //! Optional stage clocks; no callback enters the compiled Program.
 const std = @import("std");
 const boundary = @import("boundary");
-const source = boundary.computation;
+const source = boundary.source;
 const workload = @import("workload");
 const Trace = struct {
     io: std.Io,

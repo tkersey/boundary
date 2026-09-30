@@ -1,66 +1,80 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
-//! Authored Boolean choice interpretations. The runtime has no choice operation.
+//! Boolean choice interpretations are ordinary authored handlers.
+const std = @import("std");
 const a = @import("../authoring.zig");
-const source = @import("../source.zig");
-const p = @import("boundary_data").program;
-const Error = source.Error;
-pub const Family = struct { effect: p.Id, capability: p.Id };
-pub const Interpretation = struct { handler: p.Id, answer: p.Id, resumption: p.Id };
-
-pub fn family(builder: *source.Builder, identity: []const u8) Error!Family {
-    return typedFamily(builder, identity) catch |err| return a.sourceError(err);
+pub const Family = opaque {
+    pub fn effect(self: *const Family) *const a.Operation {
+        return familyData(self).effect;
+    }
+    pub fn capability(self: *const Family) *const a.Schema {
+        return familyData(self).capability;
+    }
+};
+const FamilyData = struct { effect: *const a.Operation, capability: *const a.Schema, interpretations: std.ArrayList(Cached) = .empty };
+fn familyData(value: *const Family) *FamilyData {
+    return @ptrCast(@alignCast(@constCast(value)));
 }
-fn typedFamily(builder: *source.Builder, identity: []const u8) a.Error!Family {
-    const c = try a.Context.init(builder);
+pub const Interpretation = struct { handler: *const a.Handler, answer: *const a.Schema, resumption: *const a.Schema };
+pub const Options = struct {
+    captures: a.CaptureBounds,
+    residual: []const *const a.Operation,
+    owned_regions: []const *const a.Region = &.{},
+    borrowed_regions: []const *const a.Region = &.{},
+};
+const Cached = struct { element: *const a.Schema, options: Options, every: bool, value: Interpretation };
+pub fn family(c: *a.Context, identity: []const u8) a.Error!*const Family {
     const effect = try c.local(identity, try c.scalar(void), try c.scalar(bool), .multi);
-    return .{ .effect = try a.interop.operationId(c, effect), .capability = try a.interop.schemaId(c, try c.capability(effect)) };
+    const result = try a.interop.builder(c).allocator().create(FamilyData);
+    result.* = .{ .effect = effect, .capability = try c.capability(effect) };
+    return @ptrCast(result);
 }
-
-pub fn all(builder: *source.Builder, choice: Family, element: p.Id, captures: []const p.Id, residual: source.Row) Error!Interpretation {
-    return interpret(builder, choice, element, captures, residual, &.{}, &.{}, true);
+pub fn all(c: *a.Context, choice: *const Family, element: *const a.Schema, options: Options) a.Error!Interpretation {
+    return interpret(c, choice, element, options, true);
 }
-pub fn first(builder: *source.Builder, choice: Family, element: p.Id, captures: []const p.Id, residual: source.Row) Error!Interpretation {
-    return interpret(builder, choice, element, captures, residual, &.{}, &.{}, false);
+pub fn first(c: *a.Context, choice: *const Family, element: *const a.Schema, options: Options) a.Error!Interpretation {
+    return interpret(c, choice, element, options, false);
 }
-pub fn allScoped(builder: *source.Builder, choice: Family, element: p.Id, captures: []const p.Id, residual: source.Row, owned_regions: []const p.Id, borrowed_regions: []const p.Id) Error!Interpretation {
-    return interpret(builder, choice, element, captures, residual, owned_regions, borrowed_regions, true);
+fn sameOptions(x: Options, y: Options) bool {
+    return std.mem.eql(*const a.Schema, x.captures.continuation, y.captures.continuation) and
+        std.mem.eql(*const a.Schema, x.captures.body, y.captures.body) and
+        std.mem.eql(*const a.Operation, x.residual, y.residual) and
+        std.mem.eql(*const a.Region, x.owned_regions, y.owned_regions) and
+        std.mem.eql(*const a.Region, x.borrowed_regions, y.borrowed_regions);
 }
-
-fn interpret(builder: *source.Builder, choice: Family, element: p.Id, captures: []const p.Id, residual: source.Row, owned_regions: []const p.Id, borrowed_regions: []const p.Id, comptime every: bool) Error!Interpretation {
-    const instance = try builder.specialization(Interpretation, "boundary.library.choice/v2", .{ choice, element, captures, residual, owned_regions, borrowed_regions, every });
-    if (instance.cached) |value| return value;
-    const value = typedInterpret(builder, choice, element, captures, residual, owned_regions, borrowed_regions, every) catch |err| return a.sourceError(err);
-    return instance.finish(builder, value);
-}
-
-fn typedInterpret(builder: *source.Builder, choice: Family, element_id: p.Id, capture_ids: []const p.Id, residual: source.Row, owned_regions: []const p.Id, borrowed_regions: []const p.Id, comptime every: bool) a.Error!Interpretation {
-    const c = try a.Context.init(builder);
-    const operation = try a.interop.operation(c, choice.effect);
-    const capability = try c.capability(operation);
-    if (try a.interop.schemaId(c, capability) != choice.capability) return error.InvalidSource;
-    const element = try a.interop.schema(c, element_id);
+fn interpret(c: *a.Context, choice: *const Family, element: *const a.Schema, options: Options, comptime every: bool) a.Error!Interpretation {
+    const f = familyData(choice);
+    _ = try c.capability(f.effect);
+    for (f.interpretations.items) |entry| if (entry.element == element and entry.every == every and sameOptions(entry.options, options)) return entry.value;
     const answer = try c.sequence(element);
-    const captures = try builder.allocator().alloc(*const a.Schema, capture_ids.len);
-    for (captures, capture_ids) |*out, id| out.* = try a.interop.schema(c, id);
-    const effects = try builder.allocator().alloc(*const a.Operation, residual.effects.len);
-    for (effects, residual.effects) |*out, id| out.* = try a.interop.operation(c, id);
-    const owned = try builder.allocator().alloc(*const a.Region, owned_regions.len);
-    for (owned, owned_regions) |*out, id| out.* = try a.interop.region(c, id);
-    const borrowed = try builder.allocator().alloc(*const a.Region, borrowed_regions.len);
-    for (borrowed, borrowed_regions) |*out, id| out.* = try a.interop.region(c, id);
-    const h = try c.handler(operation, element, answer, .{ .mode = .deep, .use = .multi, .residual = effects, .captures = captures, .owned_regions = owned, .borrowed_regions = borrowed });
-    const return_function = try c.returnFunction(h);
-    const returns = try c.body(return_function);
-    const singleton = try returns.sequenceValue(answer, &.{try returns.parameter("result")});
-    try c.define(return_function, try returns.ret(singleton));
-    const clause_function = try c.clauseFunction(h);
-    const clause = try c.body(clause_function);
+    const h = try c.handler(f.effect, element, answer, .{
+        .mode = .deep,
+        .use = .multi,
+        .residual = options.residual,
+        .return_effects = &.{},
+        .captures = options.captures.continuation,
+        .body_captures = options.captures.body,
+        .owned_regions = options.owned_regions,
+        .borrowed_regions = options.borrowed_regions,
+    });
+    const returns_fn = try c.returnFunction(h);
+    const returns = try c.body(returns_fn);
+    try c.define(returns_fn, try returns.ret(try returns.sequenceValue(answer, &.{try returns.parameter("result")})));
+    const clause_fn = try c.clauseFunction(h);
+    const clause = try c.body(clause_fn);
     const token = try clause.parameter("resumption");
     const left = try clause.resumeValue(token, try clause.constant(bool, false));
     const result = if (every) blk: {
         const right = try clause.resumeValue(token, try clause.constant(bool, true));
         break :blk try clause.concat(left, right);
     } else left;
-    try c.define(clause_function, try clause.ret(result));
-    return .{ .handler = try a.interop.handlerId(c, h), .answer = try a.interop.schemaId(c, answer), .resumption = try a.interop.schemaId(c, try a.interop.resumptionSchema(c, h)) };
+    try c.define(clause_fn, try clause.ret(result));
+    const value: Interpretation = .{ .handler = h, .answer = answer, .resumption = try c.resumptionSchemaFor(h, f.effect) };
+    const allocator = a.interop.builder(c).allocator();
+    try f.interpretations.append(allocator, .{ .element = element, .every = every, .value = value, .options = .{
+        .captures = .{ .continuation = try allocator.dupe(*const a.Schema, options.captures.continuation), .body = try allocator.dupe(*const a.Schema, options.captures.body) },
+        .residual = try allocator.dupe(*const a.Operation, options.residual),
+        .owned_regions = try allocator.dupe(*const a.Region, options.owned_regions),
+        .borrowed_regions = try allocator.dupe(*const a.Region, options.borrowed_regions),
+    } });
+    return value;
 }

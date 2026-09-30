@@ -1,9 +1,38 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
 //! Portable definitions and pure admission. This module never executes programs.
 pub const wire = @import("wire.zig");
+pub const slot_packing = @import("slot_packing.zig");
+pub const outlining = @import("outlining.zig");
+pub const tail_duplication = @import("tail_duplication.zig");
+pub const common_tails = @import("common_tails.zig");
+pub const contification = @import("contification.zig");
+pub const leaf_inlining = @import("leaf_inlining.zig");
+pub const call_patterns = @import("call_patterns.zig");
+pub const optimization_profile = @import("optimization_profile.zig");
+pub const rectangular_loops = @import("rectangular_loops.zig");
+pub const rectangular_tiling = @import("rectangular_tiling.zig");
+pub const equality_saturation = @import("equality_saturation.zig");
+pub const partial_redundancy = @import("partial_redundancy.zig");
+pub const affine_capture = @import("affine_capture.zig");
+/// Candidate construction only; does not certify transformation equivalence.
+pub const affine_candidate = @import("affine_emit.zig");
+pub const affine_state = @import("affine_state.zig");
 pub const program = @import("program.zig");
 pub const activation = @import("activation.zig");
 pub const total_clause = @import("total_clause.zig");
+pub const reader_fusion = @import("reader_fusion.zig");
+pub const sequence_fusion = @import("sequence_fusion.zig");
+pub const unfold_fusion = @import("unfold_fusion.zig");
+pub const thunk_forwarding = @import("thunk_forwarding.zig");
+pub const affine_induction = @import("affine_induction.zig");
+pub const induction_reduction = @import("induction_reduction.zig");
+pub const loop_unswitch = @import("loop_unswitch.zig");
+pub const loop_motion = @import("loop_motion.zig");
+pub const constructor_contexts = @import("constructor_contexts.zig");
+pub const context_compression = @import("context_compression.zig");
+pub const handler_elimination = @import("handler_elimination.zig");
+pub const tail_clauses = @import("tail_clauses.zig");
+pub const evidence_forwarding = @import("evidence_forwarding.zig");
 pub const analysis_sets = @import("analysis_sets.zig");
 pub const activation_structure = @import("activation_structure.zig");
 pub const activation_flow = @import("activation_flow.zig");
@@ -15,6 +44,18 @@ pub const state_image = @import("state_image.zig");
 pub const invocation = @import("invocation.zig");
 pub const relocation = @import("relocation.zig");
 pub const coalescing = @import("coalescing.zig");
+pub const value_facts = @import("value_facts.zig");
+pub const application_specialization = @import("application_specialization.zig");
+pub const branch_reduction = @import("branch_reduction.zig");
+pub const dead_computation = @import("dead_computation.zig");
+pub const dead_arguments = @import("dead_arguments.zig");
+pub const aggregate_reduction = @import("aggregate_reduction.zig");
+pub const expression_reuse = @import("expression_reuse.zig");
+pub const cell_reduction = @import("cell_reduction.zig");
+pub const capture_reduction = @import("capture_reduction.zig");
+pub const capture_summary = @import("capture_summary.zig");
+pub const capture_projection = @import("capture_projection.zig");
+pub const closed_compilation = @import("closed_compilation.zig");
 pub const component = @import("component.zig");
 pub const borrow_contract = @import("borrow_contract.zig");
 pub const borrow_flow = @import("borrow_flow.zig");
@@ -30,6 +71,7 @@ pub const cleanup_contract = @import("cleanup_contract.zig");
 
 test {
     _ = total_clause;
+    _ = tail_clauses;
     _ = wire;
     _ = graph_order;
     _ = scalar;

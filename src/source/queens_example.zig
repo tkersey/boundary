@@ -1,126 +1,143 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
-//! Four queens uses public source construction and ordinary library handlers.
+//! Four queens uses typed construction, shared metrics and branch-local boards.
 const source = @import("../source.zig");
+const a = @import("../authoring.zig");
 const search = @import("../library/search.zig");
-const cleanup = @import("../library/cleanup.zig");
-const p = @import("boundary_data").program;
-const Error = source.Error;
-pub fn dfs(b: *source.Builder) Error!source.ast.Module {
+pub fn dfs(b: *source.Builder) source.Error!source.Module {
     return build(b, .depth_first);
 }
-pub fn bfs(b: *source.Builder) Error!source.ast.Module {
+pub fn bfs(b: *source.Builder) source.Error!source.Module {
     return build(b, .breadth_first);
 }
-
-fn arithmetic(b: *source.Builder, op: p.Opcode, left: p.Id, right: p.Id) Error!p.Id {
-    return b.value(.{ .schema = try b.scalar(u64), .expression = .{ .primitive = .{ .opcode = op, .operands = &.{ left, right }, .failures = &.{.{ .kind = .arithmetic_overflow, .value = try b.failureLiteral(try b.constant(void, {})) }} } } });
+fn build(b: *source.Builder, order: search.Order) source.Error!source.Module {
+    return authored(b, order) catch |err| return a.sourceError(err);
 }
-
-fn build(b: *source.Builder, comptime order: search.Order) Error!source.ast.Module {
-    const unit = try b.scalar(void);
-    const boolean = try b.scalar(bool);
-    const integer = try b.scalar(u64);
-    const board = try b.schema(.{ .seq = integer });
-    const shared = b.region();
-    const local = b.region();
-    const loan = b.region();
-    const shared_region = try b.schema(.{ .internal = .{ .region = shared } });
-    const local_region = try b.schema(.{ .internal = .{ .region = local } });
-    const metrics_cell = try b.schema(.{ .internal = .{ .cell = .{ .element = integer, .region = shared } } });
-    const board_cell = try b.schema(.{ .internal = .{ .cell = .{ .element = board, .region = local } } });
-    const owned = try b.resource(integer);
-    const borrowed = try b.schema(.{ .internal = .{ .borrowed = .{ .value = owned, .region = loan } } });
-    const acquiring = try b.effect(.{ .identity = "example/queens-acquire", .payload = board, .result = integer });
-    const use_payload = try b.schema(.{ .product = &.{ integer, board, integer } });
-    const using = try b.effect(.{ .identity = "example/queens-use", .payload = use_payload, .result = unit });
-    const releasing = try b.effect(.{ .identity = "example/queens-release", .payload = integer, .result = unit });
-    const residual: source.Row = .{ .effects = &.{ acquiring, using, releasing } };
-    const interpretation = try search.define(b, "example/queens", board, &.{ unit, boolean, integer, board, shared_region, local_region, metrics_cell, board_cell }, residual, &.{local}, &.{shared}, order);
-    const operations = try residual.unionWith(b.allocator(), .{ .effects = &.{ interpretation.pick, interpretation.reject } });
-    const answer = try b.schema(.{ .product = &.{ interpretation.solutions, integer } });
-    const main = try b.declare(&.{}, answer, residual.effects, &.{});
-    const outer = try b.declare(&.{shared_region}, answer, residual.effects, &.{shared});
-    const handled_body = try b.declare(&.{ interpretation.pick_capability, interpretation.reject_capability }, board, operations.effects, &.{shared});
-    const inside = try b.declare(&.{local_region}, board, operations.effects, &.{ shared, local });
-    const solve = try b.declare(&.{ board_cell, metrics_cell, interpretation.pick_capability, interpretation.reject_capability }, board, operations.effects, &.{ shared, local });
-
-    // The verifier walks prior rows. Sequence lookup is total and the impossible
-    // miss has an authored failure, independent of any host-side constraint code.
-    const safe = try b.declare(&.{ board, integer, integer }, boolean, &.{}, &.{});
-    const old_board = try b.reference(b.parameter(safe, 0));
-    const col = try b.reference(b.parameter(safe, 1));
-    const row = try b.reference(b.parameter(safe, 2));
-    const count = try b.primitive(integer, .sequence_length, &.{old_board}, 0);
-    const missing = try b.variable(unit);
-    const present = try b.variable(integer);
-    const old_col = try b.reference(present);
-    const row_distance = try arithmetic(b, .integer_sub, count, row);
-    const column_distance = try b.variable(integer);
-    const abs_difference = try b.term(.{ .conditional = .{ .condition = try b.primitive(boolean, .less, &.{ col, old_col }, 0), .when_true = try b.pure(try arithmetic(b, .integer_sub, old_col, col)), .when_false = try b.pure(try arithmetic(b, .integer_sub, col, old_col)) } });
-    const retry = try b.term(.{ .call = .{ .function = safe, .arguments = &.{ old_board, col, try arithmetic(b, .integer_add, row, try b.constant(u64, 1)) } } });
-    const diagonal = try b.term(.{ .conditional = .{ .condition = try b.primitive(boolean, .equal, &.{ try b.reference(column_distance), row_distance }, 0), .when_true = try b.pure(try b.constant(bool, false)), .when_false = retry } });
-    const clash = try b.term(.{ .conditional = .{ .condition = try b.primitive(boolean, .equal, &.{ col, old_col }, 0), .when_true = try b.pure(try b.constant(bool, false)), .when_false = try b.bind(column_distance, abs_difference, diagonal) } });
-    const optional_int = try b.schema(.{ .sum = &.{ unit, integer } });
-    const checked = try b.term(.{ .match_sum = .{ .value = try b.primitive(optional_int, .sequence_get, &.{ old_board, row }, 0), .cases = &.{ .{ .variable = missing, .body = try b.term(.{ .fail = try b.constant(void, {}) }) }, .{ .variable = present, .body = clash } } } });
-    try b.define(safe, try b.term(.{ .conditional = .{ .condition = try b.primitive(boolean, .equal, &.{ row, count }, 0), .when_true = try b.pure(try b.constant(bool, true)), .when_false = checked } }));
-
-    // Representation access stays in these private implementation functions.
-    const acquire = try b.declare(&.{board}, owned, &.{acquiring}, &.{});
-    const use = try b.declare(&.{ borrowed, board, integer }, board, &.{using}, &.{loan});
-    const info = try cleanup.exitInfo(b, unit);
-    const release = try b.declare(&.{ info, owned }, unit, &.{releasing}, &.{});
-    try b.resourceAuthority(owned, &.{acquire}, &.{ use, release });
-    const raw = try b.variable(integer);
-    try b.define(acquire, try b.bind(raw, try b.term(.{ .perform = .{ .effect = acquiring, .payload = try b.reference(b.parameter(acquire, 0)) } }), try b.pure(try b.primitive(owned, .resource_pack, &.{try b.reference(raw)}, 0))));
-    const handle = try b.primitive(integer, .resource_unpack, &.{try b.reference(b.parameter(use, 0))}, 0);
-    const use_board = try b.reference(b.parameter(use, 1));
-    const payload = try b.primitive(use_payload, .product, &.{ handle, use_board, try b.reference(b.parameter(use, 2)) }, 0);
-    try b.define(use, try b.bind(try b.variable(unit), try b.term(.{ .perform = .{ .effect = using, .payload = payload } }), try b.pure(use_board)));
-    try b.define(release, try b.term(.{ .perform = .{ .effect = releasing, .payload = try b.primitive(integer, .resource_unpack, &.{try b.reference(b.parameter(release, 1))}, 0) } }));
-    const use_type = try b.schema(.{ .internal = .{ .computation = .{ .parameters = &.{ borrowed, board, integer }, .result = board, .effects = &.{using}, .regions = &.{loan} } } });
-    const release_type = try b.schema(.{ .internal = .{ .computation = .{ .parameters = &.{ info, owned }, .result = unit, .effects = &.{releasing} } } });
-
-    const cell = try b.reference(b.parameter(solve, 0));
-    const metric = try b.reference(b.parameter(solve, 1));
-    const pick_cap = try b.reference(b.parameter(solve, 2));
-    const reject_cap = try b.reference(b.parameter(solve, 3));
-    const current = try b.variable(board);
-    const current_board = try b.reference(current);
-    const completed_resource = try b.variable(owned);
-    const complete = try b.bind(completed_resource, try b.term(.{ .call = .{ .function = acquire, .arguments = &.{current_board} } }), try b.term(.{ .protect = .{ .body = try b.lambda(use, use_type), .cleanup = try b.lambda(release, release_type), .resource = try b.reference(completed_resource), .loan_region = loan, .arguments = &.{ current_board, try b.primitive(integer, .cell_get, &.{metric}, 0) } } }));
-    const high = try b.variable(boolean);
-    const low = try b.variable(boolean);
-    const base = try b.variable(integer);
-    const column = try b.variable(integer);
-    const incremented = try b.variable(integer);
-    const valid = try b.variable(boolean);
-    const pick = try b.term(.{ .perform = .{ .effect = interpretation.pick, .capability = pick_cap, .payload = try b.constant(void, {}) } });
-    const first_half = try b.term(.{ .conditional = .{ .condition = try b.reference(high), .when_true = try b.pure(try b.constant(u64, 3)), .when_false = try b.pure(try b.constant(u64, 1)) } });
-    const selected_column = try b.term(.{ .conditional = .{ .condition = try b.reference(low), .when_true = try b.pure(try arithmetic(b, .integer_add, try b.reference(base), try b.constant(u64, 1))), .when_false = try b.pure(try b.reference(base)) } });
-    const increased = try arithmetic(b, .integer_add, try b.primitive(integer, .cell_get, &.{metric}, 0), try b.constant(u64, 1));
-    const recurse = try b.term(.{ .call = .{ .function = solve, .arguments = &.{ cell, metric, pick_cap, reject_cap } } });
-    const accepted = try b.bind(try b.variable(unit), try b.pure(try b.primitive(unit, .cell_set, &.{ cell, try b.primitive(board, .sequence_append, &.{ current_board, try b.reference(column) }, 0) }, 0)), recurse);
-    const rejected = try b.bind(try b.variable(unit), try b.term(.{ .perform = .{ .effect = interpretation.reject, .capability = reject_cap, .payload = try b.constant(void, {}) } }), try b.pure(current_board));
-    const verdict = try b.term(.{ .conditional = .{ .condition = try b.reference(valid), .when_true = accepted, .when_false = rejected } });
-    const validate = try b.bind(valid, try b.term(.{ .call = .{ .function = safe, .arguments = &.{ current_board, try b.reference(column), try b.constant(u64, 0) } } }), verdict);
-    const transfer = try b.term(.{ .conditional = .{ .condition = try b.primitive(boolean, .equal, &.{ try b.reference(incremented), try b.constant(u64, 1) }, 0), .when_true = try b.term(.{ .yield_then = validate }), .when_false = validate } });
-    const attempt = try b.bind(incremented, try b.pure(increased), try b.bind(try b.variable(unit), try b.pure(try b.primitive(unit, .cell_set, &.{ metric, try b.reference(incremented) }, 0)), transfer));
-    const choose_column = try b.bind(high, pick, try b.bind(low, pick, try b.bind(base, first_half, try b.bind(column, selected_column, attempt))));
-    try b.define(solve, try b.bind(current, try b.pure(try b.primitive(board, .cell_get, &.{cell}, 0)), try b.term(.{ .conditional = .{ .condition = try b.primitive(boolean, .equal, &.{ try b.primitive(integer, .sequence_length, &.{current_board}, 0), try b.constant(u64, 4) }, 0), .when_true = complete, .when_false = choose_column } })));
-
-    const counter = try b.variable(metrics_cell);
-    const constraints = try b.variable(board_cell);
-    const solved = try b.term(.{ .call = .{ .function = solve, .arguments = &.{ try b.reference(constraints), try b.reference(counter), try b.reference(b.parameter(handled_body, 0)), try b.reference(b.parameter(handled_body, 1)) } } });
-    try b.define(inside, try b.bind(constraints, try b.pure(try b.primitive(board_cell, .cell_new, &.{ try b.reference(b.parameter(inside, 0)), try b.primitive(board, .sequence, &.{}, 0) }, 0)), solved));
-    const inside_type = try b.schema(.{ .internal = .{ .computation = .{ .parameters = &.{local_region}, .result = board, .effects = operations.effects, .capture_bound = &.{ metrics_cell, interpretation.pick_capability, interpretation.reject_capability }, .regions = &.{ shared, local } } } });
-    try b.define(handled_body, try b.term(.{ .with_region = .{ .region = local, .body = try b.lambda(inside, inside_type) } }));
-    const handled_type = try b.schema(.{ .internal = .{ .computation = .{ .parameters = &.{ interpretation.pick_capability, interpretation.reject_capability }, .result = board, .effects = operations.effects, .capture_bound = &.{metrics_cell}, .regions = &.{shared} } } });
-    const step = try b.variable(interpretation.step);
-    const solutions = try b.variable(interpretation.solutions);
-    const collected = try b.bind(solutions, try search.collect(b, interpretation, try b.reference(step)), try b.pure(try b.primitive(answer, .product, &.{ try b.reference(solutions), try b.primitive(integer, .cell_get, &.{try b.reference(counter)}, 0) }, 0)));
-    const handled = try b.bind(step, try b.term(.{ .handle = .{ .handler = interpretation.handler, .body = try b.lambda(handled_body, handled_type) } }), collected);
-    try b.define(outer, try b.bind(counter, try b.pure(try b.primitive(metrics_cell, .cell_new, &.{ try b.reference(b.parameter(outer, 0)), try b.constant(u64, 0) }, 0)), handled));
-    const outer_type = try b.schema(.{ .internal = .{ .computation = .{ .parameters = &.{shared_region}, .result = answer, .effects = residual.effects, .regions = &.{shared} } } });
-    try b.define(main, try b.term(.{ .with_region = .{ .region = shared, .body = try b.lambda(outer, outer_type) } }));
-    return b.module(main, unit);
+fn safety(c: *a.Context, board: *const a.Schema, fault: *const a.FailureLiteral) a.Error!*const a.Function {
+    const integer = try c.scalar(u64);
+    const boolean = try c.scalar(bool);
+    const function = try c.function("safe placement", &.{ .{ .name = "board", .schema = board }, .{ .name = "column", .schema = integer }, .{ .name = "row", .schema = integer } }, boolean, &.{});
+    const body = try c.body(function);
+    const old = try body.parameter("board");
+    const column = try body.parameter("column");
+    const row = try body.parameter("row");
+    const count = try body.sequenceLength(old);
+    const finished = try body.branch();
+    const checking = try body.branch();
+    const lookup = try checking.sequenceGet(old, row);
+    const missing = try checking.caseOf(lookup, "none");
+    const present = try checking.caseOf(lookup, "some");
+    const previous = present.payload();
+    const same = try present.body().branch();
+    const different = try present.body().branch();
+    const left = try different.branch();
+    const right = try different.branch();
+    const distance = try different.conditional(try different.less(column, previous), try left.ret(try left.checked(.subtract, previous, column, .{ .overflow = fault })), try right.ret(try right.checked(.subtract, column, previous, .{ .overflow = fault })));
+    const diagonal = try different.branch();
+    const next = try different.branch();
+    const retried = try next.call(function, &.{ .{ .name = "board", .value = old }, .{ .name = "column", .value = column }, .{ .name = "row", .value = try next.checkedAdd(row, try next.constant(u64, 1), fault) } });
+    const checked = try different.conditional(try different.equal(distance, try different.checked(.subtract, count, row, .{ .overflow = fault })), try diagonal.ret(try diagonal.constant(bool, false)), try next.ret(retried));
+    const valid = try present.body().conditional(try present.body().equal(column, previous), try same.ret(try same.constant(bool, false)), try different.ret(checked));
+    // The miss is impossible on this path and remains an authored failure.
+    const missing_case = try missing.fail(boolean, try missing.body().constant(void, {}));
+    const result = try checking.match(lookup, &.{ missing_case, try present.ret(valid) });
+    try c.define(function, try body.ret(try body.conditional(try body.equal(row, count), try finished.ret(try finished.constant(bool, true)), try checking.ret(result))));
+    return function;
+}
+fn authored(b: *source.Builder, order: search.Order) a.Error!source.Module {
+    const c = try a.Context.init(b);
+    const unit = try c.scalar(void);
+    const boolean = try c.scalar(bool);
+    const integer = try c.scalar(u64);
+    const board = try c.sequence(integer);
+    const shared = try c.region();
+    const local = try c.region();
+    const loan = try c.region();
+    const metrics_cell = try c.cell(shared, integer);
+    const board_cell = try c.cell(local, board);
+    const owned = try c.resource(integer);
+    const borrowed = try c.borrowed(owned, loan);
+    const acquiring = try c.external("example/queens-acquire", board, integer);
+    const use_payload = try c.record(&.{ .{ .name = "handle", .schema = integer }, .{ .name = "board", .schema = board }, .{ .name = "attempts", .schema = integer } });
+    const using = try c.external("example/queens-use", use_payload, unit);
+    const releasing = try c.external("example/queens-release", integer, unit);
+    const residual = &[_]*const a.Operation{ acquiring, using, releasing };
+    const family = try search.family(c, "example/queens");
+    const interpretation = try search.interpret(c, family, board, .{
+        .captures = .{ .continuation = &.{ unit, boolean, integer, board, try c.regionSchema(shared), try c.regionSchema(local), metrics_cell, board_cell }, .body = &.{metrics_cell} },
+        .residual = residual,
+        .owned_regions = &.{local},
+        .borrowed_regions = &.{shared},
+        .order = order,
+    });
+    const operations = &[_]*const a.Operation{ acquiring, using, releasing, family.pick(), family.reject() };
+    const answer = try c.record(&.{ .{ .name = "solutions", .schema = interpretation.solutions }, .{ .name = "attempts", .schema = integer } });
+    const fault = try c.literalFailure(void, {});
+    const safe = try safety(c, board, fault);
+    const acquire = try c.function("acquire", &.{.{ .name = "board", .schema = board }}, owned, &.{acquiring});
+    const use_schema = try c.callable(&.{ .{ .name = "loan", .schema = borrowed }, .{ .name = "board", .schema = board }, .{ .name = "attempts", .schema = integer } }, board, &.{using}, .{ .use = .linear, .captures = &.{}, .regions = &.{loan} });
+    const use = try c.functionFor("use solution", use_schema);
+    const release_schema = try c.callable(&.{ .{ .name = "exit", .schema = try c.cleanupInfo(unit) }, .{ .name = "owner", .schema = owned } }, unit, &.{releasing}, .{ .use = .linear, .captures = &.{} });
+    const release = try c.functionFor("release solution", release_schema);
+    try c.resourceAuthority(owned, &.{acquire}, &.{ use, release });
+    const acquire_body = try c.body(acquire);
+    try c.define(acquire, try acquire_body.ret(try acquire_body.packResource(owned, try acquire_body.perform(acquiring, try acquire_body.parameter("board")))));
+    const use_body = try c.body(use);
+    _ = try use_body.perform(using, try use_body.product(use_payload, &.{ .{ .name = "handle", .value = try use_body.unpackResource(try use_body.parameter("loan")) }, .{ .name = "board", .value = try use_body.parameter("board") }, .{ .name = "attempts", .value = try use_body.parameter("attempts") } }));
+    try c.define(use, try use_body.ret(try use_body.parameter("board")));
+    const release_body = try c.body(release);
+    try c.define(release, try release_body.ret(try release_body.perform(releasing, try release_body.unpackResource(try release_body.parameter("owner")))));
+    const solve_schema = try c.callable(&.{ .{ .name = "board", .schema = board_cell }, .{ .name = "metrics", .schema = metrics_cell }, .{ .name = "pick", .schema = family.pickCapability() }, .{ .name = "reject", .schema = family.rejectCapability() } }, board, operations, .{ .use = .reusable, .captures = &.{}, .regions = &.{ shared, local } });
+    const solve = try c.functionFor("solve", solve_schema);
+    const body = try c.body(solve);
+    const cell = try body.parameter("board");
+    const metrics = try body.parameter("metrics");
+    const pick_cap = try body.parameter("pick");
+    const reject_cap = try body.parameter("reject");
+    const current = try body.readCell(cell);
+    const complete = try body.branch();
+    const attempt = try body.branch();
+    const acquired = try complete.call(acquire, &.{.{ .name = "board", .value = current }});
+    const completed = try complete.bracket(acquired, loan, try complete.lambda(use, use_schema), try complete.lambda(release, release_schema), &.{ .{ .name = "board", .value = current }, .{ .name = "attempts", .value = try complete.readCell(metrics) } });
+    const high = try attempt.performLocal(family.pick(), pick_cap, try attempt.constant(void, {}));
+    const low = try attempt.performLocal(family.pick(), pick_cap, try attempt.constant(void, {}));
+    const upper = try attempt.branch();
+    const lower = try attempt.branch();
+    const base = try attempt.conditional(high, try upper.ret(try upper.constant(u64, 3)), try lower.ret(try lower.constant(u64, 1)));
+    const plus = try attempt.branch();
+    const unchanged = try attempt.branch();
+    const column = try attempt.conditional(low, try plus.ret(try plus.checkedAdd(base, try plus.constant(u64, 1), fault)), try unchanged.ret(base));
+    const count = try attempt.checkedAdd(try attempt.readCell(metrics), try attempt.constant(u64, 1), fault);
+    _ = try attempt.writeCell(metrics, count);
+    const yielding = try attempt.branch();
+    const continuing = try attempt.branch();
+    const yielded = try yielding.yieldNow();
+    _ = try attempt.conditional(try attempt.equal(count, try attempt.constant(u64, 1)), try yielding.ret(yielded), try continuing.ret(try continuing.constant(void, {})));
+    const valid = try attempt.call(safe, &.{ .{ .name = "board", .value = current }, .{ .name = "column", .value = column }, .{ .name = "row", .value = try attempt.constant(u64, 0) } });
+    const accepted = try attempt.branch();
+    const rejected = try attempt.branch();
+    _ = try accepted.writeCell(cell, try accepted.append(current, column));
+    const recurred = try accepted.call(solve, &.{ .{ .name = "board", .value = cell }, .{ .name = "metrics", .value = metrics }, .{ .name = "pick", .value = pick_cap }, .{ .name = "reject", .value = reject_cap } });
+    _ = try rejected.performLocal(family.reject(), reject_cap, try rejected.constant(void, {}));
+    const chosen = try attempt.conditional(valid, try accepted.ret(recurred), try rejected.ret(current));
+    try c.define(solve, try body.ret(try body.conditional(try body.equal(try body.sequenceLength(current), try body.constant(u64, 4)), try complete.ret(completed), try attempt.ret(chosen))));
+    const outer_schema = try c.regionBodySchema(shared, &.{}, answer, residual, .{ .use = .linear, .captures = &.{} });
+    const outer_fn = try c.functionFor("shared metrics", outer_schema);
+    const outer = try c.body(outer_fn);
+    const counter = try outer.newCell(metrics_cell, try outer.parameter("region"), try outer.constant(u64, 0));
+    const handled_schema = try c.handledSchema(interpretation.handler);
+    const handled_fn = try c.functionFor("search body", handled_schema);
+    const handled = try outer.closureBody(handled_fn);
+    const inside_schema = try c.regionBodySchema(local, &.{}, board, operations, .{ .use = .linear, .captures = &.{ metrics_cell, family.pickCapability(), family.rejectCapability() }, .regions = &.{shared} });
+    const inside_fn = try c.functionFor("branch board", inside_schema);
+    const inside = try handled.closureBody(inside_fn);
+    const constraints = try inside.newCell(board_cell, try inside.parameter("region"), try inside.sequenceValue(board, &.{}));
+    try c.define(inside_fn, try inside.ret(try inside.call(solve, &.{ .{ .name = "board", .value = constraints }, .{ .name = "metrics", .value = counter }, .{ .name = "pick", .value = try handled.parameter("pick") }, .{ .name = "reject", .value = try handled.parameter("reject") } })));
+    try c.define(handled_fn, try handled.ret(try handled.withRegion(local, try handled.lambda(inside_fn, inside_schema), &.{})));
+    const step = try outer.handleWith(interpretation.handler, try outer.lambda(handled_fn, handled_schema), &.{});
+    const solutions = try search.collect(outer, interpretation, step);
+    try c.define(outer_fn, try outer.ret(try outer.product(answer, &.{ .{ .name = "solutions", .value = solutions }, .{ .name = "attempts", .value = try outer.readCell(counter) } })));
+    const main = try c.function("entry", &.{}, answer, residual);
+    const entry = try c.body(main);
+    try c.define(main, try entry.ret(try entry.withRegion(shared, try entry.lambda(outer_fn, outer_schema), &.{})));
+    return c.module(main, unit);
 }

@@ -4,7 +4,7 @@ const boundary = @import("boundary");
 const options = @import("economy_options");
 
 pub fn main(init: std.process.Init) !void {
-    var b = boundary.computation.Builder.init(init.gpa);
+    var b = boundary.source.Builder.init(init.gpa);
     defer b.deinit();
     const integer = try b.scalar(if (options.kind == 0) u32 else u64);
     const failure = try b.schema(.{ .enumeration = &.{0} });

@@ -1,0 +1,166 @@
+const std = @import("std");
+const ir = @import("activation.zig");
+const p = @import("program.zig");
+const forwarding = @import("evidence_forwarding.zig");
+const a = std.testing.allocator;
+const base: ir.Program = .{
+    .roots = .{ .entry = 0, .result = 0, .failure = 1 },
+    .schemas = &.{
+        .u64,                                                                                                                 .unit,                                                                                                                                                       .boolean,
+        .{ .internal = .{ .computation = .{ .parameters = &.{5}, .result = 0, .effects = &.{0}, .capture_bound = &.{0} } } }, .{ .internal = .{ .resumption = .{ .effect = 0, .input = 0, .answer = 0, .handled = &.{0}, .capture_bound = &.{ 0, 5 }, .mode = .deep, .use = .linear } } }, .{ .internal = .{ .capability = 0 } },
+    },
+    .constants = &.{},
+    .effects = &.{.{ .identity = "test.tail.admin", .payload = 0, .result = 0, .external = false }},
+    .functions = &.{
+        .{ .entry = 0, .inputs = &.{0}, .layout = .{ .slots = &.{ 0, 3, 0 } }, .result = 0 },
+        .{ .entry = 2, .inputs = &.{ 0, 1 }, .layout = .{ .slots = &.{ 0, 5, 0, 0 } }, .result = 0, .effects = &.{0} },
+        .{ .entry = 4, .inputs = &.{0}, .layout = .{ .slots = &.{0} }, .result = 0 },
+        .{ .entry = 5, .inputs = &.{ 0, 1 }, .layout = .{ .slots = &.{ 0, 4, 0, 0 } }, .result = 0 },
+    },
+    .blocks = &.{
+        .{ .function = 0, .instructions = &.{.{ .destination = 1, .opcode = .computation, .operands = &.{0}, .immediate = 0 }}, .terminator = .{ .handle = .{ .handler = 0, .body = 1, .arguments = &.{}, .state = &.{}, .next = .{ .block = 1, .assignments = &.{.{ .destination = 2, .source = .returned }} } } } },
+        .{ .function = 0, .instructions = &.{}, .terminator = .{ .return_value = 2 } },
+        .{ .function = 1, .instructions = &.{}, .terminator = .{ .perform = .{ .effect = 0, .capability = 1, .payload = 0, .next = .{ .block = 3, .assignments = &.{.{ .destination = 2, .source = .returned }} } } } },
+        .{ .function = 1, .instructions = &.{.{ .destination = 3, .opcode = .integer_bit_not, .operands = &.{2} }}, .terminator = .{ .return_value = 3 } },
+        .{ .function = 2, .instructions = &.{}, .terminator = .{ .return_value = 0 } },
+        .{ .function = 3, .instructions = &.{}, .terminator = .{ .resume_value = .{ .resumption = 1, .argument = 0, .next = .{ .block = 6, .assignments = &.{ .{ .destination = 2, .source = .returned }, .{ .destination = 3, .source = .{ .slot = 0 } } } } } } },
+        .{ .function = 3, .instructions = &.{.{ .destination = 0, .opcode = .move, .operands = &.{2} }}, .terminator = .{ .jump = .{ .block = 7, .assignments = &.{ .{ .destination = 2, .source = .{ .slot = 0 } }, .{ .destination = 0, .source = .{ .slot = 3 } } } } } },
+        .{ .function = 3, .instructions = &.{}, .terminator = .{ .return_value = 2 } },
+    },
+    .handlers = &.{.{ .mode = .deep, .input = 0, .answer = 0, .return_function = 2, .clauses = &.{.{ .effect = 0, .function = 3, .resumption = 4 }} }},
+    .constructors = &.{.{ .function = 1, .capture = 0, .schema = 3 }},
+    .scopes = .{ .captures = &.{.{ .fields = &.{0}, .use = .reusable }} },
+};
+
+fn fixture(allocator: std.mem.Allocator) !ir.Program {
+    var result = base;
+    const functions = try allocator.alloc(ir.Function, 5);
+    @memcpy(functions[0..4], base.functions);
+    functions[4] = .{ .entry = 8, .inputs = &.{ 0, 1, 2 }, .layout = .{ .slots = &.{ 5, 5, 0, 0, 0 } }, .result = 0, .effects = &.{0} };
+    const blocks = try allocator.alloc(ir.Block, 11);
+    @memcpy(blocks[0..8], base.blocks);
+    blocks[2].terminator = .{ .call = .{ .function = 4, .arguments = &.{ 1, 1, 0 }, .next = base.blocks[2].terminator.perform.next } };
+    blocks[8] = .{ .function = 4, .instructions = &.{}, .terminator = .{ .perform = .{ .effect = 0, .capability = 0, .payload = 2, .next = .{ .block = 9, .assignments = &.{.{ .destination = 3, .source = .returned }} } } } };
+    blocks[9] = .{ .function = 4, .instructions = &.{}, .terminator = .{ .perform = .{ .effect = 0, .capability = 1, .payload = 3, .next = .{ .block = 10, .assignments = &.{.{ .destination = 4, .source = .returned }} } } } };
+    blocks[10] = .{ .function = 4, .instructions = &.{}, .terminator = .{ .return_value = 4 } };
+    result.functions = functions;
+    result.blocks = blocks;
+    return result;
+}
+test "actual duplicate capability arguments remove forwarding, not operations" {
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    const original = try fixture(arena.allocator());
+    var admitted = try @import("activation_ownership.zig").analyze(a, original);
+    admitted.deinit();
+    const AllocationProbe = struct {
+        fn execute(allocator: std.mem.Allocator, program: ir.Program) !void {
+            var result = try forwarding.run(allocator, program, null, .{});
+            defer result.deinit();
+        }
+    };
+    try std.testing.checkAllAllocationFailures(a, AllocationProbe.execute, .{original});
+    var candidate = (try forwarding.construct(a, original, .{})).?;
+    defer candidate.deinit();
+    try std.testing.expectEqual(@as(usize, 1), candidate.pairs.len);
+    try forwarding.validate(a, original, candidate.program, candidate.pairs, 10_000_000);
+    try std.testing.expectEqual(@as(?p.Id, 0), candidate.program.blocks[9].terminator.perform.capability);
+    var stats: forwarding.Statistics = .{};
+    var result = try forwarding.run(a, original, &stats, .{});
+    defer result.deinit();
+    try std.testing.expectEqual(@as(usize, 1), stats.parameters_coalesced);
+    try std.testing.expectEqual(@as(usize, 1), stats.call_arguments_removed);
+    var performs: usize = 0;
+    for (result.program.blocks) |block| if (block.terminator == .perform) {
+        performs += 1;
+    };
+    try std.testing.expectEqual(@as(usize, 2), performs);
+    // Leaving the second capability unchanged is type-correct, but not the
+    // claimed substitution. The independent record checker must reject it.
+    try std.testing.expectError(error.InvalidEvidenceForwarding, forwarding.validate(a, original, original, candidate.pairs, 10_000_000));
+    var limited = try forwarding.run(a, original, &stats, .{ .work_limit = 0 });
+    defer limited.deinit();
+    try std.testing.expect(stats.work_limit);
+    try std.testing.expectEqual(@as(usize, 0), stats.parameters_coalesced);
+    var invalid = original;
+    invalid.roots.entry = 999;
+    try std.testing.expectError(error.InvalidReference, forwarding.run(a, invalid, null, .{ .work_limit = 0 }));
+}
+test "writes and distinct argument slots cannot certify equal installations" {
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    var original = try fixture(arena.allocator());
+    const blocks = try arena.allocator().dupe(ir.Block, original.blocks);
+    blocks[8].instructions = &.{.{ .destination = 0, .opcode = .move, .operands = &.{1} }};
+    original.blocks = blocks;
+    var admitted = try @import("activation_ownership.zig").analyze(a, original);
+    admitted.deinit();
+    var rejected = try forwarding.construct(a, original, .{});
+    defer if (rejected) |*value| value.deinit();
+    try std.testing.expect(rejected == null);
+    blocks[8].instructions = &.{};
+    const functions = try arena.allocator().dupe(ir.Function, original.functions);
+    functions[1].layout.slots = &.{ 0, 5, 0, 0, 5 };
+    blocks[2].instructions = &.{.{ .destination = 4, .opcode = .move, .operands = &.{1} }};
+    blocks[2].terminator.call.arguments = &.{ 1, 4, 0 };
+    original.functions = functions;
+    admitted = try @import("activation_ownership.zig").analyze(a, original);
+    admitted.deinit();
+    var unknown = try forwarding.construct(a, original, .{});
+    defer if (unknown) |*value| value.deinit();
+    try std.testing.expect(unknown == null);
+}
+
+fn nestedFixture(allocator: std.mem.Allocator) !ir.Program {
+    var program = try fixture(allocator);
+    const schemas = try allocator.alloc(p.Schema, 7);
+    @memcpy(schemas[0..6], program.schemas);
+    schemas[4].internal.resumption.effects = &.{0};
+    schemas[6] = .{ .internal = .{ .computation = .{ .parameters = &.{5}, .result = 0, .effects = &.{0}, .capture_bound = &.{ 0, 5 } } } };
+    const functions = try allocator.alloc(ir.Function, 6);
+    @memcpy(functions[0..5], program.functions);
+    functions[0].layout.slots = &.{ 0, 3, 0, 0 };
+    functions[0].effects = &.{0};
+    functions[1].layout.slots = &.{ 0, 5, 0, 0, 6, 0 };
+    functions[2].inputs = &.{ 0, 1 };
+    functions[2].layout.slots = &.{ 0, 0 };
+    functions[3].inputs = &.{ 4, 0, 1 };
+    functions[3].layout.slots = &.{ 0, 4, 0, 0, 0 };
+    functions[3].effects = &.{0};
+    functions[5] = .{ .entry = 11, .inputs = &.{ 0, 1, 2 }, .layout = .{ .slots = &.{ 5, 0, 5, 0 } }, .result = 0, .effects = &.{0} };
+    const blocks = try allocator.alloc(ir.Block, 13);
+    @memcpy(blocks[0..11], program.blocks);
+    blocks[0].instructions = &.{ .{ .destination = 3, .opcode = .constant, .immediate = 0 }, base.blocks[0].instructions[0] };
+    blocks[0].terminator.handle.state = &.{3};
+    blocks[2].instructions = &.{ .{ .destination = 5, .opcode = .constant, .immediate = 1 }, .{ .destination = 4, .opcode = .computation, .immediate = 1, .operands = &.{ 1, 0 } } };
+    blocks[2].terminator = .{ .handle = .{ .handler = 0, .body = 4, .arguments = &.{}, .state = &.{5}, .next = base.blocks[2].terminator.perform.next } };
+    blocks[4].terminator = .{ .return_value = 1 };
+    blocks[5].terminator.resume_value.argument = 4;
+    blocks[11] = .{ .function = 5, .instructions = &.{}, .terminator = .{ .call = .{ .function = 4, .arguments = &.{ 0, 2, 1 }, .next = .{ .block = 12, .assignments = &.{.{ .destination = 3, .source = .returned }} } } } };
+    blocks[12] = .{ .function = 5, .instructions = &.{}, .terminator = .{ .return_value = 3 } };
+    const handlers = try allocator.dupe(ir.Handler, program.handlers);
+    handlers[0].state = &.{0};
+    handlers[0].effects = &.{0};
+    program.schemas = schemas;
+    program.functions = functions;
+    program.blocks = blocks;
+    program.handlers = handlers;
+    program.constants = &.{ .{ .schema = 0, .bytes = &.{ 10, 0, 0, 0, 0, 0, 0, 0 } }, .{ .schema = 0, .bytes = &.{ 20, 0, 0, 0, 0, 0, 0, 0 } } };
+    program.effects = &.{.{ .identity = "test.tail.admin", .payload = 0, .result = 0 }};
+    program.constructors = try allocator.dupe(p.Constructor, &.{ program.constructors[0], .{ .function = 5, .capture = 1, .schema = 6 } });
+    program.scopes.captures = try allocator.dupe(p.Capture, &.{ program.scopes.captures[0], .{ .fields = &.{ 5, 0 }, .use = .reusable } });
+    return program;
+}
+
+test "two installations of one handler descriptor do not establish equal evidence" {
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    const program = try nestedFixture(arena.allocator());
+    var admitted = try @import("activation_ownership.zig").analyze(a, program);
+    admitted.deinit();
+    var candidate = try forwarding.construct(a, program, .{});
+    defer if (candidate) |*value| value.deinit();
+    try std.testing.expect(candidate == null);
+    try std.testing.expectEqual(program.blocks[0].terminator.handle.handler, program.blocks[2].terminator.handle.handler);
+    try std.testing.expect(program.blocks[11].terminator.call.arguments[0] != program.blocks[11].terminator.call.arguments[1]);
+}

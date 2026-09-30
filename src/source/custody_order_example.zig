@@ -2,40 +2,53 @@
 //! Independent owned suspensions expose lexical cleanup order.
 const source = @import("../source.zig");
 const gen = @import("../library/generator.zig");
-const cleanup = @import("../library/cleanup.zig");
+const a = @import("../authoring.zig");
 const p = @import("boundary_data").program;
 
 pub const count = 10;
 pub const Fixtures = struct { package: p.Id, queue: p.Id, factory: p.Id, release: p.Id };
 
 pub fn define(b: *source.Builder, release: p.Id) source.Error!Fixtures {
-    const unit = try b.scalar(void);
-    const integer = try b.scalar(u64);
-    const generator = try gen.define(b, "custody/suspend", integer, &.{ unit, integer }, &.{}, .{ .effects = &.{release} });
-    const start = try b.declare(&.{ generator.capability, integer }, unit, &.{ release, generator.effect }, &.{});
-    const body = try b.declare(&.{}, unit, &.{generator.effect}, &.{});
-    const finalizer = try b.declare(&.{try cleanup.exitInfo(b, integer)}, unit, &.{release}, &.{});
-    const label = try b.reference(b.parameter(start, 1));
-    const perform = try b.term(.{ .perform = .{ .effect = generator.effect, .capability = try b.reference(b.parameter(start, 0)), .payload = label } });
-    try b.define(body, try b.bind(try b.variable(unit), perform, try b.pure(try b.constant(void, {}))));
-    try b.define(finalizer, try b.term(.{ .perform = .{ .effect = release, .payload = label } }));
-    const body_type = try b.schema(.{ .internal = .{ .computation = .{ .parameters = &.{}, .result = unit, .effects = &.{generator.effect}, .capture_bound = &.{ generator.capability, integer } } } });
-    const cleanup_type = try b.schema(.{ .internal = .{ .computation = .{ .parameters = &.{try cleanup.exitInfo(b, integer)}, .result = unit, .effects = &.{release}, .capture_bound = &.{integer} } } });
-    try b.define(start, try b.term(.{ .protect = .{ .body = try b.lambda(body, body_type), .cleanup = try b.lambda(finalizer, cleanup_type) } }));
-    const start_type = try b.schema(.{ .internal = .{ .computation = .{ .parameters = &.{ generator.capability, integer }, .result = unit, .effects = &.{ release, generator.effect } } } });
-    const factory = try b.declare(&.{integer}, generator.package, &.{release}, &.{});
-    const answer = try b.variable(generator.answer);
-    const done = try b.variable(unit);
-    const yielded = try b.variable(generator.yielded);
-    const ignored_label = try b.variable(integer);
-    const package = try b.variable(generator.package);
-    const reject = try b.term(.{ .fail = try b.constant(u64, 99) });
-    const unpack = try b.term(.{ .unpack_product = .{ .value = try b.reference(yielded), .variables = &.{ ignored_label, package }, .body = try b.pure(try b.reference(package)) } });
-    const matched = try b.term(.{ .match_sum = .{ .value = try b.reference(answer), .cases = &.{ .{ .variable = done, .body = reject }, .{ .variable = yielded, .body = unpack } } } });
-    const installed = try b.term(.{ .handle = .{ .handler = generator.handler, .body = try b.lambda(start, start_type), .arguments = &.{try b.reference(b.parameter(factory, 0))} } });
-    try b.define(factory, try b.bind(answer, installed, matched));
-    return .{ .package = generator.package, .queue = try b.schema(.{ .seq = generator.package }), .factory = factory, .release = release };
+    return defineTyped(b, release) catch |err| return a.sourceError(err);
 }
+fn defineTyped(b: *source.Builder, release_id: p.Id) a.Error!Fixtures {
+    const c = try a.Context.init(b);
+    const unit = try c.scalar(void);
+    const integer = try c.scalar(u64);
+    const release = try a.interop.operation(c, release_id);
+    const generator = try gen.create(c, "custody/suspend", unit, integer, unit, .{
+        .captures = .{ .continuation = &.{ unit, integer } },
+        .residual = &.{release},
+        .parameters = &.{.{ .name = "label", .schema = integer }},
+        .body_use = .reusable,
+    });
+    const start_type = try c.handledSchema(generator.handler());
+    const start_fn = try c.functionFor("custody producer", start_type);
+    const start = try c.body(start_fn);
+    const label = try start.parameter("label");
+    const capability = try start.parameter("capability");
+    const body_type = try c.callable(&.{}, unit, &.{generator.effect()}, .{ .use = .reusable, .captures = &.{ generator.capability(), integer } });
+    const body_fn = try c.functionFor("custody suspension", body_type);
+    const body = try start.closureBody(body_fn);
+    _ = try body.performLocal(generator.effect(), capability, label);
+    try c.define(body_fn, try body.ret(try body.constant(void, {})));
+    const cleanup_type = try c.callable(&.{.{ .name = "exit", .schema = try c.cleanupInfo(integer) }}, unit, &.{release}, .{ .use = .reusable, .captures = &.{integer} });
+    const cleanup_fn = try c.functionFor("custody release", cleanup_type);
+    const cleanup = try start.closureBody(cleanup_fn);
+    try c.define(cleanup_fn, try cleanup.ret(try cleanup.perform(release, label)));
+    try c.define(start_fn, try start.ret(try start.protect(try start.lambda(body_fn, body_type), try start.lambda(cleanup_fn, cleanup_type), &.{})));
+    const factory_fn = try c.function("custody factory", &.{.{ .name = "label", .schema = integer }}, generator.package(), &.{release});
+    const factory = try c.body(factory_fn);
+    const answer = try factory.handleWithArguments(generator.handler(), try factory.lambda(start_fn, start_type), &.{.{ .name = "label", .value = try factory.parameter("label") }}, &.{});
+    const done = try factory.caseOf(answer, "done");
+    const yielded = try factory.caseOf(answer, "yielded");
+    const parts = try yielded.body().destructure(yielded.payload());
+    try c.define(factory_fn, try factory.ret(try factory.match(answer, &.{ try done.fail(generator.package(), try done.body().constant(u64, 99)), try yielded.ret(try parts.get("future")) })));
+    return .{ .package = try a.interop.schemaId(c, generator.package()), .queue = try a.interop.schemaId(c, try c.sequence(generator.package())), .factory = try a.interop.functionId(c, factory_fn), .release = release_id };
+}
+
+// These expert-IR fixtures intentionally vary lexical custody scopes and value
+// observations. Keep those shapes explicit for independent cleanup-order tests.
 
 pub fn build(b: *source.Builder, fixtures: Fixtures, mode: u8) source.Error!p.Id {
     const integer = try b.scalar(u64);

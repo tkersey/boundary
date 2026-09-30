@@ -1,65 +1,134 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
-//! FIFO policy is ordinary recursive source code over an owned package queue.
+//! FIFO policy is ordinary recursive code over an owned package queue.
+const std = @import("std");
 const source = @import("../source.zig");
+const a = @import("../authoring.zig");
 const generator = @import("generator.zig");
 const p = @import("boundary_data").program;
-pub const Scheduler = struct { queue: p.Id, enqueue: p.Id, drain: p.Id };
+pub const Scheduler = struct { queue: *const a.Schema, enqueue: *const a.Function, drain: *const a.Function };
+const CachedScheduler = struct { enqueue: p.Id, drain: p.Id };
 
-pub fn fifo(b: *source.Builder, tasks: generator.Generator, residual: source.Row, regions: []const p.Id) source.Error!Scheduler {
-    const instance = try b.specialization(Scheduler, "boundary.library.scheduler/fifo/v2", .{ tasks, residual, regions });
-    if (instance.cached) |value| return value;
-    const unit = try b.scalar(void);
-    const queue = try b.schema(.{ .seq = tasks.package });
-    const popped = try b.schema(.{ .product = &.{ tasks.package, queue } });
-    const optional = try b.schema(.{ .sum = &.{ unit, popped } });
-    const enqueue = try b.declare(&.{ tasks.answer, queue }, queue, &.{}, regions);
-    const drain = try b.declare(&.{queue}, unit, residual.effects, regions);
-    const done = try b.variable(unit);
-    const yielded = try b.variable(tasks.yielded);
-    const item = try b.variable(tasks.element);
-    const package = try b.variable(tasks.package);
-    const prior = try b.reference(b.parameter(enqueue, 1));
-    const appended = try b.pure(try b.primitive(queue, .sequence_append, &.{ prior, try b.reference(package) }, 0));
-    const unpack = try b.term(.{ .unpack_product = .{ .value = try b.reference(yielded), .variables = &.{ item, package }, .body = appended } });
-    try b.define(enqueue, try b.term(.{ .match_sum = .{ .value = try b.reference(b.parameter(enqueue, 0)), .cases = &.{ .{ .variable = done, .body = try b.pure(prior) }, .{ .variable = yielded, .body = unpack } } } }));
-    const empty = try b.variable(unit);
-    const ready = try b.variable(popped);
-    const current = try b.variable(tasks.package);
-    const rest = try b.variable(queue);
-    const step = try b.variable(tasks.answer);
-    const next_queue = try b.variable(queue);
-    const recurse = try b.term(.{ .call = .{ .function = drain, .arguments = &.{try b.reference(next_queue)} } });
-    const push = try b.term(.{ .call = .{ .function = enqueue, .arguments = &.{ try b.reference(step), try b.reference(rest) } } });
-    const advance = try b.bind(step, try generator.next(b, tasks, try b.reference(current)), try b.bind(next_queue, push, recurse));
-    const selected = try b.term(.{ .unpack_product = .{ .value = try b.reference(ready), .variables = &.{ current, rest }, .body = advance } });
-    const pop = try b.primitive(optional, .sequence_pop, &.{try b.reference(b.parameter(drain, 0))}, 0);
-    try b.define(drain, try b.term(.{ .match_sum = .{ .value = pop, .cases = &.{ .{ .variable = empty, .body = try b.pure(try b.constant(void, {})) }, .{ .variable = ready, .body = selected } } } }));
-    return instance.finish(b, .{ .queue = queue, .enqueue = enqueue, .drain = drain });
+fn regionIds(c: *a.Context, regions: []const *const a.Region) a.Error![]const p.Id {
+    const ids = try a.interop.builder(c).allocator().alloc(p.Id, regions.len);
+    for (regions, ids) |region, *id| id.* = try a.interop.regionId(c, region);
+    return ids;
+}
+pub fn fifo(c: *a.Context, tasks: *const generator.Exchange, residual: []const *const a.Operation, regions: []const *const a.Region) a.Error!Scheduler {
+    const b = a.interop.builder(c);
+    const unit = try c.scalar(void);
+    const unit_id = try a.interop.schemaId(c, unit);
+    if (try a.interop.schemaId(c, tasks.input()) != unit_id or try a.interop.schemaId(c, tasks.result()) != unit_id) return error.TypeMismatch;
+    const effects = try b.allocator().alloc(p.Id, residual.len);
+    for (residual, effects) |effect, *id| id.* = try a.interop.operationId(c, effect);
+    const instance = try b.specialization(CachedScheduler, "boundary.library.scheduler/fifo/typed-v1", .{ @intFromPtr(c), @intFromPtr(tasks), effects, try regionIds(c, regions) });
+    const queue = try c.sequence(tasks.package());
+    if (instance.cached) |value| return .{ .queue = queue, .enqueue = try a.interop.declaredFunction(c, value.enqueue), .drain = try a.interop.declaredFunction(c, value.drain) };
+    const enqueue_schema = try c.callable(&.{ .{ .name = "step", .schema = tasks.answer() }, .{ .name = "queue", .schema = queue } }, queue, &.{}, .{ .use = .reusable, .captures = &.{}, .regions = regions });
+    const enqueue = try c.functionFor("enqueue", enqueue_schema);
+    const push = try c.body(enqueue);
+    const step = try push.parameter("step");
+    const prior = try push.parameter("queue");
+    const done = try push.caseOf(step, "done");
+    const yielded = try push.caseOf(step, "yielded");
+    const parts = try yielded.body().destructure(yielded.payload());
+    const appended = try yielded.body().append(prior, try parts.get("future"));
+    try c.define(enqueue, try push.ret(try push.match(step, &.{ try done.ret(prior), try yielded.ret(appended) })));
+    const drain_schema = try c.callable(&.{.{ .name = "queue", .schema = queue }}, unit, residual, .{ .use = .reusable, .captures = &.{}, .regions = regions });
+    const drain = try c.functionFor("drain", drain_schema);
+    const body = try c.body(drain);
+    const popped = try body.pop(try body.parameter("queue"));
+    const empty = try body.caseOf(popped, "empty");
+    const ready = try body.caseOf(popped, "item");
+    const item = try ready.body().destructure(ready.payload());
+    const resumed = try ready.body().resumePackage(try item.get("head"), try ready.body().constant(void, {}));
+    const next_queue = try ready.body().call(enqueue, &.{ .{ .name = "step", .value = resumed }, .{ .name = "queue", .value = try item.get("tail") } });
+    const drained = try ready.body().call(drain, &.{.{ .name = "queue", .value = next_queue }});
+    try c.define(drain, try body.ret(try body.match(popped, &.{ try empty.ret(try empty.body().constant(void, {})), try ready.ret(drained) })));
+    _ = try instance.finish(b, .{ .enqueue = try a.interop.functionId(c, enqueue), .drain = try a.interop.functionId(c, drain) });
+    return .{ .queue = queue, .enqueue = enqueue, .drain = drain };
 }
 
-pub const Join = struct { result: p.Id, cell: p.Id };
-pub fn joinType(b: *source.Builder, result: p.Id, region: p.Id) source.Error!Join {
-    const optional = try b.schema(.{ .sum = &.{ try b.scalar(void), result } });
-    return .{ .result = optional, .cell = try b.schema(.{ .internal = .{ .cell = .{ .element = optional, .region = region } } }) };
+pub const Join = opaque {
+    pub fn state(self: *const Join) *const a.Schema {
+        return joinData(self).state;
+    }
+    pub fn cell(self: *const Join) *const a.Schema {
+        return joinData(self).cell;
+    }
+};
+const JoinData = struct { owner: *a.Context, value: *const a.Schema, state: *const a.Schema, cell: *const a.Schema };
+fn joinData(join: *const Join) *const JoinData {
+    return @ptrCast(@alignCast(join));
+}
+pub fn joinType(c: *a.Context, result: *const a.Schema, region: *const a.Region) a.Error!*const Join {
+    const state = try c.alternatives(&.{ .{ .name = "pending", .schema = try c.scalar(void) }, .{ .name = "done", .schema = result } });
+    const cell = try c.cell(region, state);
+    const saved = try a.interop.builder(c).allocator().create(JoinData);
+    saved.* = .{ .owner = c, .value = result, .state = state, .cell = cell };
+    return @ptrCast(saved);
 }
 
-pub fn awaiting(b: *source.Builder, tasks: generator.Generator, join: Join, result: p.Id, regions: []const p.Id) source.Error!p.Id {
-    const instance = try b.specialization(p.Id, "boundary.library.scheduler/await/v2", .{ tasks, join, result, regions });
-    if (instance.cached) |value| return value;
-    const unit = try b.scalar(void);
-    if (tasks.element != unit) return error.TypeMismatch;
-    const function = try b.declare(&.{ join.cell, tasks.capability }, result, &.{tasks.effect}, regions);
-    const cell = try b.reference(b.parameter(function, 0));
-    const capability = try b.reference(b.parameter(function, 1));
-    const pending = try b.variable(unit);
-    const completed = try b.variable(result);
-    const yielded = try b.variable(unit);
-    const retry = try b.term(.{ .call = .{ .function = function, .arguments = &.{ cell, capability } } });
-    const wait = try b.bind(yielded, try b.term(.{ .perform = .{ .effect = tasks.effect, .capability = capability, .payload = try b.constant(void, {}) } }), retry);
-    try b.define(function, try b.term(.{ .match_sum = .{ .value = try b.primitive(join.result, .cell_get, &.{cell}, 0), .cases = &.{ .{ .variable = pending, .body = wait }, .{ .variable = completed, .body = try b.pure(try b.reference(completed)) } } } }));
-    return instance.finish(b, function);
+pub fn awaiting(c: *a.Context, tasks: *const generator.Exchange, join: *const Join, regions: []const *const a.Region) a.Error!*const a.Function {
+    const b = a.interop.builder(c);
+    const j = joinData(join);
+    if (j.owner != c) return error.ForeignHandle;
+    if (try a.interop.schemaId(c, tasks.element()) != try a.interop.schemaId(c, try c.scalar(void))) return error.TypeMismatch;
+    const instance = try b.specialization(p.Id, "boundary.library.scheduler/await/typed-v1", .{ @intFromPtr(c), @intFromPtr(tasks), @intFromPtr(j.cell), try regionIds(c, regions) });
+    if (instance.cached) |value| return a.interop.declaredFunction(c, value);
+    const operation = tasks.effect();
+    const schema = try c.callable(&.{ .{ .name = "cell", .schema = j.cell }, .{ .name = "capability", .schema = tasks.capability() } }, j.value, &.{operation}, .{ .use = .reusable, .captures = &.{}, .regions = regions });
+    const function = try c.functionFor("await join", schema);
+    const body = try c.body(function);
+    const target = try body.parameter("cell");
+    const cap = try body.parameter("capability");
+    const value = try body.readCell(target);
+    const pending = try body.caseOf(value, "pending");
+    const done = try body.caseOf(value, "done");
+    _ = try pending.body().performLocal(operation, cap, try pending.body().constant(void, {}));
+    const retry = try pending.body().call(function, &.{ .{ .name = "cell", .value = target }, .{ .name = "capability", .value = cap } });
+    try c.define(function, try body.ret(try body.match(value, &.{ try pending.ret(retry), try done.ret(done.payload()) })));
+    _ = try instance.finish(b, try a.interop.functionId(c, function));
+    return function;
 }
 
-pub fn complete(b: *source.Builder, join: Join, cell: p.Id, result: p.Id) source.Error!p.Id {
-    return b.pure(try b.primitive(try b.scalar(void), .cell_set, &.{ cell, try b.primitive(join.result, .variant, &.{result}, 1) }, 0));
+pub fn complete(body: *a.Body, join: *const Join, cell: *const a.Value, result: *const a.Value) a.Error!*const a.Value {
+    return body.writeCell(cell, try body.variant(join.state(), "done", result));
+}
+
+fn constructionAllocation(allocator: std.mem.Allocator) !void {
+    var b = source.Builder.init(allocator);
+    defer b.deinit();
+    const c = try a.Context.init(&b);
+    const unit = try c.scalar(void);
+    const integer = try c.scalar(u64);
+    const region = try c.region();
+    const tasks = try generator.create(c, "scheduler/allocation", unit, unit, unit, .{ .captures = .{ .continuation = &.{ unit, integer } }, .borrowed_regions = &.{region} });
+    const join = try joinType(c, integer, region);
+    const scheduler = try fifo(c, tasks, &.{}, &.{region});
+    const waiter = try awaiting(c, tasks, join, &.{region});
+    const count = b.functions.items.len;
+    for (0..64) |_| {
+        try std.testing.expectEqual(scheduler.drain, (try fifo(c, tasks, &.{}, &.{region})).drain);
+        try std.testing.expectEqual(waiter, try awaiting(c, tasks, join, &.{region}));
+        try std.testing.expectEqual(waiter, try awaiting(c, tasks, try joinType(c, integer, region), &.{region}));
+    }
+    try std.testing.expectEqual(count, b.functions.items.len);
+}
+test "typed scheduler construction shares definitions and releases allocation failures" {
+    try std.testing.checkAllAllocationFailures(std.testing.allocator, constructionAllocation, .{});
+}
+test "FIFO requires unit input and unit completion" {
+    var b = source.Builder.init(std.testing.allocator);
+    defer b.deinit();
+    const c = try a.Context.init(&b);
+    const unit = try c.scalar(void);
+    const integer = try c.scalar(u64);
+    const input = try generator.create(c, "scheduler/input", integer, unit, unit, .{ .captures = .{ .continuation = &.{} } });
+    const result = try generator.create(c, "scheduler/result", unit, unit, integer, .{ .captures = .{ .continuation = &.{} } });
+    try std.testing.expectError(error.TypeMismatch, fifo(c, input, &.{}, &.{}));
+    try std.testing.expectError(error.TypeMismatch, fifo(c, result, &.{}, &.{}));
+    const foreign = try a.Context.init(&b);
+    try std.testing.expectError(error.ForeignHandle, fifo(foreign, input, &.{}, &.{}));
+    const valid = try generator.create(c, "scheduler/valid", unit, unit, unit, .{ .captures = .{ .continuation = &.{} } });
+    try std.testing.expectError(error.ForeignHandle, fifo(c, valid, &.{}, &.{try foreign.region()}));
 }
