@@ -1,7 +1,7 @@
 # Optimization acceptance
 
-**State:** repository cleanup is retained. The compiler, standalone-caller and Reader-ordering
-review repairs are qualified with authenticated package bindings; fresh final serial
+**State:** repository cleanup is retained. Boundary `65f4613` and Agent `20362f1`
+qualify the retained-argument repair; current results are below. Fresh final serial
 reviews remain open. This is the consolidated acceptance report for
 Boundary #161, World #59 and Agent #39. No merge or release is authorized.
 
@@ -13,7 +13,7 @@ identities, current comparison samples, commands, cost acceptance, failure limit
 and an immutable archive index. Superseded milestone narratives and raw historical
 reports remain at the indexed Git commits, with their original subjects and hashes.
 
-## Qualified tuple and validation
+## Historical full-integration tuple and validation
 
 | Role | Exact qualified input |
 | --- | --- |
@@ -251,7 +251,7 @@ Results and the new package binding are recorded separately from the earlier
 execution qualification; the full integration run was not repeated solely because
 report files were removed.
 
-Cleanup checks passed: 845 retained source/test files are byte-identical to their
+At the original cleanup checkpoint, 845 retained source/test files were byte-identical to their
 qualified heads; 139 retired artifacts match their committed archives; 96 current
 comparisons and 8,640 raw timing samples are preserved; all checked relative links
 and package allowlist paths exist. The generated bitvector Python bytecode cache
@@ -261,149 +261,81 @@ copy was removed. The stopped directory fetch receives no qualification credit.
 Archive-based inspection and independent authentication of the published package
 subsequently passed. No full runtime suite was repeated for the report-only cleanup.
 
-### Cleanup successor qualification
+### Consolidated review-repair history
 
-Boundary `dc42ff9bac6f712a2e432e23254b31b6f17bd595` supplies the authenticated
-cleaned package `boundary-3.0.0-dev.0-flclaO9RRADpcWhrNMAkiBHBcosyJecfZEVYpt94QRVv`.
-Its source tree matches GitHub, both package mode profiles verify, and its complete
-production source inventory is identical to the qualified repair. Agent
-`1c35910ae252c0469aca98d077f2c6a642aaf809` binds it. World
-`9e2956a4ed93928222fd2ec0415433f5129ba51b` changes verification documentation only;
-the actual runtime still comes from authenticated `cb52f4f`, kernel `9356b126`.
+The original narratives and their exact subjects remain at
+[Boundary `65f4613`](https://github.com/tkersey/boundary/blob/65f46131f366bdd21aa98701f4110ecb801d2c8d/docs/optimization-acceptance.md).
+The machine-readable record retains the earlier qualification entries unchanged.
+This consolidation removes repeated narrative and superseded “current” counters;
+it does not remove tests, measurements, source bindings or accepted costs.
 
-Cleaned-package emission passed **202/202 steps**. Its complete declared
-distribution inventory and all **67 input files** are byte-identical to the
-qualified pre-cleanup distribution. Six additional outputs in the old full-test
-directory belong to separate check targets, as verified from the unchanged build
-declarations; they are not missing distribution files. A02 outside-tree public
-authoring passed, and the newly built source-independent archive passed its
-**3/3 documented-command tests**, including parser and inquiry execution.
-The source archive hash, package inventories, use-archive receipt and scoped
-verification results are retained in the measurement record.
+| Repair checkpoint | Required behavior restored | Retained proof |
+| --- | --- | --- |
+| `42c089c` | Input demand, variant payload transfer and typed/source profile forwarding | Original-invalid and mutation checks; full historical integration above |
+| `4d24fca` | DCE preserves predecessor transfer definitions through the existing CFG-wide demand analysis | Jump/yield, overwrite, dead-definition and loop-backedge regressions; native/source-free/WASM |
+| `d43448a` | Three standalone package/probe callers use the supported `source` export | Four rejection tests, category diagnostic, timing probe and committed public-package execution |
+| `4d0649e` | Reader fusion separates positional evidence from canonical effect ordering | Both ID orders, noncommuting returns, malformed evidence and platform cases |
+| `6e0e88d` | Capture unpacking preserves continuation-retained closure and worker-input representations | Perform/indirect-call, worker-input, before-construction and after-application cases |
+| `65f4613` | Argument specialization preserves continuation capture contracts for sum payloads and callable captures | Narrow/permitting bounds, multiple captures, indirect effects, after-last-use, allocation/work limits and independent candidate rejection |
 
-This final evidence update is outside the dependency package allowlist. It does
-not change the authenticated compiler package or require another runtime build.
-Final reviews must cover the current corrected heads, including this cleanup.
+### Current successor qualification
 
-### Final-review follow-up: predecessor transfer demand
+Boundary `65f46131f366bdd21aa98701f4110ecb801d2c8d` collects parameter retention
+observations during the existing original ownership analysis. The finder checks
+replacement schemas with ownership’s capture predicate before constructing a
+specialized worker. Compatible retained replacements remain eligible. Original
+admission, independent transformation validation and fresh candidate admission
+remain required; handler bounds and wire formats are unchanged.
 
-Fresh-eyes review of `44505a4` found that dead-computation removal pinned explicit
-transfer sources only in their own block. An admitted predecessor definition could
-therefore be erased and cause `UnavailableSlot` during semantic compilation.
-This invalidates that candidate and resets all review credit; all six initial
-outcomes were collected before reopening implementation.
+Both review probes reproduce the predecessor’s admitted-input rejection, while
+broader capture-bound controls pass. The repair passes **319/319 steps and
+852/852 tests** in the ReleaseSafe aggregate and **19/19** focused tests. The native
+harness executes ten cases across structural, standalone, shared-semantic and
+source-free linked programs: **192** terminating checks match an independent scalar
+oracle, and **48** bounded nonterminating checks remain progressed through 128
+quantum-one steps. These are bounded witnesses, not universal optimizer correctness
+or unbounded liveness proof.
 
-The successor reuses the existing CFG-wide executable-demand fixed point in the
-DCE finder and independent validator, retiring `pinEdge` and
-`pinExplicitTransfers`. Ordinary capture/retention liveness and original/candidate
-ownership admission remain separate. Cross-block jump/yield, overwrite, genuine
-dead-definition and loop-backedge regressions pass. Native/source-free execution
-and fresh-instance WASM quantum-one checkpoints preserve expected values and
-authored yields. Full Boundary qualification passes 319/319 steps and 844/844 tests;
-all 18 current Agent corpus images remain byte-identical. The successor is published and bound; fresh final reviews remain open.
-The machine-readable follow-up preserves the red result and scoped green evidence.
-No additional report family, authoring migration or runtime rebuild is introduced.
+The platform harness passes **582** native/Node/Wasmtime comparisons, **79**
+malformed-input rejections, **79** checkpoint restores and **74** wrong-image
+rejections (only distinct images are counted). All previous 39 platform images
+remain byte-identical. The committed public-package check passes its rejection
+diagnostics and six execution scenarios.
 
-The published repair is Boundary `4d24fca7faa43e29dae70b19522a31e1cd2a007b`,
-bound by Agent `5dbd639eb66add423eefc4ae49db8c43f3a5bdaf`. Its source tree and
-both package profiles are independently authenticated. Re-emission passed
-231 steps plus one test, with 30 additional parser-artifact steps; all 75
-image/object/argument files, 41 binary fixtures and the 67 declared distribution
-files match the original integrated inputs exactly. Outside-tree A02 authoring
-and the new use-archive command suite (3/3) passed. Agent host code and kernel `9356b126`
-are unchanged. The earlier 411-step runtime result retains its original tuple;
-reuse is limited to those identical inputs, while the newly admitted transfer
-cases have their own native/WASM proof. No historical measurement is relabeled.
+Agent `20362f119781322bc5e5581f1192ffcac321293f` binds the independently authenticated
+Boundary source/archive and both package profiles. Emission passes **259/259
+steps and one test**. All **75** image/object/argument files, **41** binary fixtures,
+**67** distribution files and inventory JSON match the preceding qualified inputs;
+all **123** generated output files are byte-identical. A02 outside-tree authoring
+and **3/3** commands from the final actual archive pass with no skips. Its only
+content changes are the dependency lock and checksum manifest. The original
+archive receipt retains its precommit source observation; later heads are not
+substituted into that receipt.
 
-### Final-review follow-up: retained standalone callers
+World runtime remains `cb52f4f`, kernel `9356b126`. Historical full integration and
+performance observations retain their original tuples; runtime reuse is limited
+to identical images and unchanged hosts/kernel. New retention cases have their own
+current proof. Final qualification also includes the corrected lock status; an
+earlier archive run is not used as the final archive’s evidence.
 
-Invariant review of `42b1a26` found three retained package/probe callers still
-using the retired `computation` export. Boundary `d43448a` changes seven references
-to the existing `source` export. No compiler/runtime implementation or assertion
-changes. The aggregate omitted these standalone entrypoints; all review credit
-was reset and all six initial outcomes were folded before repair.
+### Compiler resource account
 
-The four rejection tests pass, the category fixture now emits its intended
-Schema/Operation diagnostic, and the timing probe builds and emits 20 samples.
-The committed public-package check passes every rejection diagnostic and six
-native/Node/Wasmtime scenarios. A scan of 363 tracked Zig files and 53 named
-Boundary import bindings found no remaining retired-export dereferences.
+No additional ownership analysis pass was added. Temporary observations and
+replacement-schema queries consume the existing finder work budget. Five valid
+compatible/nonretained fixtures were measured against frozen `197f0ad`, using five
+alternating windows with three warmups and nine samples each. All five output
+identities match. Four fixtures add **one allocation / 144 total allocated bytes**;
+the variant-after-last-use fixture is unchanged. These are total allocation counts,
+not peak memory measurements.
 
-Agent `5f4999fd6ffcef6243ff59a452782228ceb4a312` binds the independently authenticated published package.
-Both package profiles verify; only the three repaired test/probe files differ
-from the preceding package. Emission passes 231 steps and one test, with 30
-additional parser steps. All 75 image/object/argument files, 41 binary fixtures
-and 67 distribution files match the prior qualified artifacts exactly. Outside-tree
-authoring and all three use-archive command tests pass. Historical aggregate/runtime
-results keep their original subjects and are reused only for unchanged inputs;
-the new standalone checks are recorded separately. Fresh final reviews remain open.
+Timing directions vary across windows and are **inconclusive**. No speedup or
+real-Agent performance improvement is claimed. The record retains raw samples,
+per-window comparisons, machine/toolchain, the benchmark source, commands and the
+original uncommitted observation; its production diff matches `65f4613` exactly.
+Compiler-only overhead is accounted for under §9.5, without weakening World’s
+separate timing/memory/checkpoint policy.
 
-### Final-review follow-up: Reader effect ordering
-
-Invariant review of `6e68888` found that Reader fusion reused nesting-ordered
-handled evidence as a canonical effect row. Admitted descending effect-ID pairs
-therefore failed with `NonCanonical`. All six initial reviews were folded before
-repair; all credit was reset.
-
-Boundary `4d0649e9c93a3d9659f5899ad8d479c8eda205e2` preserves positional handled
-and capability evidence while separately constructing the sorted effect row.
-Independent validation uses original effect membership and candidate admission,
-with handler/state ordering unchanged. The regression fails before repair and
-passes afterward; deliberately corrupted handled evidence and rows are rejected.
-The full ReleaseSafe aggregate passes **319/319 steps and 845/845 tests**.
-
-Both ID orders pass the existing Boolean state/operation cases and noncommuting
-return cases through standalone fusion, semantic compilation and source-free
-linking. Native/Node/Wasmtime qualification passes **300 comparisons**, **24**
-malformed-input rejections, **24** checkpoint restores and **24** wrong-image
-rejections, including quantum-one execution. The committed public-package check
-also passes all rejection diagnostics and six execution scenarios.
-
-Agent `da16920dbf2ad879b243265c17decbb34fcd9ce4` binds the independently authenticated
-package; both package profiles verify. Emission passes **259/259 steps and one
-test**. All **75** image/object/argument files, **41** binary fixtures and **67**
-distribution files match the preceding qualified inputs. A02 outside-tree
-authoring and all **3/3** archive-command tests pass. The archive was built with
-the two dependency edits before their commit; its original receipt preserves
-that source observation. No later source change is hidden or relabeled.
-
-World runtime remains `cb52f4f`, kernel `9356b126`. Earlier full integration and
-performance results keep their original subjects; reuse covers only identical
-runtime inputs and unchanged hosts/kernel. The new Reader cases have separate
-current proof. Cleanup and accepted cost accounting remain intact. Fresh final
-serial reviews are still required.
-
-### Final-review follow-up: continuation-retained capture representations
-
-Footgun review of `74517e8` found that private application uses do not exclude
-continuation retention. Unpacking a retained closure or worker product input
-could invalidate an admitted program. All six initial outcomes were folded
-before repair; all review credit was reset.
-
-Boundary `6e0e88d28f525d460f8a52180d23ce2e07209468` reuses the existing ownership
-analysis and retained-slot observer to preserve those representations. Original
-and candidate admission and the independent validator remain unchanged. No new
-analysis pass, allocation or public API was introduced. Matching-schema retained
-slots require a constructor-site scan; historical timings keep their subjects.
-
-The regression fails before repair and passes afterward. The full ReleaseSafe
-aggregate passes **319 steps / 847 tests**. Five cases cover retention across
-perform and indirect call, worker-input retention, and eligible operations before
-construction or after application. Three u64 vectors and both recursive branches
-pass native execution and source-free linking, including quantum-one execution.
-The expanded native/Node/Wasmtime harness passes **390 comparisons**, **39**
-malformed rejections, **39** checkpoint restores and **39** wrong-image rejections.
-The committed public-package check passes all diagnostics and six execution cases.
-These are bounded siblings; they do not establish universal family elimination.
-
-Agent `61db493a683f656d89ad9aea04851fea6b3c8e9d` binds the authenticated package.
-Emission passes **259 steps / one test**; all **75** image/object/argument files,
-**41** binary fixtures, **67** distribution files and inventory JSON match the
-preceding qualified inputs. A02 and **3/3** archive-command tests pass with no
-skips. The archive differs only in its dependency lock and checksum manifest.
-Its receipt retains the actual precommit build observation; no later head is
-substituted. World runtime `cb52f4f` and kernel `9356b126` remain unchanged.
-Historical full integration is reused only for identical runtime inputs and
-unchanged hosts/kernel. Cleanup and accepted cost accounting remain intact.
-Fresh final serial reviews are required. Canonical counterexample custody remains
-unavailable; historical horizon claims remain explicitly incomplete.
+All six initial reviews of `197f0ad` were folded before this repair. Review credit
+is zero. Fresh installed final serial reviews remain required. Canonical
+counterexample custody is unavailable, so historical-horizon claims remain
+explicitly incomplete.
