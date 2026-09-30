@@ -94,7 +94,9 @@ pub fn run(allocator: std.mem.Allocator, original: ir.Program, statistics: ?*Sta
     defer if (statistics) |out| {
         out.* = stats;
     };
-    var flow = try ownership.analyze(allocator, original);
+    var admitted = try ownership.analyze(allocator, original);
+    defer admitted.deinit();
+    var flow = try @import("activation_flow.zig").analyzeInputDemand(allocator, original);
     defer flow.deinit();
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
@@ -164,7 +166,9 @@ pub fn run(allocator: std.mem.Allocator, original: ir.Program, statistics: ?*Sta
 /// Check each field/input/argument correspondence and original demand separately
 /// from construction. The candidate cannot change other instructions or callers.
 pub fn validate(allocator: std.mem.Allocator, original: ir.Program, candidate: ir.Program, witnesses: []const Witness) Error!void {
-    var flow = try ownership.analyze(allocator, original);
+    var admitted = try ownership.analyze(allocator, original);
+    defer admitted.deinit();
+    var flow = try @import("activation_flow.zig").analyzeInputDemand(allocator, original);
     defer flow.deinit();
     var checked = try ownership.analyze(allocator, candidate);
     defer checked.deinit();

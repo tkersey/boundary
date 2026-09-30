@@ -121,3 +121,53 @@ test "same-shape alternate schema cannot relabel a static variant key" {
     variants[0].key.schema = 4;
     try std.testing.expectError(error.InvalidCallPattern, patterns.validate(a, original, candidate.program, &variants, candidate.sites, 1000000));
 }
+
+pub const returned_payload: ir.Program = .{
+    .roots = .{ .entry = 0, .result = 0, .failure = 1 },
+    .schemas = &.{ .u64, .unit, .{ .sum = &.{ 0, 0 } } },
+    .constants = &.{},
+    .effects = &.{},
+    .functions = &.{
+        .{ .entry = 0, .inputs = &.{ 0, 2 }, .layout = .{ .slots = &.{ 0, 2, 0 } }, .result = 0 },
+        .{ .entry = 2, .inputs = &.{ 0, 2 }, .layout = .{ .slots = &.{ 2, 0, 0 } }, .result = 0 },
+    },
+    .blocks = &.{
+        .{ .function = 0, .instructions = &.{.{ .destination = 1, .opcode = .variant, .operands = &.{0}, .immediate = 0 }}, .terminator = .{ .call = .{ .function = 1, .arguments = &.{ 1, 2 }, .next = .{ .block = 1, .assignments = &.{.{ .destination = 2, .source = .returned }} } } } },
+        .{ .function = 0, .instructions = &.{}, .terminator = .{ .return_value = 2 } },
+        .{ .function = 1, .instructions = &.{}, .terminator = .{ .switch_variant = .{ .value = 0, .cases = &.{ .{ .block = 3, .assignments = &.{.{ .destination = 1, .source = .returned }} }, .{ .block = 4, .assignments = &.{.{ .destination = 1, .source = .returned }} } } } } },
+        .{ .function = 1, .instructions = &.{}, .terminator = .{ .return_value = 1 } },
+        .{ .function = 1, .instructions = &.{}, .terminator = .{ .return_value = 1 } },
+    },
+};
+
+test "known variant switch transports returned payload to specialized jump" {
+    for ([_]u64{ 0, 1 }) |tag| {
+        var original = returned_payload;
+        var blocks = returned_payload.blocks[0..5].*;
+        var op = blocks[0].instructions[0];
+        op.immediate = tag;
+        blocks[0].instructions = (&op)[0..1];
+        original.blocks = &blocks;
+        var admitted = try @import("activation_ownership.zig").analyze(a, original);
+        defer admitted.deinit();
+        var candidate = (try patterns.construct(a, original, .{})).?;
+        defer candidate.deinit();
+        try std.testing.expectEqual(@as(usize, 1), candidate.variants.len);
+        try patterns.validate(a, original, candidate.program, candidate.variants, candidate.sites, 1000000);
+        const entry = candidate.variants[0].first_block;
+        const edge = candidate.program.blocks[entry].terminator.jump;
+        try std.testing.expectEqual(@as(u64, 0), edge.assignments[0].source.slot);
+        var compiled = try @import("closed_compilation.zig").run(a, original, .{ .contract = .semantic });
+        defer compiled.deinit();
+        const wrong_blocks = try a.dupe(ir.Block, candidate.program.blocks);
+        defer a.free(wrong_blocks);
+        wrong_blocks[entry].terminator.jump.assignments = &.{.{ .destination = 1, .source = .returned }};
+        var wrong = candidate.program;
+        wrong.blocks = wrong_blocks;
+        try std.testing.expectError(error.TypeMismatch, @import("activation_ownership.zig").analyze(a, wrong));
+        wrong_blocks[entry].terminator.jump.assignments = &.{.{ .destination = 1, .source = .{ .slot = 2 } }};
+        var admitted_wrong = try @import("activation_ownership.zig").analyze(a, wrong);
+        defer admitted_wrong.deinit();
+        try std.testing.expectError(error.InvalidCallPattern, patterns.validate(a, original, wrong, candidate.variants, candidate.sites, 1000000));
+    }
+}

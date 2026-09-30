@@ -19,14 +19,24 @@ pub fn main(init: std.process.Init) !void {
     const word_mode = if (mode) |name| std.mem.eql(u8, name, "words") else false;
     const captures = if (mode) |name| std.mem.eql(u8, name, "captures") else false;
     if ((mode != null and !variants and !constants and !word_mode and !captures) or args.next() != null) return error.Arguments;
-    const names: []const []const u8 = if (captures) &.{ "capture-checked", "capture-shared", "capture-linked" } else if (word_mode) &.{ "word-checked", "word-shared", "word-linked" } else if (constants) &.{ "constant-checked", "constant-shared", "constant-linked" } else if (variants) &.{ "variant-fallback-checked", "variant-fallback-shared", "variant-fallback-linked", "variant-total-checked", "variant-total-shared", "variant-total-linked", "variant-overwritten-checked", "variant-overwritten-shared", "variant-overwritten-linked" } else &.{ "callable-checked", "callable-shared", "callable-linked" };
+    const names: []const []const u8 = if (captures) &.{ "capture-checked", "capture-shared", "capture-linked" } else if (word_mode) &.{ "word-checked", "word-shared", "word-linked" } else if (constants) &.{ "constant-checked", "constant-shared", "constant-linked" } else if (variants) &.{ "variant-fallback-checked", "variant-fallback-shared", "variant-fallback-linked", "variant-total-checked", "variant-total-shared", "variant-total-linked", "variant-overwritten-checked", "variant-overwritten-shared", "variant-overwritten-linked", "variant-payload-checked", "variant-payload-shared", "variant-payload-linked" } else &.{ "callable-checked", "callable-shared", "callable-linked" };
     for (names, 0..) |name, index| {
         var original = if (captures) fixtures.captured else if (word_mode) fixtures.word_constants else if (constants) fixtures.choice else if (variants) fixtures.tagged else fixtures.repeated;
-        var blocks = fixtures.tagged.blocks[0..7].*;
+        var blocks: [9]data.activation.Block = undefined;
+        @memcpy(blocks[0..7], fixtures.tagged.blocks);
         if (variants) {
             if (index / 3 == 1) blocks[4].instructions = fixtures.tagged.blocks[1].instructions;
             if (index / 3 == 2) blocks[1].instructions = &.{ fixtures.tagged.blocks[1].instructions[0], .{ .destination = 0, .opcode = .integer_bit_not, .operands = &.{0} } };
-            original.blocks = &blocks;
+            if (index / 3 == 3) {
+                blocks[6].instructions = &.{};
+                blocks[6].terminator = .{ .switch_variant = .{ .value = 0, .cases = &.{
+                    .{ .block = 7, .assignments = &.{.{ .destination = 1, .source = .returned }} },
+                    .{ .block = 8, .assignments = &.{.{ .destination = 1, .source = .returned }} },
+                } } };
+                blocks[7] = .{ .function = 1, .instructions = &.{}, .terminator = .{ .return_value = 1 } };
+                blocks[8] = blocks[7];
+            }
+            original.blocks = blocks[0..(if (index / 3 == 3) @as(usize, 9) else 7)];
         }
         var baseline = try data.coalescing.run(init.gpa, original, .{});
         defer baseline.deinit();

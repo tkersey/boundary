@@ -55,7 +55,18 @@ pub fn analyze(allocator: std.mem.Allocator, image: ir.Program) Error!Facts {
     return analyzeComponent(allocator, image, &.{});
 }
 
+/// Executable reads required before redefining an input, including transfers
+/// whose destinations have no downstream demand. Compiler ABI removal only;
+/// this must not replace capture/retention liveness.
+pub fn analyzeInputDemand(allocator: std.mem.Allocator, image: ir.Program) Error!Facts {
+    return analyzeComponentDemand(allocator, image, &.{}, true);
+}
+
 pub fn analyzeComponent(allocator: std.mem.Allocator, image: ir.Program, imports: []const p.Id) Error!Facts {
+    return analyzeComponentDemand(allocator, image, imports, false);
+}
+
+fn analyzeComponentDemand(allocator: std.mem.Allocator, image: ir.Program, imports: []const p.Id, comptime require_edge_sources: bool) Error!Facts {
     try structure.validateComponent(allocator, image, imports);
     const arena = try allocator.create(std.heap.ArenaAllocator);
     arena.* = std.heap.ArenaAllocator.init(allocator);
@@ -115,7 +126,7 @@ pub fn analyzeComponent(allocator: std.mem.Allocator, image: ir.Program, imports
         // unreachable. Its references are checked, but it has no entry state.
         if (entry != null) try analysis.block(block, true);
     }
-    const liveness = try Liveness.derive(&analysis);
+    const liveness = try Liveness.derive(&analysis, require_edge_sources);
     return .{
         .positions = analysis.positions,
         .live = liveness.positions,
@@ -349,7 +360,7 @@ const Liveness = struct {
     work: Queue,
     visits: usize = 0,
 
-    fn derive(analysis: *Analysis) Error!Liveness {
+    fn derive(analysis: *Analysis, comptime require_edge_sources: bool) Error!Liveness {
         const a = analysis.allocator;
         const image = analysis.image;
         var result: Liveness = .{
@@ -410,7 +421,7 @@ const Liveness = struct {
         while (result.work.pop()) |id| {
             result.visits += 1;
             result.queued[@intCast(id)] = false;
-            const root = try result.block(id);
+            const root = try result.block(id, require_edge_sources);
             if (root == result.entries[@intCast(id)]) continue;
             result.entries[@intCast(id)] = root;
             const parents = if (comptime compact_parents) result.parents[@intCast(id)] else result.parents[@intCast(id)].items;
@@ -430,7 +441,7 @@ const Liveness = struct {
         return self.analysis.pool.unite(root, obligations);
     }
 
-    fn edge(self: *Liveness, next: ir.Edge) Error!sets.Root {
+    fn edge(self: *Liveness, next: ir.Edge, comptime require_edge_sources: bool) Error!sets.Root {
         const pool = self.analysis.pool;
         const after = self.entries[@intCast(next.block)];
         var before = after;
@@ -438,19 +449,19 @@ const Liveness = struct {
         // adding any required predecessor sources, including cyclic swaps.
         for (next.assignments) |assignment| before = try pool.remove(before, assignment.destination);
         for (next.assignments) |assignment| {
-            if (assignment.source == .slot and pool.contains(after, assignment.destination))
+            if (assignment.source == .slot and (require_edge_sources or pool.contains(after, assignment.destination)))
                 before = try pool.insert(before, assignment.source.slot);
         }
         return before;
     }
 
-    fn block(self: *Liveness, id: p.Id) Error!sets.Root {
+    fn block(self: *Liveness, id: p.Id, comptime require_edge_sources: bool) Error!sets.Root {
         const code = self.analysis.image.blocks[@intCast(id)];
         const pool = self.analysis.pool;
         var live: LiveReads = .{ .pool = pool };
         var successors: Successors = .{ .image = self.analysis.image, .code = code };
         while (successors.next()) |next| {
-            var root = try self.edge(next.edge);
+            var root = try self.edge(next.edge, require_edge_sources);
             if (code.terminator == .unpack_product)
                 root = try pool.excluding(root, code.terminator.unpack_product.destinations);
             live.root = try pool.unite(live.root, root);

@@ -45,6 +45,8 @@ pub const Options = struct {
     objective: data.closed_compilation.Objective = .balanced,
     image_growth_bytes: ?usize = null,
     max_image_bytes: ?usize = null,
+    /// Bound to the original lowered record; validation belongs to the shared compiler.
+    profile: ?data.closed_compilation.ProfilePolicy = null,
     semantic_work_limit: u64 = data.closed_compilation.default_work_limit,
     semantic_round_limit: usize = 4,
     semantic_statistics: ?*data.closed_compilation.Statistics = null,

@@ -2105,3 +2105,45 @@ test "indexed field declarations check schema authority before a duplicate name"
     const elsewhere = try other.scalar(bool);
     try testing.expectError(error.ForeignHandle, c.record(&.{ .{ .name = "same", .schema = local }, .{ .name = "same", .schema = elsewhere } }));
 }
+
+test "typed and source compilation preserve supplied profile validation and use" {
+    const data = @import("boundary_data");
+    var raw = source.Builder.init(testing.allocator);
+    defer raw.deinit();
+    const c = try a.Context.init(&raw);
+    const word = try c.scalar(u64);
+    const unit = try c.scalar(void);
+    const entry = try c.function("identity", &.{.{ .name = "x", .schema = word }}, word, &.{});
+    const body = try c.body(entry);
+    try c.define(entry, try body.ret(try body.parameter("x")));
+    const module = try c.module(entry, unit);
+    var original = try c.compile(testing.allocator, entry, unit);
+    defer original.deinit();
+    const counts = try testing.allocator.alloc(u64, original.program.blocks.len);
+    defer testing.allocator.free(counts);
+    @memset(counts, 0);
+    const valid: data.closed_compilation.ProfilePolicy = .{ .record = .{
+        .image_identity = try data.program_image.identity(testing.allocator, original.program),
+        .block_counts = counts,
+        .total = 0,
+    } };
+    for ([_]data.closed_compilation.Contract{ .structural, .semantic }) |contract| {
+        var stats: data.closed_compilation.Statistics = .{};
+        var typed = try c.compileWithCompilation(testing.allocator, entry, unit, .{ .contract = contract, .profile = valid, .statistics = &stats });
+        defer typed.deinit();
+        try testing.expectEqual(contract == .semantic, stats.profile_used);
+        var direct = try source.lowerObserved(testing.allocator, module, .{ .contract = contract, .profile = valid, .semantic_statistics = &stats });
+        defer direct.deinit();
+        try testing.expectEqual(contract == .semantic, stats.profile_used);
+        for (0..3) |mutation| {
+            var invalid = valid;
+            switch (mutation) {
+                0 => invalid.record.version = 999,
+                1 => invalid.record.image_identity[0] ^= 1,
+                else => invalid.record.block_counts = &.{},
+            }
+            try testing.expectError(error.InvalidOptimizationProfile, c.compileWithCompilation(testing.allocator, entry, unit, .{ .contract = contract, .profile = invalid }));
+            try testing.expectError(error.InvalidOptimizationProfile, source.lowerObserved(testing.allocator, module, .{ .contract = contract, .profile = invalid }));
+        }
+    }
+}

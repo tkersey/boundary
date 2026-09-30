@@ -1771,3 +1771,47 @@ The complete six-run samples, identity bindings, commands and dispositions are
 retained in `performance/m5-runtime-delivery.json` under `resumedFinalTuple.timing`.
 Historical M3/P13/P16/P18/P19/P20/P24 cost dispositions and final installed serial
 reviews remain open. No merge, release or final programme completion is claimed.
+
+### Initial serial-review correction (086c203)
+
+All six initial lenses completed; fresh-eyes required one exact-request recovery
+after terminal transport loss. The candidate is invalidated, with zero clean
+credit. Three accepted classes require correction: input removal loses retained
+edge reads, variant specialization loses returned payload transfers, and typed
+compilation drops profile policy. Provider threads are reconciled. Canonical
+Review Fold history is unavailable (InvalidStoreBinding); no complete-history
+or first-occurrence claim is made.
+
+The repair keeps independent admission and capture checks. Operational input
+demand uses the existing flow fixed point, counting every retained edge source;
+ordinary semantic/capture liveness remains unchanged. This separates two actual
+observations rather than making capture rules more restrictive. It also permits
+removing an incoming value overwritten before a later same-slot transfer, which
+a whole-function syntactic-read guard would unnecessarily retain. Both input
+removal finders and their validators consume this compiler-only demand analysis.
+The extra analysis has the existing finite lattice/worklist bounds and adds
+compiler scratch only; no runtime State, image encoding or ownership rule changes.
+Discriminators cover dead-destination transfers, overwrite-before-transfer,
+simultaneous assignments and genuine unused inputs, with fresh candidate admission.
+
+Known-variant specialization must map each selected-edge returned source to the
+existing specialized payload input while preserving simultaneous assignments and
+block relocation. Its checker and fresh admission remain independent. The positive
+probe must specialize a real payload-returning worker; a malformed returned-source
+mutation must fail. This is an owner-local transport repair, not a new optimizer.
+
+Typed and direct-source compilation carry the optional immutable profile to the
+shared original-record compilation boundary, whose validation and policy remain
+authoritative. Malformed/stale profiles must reject under both contracts; valid
+semantic profiles must be observed as used. Null-profile behavior remains the
+default. These ordinary boundaries preserve nominal/ownership distinctions,
+source capture observations and all accepted program requirements.
+
+The repaired candidate passes ReleaseSafe **319/319 steps, 842/842 tests**;
+its data/authoring subset passes 540/227 tests. Native World checks preserve
+original/checked/shared/source-free-linked results. The authenticated kernel
+passes 12 variant route cases, 288 Node/Wasmtime comparisons, 12 same-image
+restores and 12 wrong-image rejections. All 18 current Agent images are byte
+identical to the qualified9912 corpus. Results and exact source-input hashes
+are recorded under `reviewRepairQualification` in the runtime delivery report.
+Package binding and the fresh final review sequence remain open.

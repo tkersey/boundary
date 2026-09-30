@@ -176,6 +176,7 @@ fn coalesce(allocator: std.mem.Allocator, program: ir.Program, compiler: *Compil
         .objective = options.objective,
         .image_growth_bytes = options.image_growth_bytes,
         .max_image_bytes = options.max_image_bytes,
+        .profile = options.profile,
         .work_limit = options.semantic_work_limit,
         .round_limit = options.semantic_round_limit,
         .statistics = &statistics,

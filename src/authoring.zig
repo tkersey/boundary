@@ -1121,6 +1121,7 @@ pub const Context = opaque {
             .objective = compilation.objective,
             .image_growth_bytes = compilation.image_growth_bytes,
             .max_image_bytes = compilation.max_image_bytes,
+            .profile = compilation.profile,
             .semantic_work_limit = compilation.work_limit,
             .semantic_round_limit = compilation.round_limit,
             .semantic_statistics = compilation.statistics,

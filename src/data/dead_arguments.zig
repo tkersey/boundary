@@ -18,7 +18,9 @@ pub fn run(allocator: std.mem.Allocator, original: ir.Program, statistics: ?*Sta
     defer if (statistics) |out| {
         out.* = stats;
     };
-    var flow = try ownership.analyze(allocator, original);
+    var admitted = try ownership.analyze(allocator, original);
+    defer admitted.deinit();
+    var flow = try @import("activation_flow.zig").analyzeInputDemand(allocator, original);
     defer flow.deinit();
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
@@ -84,7 +86,9 @@ fn subsequence(before: []const p.Id, after: []const p.Id, removed: []const usize
 /// Verify the complete original caller set, ordered ABI subsequences, and input
 /// liveness independently of the finder. No declaration or call may be omitted.
 pub fn validate(allocator: std.mem.Allocator, original: ir.Program, candidate: ir.Program, witnesses: []const Witness) Error!void {
-    var flow = try ownership.analyze(allocator, original);
+    var admitted = try ownership.analyze(allocator, original);
+    defer admitted.deinit();
+    var flow = try @import("activation_flow.zig").analyzeInputDemand(allocator, original);
     defer flow.deinit();
     var checked = try ownership.analyze(allocator, candidate);
     defer checked.deinit();

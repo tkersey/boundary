@@ -40517,5 +40517,393 @@
       "scope": "All currently recorded measured costs, including M3/P13/P16/P18/P19/P20/P24 and final cumulative comparisons; prior individual acceptances retained.",
       "exclusions": "Future unmeasured costs; correctness and review obligations are unchanged."
     }
+  },
+  "reviewRepairQualification": {
+    "status": "local-qualified-publication-and-consumer-binding-open",
+    "reviewedBaseHead": "086c203f9805b6bdc99f32653e6a121c18570b09",
+    "scope": "Three accepted initial-review defect classes: operational input demand, selected variant payload transport, typed/source profile policy forwarding. Independent admission and original capture checks retained.",
+    "sourceInputs": [
+      {
+        "path": "src/authoring.zig",
+        "sha256": "3e6cdf4114daae83b5f612c8e9ca6d41ac2bb2846a5bca28a819367195834ab2"
+      },
+      {
+        "path": "src/data/activation_flow.zig",
+        "sha256": "a23678eed2adfbe6749621dca9418345b93f3be65f8989af26c87c625b28dd3b"
+      },
+      {
+        "path": "src/data/dead_arguments.zig",
+        "sha256": "ab90a568373fd05c63360509b89818231cf201d040549849d6077e2d2c1c24bb"
+      },
+      {
+        "path": "src/data/capture_reduction.zig",
+        "sha256": "53afe0eaf7bb3d33deb8edc24b1c91b113074e6917099f7bbf68ad7525a2c212"
+      },
+      {
+        "path": "src/data/call_patterns.zig",
+        "sha256": "72133556389e8cce1f8cd4b3f03796cff3401dc0520bc11c0127638fd3df105e"
+      },
+      {
+        "path": "src/source/activation_lower.zig",
+        "sha256": "d0759ebb54ba5196f6d753ce81a7b51d8a24e5c8139346b8c5234b142cde2d6c"
+      },
+      {
+        "path": "src/source/diagnostic.zig",
+        "sha256": "3c75410c1fcafd6af7c08dd00090ca567eac839dbec006a61c21a4d4e266f4e7"
+      }
+    ],
+    "checks": [
+      {
+        "command": "zig build check -Doptimize=ReleaseSafe --summary all",
+        "exitCode": 0,
+        "steps": 319,
+        "tests": 842,
+        "logSha256": "e66e67db6536734085c87a6713897781c36eba940c8279061cfe614c2b1cc06a"
+      },
+      {
+        "command": "zig build check-data check-authoring -Doptimize=ReleaseSafe --summary all",
+        "exitCode": 0,
+        "steps": 6,
+        "tests": 767,
+        "logSha256": "106976b1f687b6ccbd4e0f9d90ee6938253bca85843827eb7c5dc1d8456cfc85"
+      },
+      {
+        "command": "Native World variant payload specialization and failing fallback source-free linking test",
+        "exitCode": 0,
+        "tests": 1,
+        "logSha256": "842ae25cbfbb1ea22ff40039d29c073730b73e284450c724531fb1dfc225e053"
+      }
+    ],
+    "platform": {
+      "sourceBaseCommit": "086c203f9805b6bdc99f32653e6a121c18570b09",
+      "unpublishedWorkingTree": true,
+      "kernelSha256": "9356b1264a215486b579a143dcc2ff73711f2a7e44898b3560922d68cdf1338d",
+      "emitterSha256": "bab2b8cb8b99683e1a79e939deb9fd4460e98a81f6c4253a69858e9da2da07a0",
+      "runnerSha256": "872f1ff84a399b6ed73f5e7fa9b0c6f1291b008b154e0ae7a7ee6c9931fae4b1",
+      "rows": [
+        {
+          "name": "variant-fallback-checked",
+          "route": "standalone checked call patterns",
+          "comparisons": 24,
+          "malformedInputsRejected": 2,
+          "sameImageRestore": true,
+          "wrongImageRejected": true,
+          "images": {
+            "structural": {
+              "bytes": 137,
+              "sha256": "1b6ed3687141fcb96f2d92ecf6858a0b5685dc98dde0a5de0711b38a0aecf06f"
+            },
+            "semantic": {
+              "bytes": 153,
+              "sha256": "49653268151b2c1beff0b22ae5d079b1487dbd1ee85bb43082bbdf07ec4d34f3"
+            }
+          }
+        },
+        {
+          "name": "variant-fallback-shared",
+          "route": "shared semantic compiler",
+          "comparisons": 24,
+          "malformedInputsRejected": 2,
+          "sameImageRestore": true,
+          "wrongImageRejected": true,
+          "images": {
+            "structural": {
+              "bytes": 137,
+              "sha256": "1b6ed3687141fcb96f2d92ecf6858a0b5685dc98dde0a5de0711b38a0aecf06f"
+            },
+            "semantic": {
+              "bytes": 133,
+              "sha256": "4f22420a6587adf74026106034ffb82219185e87d2a315da8ef7e76023ae2b9d"
+            }
+          }
+        },
+        {
+          "name": "variant-fallback-linked",
+          "route": "source-free semantic link",
+          "comparisons": 24,
+          "malformedInputsRejected": 2,
+          "sameImageRestore": true,
+          "wrongImageRejected": true,
+          "images": {
+            "structural": {
+              "bytes": 137,
+              "sha256": "1b6ed3687141fcb96f2d92ecf6858a0b5685dc98dde0a5de0711b38a0aecf06f"
+            },
+            "semantic": {
+              "bytes": 133,
+              "sha256": "4f22420a6587adf74026106034ffb82219185e87d2a315da8ef7e76023ae2b9d"
+            }
+          }
+        },
+        {
+          "name": "variant-total-checked",
+          "route": "standalone checked call patterns",
+          "comparisons": 24,
+          "malformedInputsRejected": 2,
+          "sameImageRestore": true,
+          "wrongImageRejected": true,
+          "images": {
+            "structural": {
+              "bytes": 136,
+              "sha256": "2e322c81d329379693e346b2a6952b0737740e7176c1ee99ce9aa4e0ebd992b2"
+            },
+            "semantic": {
+              "bytes": 132,
+              "sha256": "152beb03ca1679d1b8cc50ba8fbb7d764bb3dfc2a916cb2b68416752faf86a9a"
+            }
+          }
+        },
+        {
+          "name": "variant-total-shared",
+          "route": "shared semantic compiler",
+          "comparisons": 24,
+          "malformedInputsRejected": 2,
+          "sameImageRestore": true,
+          "wrongImageRejected": true,
+          "images": {
+            "structural": {
+              "bytes": 136,
+              "sha256": "2e322c81d329379693e346b2a6952b0737740e7176c1ee99ce9aa4e0ebd992b2"
+            },
+            "semantic": {
+              "bytes": 93,
+              "sha256": "195a3a362f8cc960f49710d623aad3ca32655bd9a659ccfdfae51c1d29684f9d"
+            }
+          }
+        },
+        {
+          "name": "variant-total-linked",
+          "route": "source-free semantic link",
+          "comparisons": 24,
+          "malformedInputsRejected": 2,
+          "sameImageRestore": true,
+          "wrongImageRejected": true,
+          "images": {
+            "structural": {
+              "bytes": 136,
+              "sha256": "2e322c81d329379693e346b2a6952b0737740e7176c1ee99ce9aa4e0ebd992b2"
+            },
+            "semantic": {
+              "bytes": 93,
+              "sha256": "195a3a362f8cc960f49710d623aad3ca32655bd9a659ccfdfae51c1d29684f9d"
+            }
+          }
+        },
+        {
+          "name": "variant-overwritten-checked",
+          "route": "standalone checked call patterns",
+          "comparisons": 24,
+          "malformedInputsRejected": 2,
+          "sameImageRestore": true,
+          "wrongImageRejected": true,
+          "images": {
+            "structural": {
+              "bytes": 140,
+              "sha256": "1cd93ca8f25fa05d50b0ba7359e126c7d2a3ab6df957c22ecda9e6a1de748696"
+            },
+            "semantic": {
+              "bytes": 156,
+              "sha256": "40bc04933accef678459c2fb9e3c867f535605771e82f05d00c6eba71aabf647"
+            }
+          }
+        },
+        {
+          "name": "variant-overwritten-shared",
+          "route": "shared semantic compiler",
+          "comparisons": 24,
+          "malformedInputsRejected": 2,
+          "sameImageRestore": true,
+          "wrongImageRejected": true,
+          "images": {
+            "structural": {
+              "bytes": 140,
+              "sha256": "1cd93ca8f25fa05d50b0ba7359e126c7d2a3ab6df957c22ecda9e6a1de748696"
+            },
+            "semantic": {
+              "bytes": 133,
+              "sha256": "4f22420a6587adf74026106034ffb82219185e87d2a315da8ef7e76023ae2b9d"
+            }
+          }
+        },
+        {
+          "name": "variant-overwritten-linked",
+          "route": "source-free semantic link",
+          "comparisons": 24,
+          "malformedInputsRejected": 2,
+          "sameImageRestore": true,
+          "wrongImageRejected": true,
+          "images": {
+            "structural": {
+              "bytes": 140,
+              "sha256": "1cd93ca8f25fa05d50b0ba7359e126c7d2a3ab6df957c22ecda9e6a1de748696"
+            },
+            "semantic": {
+              "bytes": 133,
+              "sha256": "4f22420a6587adf74026106034ffb82219185e87d2a315da8ef7e76023ae2b9d"
+            }
+          }
+        },
+        {
+          "name": "variant-payload-checked",
+          "route": "standalone checked call patterns",
+          "comparisons": 24,
+          "malformedInputsRejected": 2,
+          "sameImageRestore": true,
+          "wrongImageRejected": true,
+          "images": {
+            "structural": {
+              "bytes": 145,
+              "sha256": "1527b82a926d00eaa5ae123a1a9a53c3a63962aee1f33006f050182d1ea8a24d"
+            },
+            "semantic": {
+              "bytes": 137,
+              "sha256": "5314a7453a2cabef274bb609cb701ca5011c75eef5f40e3f7020510082f732ec"
+            }
+          }
+        },
+        {
+          "name": "variant-payload-shared",
+          "route": "shared semantic compiler",
+          "comparisons": 24,
+          "malformedInputsRejected": 2,
+          "sameImageRestore": true,
+          "wrongImageRejected": true,
+          "images": {
+            "structural": {
+              "bytes": 145,
+              "sha256": "1527b82a926d00eaa5ae123a1a9a53c3a63962aee1f33006f050182d1ea8a24d"
+            },
+            "semantic": {
+              "bytes": 96,
+              "sha256": "11b0dfdcd748866e8a83eb5bace7bcde79557c41cdbcf4e8ec48fe110e1591af"
+            }
+          }
+        },
+        {
+          "name": "variant-payload-linked",
+          "route": "source-free semantic link",
+          "comparisons": 24,
+          "malformedInputsRejected": 2,
+          "sameImageRestore": true,
+          "wrongImageRejected": true,
+          "images": {
+            "structural": {
+              "bytes": 145,
+              "sha256": "1527b82a926d00eaa5ae123a1a9a53c3a63962aee1f33006f050182d1ea8a24d"
+            },
+            "semantic": {
+              "bytes": 96,
+              "sha256": "11b0dfdcd748866e8a83eb5bace7bcde79557c41cdbcf4e8ec48fe110e1591af"
+            }
+          }
+        }
+      ]
+    },
+    "consumerCorpus": {
+      "status": "passed",
+      "scope": "All18 unchanged current Agent images from repaired Boundary source versus qualified9912 corpus. Runtime remains authenticated cb52 kernel9356.",
+      "rows": [
+        {
+          "name": "clarify-first.bpi3",
+          "bytes": 9428,
+          "sha256": "4216be2b0e0f840405ae45bec038b098475e12a1a17b047b655de3372c35cd87"
+        },
+        {
+          "name": "conversation.bpi3",
+          "bytes": 375,
+          "sha256": "e4b837164f3299d76e71f35329069d2d1f2cb8a60c4567705ab40d4ca6d90537"
+        },
+        {
+          "name": "direct.bpi3",
+          "bytes": 90,
+          "sha256": "0868302e26c48ef5920ed4bef1746dab60edbc618f2e540ba6e5ea1049e6ed7b"
+        },
+        {
+          "name": "document-consequence.bpi3",
+          "bytes": 11473,
+          "sha256": "c7b779c95f6aa42ddbd155c8d3d6d263c4f7dce7a3e909ed8d35227abeec7adc"
+        },
+        {
+          "name": "document.bpi3",
+          "bytes": 7379,
+          "sha256": "c29636f62a7ee369b35176d604f38a71b692f045f04c78f9efc768a87daa2f1f"
+        },
+        {
+          "name": "facade.bpi3",
+          "bytes": 90,
+          "sha256": "0868302e26c48ef5920ed4bef1746dab60edbc618f2e540ba6e5ea1049e6ed7b"
+        },
+        {
+          "name": "inquiry-react.bpi3",
+          "bytes": 40995,
+          "sha256": "c94376159a951ba86be58732163807b798513e4f45b809156d2ab159f0d3107c"
+        },
+        {
+          "name": "inquiry-repair.bpi3",
+          "bytes": 35268,
+          "sha256": "2ff4cc898acb038bebd42cffb7a9c57722031627f6f691514a7837f5eeb9ee57"
+        },
+        {
+          "name": "inquiry-repeated.bpi3",
+          "bytes": 35632,
+          "sha256": "d27f2b32197e1455c1ed3e63263324abd551438cfac1c9c8d722c59608fffccc"
+        },
+        {
+          "name": "review-clarify_first.bpi3",
+          "bytes": 3038,
+          "sha256": "d39f58b356cc89f881610a499b69e20ccb55ca343ef75be92ba45b00c8e97b4a"
+        },
+        {
+          "name": "review-human.bpi3",
+          "bytes": 414,
+          "sha256": "222e18e156a1a93d19cbbe3787725cf6f298e2b2e57a914c2e3e1a34be77af72"
+        },
+        {
+          "name": "review-mid_review.bpi3",
+          "bytes": 3039,
+          "sha256": "5ed04eb3bfb41dc37905f90c9b643cd7333b0466afb86ab4a8f071cb49482e09"
+        },
+        {
+          "name": "review-model.bpi3",
+          "bytes": 2331,
+          "sha256": "927469ff6b1b7c95ea9aac4124a4b6303961d585c858416d9fc5466b3a8612bd"
+        },
+        {
+          "name": "review-react.bpi3",
+          "bytes": 248,
+          "sha256": "2aa59a11c5a318e8820c158e7ea045878ad5e37c4b8f37b210e2eff7ae879a4d"
+        },
+        {
+          "name": "review-rule.bpi3",
+          "bytes": 269,
+          "sha256": "e159594845f0d01375a92eb46b2fc04bf3017881b9b69fbdff728384198c164e"
+        },
+        {
+          "name": "sharing-1.bpi3",
+          "bytes": 292,
+          "sha256": "f0a17ed97f5e5e66829fd1a10a990394c444aa2331fc2686abb3157eb72319c7"
+        },
+        {
+          "name": "sharing-64.bpi3",
+          "bytes": 2032,
+          "sha256": "0b3dfa0f5598bfd365ade0fbd3b6052846eea524aeba4e28144053b6b373d328"
+        },
+        {
+          "name": "sharing-8.bpi3",
+          "bytes": 460,
+          "sha256": "89a257a0c46c711c342aa92d1507bea537358e1140b753ac585ca3a805167458"
+        }
+      ]
+    },
+    "failedIntermediate": {
+      "status": "superseded-not-passed",
+      "logSha256": "24d52723c789243732a5c5beade8077135eda7c8705a00a69dfacf8c16ca3dba",
+      "causes": [
+        "New test fixture read its old union field through a self-assignment; corrected to immutable source edge.",
+        "Emitter repair initially omitted corresponding independent payload-edge checker change; checker now explicitly verifies each returned-to-slot mapping and independently admitted wrong mappings are rejected."
+      ]
+    },
+    "costScope": "No new Agent runtime measurement is inferred. All18 exact image bytes and authenticated World kernel remain identical, so prior measured consumer costs and their explicit acceptance retain applicable inputs. Added operational analysis is bounded compiler-only work; no runtime memory field or State format changed.",
+    "remaining": "Publish repair, qualify authenticated Boundary package/Agent binding, then fresh final serial reviews. No clean credit retained from invalidated initial candidate."
   }
 }

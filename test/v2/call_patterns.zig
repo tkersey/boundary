@@ -205,14 +205,26 @@ pub const tagged: ir.Program = .{
 };
 
 test "World preserves variant payload specialization and failing fallback after source-free link" {
-    for (0..3) |fixture| {
+    for (0..4) |fixture| {
         var original = tagged;
-        var blocks = tagged.blocks[0..7].*;
+        var blocks: [9]ir.Block = undefined;
+        @memcpy(blocks[0..7], tagged.blocks);
         if (fixture == 1) blocks[4].instructions = tagged.blocks[1].instructions;
         if (fixture == 2) blocks[1].instructions = &.{ tagged.blocks[1].instructions[0], .{ .destination = 0, .opcode = .integer_bit_not, .operands = &.{0} } };
-        original.blocks = &blocks;
-        var checked = try patterns.run(a, original, null, .{});
+        if (fixture == 3) {
+            blocks[6].instructions = &.{};
+            blocks[6].terminator = .{ .switch_variant = .{ .value = 0, .cases = &.{
+                .{ .block = 7, .assignments = &.{.{ .destination = 1, .source = .returned }} },
+                .{ .block = 8, .assignments = &.{.{ .destination = 1, .source = .returned }} },
+            } } };
+            blocks[7] = .{ .function = 1, .instructions = &.{}, .terminator = .{ .return_value = 1 } };
+            blocks[8] = blocks[7];
+        }
+        original.blocks = blocks[0..(if (fixture == 3) @as(usize, 9) else 7)];
+        var pattern_stats: patterns.Statistics = .{};
+        var checked = try patterns.run(a, original, &pattern_stats, .{});
         defer checked.deinit();
+        if (fixture == 3) try std.testing.expect(pattern_stats.variant_switches > 0);
         var statistics: data.closed_compilation.Statistics = .{};
         var compiled = try data.closed_compilation.run(a, original, .{ .contract = .semantic, .statistics = &statistics });
         defer compiled.deinit();
@@ -236,7 +248,7 @@ test "World preserves variant payload specialization and failing fallback after 
                 _ = try data.program_image.encode(a, program, bytes);
                 var result = try world.invocation.invoke(a, .{ .image = bytes, .instance = .{ .initial_args = &args } });
                 defer result.deinit();
-                if (fixture != 1 and !first and !second) {
+                if (fixture != 1 and fixture != 3 and !first and !second) {
                     try std.testing.expect(result.record == .failed);
                     try std.testing.expectEqualSlices(u8, &.{}, result.record.failed.value);
                 } else {

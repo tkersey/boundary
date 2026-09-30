@@ -461,7 +461,15 @@ pub fn construct(allocator: std.mem.Allocator, original: ir.Program, options: Op
                     if (variant.key.value == .constructor and apply.computation == before.inputs[variant.key.parameter]) copy.terminator = .{ .call = .{ .function = original.constructors[@intCast(variant.key.value.constructor)].function, .arguments = try concat(a, capture_inputs, apply.arguments), .next = translatedEdge(original, variant, apply.next) } } else copy.terminator.apply.next = translatedEdge(original, variant, apply.next);
                 },
                 .switch_variant => |branch| {
-                    if (variant.key.value == .variant and branch.value == before.inputs[variant.key.parameter]) copy.terminator = .{ .jump = translatedEdge(original, variant, branch.cases[@intCast(variant.key.value.variant)]) } else {
+                    if (variant.key.value == .variant and branch.value == before.inputs[variant.key.parameter]) {
+                        var edge = translatedEdge(original, variant, branch.cases[@intCast(variant.key.value.variant)]);
+                        const assignments = try a.dupe(ir.Assignment, edge.assignments);
+                        for (assignments) |*assignment| if (assignment.source == .returned) {
+                            assignment.source = .{ .slot = before.inputs[variant.key.parameter] };
+                        };
+                        edge.assignments = assignments;
+                        copy.terminator = .{ .jump = edge };
+                    } else {
                         const edges = try a.dupe(ir.Edge, branch.cases);
                         for (edges) |*edge| edge.* = translatedEdge(original, variant, edge.*);
                         copy.terminator.switch_variant.cases = edges;
@@ -527,6 +535,18 @@ fn edgeCorresponds(original: ir.Program, variant: Variant, before: ir.Edge, afte
         ordinal += 1;
     }
     return false;
+}
+fn payloadEdgeCorresponds(original: ir.Program, variant: Variant, before: ir.Edge, after: ir.Edge, payload: p.Id) bool {
+    if (before.assignments.len != after.assignments.len) return false;
+    for (before.assignments, after.assignments) |old, new| {
+        if (old.destination != new.destination) return false;
+        if (old.source == .returned) {
+            if (new.source != .slot or new.source.slot != payload) return false;
+        } else if (!equal(ir.Source, old.source, new.source)) return false;
+    }
+    var relocated = after;
+    relocated.assignments = before.assignments;
+    return edgeCorresponds(original, variant, before, relocated);
 }
 pub fn validate(allocator: std.mem.Allocator, original: ir.Program, candidate: ir.Program, variants: []const Variant, sites: []const Site, work_limit: u64) Error!void {
     var before = try ownership.analyze(allocator, original);
@@ -645,7 +665,7 @@ pub fn validate(allocator: std.mem.Allocator, original: ir.Program, candidate: i
                 },
                 .switch_variant => |branch| {
                     if (variant.key.value == .variant and branch.value == slot) {
-                        if (term != .jump or !edgeCorresponds(original, variant, branch.cases[@intCast(variant.key.value.variant)], term.jump)) return error.InvalidCallPattern;
+                        if (term != .jump or !payloadEdgeCorresponds(original, variant, branch.cases[@intCast(variant.key.value.variant)], term.jump, slot)) return error.InvalidCallPattern;
                         term = block.terminator;
                     } else {
                         if (term != .switch_variant or term.switch_variant.cases.len != branch.cases.len) return error.InvalidCallPattern;
