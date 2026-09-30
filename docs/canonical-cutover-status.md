@@ -32,8 +32,8 @@ The user explicitly accepted all recorded costs. Current evidence and the full
 P/T/G/L scope are consolidated in [optimization acceptance](optimization-acceptance.md).
 
 Initial review findings identified input-demand, payload-transfer and profile
-forwarding defects;42c089c repairs them. No clean credit survives that invalidated
-subject. Complete the specified cleanup and affected reference/package checks,
-then freeze corrected scope and run the installed final serial-review contract.
+forwarding defects; `42c089c` repairs them. No clean credit survives that invalidated
+subject. The specified cleanup and affected reference/package checks now pass. Freeze
+the corrected scope and run the installed final serial-review contract.
 Historical narratives are archived at their exact original commits, not rewritten
 as current results. The goal remains incomplete until final review closure.

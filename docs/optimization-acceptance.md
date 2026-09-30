@@ -1,7 +1,7 @@
 # Optimization acceptance
 
-**State:** technical qualification passed; repository cleanup and final serial
-reviews are not yet complete. This is the consolidated acceptance report for
+**State:** technical qualification and repository cleanup passed; final serial
+reviews remain open. This is the consolidated acceptance report for
 Boundary #161, World #59 and Agent #39. No merge or release is authorized.
 
 The [current specification](canonical-cutover-and-optimization-spec.md) owns all
@@ -245,10 +245,10 @@ terminal counts and log hash). Actual authenticated bundles used as measured
 controls/candidates and canonical owner stores remain intact. Unrelated/concurrent
 work is preserved. Historical source/package identities remain historical.
 
-Affected documentation references and package inputs must pass cleanup checks
-before review. Those results and any new package binding are recorded separately
-from the earlier execution qualification; the full integration run is not repeated
-solely because report files were removed.
+Affected documentation references and package inputs passed cleanup checks.
+Results and the new package binding are recorded separately from the earlier
+execution qualification; the full integration run was not repeated solely because
+report files were removed.
 
 Cleanup checks passed: 845 retained source/test files are byte-identical to their
 qualified heads; 139 retired artifacts match their committed archives; 96 current
@@ -256,7 +256,30 @@ comparisons and 8,640 raw timing samples are preserved; all checked relative lin
 and package allowlist paths exist. The generated bitvector Python bytecode cache
 was removed; its source and tests remain. A local-directory package inspection
 was stopped after recursively copying its own temporary output; that temporary
-copy was removed and archive-based inspection passed. It receives no execution
-or qualification credit. Published package identities still require independent
-authentication before final review. No full runtime suite is repeated for the
-report-only cleanup.
+copy was removed. The stopped directory fetch receives no qualification credit.
+Archive-based inspection and independent authentication of the published package
+subsequently passed. No full runtime suite was repeated for the report-only cleanup.
+
+### Cleanup successor qualification
+
+Boundary `dc42ff9bac6f712a2e432e23254b31b6f17bd595` supplies the authenticated
+cleaned package `boundary-3.0.0-dev.0-flclaO9RRADpcWhrNMAkiBHBcosyJecfZEVYpt94QRVv`.
+Its source tree matches GitHub, both package mode profiles verify, and its complete
+production source inventory is identical to the qualified repair. Agent
+`1c35910ae252c0469aca98d077f2c6a642aaf809` binds it. World
+`9e2956a4ed93928222fd2ec0415433f5129ba51b` changes verification documentation only;
+the actual runtime still comes from authenticated `cb52f4f`, kernel `9356b126`.
+
+Cleaned-package emission passed **202/202 steps**. Its complete declared
+distribution inventory and all **67 input files** are byte-identical to the
+qualified pre-cleanup distribution. Six additional outputs in the old full-test
+directory belong to separate check targets, as verified from the unchanged build
+declarations; they are not missing distribution files. A02 outside-tree public
+authoring passed, and the newly built source-independent archive passed its
+**3/3 documented-command tests**, including parser and inquiry execution.
+The source archive hash, package inventories, use-archive receipt and scoped
+verification results are retained in the measurement record.
+
+This final evidence update is outside the dependency package allowlist. It does
+not change the authenticated compiler package or require another runtime build.
+Final reviews must cover the current corrected heads, including this cleanup.
