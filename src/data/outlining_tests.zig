@@ -88,7 +88,7 @@ fn allocationAttempt(allocator: std.mem.Allocator) !void {
     defer result.deinit();
 }
 test "outline allocation and work limits preserve the canonical baseline" {
-    try std.testing.checkAllAllocationFailures(a, allocationAttempt, .{});
+    try @import("allocation_testing.zig").check(a, allocationAttempt, .{});
     var baseline = try @import("coalescing.zig").run(a, repeated, .{});
     defer baseline.deinit();
     for ([_]outline.Options{ .{ .work_limit = 0 }, .{ .max_sites = 1 } }) |options| {

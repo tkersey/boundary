@@ -27,7 +27,7 @@ pub fn stateCount(law: Law) usize {
 }
 pub fn identity(law: Law, index: usize) []const u8 {
     return switch (law.kind) {
-        .xor_word => (&[_]u8{0} ** 8)[0..law.width],
+        .xor_word => (&@as([8]u8, @splat(0)))[0..law.width],
         .boolean_table => if (index == 0) &.{0} else &.{1},
     };
 }

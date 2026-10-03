@@ -81,7 +81,7 @@ fn allocationAttempt(allocator: std.mem.Allocator) !void {
     defer result.deinit();
 }
 test "capture projection releases all partial owners on allocation failure" {
-    try std.testing.checkAllAllocationFailures(a, allocationAttempt, .{});
+    try @import("allocation_testing.zig").check(a, allocationAttempt, .{});
 }
 
 test "a delayed failing variant projection is not moved to construction" {

@@ -290,7 +290,7 @@ fn ownedConstruction(allocator: std.mem.Allocator) !void {
 }
 
 test "construction owns source data and releases every partial allocation" {
-    try testing.checkAllAllocationFailures(testing.allocator, ownedConstruction, .{});
+    try @import("../allocation_testing.zig").check(testing.allocator, ownedConstruction, .{});
 }
 
 test "stable lowering shares pure DAG expressions without enumerating their tree" {

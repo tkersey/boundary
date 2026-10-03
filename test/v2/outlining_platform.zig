@@ -4,7 +4,7 @@ fn save(init: std.process.Init, directory: []const u8, name: []const u8, arm: []
     const bytes = try init.gpa.alloc(u8, try data.program_image.encodedLength(program));
     defer init.gpa.free(bytes);
     _ = try data.program_image.encode(init.gpa, program, bytes);
-    const path = try std.fmt.allocPrint(init.gpa, "{s}/{s}-{s}.bpi3", .{ directory, name, arm });
+    const path = try init.gpa.print("{s}/{s}-{s}.bpi3", .{ directory, name, arm });
     defer init.gpa.free(path);
     try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = path, .data = bytes });
 }

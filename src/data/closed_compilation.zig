@@ -124,7 +124,7 @@ const Shape = struct { records: u64 = 0, bytes: u64 = 0 };
 fn recordShape(comptime T: type, value: T, result: *Shape) Error!void {
     result.records = std.math.add(u64, result.records, 1) catch return error.Capacity;
     switch (@typeInfo(T)) {
-        .@"struct" => |info| inline for (info.fields) |field| try recordShape(field.type, @field(value, field.name), result),
+        .@"struct" => |info| inline for (info.field_names, info.field_types) |field_name, FieldType| try recordShape(FieldType, @field(value, field_name), result),
         .@"union" => switch (value) {
             inline else => |payload| try recordShape(@TypeOf(payload), payload, result),
         },
@@ -369,7 +369,7 @@ fn possible(allocator: std.mem.Allocator, owned: *const p01.Owned, stage: Stage)
             @memset(seen, 0);
             for (program.blocks) |block| for (block.instructions) |op| {
                 if (!expressions.canNumber(op.opcode)) continue;
-                const tag = @intFromEnum(op.opcode);
+                const tag = @backingInt(op.opcode);
                 if (tag >= 64) return true;
                 const bit = @as(u64, 1) << @intCast(tag);
                 if (seen[@intCast(block.function)] & bit != 0) return true;
@@ -563,10 +563,10 @@ pub fn run(allocator: std.mem.Allocator, original: ir.Program, options: Options)
     }
     var stable = false;
     var generation: usize = 0;
-    var no_change_generation: [std.meta.fields(Stage).len]?usize = @splat(null);
+    var no_change_generation: [@typeInfo(Stage).@"enum".field_names.len]?usize = @splat(null);
     if (shrinking) |owner| {
         if (current == null and @import("record_equal.zig").equal(ir.Program, baseline.program, owner.program))
-            no_change_generation[@intFromEnum(Stage.dead_computation)] = generation;
+            no_change_generation[@backingInt(Stage.dead_computation)] = generation;
     }
     var round: usize = 0;
     while (round < options.round_limit) : (round += 1) {
@@ -579,7 +579,7 @@ pub fn run(allocator: std.mem.Allocator, original: ir.Program, options: Options)
                 stats.stages_skipped += 1;
                 continue;
             };
-            if (no_change_generation[@intFromEnum(stage)] == generation) {
+            if (no_change_generation[@backingInt(stage)] == generation) {
                 stats.stages_skipped += 1;
                 continue;
             }
@@ -624,7 +624,7 @@ pub fn run(allocator: std.mem.Allocator, original: ir.Program, options: Options)
             if (!@import("record_equal.zig").equal(ir.Program, input, next.program)) {
                 stats.changed_stages += 1;
                 generation += 1;
-            } else no_change_generation[@intFromEnum(stage)] = generation;
+            } else no_change_generation[@backingInt(stage)] = generation;
             if (current) |*owner| owner.deinit();
             current = next;
         }

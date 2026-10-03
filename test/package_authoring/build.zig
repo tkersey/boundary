@@ -1,6 +1,6 @@
 const std = @import("std");
 pub fn build(b: *std.Build) void {
-    const dependency = b.dependency("boundary", .{ .optimize = .ReleaseSafe });
+    const dependency = b.dependency("boundary", .{ .optimize = .safe });
     const boundary = dependency.module("boundary");
     const pure = b.dependency("boundary", .{ .@"data-only" = true });
     const pure_test = b.addTest(.{ .root_module = b.createModule(.{
@@ -12,7 +12,7 @@ pub fn build(b: *std.Build) void {
     const client = b.addExecutable(.{ .name = "client", .root_module = b.createModule(.{
         .root_source_file = b.path("client.zig"),
         .target = b.graph.host,
-        .optimize = .ReleaseSafe,
+        .optimize = .safe,
         .imports = &.{.{ .name = "boundary", .module = boundary }},
     }) });
     b.step("emit", "Emit public-package client").dependOn(&b.addRunArtifact(client).step);

@@ -16,5 +16,6 @@ fn construct(allocator: std.mem.Allocator) !void {
     try std.testing.expectEqual(compiled.program.functions.len, decoded.program.functions.len);
 }
 test "hyperfunction construction lowering and publication release every partial allocation" {
-    try std.testing.checkAllAllocationFailures(std.testing.allocator, construct, .{});
+    var fixed_growth = std.testing.FailingAllocator.init(std.testing.allocator, .{ .resize_fail_index = 0 });
+    try std.testing.checkAllAllocationFailures(fixed_growth.allocator(), construct, .{});
 }

@@ -4,18 +4,18 @@ pub fn build(b: *std.Build) void {
     const data = b.createModule(.{
         .root_source_file = .{ .cwd_relative = b.pathJoin(&.{ root, "src/data/root.zig" }) },
         .target = b.graph.host,
-        .optimize = .ReleaseSafe,
+        .optimize = .safe,
     });
     const boundary = b.createModule(.{
         .root_source_file = .{ .cwd_relative = b.pathJoin(&.{ root, "src/root.zig" }) },
         .target = b.graph.host,
-        .optimize = .ReleaseSafe,
+        .optimize = .safe,
         .imports = &.{.{ .name = "boundary_data", .module = data }},
     });
     const reference = b.addExecutable(.{ .name = "twice-reference", .root_module = b.createModule(.{
         .root_source_file = b.path("authoring_twice_reference.zig"),
         .target = b.graph.host,
-        .optimize = .ReleaseSafe,
+        .optimize = .safe,
         .imports = &.{.{ .name = "boundary", .module = boundary }},
     }) });
     b.step("reference", "Build the independent frozen twice source")
@@ -23,7 +23,7 @@ pub fn build(b: *std.Build) void {
     const workload = b.createModule(.{
         .root_source_file = .{ .cwd_relative = b.pathJoin(&.{ root, b.option([]const u8, "workload", "Application source relative to source root") orelse "examples/one_effect.zig" }) },
         .target = b.graph.host,
-        .optimize = .ReleaseSafe,
+        .optimize = .safe,
         .imports = &.{.{ .name = "boundary", .module = boundary }},
     });
     const emitter = b.addExecutable(.{ .name = "one-effect", .root_module = workload });
@@ -31,7 +31,7 @@ pub fn build(b: *std.Build) void {
     const probe = b.addExecutable(.{ .name = "authoring-economy", .root_module = b.createModule(.{
         .root_source_file = b.path("authoring_economy.zig"),
         .target = b.graph.host,
-        .optimize = .ReleaseSafe,
+        .optimize = .safe,
         .imports = &.{ .{ .name = "boundary", .module = boundary }, .{ .name = "workload", .module = workload } },
     }) });
     b.step("measure", "Build the author/lower/encode timing probe")

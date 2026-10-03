@@ -7,7 +7,7 @@ pub const count = 12;
 const Kind = enum { binding, branch, call, apply, temporary_binding, temporary_branch, temporary_call, temporary_apply, returned_owner, match_payload, unpack_payload, unpack_operand };
 
 pub fn scenario(b: *source.Builder, index: usize, fail: bool) Error!p.Id {
-    const kind: Kind = @enumFromInt(index);
+    const kind: Kind = @fromBackingInt(@intCast(index));
     const integer = try b.scalar(u64);
     const queue = try b.schema(.{ .seq = try b.resource(integer) });
     const parameter = switch (kind) {

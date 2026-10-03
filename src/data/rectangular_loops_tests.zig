@@ -136,7 +136,7 @@ fn allocationAttempt(allocator: std.mem.Allocator) !void {
     defer result.deinit();
 }
 test "interchange allocation cleanup and deterministic work rollback retain admission" {
-    try std.testing.checkAllAllocationFailures(a, allocationAttempt, .{});
+    try @import("allocation_testing.zig").check(a, allocationAttempt, .{});
     var stats: pass.Statistics = .{};
     var limited = try pass.run(a, base, &stats, .{ .work_limit = 0 });
     defer limited.deinit();

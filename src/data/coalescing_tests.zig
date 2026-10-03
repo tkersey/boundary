@@ -83,7 +83,7 @@ fn allocationCase(allocator: std.mem.Allocator) !void {
 }
 
 test "coalescing fixed point releases all owners at every allocation failure" {
-    try testing.checkAllAllocationFailures(testing.allocator, allocationCase, .{});
+    try @import("allocation_testing.zig").check(testing.allocator, allocationCase, .{});
 }
 
 const description_only: @import("activation.zig").Program = .{
@@ -111,7 +111,7 @@ fn descriptionAllocationCase(allocator: std.mem.Allocator) !void {
 }
 
 test "coalescing reuses equal portfolios with identical bytes and allocation failure cleanup" {
-    try testing.checkAllAllocationFailures(testing.allocator, descriptionAllocationCase, .{});
+    try @import("allocation_testing.zig").check(testing.allocator, descriptionAllocationCase, .{});
     const discovery = @import("coalescing_discovery.zig");
     const candidate = @import("coalescing_candidate.zig");
     var scratch = std.heap.ArenaAllocator.init(testing.allocator);

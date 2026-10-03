@@ -3,13 +3,19 @@ const std = @import("std");
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
-    const data = b.addModule("boundary_data", .{
+    const public_data = b.addModule("boundary_data", .{
         .root_source_file = b.path("src/data/root.zig"),
         .target = target,
         .optimize = optimize,
     });
     // This exit constructs only the separately importable pure contract module.
     if (b.option(bool, "data-only", "Construct only boundary_data") orelse false) return;
+    // Build-host generators must not inherit an exported consumer's target.
+    const data = b.createModule(.{
+        .root_source_file = b.path("src/data/root.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+    });
     const tests = b.addTest(.{
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/data/test_root.zig"),
@@ -19,9 +25,15 @@ pub fn build(b: *std.Build) void {
     });
     const data_step = b.step("check-data", "Check canonical records and pure admission");
     data_step.dependOn(&b.addRunArtifact(tests).step);
-    const boundary = b.addModule("boundary", .{
+    _ = b.addModule("boundary", .{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "boundary_data", .module = public_data }},
+    });
+    const boundary = b.createModule(.{
+        .root_source_file = b.path("src/root.zig"),
+        .target = b.graph.host,
         .optimize = optimize,
         .imports = &.{.{ .name = "boundary_data", .module = data }},
     });
@@ -61,29 +73,38 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("tools/component_link.zig"),
         .target = target,
         .optimize = optimize,
-        .imports = &.{.{ .name = "boundary_data", .module = data }},
+        .imports = &.{.{ .name = "boundary_data", .module = public_data }},
     }) });
+    const native_linker = if (target.query.isNative()) linker else b.addExecutable(.{
+        .name = "boundary-link-host",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/component_link.zig"),
+            .target = b.graph.host,
+            .optimize = optimize,
+            .imports = &.{.{ .name = "boundary_data", .module = data }},
+        }),
+    });
     const installed_linker = b.addInstallArtifact(linker, .{});
     coalescing_fixtures.dependOn(&installed_linker.step);
     b.step("build-compiler", "Build the source-independent BMO1 linker")
         .dependOn(&installed_linker.step);
     const component_example = b.addExecutable(.{ .name = "component-example", .root_module = b.createModule(.{
         .root_source_file = b.path("tools/component_example.zig"),
-        .target = target,
+        .target = b.graph.host,
         .optimize = optimize,
         .imports = &.{.{ .name = "boundary", .module = boundary }},
     }) });
     const component_checks = b.addSystemCommand(&.{"node"});
-    component_checks.addFileArg(b.path("test/components.mjs"));
-    component_checks.addArtifactArg(linker);
-    component_checks.addArtifactArg(component_example);
+    component_checks.addFileArg2(b.path("test/components.mjs"), .{});
+    component_checks.addArtifactArg2(native_linker, .{});
+    component_checks.addArtifactArg2(component_example, .{});
     component_checks.has_side_effects = true;
     const component_step = b.step("check-components", "Check object admission and source-independent composition");
     component_step.dependOn(&component_checks.step);
     const coalescing_components = b.addSystemCommand(&.{ "node", "test/coalescing_components.mjs" });
-    coalescing_components.addArtifactArg(coalescing_emit);
-    coalescing_components.addArtifactArg(linker);
-    coalescing_components.addArtifactArg(coalescing_inspect);
+    coalescing_components.addArtifactArg2(coalescing_emit, .{});
+    coalescing_components.addArtifactArg2(native_linker, .{});
+    coalescing_components.addArtifactArg2(coalescing_inspect, .{});
     coalescing_components.has_side_effects = true;
     component_step.dependOn(&coalescing_components.step);
     const component_data_tests = b.addTest(.{ .root_module = b.createModule(.{
@@ -120,7 +141,7 @@ pub fn build(b: *std.Build) void {
     const facts_profile = b.addExecutable(.{ .name = "source-facts-profile", .root_module = b.createModule(.{
         .root_source_file = b.path("src/facts_profile.zig"),
         .target = b.graph.host,
-        .optimize = .ReleaseSafe,
+        .optimize = .safe,
         .imports = &.{.{ .name = "boundary_data", .module = data }},
     }) });
     b.step("profile-source-facts", "Measure source checking with compact set counters")
@@ -137,12 +158,12 @@ pub fn build(b: *std.Build) void {
     const compact_wasm_data = b.createModule(.{
         .root_source_file = b.path("src/data/root.zig"),
         .target = compact_target,
-        .optimize = .ReleaseSmall,
+        .optimize = .small,
     });
     const compact_wasm = b.addExecutable(.{ .name = "compact-codec-probe", .root_module = b.createModule(.{
         .root_source_file = b.path("test/v2/compact_wasm.zig"),
         .target = compact_target,
-        .optimize = .ReleaseSmall,
+        .optimize = .small,
         .imports = &.{.{ .name = "boundary_data", .module = compact_wasm_data }},
     }) });
     compact_wasm.entry = .disabled;
@@ -150,19 +171,19 @@ pub fn build(b: *std.Build) void {
     compact_wasm.export_memory = true;
     compact_wasm.stack_size = 65536;
     const program_wasm_run = b.addSystemCommand(&.{"node"});
-    program_wasm_run.addFileArg(b.path("test/v2/program_wasm.mjs"));
-    program_wasm_run.addFileArg(compact_wasm.getEmittedBin());
-    program_wasm_run.addFileArg(compact_emit.getEmittedBin());
+    program_wasm_run.addFileArg2(b.path("test/v2/program_wasm.mjs"), .{});
+    program_wasm_run.addFileArg2(compact_wasm.getEmittedBin(), .{});
+    program_wasm_run.addFileArg2(compact_emit.getEmittedBin(), .{});
     b.step("check-program-image-wasm", "Compare BPI3 native and wasm32 bytes and identity")
         .dependOn(&program_wasm_run.step);
     const state_wasm_run = b.addSystemCommand(&.{"node"});
-    state_wasm_run.addFileArg(b.path("test/v2/state_wasm.mjs"));
-    state_wasm_run.addFileArg(compact_wasm.getEmittedBin());
+    state_wasm_run.addFileArg2(b.path("test/v2/state_wasm.mjs"), .{});
+    state_wasm_run.addFileArg2(compact_wasm.getEmittedBin(), .{});
     b.step("check-state-image-wasm", "Check PST3 canonical graph bytes on wasm32")
         .dependOn(&state_wasm_run.step);
     const invocation_wasm_run = b.addSystemCommand(&.{"node"});
-    invocation_wasm_run.addFileArg(b.path("test/v2/invocation_wasm.mjs"));
-    invocation_wasm_run.addFileArg(compact_wasm.getEmittedBin());
+    invocation_wasm_run.addFileArg2(b.path("test/v2/invocation_wasm.mjs"), .{});
+    invocation_wasm_run.addFileArg2(compact_wasm.getEmittedBin(), .{});
     b.step("check-invocation-wasm", "Check current envelope bytes and request identity on wasm32")
         .dependOn(&invocation_wasm_run.step);
     for ([_][]const u8{ "install", "mixed", "irregular" }) |kind| {
@@ -236,7 +257,7 @@ pub fn build(b: *std.Build) void {
         .dependOn(&b.addRunArtifact(example).step);
     const source_fixtures = b.step("emit-examples", "Emit higher-order source examples and BPI3 images");
     const oracle = b.addSystemCommand(&.{"node"});
-    oracle.addFileArg(b.path("test/v2/source_oracle.mjs"));
+    oracle.addFileArg2(b.path("test/v2/source_oracle.mjs"), .{});
     const source_emitter = b.addExecutable(.{ .name = "source-example", .root_module = b.createModule(.{
         .root_source_file = b.path("test/v2/emit_source.zig"),
         .target = b.graph.host,
@@ -249,7 +270,7 @@ pub fn build(b: *std.Build) void {
             run.addArgs(&.{ b.fmt("{d}", .{index}), format });
             const file = run.captureStdOut(.{});
             source_fixtures.dependOn(&b.addInstallFileWithDir(file, .prefix, b.fmt("source-{s}.{s}", .{ name, format })).step);
-            if (std.mem.eql(u8, format, "json")) oracle.addFileArg(file);
+            if (std.mem.eql(u8, format, "json")) oracle.addFileArg2(file, .{});
         }
     }
     oracle.has_side_effects = true;
@@ -259,9 +280,27 @@ pub fn build(b: *std.Build) void {
     semantics.dependOn(&borrowReturnChecks(b, boundary, optimize).step);
     semantics.dependOn(&b.addRunArtifact(authoring).step);
     const exact_json = b.addSystemCommand(&.{ "node", "--test" });
-    exact_json.addFileArg(b.path("test/v2/exact_json.test.mjs"));
+    exact_json.addFileArg2(b.path("test/v2/exact_json.test.mjs"), .{});
     semantics.dependOn(&exact_json.step);
     const aggregate = b.step("check", "Check current authoring, data, source semantics and component linking");
+    const zig17 = b.step("check-zig17", "Check Zig 0.17 record traversal and selected toolchain identity");
+    const zig17_records = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/data/zig17_tests.zig"),
+            .target = b.graph.host,
+            .optimize = optimize,
+        }),
+        .filters = &.{"Z17"},
+    });
+    zig17.dependOn(&b.addRunArtifact(zig17_records).step);
+    const toolchain_check = b.addSystemCommand(&.{ "node", "test/v2/toolchain.test.mjs", "--zig-exe" });
+    toolchain_check.addFileArg2(.zig_exe, .{ .make_absolute = true });
+    toolchain_check.addArg("--zig-lib");
+    toolchain_check.addDirectoryArg2(.zig_lib, .{ .make_absolute = true });
+    toolchain_check.has_side_effects = true;
+    toolchain_check.removeEnvironmentVariable("NODE_TEST_CONTEXT");
+    zig17.dependOn(&toolchain_check.step);
+    aggregate.dependOn(zig17);
     const lazy_hyper = b.addExecutable(.{ .name = "lazy-hyper", .root_module = b.createModule(.{
         .root_source_file = b.path("examples/lazy_hyper.zig"),
         .target = b.graph.host,
@@ -409,14 +448,14 @@ pub fn build(b: *std.Build) void {
     }
     aggregate.dependOn(composed_images);
     const composed_negative = b.addSystemCommand(&.{ "node", "test/composed_exchange_negative.mjs" });
-    composed_negative.addArtifactArg(composed);
+    composed_negative.addArtifactArg2(composed, .{});
     composed_images.dependOn(&composed_negative.step);
     const exchange_negative = b.addSystemCommand(&.{"node"});
-    exchange_negative.addFileArg(b.path("test/owned_exchange_negative.mjs"));
-    exchange_negative.addArtifactArg(exchange);
+    exchange_negative.addFileArg2(b.path("test/owned_exchange_negative.mjs"), .{});
+    exchange_negative.addArtifactArg2(exchange, .{});
     aggregate.dependOn(&exchange_negative.step);
     const hyper_reference = b.addSystemCommand(&.{ "node", "--test" });
-    hyper_reference.addFileArg(b.path("test/hyperfunction_reference.test.mjs"));
+    hyper_reference.addFileArg2(b.path("test/hyperfunction_reference.test.mjs"), .{});
     aggregate.dependOn(&hyper_reference.step);
     aggregate.dependOn(data_step);
     aggregate.dependOn(component_step);
@@ -433,7 +472,7 @@ pub fn build(b: *std.Build) void {
     _ = public_example_check.captureStdOut(.{});
     aggregate.dependOn(&public_example_check.step);
     const assets_tests = b.addSystemCommand(&.{ "node", "--test" });
-    assets_tests.addFileArg(b.path("test/v2/assets.test.mjs"));
+    assets_tests.addFileArg2(b.path("test/v2/assets.test.mjs"), .{});
     assets_tests.has_side_effects = true;
     b.step("check-assets", "Check source identity and bounded archive/container integrity")
         .dependOn(&assets_tests.step);
@@ -453,7 +492,7 @@ pub fn build(b: *std.Build) void {
 fn oracleScopeChecks(
     b: *std.Build,
     boundary: *std.Build.Module,
-    optimize: std.builtin.OptimizeMode,
+    optimize: std.lang.Optimize,
     authoring_cases: *std.Build.Step.Compile,
 ) *std.Build.Step.Run {
     const emitter = b.addExecutable(.{
@@ -466,9 +505,9 @@ fn oracleScopeChecks(
         }),
     });
     const check = b.addSystemCommand(&.{"node"});
-    check.addFileArg(b.path("test/v2/oracle_scopes.mjs"));
-    check.addFileArg(b.addRunArtifact(emitter).captureStdOut(.{}));
-    check.addFileArg(authoring_cases.getEmittedBin());
+    check.addFileArg2(b.path("test/v2/oracle_scopes.mjs"), .{});
+    check.addFileArg2(b.addRunArtifact(emitter).captureStdOut(.{}), .{});
+    check.addFileArg2(authoring_cases.getEmittedBin(), .{});
     check.has_side_effects = true;
     return check;
 }
@@ -476,7 +515,7 @@ fn oracleScopeChecks(
 fn borrowReturnChecks(
     b: *std.Build,
     boundary: *std.Build.Module,
-    optimize: std.builtin.OptimizeMode,
+    optimize: std.lang.Optimize,
 ) *std.Build.Step.Run {
     const tests = b.addExecutable(.{
         .name = "borrow-returns",

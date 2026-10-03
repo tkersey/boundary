@@ -110,5 +110,5 @@ fn allocationAttempt(allocator: std.mem.Allocator) !void {
     defer result.deinit();
 }
 test "affine construction handles every allocation failure" {
-    try std.testing.checkAllAllocationFailures(a, allocationAttempt, .{});
+    try @import("allocation_testing.zig").check(a, allocationAttempt, .{});
 }

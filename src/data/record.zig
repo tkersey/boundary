@@ -36,12 +36,12 @@ pub fn overlaps(comptime T: type, value: T, output: []const u8) bool {
                 if (overlaps(info.child, element, output)) return true;
             };
         },
-        .@"struct" => |info| inline for (info.fields) |field| {
-            if (overlaps(field.type, @field(value, field.name), output)) return true;
+        .@"struct" => |info| inline for (info.field_names, info.field_types) |field_name, FieldType| {
+            if (overlaps(FieldType, @field(value, field_name), output)) return true;
         },
-        .@"union" => |info| inline for (info.fields) |field| {
-            if (std.mem.eql(u8, field.name, @tagName(value)))
-                return overlaps(field.type, @field(value, field.name), output);
+        .@"union" => |info| inline for (info.field_names, info.field_types) |field_name, FieldType| {
+            if (std.mem.eql(u8, field_name, @tagName(value)))
+                return overlaps(FieldType, @field(value, field_name), output);
         },
         .optional => |info| {
             if (value) |present| return overlaps(info.child, present, output);
@@ -59,7 +59,7 @@ pub fn write(comptime T: type, value: T, writer: *wire.Writer) wire.Error!void {
             comptime std.debug.assert(info.signedness == .unsigned and info.bits <= 64);
             try writer.natural(value);
         },
-        .@"enum" => try writer.natural(@intFromEnum(value)),
+        .@"enum" => try writer.natural(@backingInt(value)),
         .optional => |info| {
             try writer.byte(@intFromBool(value != null));
             if (value) |present| try write(info.child, present, writer);
@@ -81,13 +81,13 @@ pub fn write(comptime T: type, value: T, writer: *wire.Writer) wire.Error!void {
             for (value) |element| try write(info.child, element, writer);
         },
         .@"struct" => |info| {
-            inline for (info.fields) |field| try write(field.type, @field(value, field.name), writer);
+            inline for (info.field_names, info.field_types) |field_name, FieldType| try write(FieldType, @field(value, field_name), writer);
         },
         .@"union" => |info| {
-            try writer.natural(@intFromEnum(std.meta.activeTag(value)));
-            inline for (info.fields) |field| {
-                if (std.mem.eql(u8, field.name, @tagName(value))) {
-                    try write(field.type, @field(value, field.name), writer);
+            try writer.natural(@backingInt(std.meta.activeTag(value)));
+            inline for (info.field_names, info.field_types) |field_name, FieldType| {
+                if (std.mem.eql(u8, field_name, @tagName(value))) {
+                    try write(FieldType, @field(value, field_name), writer);
                     return;
                 }
             }
@@ -114,8 +114,8 @@ pub fn readBounded(comptime T: type, reader: *wire.Reader, allocator: std.mem.Al
         .int => std.math.cast(T, try reader.natural()) orelse error.InvalidLength,
         .@"enum" => |info| blk: {
             const tag = try reader.natural();
-            inline for (info.fields) |field| {
-                if (tag == field.value) break :blk @enumFromInt(field.value);
+            inline for (info.field_values) |field_value| {
+                if (tag == field_value) break :blk @fromBackingInt(@intCast(field_value));
             }
             break :blk error.InvalidTag;
         },
@@ -147,16 +147,16 @@ pub fn readBounded(comptime T: type, reader: *wire.Reader, allocator: std.mem.Al
         },
         .@"struct" => |info| blk: {
             var result: T = undefined;
-            inline for (info.fields) |field| {
-                @field(result, field.name) = try readBounded(field.type, reader, allocator, remaining);
+            inline for (info.field_names, info.field_types) |field_name, FieldType| {
+                @field(result, field_name) = try readBounded(FieldType, reader, allocator, remaining);
             }
             break :blk result;
         },
         .@"union" => |info| blk: {
             const tag = try reader.natural();
-            inline for (info.fields) |field| {
-                const declared_tag = @intFromEnum(@field(info.tag_type.?, field.name));
-                if (tag == declared_tag) break :blk @unionInit(T, field.name, try readBounded(field.type, reader, allocator, remaining));
+            inline for (info.field_names, info.field_types) |field_name, FieldType| {
+                const declared_tag = @backingInt(@field(info.tag_type.?, field_name));
+                if (tag == declared_tag) break :blk @unionInit(T, field_name, try readBounded(FieldType, reader, allocator, remaining));
             }
             break :blk error.InvalidTag;
         },
@@ -229,12 +229,12 @@ pub fn equal(comptime T: type, a: T, b: T) bool {
             break :blk true;
         },
         .@"struct" => |info| blk: {
-            inline for (info.fields) |field| if (!equal(field.type, @field(a, field.name), @field(b, field.name))) break :blk false;
+            inline for (info.field_names, info.field_types) |field_name, FieldType| if (!equal(FieldType, @field(a, field_name), @field(b, field_name))) break :blk false;
             break :blk true;
         },
         .@"union" => |info| blk: {
             if (std.meta.activeTag(a) != std.meta.activeTag(b)) break :blk false;
-            inline for (info.fields) |field| if (std.mem.eql(u8, field.name, @tagName(a))) break :blk equal(field.type, @field(a, field.name), @field(b, field.name));
+            inline for (info.field_names, info.field_types) |field_name, FieldType| if (std.mem.eql(u8, field_name, @tagName(a))) break :blk equal(FieldType, @field(a, field_name), @field(b, field_name));
             unreachable;
         },
         .optional => |info| if (a) |left| (if (b) |right| equal(info.child, left, right) else false) else b == null,

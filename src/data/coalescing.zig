@@ -226,7 +226,7 @@ fn attempt(allocator: std.mem.Allocator, baseline: ir.Program, stats: *Statistic
         // When full discovery already has those singletons, both fixed points
         // and materializations are identical. Reuse the independently checked
         // full candidate; the existing tie-break selects it in either case.
-        const same_profiles = !mapHasMerge(full_map.representatives[@intFromEnum(r.Kind.function)]);
+        const same_profiles = !mapHasMerge(full_map.representatives[@backingInt(r.Kind.function)]);
         var separate_descriptions: ?candidate.Candidate = if (same_profiles) null else try candidate.buildObserved(
             allocator,
             a,

@@ -6,7 +6,7 @@ const Error = source.Error;
 
 fn operation(b: *source.Builder, result: p.Id, opcode: p.Opcode, operands: []const p.Id, immediate: p.Id, roles: []const p.Fault) Error!p.Id {
     var failures: [2]p.InstructionFailure = undefined;
-    for (roles, 0..) |role, index| failures[index] = .{ .kind = role, .value = try b.failureLiteral(try b.constant(u8, @intFromEnum(role))) };
+    for (roles, 0..) |role, index| failures[index] = .{ .kind = role, .value = try b.failureLiteral(try b.constant(u8, @backingInt(role))) };
     return b.value(.{ .schema = result, .expression = .{ .primitive = .{ .opcode = opcode, .operands = operands, .immediate = immediate, .failures = failures[0..roles.len] } } });
 }
 fn wide(b: *source.Builder, value: p.Id, can_fail: bool) Error!p.Id {

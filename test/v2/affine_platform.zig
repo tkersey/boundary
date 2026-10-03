@@ -12,7 +12,7 @@ fn writeCase(init: std.process.Init, directory: []const u8, name: []const u8, or
         const bytes = try init.gpa.alloc(u8, try data.program_image.encodedLength(program));
         defer init.gpa.free(bytes);
         _ = try data.program_image.encode(init.gpa, program, bytes);
-        const path = try std.fmt.allocPrint(init.gpa, "{s}/{s}-{s}.bpi3", .{ directory, name, arm });
+        const path = try init.gpa.print("{s}/{s}-{s}.bpi3", .{ directory, name, arm });
         defer init.gpa.free(path);
         try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = path, .data = bytes });
     }
@@ -30,10 +30,10 @@ pub fn main(init: std.process.Init) !void {
     for ([_]usize{ 2, 3, 8, 32, 64, 128 }) |n| {
         var arena = std.heap.ArenaAllocator.init(init.gpa);
         defer arena.deinit();
-        const name = try std.fmt.allocPrint(arena.allocator(), "parity-{d}", .{n});
+        const name = try arena.allocator().print("parity-{d}", .{n});
         const original = try fixtures.parityFixture(arena.allocator(), n);
         try writeCase(init, directory, name, original, false);
-        const direct = try std.fmt.allocPrint(arena.allocator(), "{s}-direct", .{name});
+        const direct = try arena.allocator().print("{s}-direct", .{name});
         try writeCase(init, directory, direct, original, true);
         if (n >= 8) {
             var parameters = original;
@@ -42,7 +42,7 @@ pub fn main(init: std.process.Init) !void {
             blocks[0].terminator = .{ .call = .{ .function = 1, .arguments = original.functions[0].inputs, .next = original.blocks[0].terminator.apply.next } };
             parameters.blocks = blocks;
             parameters.constructors = &.{};
-            const parameter_name = try std.fmt.allocPrint(arena.allocator(), "parameters-{d}", .{n});
+            const parameter_name = try arena.allocator().print("parameters-{d}", .{n});
             try writeCase(init, directory, parameter_name, parameters, false);
         }
     }

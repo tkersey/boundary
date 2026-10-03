@@ -75,7 +75,7 @@ fn allocationAttempt(allocator: std.mem.Allocator) !void {
     defer result.deinit();
 }
 test "common-tail limits and allocation failure retain mandatory P01" {
-    try std.testing.checkAllAllocationFailures(a, allocationAttempt, .{});
+    try @import("allocation_testing.zig").check(a, allocationAttempt, .{});
     var baseline = try @import("coalescing.zig").run(a, repeated, .{});
     defer baseline.deinit();
     var stats: tails.Statistics = .{};

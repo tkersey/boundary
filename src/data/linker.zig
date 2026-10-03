@@ -68,7 +68,7 @@ pub fn linkWithCompilation(allocator: std.mem.Allocator, input: []const Instance
     var initialized: usize = 0;
     defer for (decoded[0..initialized]) |*owner| owner.deinit();
     const units = try a.alloc(Unit, sorted.len);
-    var totals = [_]usize{0} ** relocate.kind_count;
+    var totals = @as([relocate.kind_count]usize, @splat(0));
     for (sorted, units, decoded, 0..) |instance, *unit, *owner, i| {
         if (instance.key.len == 0 or !std.unicode.utf8ValidateSlice(instance.key)) return error.InvalidSymbol;
         if (i != 0 and std.mem.eql(u8, sorted[i - 1].key, instance.key)) return error.DuplicateInstance;
@@ -85,7 +85,7 @@ pub fn linkWithCompilation(allocator: std.mem.Allocator, input: []const Instance
     var aliases: [relocate.kind_count][]Id = undefined;
     var imported: [relocate.kind_count][]bool = undefined;
     var maps: [relocate.kind_count][]Id = undefined;
-    var counts = [_]usize{0} ** relocate.kind_count;
+    var counts = @as([relocate.kind_count]usize, @splat(0));
     for (&aliases, &imported, &maps, totals) |*alias, *is_import, *map, count| {
         alias.* = try a.alloc(Id, count);
         @memset(alias.*, relocate.missing);
@@ -95,7 +95,7 @@ pub fn linkWithCompilation(allocator: std.mem.Allocator, input: []const Instance
         @memset(map.*, relocate.missing);
     }
     for (units) |unit| for (unit.object.imports) |symbol| {
-        imported[@intFromEnum(symbol.reference.kind)][unit.offsets[@intFromEnum(symbol.reference.kind)] + @as(usize, @intCast(symbol.reference.id))] = true;
+        imported[@backingInt(symbol.reference.kind)][unit.offsets[@backingInt(symbol.reference.kind)] + @as(usize, @intCast(symbol.reference.id))] = true;
     };
     for (bindings) |binding| {
         const from = units[try unitAt(units, binding.required.instance)];
@@ -103,7 +103,7 @@ pub fn linkWithCompilation(allocator: std.mem.Allocator, input: []const Instance
         const required = try symbolAt(from.object.imports, binding.required.symbol);
         const supplied = try symbolAt(to.object.exports, binding.supplied.symbol);
         if (required.kind != supplied.kind) return error.IncompatibleInterface;
-        const kind = @intFromEnum(required.kind);
+        const kind = @backingInt(required.kind);
         const slot = from.offsets[kind] + @as(usize, @intCast(required.id));
         if (aliases[kind][slot] != relocate.missing) return error.DuplicateBinding;
         aliases[kind][slot] = to.offsets[kind] + supplied.id;
@@ -129,12 +129,12 @@ pub fn linkWithCompilation(allocator: std.mem.Allocator, input: []const Instance
     provisional.roots = .{ .entry = root, .result = provisional.functions[@intCast(root)].result, .failure = try selected_mapper.id(.schema, selected_unit.object.program.roots.failure) };
     const schema_map = try @import("schema_partition.zig").compute(a, provisional);
     var final_maps = try relocate.identityMaps(a, try relocate.sizes(provisional));
-    final_maps[@intFromEnum(Kind.schema)] = schema_map;
+    final_maps[@backingInt(Kind.schema)] = schema_map;
     const result = try rewrite(a, provisional, final_maps);
     for (units) |*unit| {
-        const mapped = try a.alloc(Id, unit.maps[@intFromEnum(Kind.schema)].len);
-        for (mapped, unit.maps[@intFromEnum(Kind.schema)]) |*target, id| target.* = schema_map[@intCast(id)];
-        unit.maps[@intFromEnum(Kind.schema)] = mapped;
+        const mapped = try a.alloc(Id, unit.maps[@backingInt(Kind.schema)].len);
+        for (mapped, unit.maps[@backingInt(Kind.schema)]) |*target, id| target.* = schema_map[@intCast(id)];
+        unit.maps[@backingInt(Kind.schema)] = mapped;
         const mapper: relocate.Mapper = .{ .allocator = a, .maps = unit.maps };
         if (try mapper.id(.schema, unit.object.program.roots.failure) != result.roots.failure) return error.IncompatibleFailure;
         for (unit.object.imports) |symbol| try compatible(mapper, unit.object.program, result, symbol.reference);
@@ -195,7 +195,7 @@ fn catalog(comptime T: type, comptime kind: Kind, allocator: std.mem.Allocator, 
         const mapper: relocate.Mapper = .{ .allocator = allocator, .maps = unit.maps };
         const values = slice(kind, unit.object.program);
         for (values, 0..) |value, local| {
-            if (imported[unit.offsets[@intFromEnum(kind)] + local]) continue;
+            if (imported[unit.offsets[@backingInt(kind)] + local]) continue;
             result[@intCast(try mapper.id(kind, local))] = try method(mapper, value);
         }
     }

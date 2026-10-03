@@ -59,7 +59,7 @@ test "actual duplicate capability arguments remove forwarding, not operations" {
             defer result.deinit();
         }
     };
-    try std.testing.checkAllAllocationFailures(a, AllocationProbe.execute, .{original});
+    try @import("allocation_testing.zig").check(a, AllocationProbe.execute, .{original});
     var candidate = (try forwarding.construct(a, original, .{})).?;
     defer candidate.deinit();
     try std.testing.expectEqual(@as(usize, 1), candidate.pairs.len);

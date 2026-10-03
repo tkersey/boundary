@@ -77,7 +77,7 @@ fn allocationAttempt(allocator: std.mem.Allocator) !void {
     defer result.deinit();
 }
 test "constant worker allocation failures release owners and variant limit rolls back" {
-    try std.testing.checkAllAllocationFailures(a, allocationAttempt, .{});
+    try @import("allocation_testing.zig").check(a, allocationAttempt, .{});
     var stats: patterns.Statistics = .{};
     var limited = try patterns.run(a, choice, &stats, .{ .max_variants = 1 });
     defer limited.deinit();

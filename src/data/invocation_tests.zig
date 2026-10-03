@@ -5,8 +5,8 @@ const testing = std.testing;
 fn request() !protocol.Request {
     // Independently encoded canonical descriptors: root 0, one u64 / Boolean.
     return protocol.request(.{
-        .program_identity = .{1} ** 32,
-        .pending_state_digest = .{2} ** 32,
+        .program_identity = @as([32]u8, @splat(1)),
+        .pending_state_digest = @as([32]u8, @splat(2)),
         .effect = 3,
         .semantic_identity = "operation",
         .payload_schema = &.{ 0, 1, 9 },
@@ -66,7 +66,7 @@ test "resident progress explicitly omits a portable checkpoint" {
 }
 
 test "current envelopes reject initial replies and malformed outcomes atomically" {
-    var output = [_]u8{0xa5} ** 256;
+    var output = @as([256]u8, @splat(0xa5));
     const input: protocol.Input = .{ .image = &.{}, .instance = .{ .initial_args = &.{} }, .control = .{ .reply = &.{} } };
     try testing.expectError(error.InvalidControl, protocol.encode(protocol.Input, testing.allocator, input, &output));
     try testing.expectError(error.InvalidUtf8, protocol.encode(protocol.Outcome, testing.allocator, .{ .cancelled = .{ .reason = .{ .text = &.{0xff} } } }, &output));
@@ -91,7 +91,7 @@ test "ERQ3 rejects mutations of every bound field before publishing bytes" {
             6 => changed.binding.payload = &.{ 43, 0, 0, 0, 0, 0, 0, 0 },
             else => unreachable,
         }
-        var output = [_]u8{0xa5} ** 256;
+        var output = @as([256]u8, @splat(0xa5));
         try testing.expectError(error.InvalidRequest, protocol.encode(protocol.Request, testing.allocator, changed, &output));
         try testing.expect(std.mem.allEqual(u8, &output, 0xa5));
     }
@@ -113,7 +113,7 @@ fn failure(allocator: std.mem.Allocator) !void {
     try testing.expectEqualDeep(value, decoded.value);
 }
 test "current request allocation failures release schema and envelope owners" {
-    try testing.checkAllAllocationFailures(testing.allocator, failure, .{});
+    try @import("allocation_testing.zig").check(testing.allocator, failure, .{});
 }
 
 fn survivesCallerRelease(comptime T: type, value: T) !void {
@@ -141,7 +141,7 @@ test "every envelope family retains byte fields after caller overwrite and relea
         .control = .{ .cancel = .{ .bytes = "reason" } },
     });
     try survivesCallerRelease(protocol.Request, try request());
-    try survivesCallerRelease(protocol.Result, .{ .request_identity = .{7} ** 32, .value = "result" });
+    try survivesCallerRelease(protocol.Result, .{ .request_identity = @as([32]u8, @splat(7)), .value = "result" });
     for ([_]protocol.Outcome{
         .{ .progressed = "progress" },
         .{ .requested = .{ .state = "state", .request = "request" } },

@@ -218,12 +218,12 @@ pub const Blocks = struct {
             return;
         }
         switch (@typeInfo(T)) {
-            .@"union" => inline for (std.meta.fields(T)) |field| {
-                if (std.mem.eql(u8, field.name, @tagName(value)))
-                    try self.edges(@field(value, field.name));
+            .@"union" => inline for (@typeInfo(T).@"union".field_names) |field_name| {
+                if (std.mem.eql(u8, field_name, @tagName(value)))
+                    try self.edges(@field(value, field_name));
             },
-            .@"struct" => inline for (std.meta.fields(T)) |field|
-                try self.edges(@field(value, field.name)),
+            .@"struct" => inline for (@typeInfo(T).@"struct".field_names) |field_name|
+                try self.edges(@field(value, field_name)),
             .pointer => |info| if (info.child == ir.Edge) {
                 for (value) |edge| try self.edges(edge);
             },

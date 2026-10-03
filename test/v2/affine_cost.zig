@@ -88,7 +88,7 @@ pub fn main(init: std.process.Init) !void {
         std.mem.writeInt(u64, input[n * 8 ..][0..8], 0xa5, .little);
         input[input.len - 1] = 1;
         std.mem.writeInt(u64, &expected, parity ^ 0xa5, .little);
-        try measure(init, try std.fmt.allocPrint(storage, "direct-parity-{d}", .{n}), program, null, input, &expected, &rows);
+        try measure(init, try storage.print("direct-parity-{d}", .{n}), program, null, input, &expected, &rows);
     }
     var buffer: [4096]u8 = undefined;
     var out = std.Io.File.stdout().writer(init.io, &buffer);

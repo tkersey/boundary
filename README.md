@@ -4,7 +4,7 @@ Boundary checks staged Zig computations and handlers and compiles them into
 portable BPI3 program data. World 6 executes that data with one generic native/WASM
 interpreter. Boundary contains no production evaluator.
 
-This `3.0.0-dev.0` branch uses Zig `0.16.0`. See the
+This `3.0.0-dev.0` branch uses Zig `0.17.0`. See the
 [current results and limits](docs/compositional-execution.md) and linked draft PRs
 for qualification and live review/readiness status.
 
@@ -37,7 +37,7 @@ mode selector is rejected. Diagnostics and bounded discovery remain available.
 The [public example](examples/one_effect.zig) compiles without a runtime:
 
 ```sh
-zig build emit-one-effect -Doptimize=ReleaseSafe > example.bpi3
+zig build emit-one-effect -Doptimize=safe > example.bpi3
 ```
 
 Its initial argument and result are canonical little-endian `u32` values. World
@@ -114,12 +114,24 @@ without component source or emitters.
 ## Validation
 
 ```sh
-zig build check -Doptimize=ReleaseSafe
+zig build check -Doptimize=safe
 zig build check-authoring check-data check-components
 zig build check-semantics
 zig build emit-examples
 zig build build-compiler
 ```
+
+`check-zig17` collects the migration-specific record and toolchain witnesses and
+is included in `check`. To check an independently extracted package from the
+committed source, without a World runtime or browser tools:
+
+```sh
+node test/package_authoring.mjs --zig-exe /absolute/path/to/zig --authoring-only
+```
+
+The package and compiler-economy scripts select the compiler once, require
+0.17.0, and record and recheck its executable and library identities. Nested
+invocations use that selection even when `PATH` contains a different `zig`.
 
 The current aggregate retains the independent higher-order source oracle,
 current authoring/data checks, and native/wasm32 codec agreement. It needs Node for

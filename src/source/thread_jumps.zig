@@ -58,7 +58,7 @@ fn redirect(comptime T: type, allocator: std.mem.Allocator, input: T, targets: [
     return switch (@typeInfo(T)) {
         .@"struct" => |info| blk: {
             var result = input;
-            inline for (info.fields) |field| @field(result, field.name) = try redirect(field.type, allocator, @field(input, field.name), targets);
+            inline for (info.field_names, info.field_types) |field_name, FieldType| @field(result, field_name) = try redirect(FieldType, allocator, @field(input, field_name), targets);
             break :blk result;
         },
         .@"union" => switch (input) {

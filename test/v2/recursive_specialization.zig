@@ -139,7 +139,7 @@ test "a delayed divergent callback is not evaluated while specializing" {
         const bytes = try a.alloc(u8, try data.program_image.encodedLength(program));
         defer a.free(bytes);
         _ = try data.program_image.encode(a, program, bytes);
-        var args = [_]u8{0} ** 16;
+        var args = @as([16]u8, @splat(0));
         args[0] = 1;
         args[8] = 73;
         var session = try world.Session.initImage(a, bytes, &args);
@@ -175,7 +175,7 @@ test "recursive driving retains failure order before a known callback" {
     defer checked.deinit();
     var shared = try data.closed_compilation.run(a, original, .{ .contract = .semantic });
     defer shared.deinit();
-    var args = [_]u8{0} ** 16;
+    var args = @as([16]u8, @splat(0));
     args[0] = 1;
     @memset(args[8..16], 255);
     for ([_]ir.Program{ original, checked.program, shared.program, wrong }, 0..) |program, index| {

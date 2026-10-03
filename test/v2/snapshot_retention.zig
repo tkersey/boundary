@@ -7,7 +7,7 @@ pub fn main(init: std.process.Init) !void {
         .values = &.{value},
         .tail = .{ .id = (index + 1) % nodes.len },
     } } };
-    const state: d.process_state.State = .{ .program_identity = .{0} ** 32, .status = .active, .roots = .{ .current = .{ .id = 0 } }, .nodes = &nodes, .blobs = &.{.{ .schema = 0, .bytes = "retained immutable payload" }} };
+    const state: d.process_state.State = .{ .program_identity = @as([32]u8, @splat(0)), .status = .active, .roots = .{ .current = .{ .id = 0 } }, .nodes = &nodes, .blobs = &.{.{ .schema = 0, .bytes = "retained immutable payload" }} };
     var tracked = std.testing.FailingAllocator.init(init.gpa, .{});
     var result = try d.graph_order.canonicalize(tracked.allocator(), state, null);
     const retained = tracked.allocated_bytes - tracked.freed_bytes;

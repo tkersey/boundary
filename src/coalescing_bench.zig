@@ -17,7 +17,7 @@ const Sample = struct {
     compile: Phase,
     encode: Phase,
     cold_admit: Phase,
-    compiler_stages_ns: [std.meta.fields(source.CompileStage).len]u64,
+    compiler_stages_ns: [@typeInfo(source.CompileStage).@"enum".field_names.len]u64,
     bytes: usize,
     sha256: [64]u8,
     work: u64,
@@ -29,11 +29,11 @@ const Trace = struct {
     io: std.Io,
     last: std.Io.Timestamp,
     stage: source.CompileStage = .source_copy,
-    ns: [std.meta.fields(source.CompileStage).len]u64 = @splat(0),
+    ns: [@typeInfo(source.CompileStage).@"enum".field_names.len]u64 = @splat(0),
     fn enter(context: *anyopaque, next: source.CompileStage) void {
         const self: *Trace = @ptrCast(@alignCast(context));
         const now = std.Io.Clock.awake.now(self.io);
-        self.ns[@intFromEnum(self.stage)] += @intCast(self.last.durationTo(now).nanoseconds);
+        self.ns[@backingInt(self.stage)] += @intCast(self.last.durationTo(now).nanoseconds);
         self.last = now;
         self.stage = next;
     }

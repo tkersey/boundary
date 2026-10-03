@@ -24,12 +24,12 @@ pub fn cloneCompatible(image: anytype, from: p.Id, to: p.Id) a.Error!bool {
     const owned = try resumption(image, from);
     const template = try resumption(image, to);
     if ((owned.use != .linear and owned.use != .affine) or template.use != .multi) return false;
-    inline for (@typeInfo(p.ResumptionType).@"struct".fields) |field| {
-        if (comptime std.mem.eql(u8, field.name, "use")) continue;
-        const equal = if (field.type == []const p.Id)
-            std.mem.eql(p.Id, @field(owned, field.name), @field(template, field.name))
+    inline for (@typeInfo(p.ResumptionType).@"struct".field_names, @typeInfo(p.ResumptionType).@"struct".field_types) |field_name, FieldType| {
+        if (comptime std.mem.eql(u8, field_name, "use")) continue;
+        const equal = if (FieldType == []const p.Id)
+            std.mem.eql(p.Id, @field(owned, field_name), @field(template, field_name))
         else
-            @field(owned, field.name) == @field(template, field.name);
+            @field(owned, field_name) == @field(template, field_name);
         if (!equal) return false;
     }
     return true;

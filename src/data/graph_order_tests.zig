@@ -11,7 +11,7 @@ fn detachedAllocationCase(allocator: std.mem.Allocator) !void {
         node.* = .{ .record = .{ .environment = .{ .values = &.{}, .tail = null } } };
     }
     var normalized = try order.canonicalize(allocator, s.State{
-        .program_identity = .{0} ** 32,
+        .program_identity = @as([32]u8, @splat(0)),
         .status = .active,
         .roots = .{ .detached = &detached },
         .nodes = &nodes,
@@ -22,7 +22,7 @@ fn detachedAllocationCase(allocator: std.mem.Allocator) !void {
 }
 
 test "canonical graph owner retains final detached-root allocations" {
-    try std.testing.checkAllAllocationFailures(std.testing.allocator, detachedAllocationCase, .{});
+    try @import("allocation_testing.zig").check(std.testing.allocator, detachedAllocationCase, .{});
 }
 
 fn scratchLifetimeCase(allocator: std.mem.Allocator) !void {
@@ -36,7 +36,7 @@ fn scratchLifetimeCase(allocator: std.mem.Allocator) !void {
         .{ .record = .{ .environment = .{ .values = &values, .tail = .{ .id = 0 } } } },
     };
     var normalized = try order.canonicalize(allocator, s.State{
-        .program_identity = .{0} ** 32,
+        .program_identity = @as([32]u8, @splat(0)),
         .status = .active,
         .roots = .{ .current = .{ .id = 0 } },
         .nodes = &nodes,
@@ -54,5 +54,5 @@ fn scratchLifetimeCase(allocator: std.mem.Allocator) !void {
 }
 
 test "snapshot scratch release preserves owned payloads, cycles and distinct nodes" {
-    try std.testing.checkAllAllocationFailures(std.testing.allocator, scratchLifetimeCase, .{});
+    try @import("allocation_testing.zig").check(std.testing.allocator, scratchLifetimeCase, .{});
 }

@@ -57,7 +57,7 @@ fn allocationAttempt(allocator: std.mem.Allocator) !void {
     defer candidate.deinit();
 }
 test "product capture unpacking releases every partial owner" {
-    try std.testing.checkAllAllocationFailures(a, allocationAttempt, .{});
+    try @import("allocation_testing.zig").check(a, allocationAttempt, .{});
 }
 
 test "checked product unpacking feeds aggregate reduction and affine synthesis" {

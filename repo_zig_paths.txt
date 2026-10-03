@@ -13,6 +13,7 @@ examples/one_effect.zig
 examples/owned_exchange.zig
 examples/reciprocal_hyper.zig
 examples/structured_branch.zig
+src/allocation_testing.zig
 src/authoring.zig
 src/authoring_cases.zig
 src/authoring_tests.zig
@@ -46,6 +47,7 @@ src/data/affine_target.zig
 src/data/aggregate_admission.zig
 src/data/aggregate_reduction.zig
 src/data/aggregate_reduction_tests.zig
+src/data/allocation_testing.zig
 src/data/analysis_sets.zig
 src/data/analysis_sets_tests.zig
 src/data/application_specialization.zig
@@ -110,10 +112,10 @@ src/data/dead_arguments.zig
 src/data/dead_computation.zig
 src/data/diagnostic.zig
 src/data/effect_scope.zig
-src/data/evidence_forwarding.zig
-src/data/evidence_forwarding_tests.zig
 src/data/equality_saturation.zig
 src/data/equality_saturation_tests.zig
+src/data/evidence_forwarding.zig
+src/data/evidence_forwarding_tests.zig
 src/data/expression_reuse.zig
 src/data/expression_reuse_tests.zig
 src/data/function_inputs.zig
@@ -186,6 +188,7 @@ src/data/unfold_fusion.zig
 src/data/unfold_fusion_tests.zig
 src/data/value_facts.zig
 src/data/wire.zig
+src/data/zig17_tests.zig
 src/facts_profile.zig
 src/library/choice.zig
 src/library/cleanup.zig

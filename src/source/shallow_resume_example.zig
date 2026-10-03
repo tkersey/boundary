@@ -7,7 +7,7 @@ const p = @import("boundary_data").program;
 pub fn build(b: *source.Builder) source.Error!source.Module {
     const unit = try b.scalar(void);
     const integer = try b.scalar(u64);
-    const answer = try b.schema(.{ .product = &([_]p.Id{integer} ** 8) });
+    const answer = try b.schema(.{ .product = &(@as([8]p.Id, @splat(integer))) });
     var calls: [8]p.Id = undefined;
     var variables: [8]p.Id = undefined;
     var results: [8]p.Id = undefined;
@@ -15,7 +15,7 @@ pub fn build(b: *source.Builder) source.Error!source.Module {
     var index: usize = 0;
     inline for (.{ p.Mode.deep, p.Mode.shallow }) |mode| {
         inline for (.{ p.Use.linear, p.Use.multi }) |use| inline for (.{ false, true }) |injecting| {
-            const name = try std.fmt.allocPrint(b.allocator(), "example/resume-{s}-{s}-{s}", .{ @tagName(mode), @tagName(use), if (injecting) "computation" else "value" });
+            const name = try b.allocator().print("example/resume-{s}-{s}-{s}", .{ @tagName(mode), @tagName(use), if (injecting) "computation" else "value" });
             effects[index] = b.effects.items.len;
             const function = try instance(b, name, mode, use, injecting);
             calls[index] = try b.term(.{ .call = .{ .function = function, .arguments = &.{} } });

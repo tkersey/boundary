@@ -149,7 +149,7 @@ test "indexed named arguments materialize in declaration order" {
     const integer = try c.scalar(u64);
     const unit = try c.scalar(void);
     const fields = try b.allocator().alloc(author.Field, 17);
-    for (fields, 0..) |*field, i| field.* = .{ .name = try std.fmt.allocPrint(b.allocator(), "field_{d}", .{i}), .schema = integer };
+    for (fields, 0..) |*field, i| field.* = .{ .name = try b.allocator().print("field_{d}", .{i}), .schema = integer };
     const record = try c.record(fields);
     const entry = try c.function("ordered", &.{}, record, &.{});
     const body = try c.body(entry);

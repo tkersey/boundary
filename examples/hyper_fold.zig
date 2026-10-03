@@ -153,7 +153,7 @@ pub fn main(init: std.process.Init) !void {
                 else => {},
             }
         };
-        const text = try std.fmt.allocPrint(init.gpa, "{{\"functions\":{d},\"constructors\":{d},\"imageBytes\":{d},\"sequenceBuilders\":{d}}}\n", .{ compiled.program.functions.len, compiled.program.constructors.len, length, sequences });
+        const text = try init.gpa.print("{{\"functions\":{d},\"constructors\":{d},\"imageBytes\":{d},\"sequenceBuilders\":{d}}}\n", .{ compiled.program.functions.len, compiled.program.constructors.len, length, sequences });
         defer init.gpa.free(text);
         try writer.interface.writeAll(text);
     } else {

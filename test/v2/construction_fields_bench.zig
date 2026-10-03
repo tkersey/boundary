@@ -19,7 +19,7 @@ pub fn main(init: std.process.Init) !void {
                 const boolean = try c.scalar(bool);
                 const unit = try c.scalar(void);
                 const fields = try b.allocator().alloc(author.Field, n);
-                for (fields, 0..) |*field, i| field.* = .{ .name = try std.fmt.allocPrint(b.allocator(), "field_{d}", .{i}), .schema = boolean };
+                for (fields, 0..) |*field, i| field.* = .{ .name = try b.allocator().print("field_{d}", .{i}), .schema = boolean };
                 const ds = std.Io.Clock.awake.now(init.io);
                 const record = try c.record(fields);
                 const dn: u64 = @intCast(ds.durationTo(std.Io.Clock.awake.now(init.io)).nanoseconds);

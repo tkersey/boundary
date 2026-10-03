@@ -21,7 +21,7 @@ pub fn fromBytes(schema: p.Schema, bytes: []const u8) Error![8]u8 {
     if (bytes.len != (width(schema) orelse return error.InvalidScalar)) return error.InvalidScalar;
     if (schema == .boolean and bytes[0] > 1) return error.InvalidScalar;
     if (schema == .enumeration and std.mem.indexOfScalar(u32, schema.enumeration, std.mem.readInt(u32, bytes[0..4], .little)) == null) return error.InvalidScalar;
-    var result = [_]u8{0} ** 8;
+    var result = @as([8]u8, @splat(0));
     @memcpy(result[0..bytes.len], bytes);
     return result;
 }
@@ -50,7 +50,7 @@ pub fn integer(schema: p.Schema, bytes: [8]u8) Error!i128 {
 
 fn encode(comptime T: type, value: i128) ?[8]u8 {
     const narrowed = std.math.cast(T, value) orelse return null;
-    var output = [_]u8{0} ** 8;
+    var output = @as([8]u8, @splat(0));
     std.mem.writeInt(T, output[0..@sizeOf(T)], narrowed, .little);
     return output;
 }
@@ -85,14 +85,14 @@ pub fn binary(op: p.Opcode, schema: p.Schema, left: [8]u8, right: [8]u8) Error!R
     if (op == .equal and schema == .boolean) {
         try validate(schema, left);
         try validate(schema, right);
-        var result = [_]u8{0} ** 8;
+        var result = @as([8]u8, @splat(0));
         result[0] = @intFromBool(left[0] == right[0]);
         return .{ .value = result };
     }
     const a = try integer(schema, left);
     const b = try integer(schema, right);
     if (op == .integer_bit_and or op == .integer_bit_or or op == .integer_bit_xor) {
-        var output = [_]u8{0} ** 8;
+        var output = @as([8]u8, @splat(0));
         for (output[0..width(schema).?], 0..) |*byte, index| byte.* = switch (op) {
             .integer_bit_and => left[index] & right[index],
             .integer_bit_or => left[index] | right[index],
@@ -102,7 +102,7 @@ pub fn binary(op: p.Opcode, schema: p.Schema, left: [8]u8, right: [8]u8) Error!R
         return .{ .value = output };
     }
     if (op == .equal or op == .less) {
-        var result = [_]u8{0} ** 8;
+        var result = @as([8]u8, @splat(0));
         result[0] = @intFromBool(if (op == .equal) a == b else a < b);
         return .{ .value = result };
     }
@@ -130,7 +130,7 @@ pub fn unary(op: p.Opcode, source: p.Schema, target: p.Schema, input: [8]u8) Err
     const value = try integer(source, input);
     if (op == .integer_convert) return .{ .value = fromInteger(target, value) orelse return .{ .fault = .arithmetic_overflow } };
     if (op != .integer_bit_not) return error.NotInteger;
-    var output = [_]u8{0} ** 8;
+    var output = @as([8]u8, @splat(0));
     for (output[0..width(source).?], 0..) |*byte, index| byte.* = ~input[index];
     return .{ .value = output };
 }

@@ -297,7 +297,7 @@ fn ContextFor() type {
                 },
                 else => {},
             };
-            if (self.state.roots.exit != null and self.state.status != .unwinding and @intFromEnum(self.state.status) < 4 and running == 0) return error.InvalidState;
+            if (self.state.roots.exit != null and self.state.status != .unwinding and @backingInt(self.state.status) < 4 and running == 0) return error.InvalidState;
         }
 
         fn custodian(self: *Context, reference: ?g.NodeRef, child: ?g.NodeRef) Error!void {
@@ -586,7 +586,7 @@ fn ContextFor() type {
                     }
                 },
                 .exit => |exit| {
-                    if (@intFromEnum(self.state.status) >= 4) {
+                    if (@backingInt(self.state.status) >= 4) {
                         if (exit.stop != null or exit.outer != null or exit.discarded.len != 0) return error.InvalidState;
                         switch (self.state.status) {
                             .completed => {

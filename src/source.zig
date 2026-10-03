@@ -117,7 +117,7 @@ pub const Builder = struct {
     }
     pub fn constant(self: *Builder, comptime T: type, value_item: T) Error!p.Id {
         const schema_id = try self.scalar(T);
-        var bytes = [_]u8{0} ** 8;
+        var bytes = @as([8]u8, @splat(0));
         if (T == bool) bytes[0] = @intFromBool(value_item) else if (T != void) std.mem.writeInt(T, bytes[0..@sizeOf(T)], value_item, .little);
         return self.literal(.{ .schema = schema_id, .bytes = bytes[0..data.scalar.width(self.schemas.items[@intCast(schema_id)]).?] });
     }
@@ -278,11 +278,11 @@ pub fn own(comptime T: type, allocator: std.mem.Allocator, value_item: T) std.me
         },
         .@"struct" => blk: {
             var output: T = undefined;
-            inline for (@typeInfo(T).@"struct".fields) |field| @field(output, field.name) = try own(field.type, allocator, @field(value_item, field.name));
+            inline for (@typeInfo(T).@"struct".field_names, @typeInfo(T).@"struct".field_types) |field_name, FieldType| @field(output, field_name) = try own(FieldType, allocator, @field(value_item, field_name));
             break :blk output;
         },
         .@"union" => blk: {
-            inline for (@typeInfo(T).@"union".fields) |field| if (std.mem.eql(u8, @tagName(value_item), field.name)) break :blk @unionInit(T, field.name, try own(field.type, allocator, @field(value_item, field.name)));
+            inline for (@typeInfo(T).@"union".field_names, @typeInfo(T).@"union".field_types) |field_name, FieldType| if (std.mem.eql(u8, @tagName(value_item), field_name)) break :blk @unionInit(T, field_name, try own(FieldType, allocator, @field(value_item, field_name)));
             unreachable;
         },
         .optional => |optional| if (value_item) |present| try own(optional.child, allocator, present) else null,
@@ -297,12 +297,12 @@ fn equal(comptime T: type, left: T, right: T) bool {
             break :blk true;
         },
         .@"struct" => blk: {
-            inline for (@typeInfo(T).@"struct".fields) |field| if (!equal(field.type, @field(left, field.name), @field(right, field.name))) break :blk false;
+            inline for (@typeInfo(T).@"struct".field_names, @typeInfo(T).@"struct".field_types) |field_name, FieldType| if (!equal(FieldType, @field(left, field_name), @field(right, field_name))) break :blk false;
             break :blk true;
         },
         .@"union" => blk: {
             if (std.meta.activeTag(left) != std.meta.activeTag(right)) break :blk false;
-            inline for (@typeInfo(T).@"union".fields) |field| if (std.mem.eql(u8, @tagName(left), field.name)) break :blk equal(field.type, @field(left, field.name), @field(right, field.name));
+            inline for (@typeInfo(T).@"union".field_names, @typeInfo(T).@"union".field_types) |field_name, FieldType| if (std.mem.eql(u8, @tagName(left), field_name)) break :blk equal(FieldType, @field(left, field_name), @field(right, field_name));
             unreachable;
         },
         .optional => if (left) |present| if (right) |other| equal(@typeInfo(T).optional.child, present, other) else false else right == null,
@@ -336,7 +336,7 @@ fn rowAllocationAttempt(a: std.mem.Allocator) !void {
     defer a.free(result.effects);
 }
 test "row merge frees every failed allocation without mutating evidence" {
-    try std.testing.checkAllAllocationFailures(std.testing.allocator, rowAllocationAttempt, .{});
+    try @import("allocation_testing.zig").check(std.testing.allocator, rowAllocationAttempt, .{});
 }
 
 test "raw literal edits remain visible to subsequent lookup and existing source occurrences" {

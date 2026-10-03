@@ -106,7 +106,7 @@ fn allocationAttempt(allocator: std.mem.Allocator) !void {
     defer result.deinit();
 }
 test "leaf work and site limits roll back to P01 and allocation failure releases owners" {
-    try std.testing.checkAllAllocationFailures(a, allocationAttempt, .{});
+    try @import("allocation_testing.zig").check(a, allocationAttempt, .{});
     var baseline = try @import("coalescing.zig").run(a, product, .{});
     defer baseline.deinit();
     for ([_]inline_leaf.Options{ .{ .work_limit = 0 }, .{ .max_sites = 0 } }) |options| {

@@ -3,7 +3,7 @@ const std = @import("std");
 pub fn equal(comptime T: type, left: T, right: T) bool {
     return switch (@typeInfo(T)) {
         .@"struct" => |info| blk: {
-            inline for (info.fields) |field| if (!equal(field.type, @field(left, field.name), @field(right, field.name))) break :blk false;
+            inline for (info.field_names, info.field_types) |field_name, FieldType| if (!equal(FieldType, @field(left, field_name), @field(right, field_name))) break :blk false;
             break :blk true;
         },
         .@"union" => blk: {

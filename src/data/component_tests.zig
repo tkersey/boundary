@@ -323,5 +323,5 @@ fn borrowFailure(allocator: std.mem.Allocator) !void {
 }
 
 test "borrow contracts release every partial encode decode and link owner" {
-    try testing.checkAllAllocationFailures(testing.allocator, borrowFailure, .{});
+    try @import("allocation_testing.zig").check(testing.allocator, borrowFailure, .{});
 }

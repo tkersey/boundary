@@ -11,7 +11,7 @@ const Trace = struct {
     fn enter(context: *anyopaque, stage: source.CompileStage) void {
         const self: *Trace = @ptrCast(@alignCast(context));
         const now = std.Io.Clock.awake.now(self.io);
-        self.ns[@intFromEnum(self.stage)] += @intCast(self.last.durationTo(now).nanoseconds);
+        self.ns[@backingInt(self.stage)] += @intCast(self.last.durationTo(now).nanoseconds);
         self.last = now;
         self.stage = stage;
     }
