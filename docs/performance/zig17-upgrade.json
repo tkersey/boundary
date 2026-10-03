@@ -811,6 +811,53 @@
       "steps": 9,
       "note": "Actual full argv and tool selection retained in the run evidence; this is qualification, not performance measurement.",
       "cwd": "/Users/tk/workspace/tk/boundary"
+    },
+    {
+      "subject": "World Zig0.17 migration e8c9da6ba82fb9abfa0a15f2b4cea80e200e2c75",
+      "result": "macOS arm64 and Linux x86_64 producers passed; Linux archive independently acquired and installed smoke passed",
+      "workflow": "https://github.com/tkersey/world/actions/runs/37158354619",
+      "artifactId": 11286522305,
+      "expiresAt": "2026-11-02T22:31:53Z",
+      "delivery": {
+        "format": "world-runtime-delivery/v1",
+        "source": {
+          "repository": "https://github.com/tkersey/world",
+          "commit": "e8c9da6ba82fb9abfa0a15f2b4cea80e200e2c75",
+          "tree": "8a4854590d78e6800f540f2842bfc8b1b10fb035",
+          "clean": true,
+          "cleanScope": "snapshot-selection",
+          "dependency": {
+            "commit": "046ffefc8f7d99a3ad4f7b3cce21d471746e9048",
+            "package": "boundary-3.0.0-dev.0-flclaK4GRgB21YbzErzudBfzn40M6Wy6p-NeJ52XJUzT",
+            "url": "https://github.com/tkersey/boundary/archive/046ffefc8f7d99a3ad4f7b3cce21d471746e9048.tar.gz",
+            "lockSha256": "8a85b8f76f9d0e09a58c786a1261d7d9cd829513e61ff63022afa625fb05d803",
+            "inventorySha256": "d246e5cfcf628ba3176491b98514f23d79dc148af893794fe4d4927687a5d932"
+          }
+        },
+        "manifestSha256": "cb7b9d0677a3e347695ae9a011350d5fbc6820fa6428e195cf73c6722b27cfbf",
+        "kernelSha256": "e6a982f3f13790e3dec7a5e26770549a6be8d0cb5e97a25cd97cead993f2b394",
+        "archive": {
+          "path": "/home/runner/work/_temp/world-runtime-bundle.tar.gz",
+          "bytes": 224503,
+          "sha256": "4915a4610982812e7b3b77c9da9bf10d6570f1c6b5137da07d192df9f07b6cd6"
+        },
+        "bundle": "/home/runner/work/_temp/world-runtime-bundle"
+      },
+      "artifactZip": {
+        "bytes": 226004,
+        "sha256": "9b7783e5a4466ce36ed9a57dec220aeacd42a06744d305ebe433940bc6d0500b"
+      },
+      "localQualificationSha256": "3f079340eca933594f8d1f5e241d47a3fb0e6974f83ab111501d3e1e2f637ef5",
+      "localProducerLogSha256": "f72a6db120a9b3796c3447eb9c16ae23a5ff6a1308ba281b3e9c60fc0bd1c620",
+      "acquisitionLogSha256": "7f68854097319cd752e73c4c4dc6abc9dbf96f8a0773cfbc21ad90c38027bef2",
+      "smokeLogSha256": "7c5c27d94db71f631b11f9686b5f39d8d2f8af3d037901ccbf14822a1808d800",
+      "note": "Later standalone-helper migration remains outside this immutable delivery epoch."
+    },
+    {
+      "subject": "Agent working migration based on 2b7c439112258d3b84d200eed27c2fb8356e8652",
+      "result": "authoring aggregate passed 406/406 steps",
+      "logSha256": "77204aade6fcc526028725fda6538b6e93f858126d4c608688a0ab7de5d4dceb",
+      "note": "Working-tree qualification only; source/lock changed subsequently. Full runtime/browser aggregate is running against the qualified World0.17 delivery."
     }
   ],
   "census": {
@@ -15350,12 +15397,34 @@
       }
     ]
   },
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "zig017-sibling-build-file-cache",
+      "status": "implemented locally; cumulative qualification in progress",
+      "witness": "Different --build-file scripts in the same directory with the same local cache reuse the first configuration on official0.17.0.",
+      "witnessSha256": "13c168872863ef7afae3d4efab303f73f908b3f03480a41fa17dda74fbdf7d0f",
+      "discriminatorSha256": "537df94aceaeedf893166e2fb1c066e7249bf262a7d365dced9c740cced2af90",
+      "selection": "Disable configuration caching only in sibling standalone helpers using graph.poisonCache(); keep compiled-artifact and main-graph caching.",
+      "tests": [
+        "Boundary test/v2/toolchain.test.mjs real helper step-set alternation",
+        "World test/current/build_selection.mjs real helper configured executable-name alternation"
+      ],
+      "cost": "Configuration re-execution cost awaits E02 measurements; no performance claim."
+    }
+  ],
   "outstanding": [
     "Complete maintained entrypoint/package/toolchain witnesses and reverse census",
-    "Establish the fully qualified Agent U0/U1 consumer tuples",
+    "Agent U0 is qualified; finish U1 runtime/browser/mobility qualification and final lock rebinding",
     "Run and decide E01-E10 with source reconciliation separated",
     "Complete T01-T70 and final platform/delivery/rollback qualification",
     "Serial Actuating review convergence on final immutable heads"
-  ]
+  ],
+  "specification_revision": "1.1",
+  "toolchain_support": {
+    "successor": [
+      "0.17.0"
+    ],
+    "predecessor": "0.16.0 retained only as frozen baseline/rollback evidence",
+    "cross_version_support": false
+  }
 }

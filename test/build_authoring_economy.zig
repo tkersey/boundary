@@ -1,13 +1,17 @@
 const std = @import("std");
 pub fn build(b: *std.Build) void {
-    const root = b.option([]const u8, "source", "Exact Boundary source root") orelse @panic("source");
+    // Zig 0.17 can reuse a sibling --build-file configuration in a shared cache.
+    // These standalone helpers share a directory; keep compiled-artifact caching
+    // but recompute their configuration so the selected file remains authoritative.
+    b.graph.poisonCache();
+    const root = b.option(std.Build.LazyPath, "source", "Exact Boundary source root") orelse @panic("source");
     const data = b.createModule(.{
-        .root_source_file = .{ .cwd_relative = b.pathJoin(&.{ root, "src/data/root.zig" }) },
+        .root_source_file = root.path(b, "src/data/root.zig"),
         .target = b.graph.host,
         .optimize = .safe,
     });
     const boundary = b.createModule(.{
-        .root_source_file = .{ .cwd_relative = b.pathJoin(&.{ root, "src/root.zig" }) },
+        .root_source_file = root.path(b, "src/root.zig"),
         .target = b.graph.host,
         .optimize = .safe,
         .imports = &.{.{ .name = "boundary_data", .module = data }},
@@ -21,7 +25,7 @@ pub fn build(b: *std.Build) void {
     b.step("reference", "Build the independent frozen twice source")
         .dependOn(&b.addInstallArtifact(reference, .{}).step);
     const workload = b.createModule(.{
-        .root_source_file = .{ .cwd_relative = b.pathJoin(&.{ root, b.option([]const u8, "workload", "Application source relative to source root") orelse "examples/one_effect.zig" }) },
+        .root_source_file = root.path(b, b.option([]const u8, "workload", "Application source relative to source root") orelse "examples/one_effect.zig"),
         .target = b.graph.host,
         .optimize = .safe,
         .imports = &.{.{ .name = "boundary", .module = boundary }},

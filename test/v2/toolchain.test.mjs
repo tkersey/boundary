@@ -31,11 +31,12 @@ test('explicit selection survives a poisoned PATH without invoking its zig', asy
 });
 
 test('relative, duplicate, conflicting and development compiler selections reject', async t => {
-  const f = await fixture(t), dev = await fixture(t, '0.17.0-dev.1');
+  const f = await fixture(t), dev = await fixture(t, '0.17.0-dev.1'), old = await fixture(t, '0.16.0');
   assert.throws(() => selectZig(['--zig-exe', './zig']), /absolute/);
   assert.throws(() => selectZig(['--zig-exe', f.executable, '--zig-exe', f.executable]), /one absolute/);
   assert.throws(() => selectZig(['--zig-exe', f.executable], { inherited: selected.executable }), /Conflicting/);
   assert.throws(() => selectZig(['--zig-exe', dev.executable], { inherited: null }), /0.17.0 is required/);
+  assert.throws(() => selectZig(['--zig-exe', old.executable], { inherited: null }), /0.17.0 is required/);
 });
 
 test('unchanged reported version cannot hide compiler or library replacement', async t => {
@@ -59,3 +60,22 @@ test('library description must identify exactly one bounded directory', async t 
 });
 
 process.on('beforeExit', () => selected.assertUnchanged());
+
+test('standalone build-file selection survives a shared configuration cache', async t => {
+  const { resolve } = await import('node:path');
+  const root = resolve(import.meta.dirname, '../..');
+  const cache = await mkdtemp(join(tmpdir(), 'boundary build selection '));
+  t.after(() => rm(cache, { recursive: true, force: true }));
+  for (const [file, present, absent] of [
+    ['build_authoring_economy.zig', 'reference', 'allocation'],
+    ['build_hyper_compiler.zig', 'allocation', 'reference'],
+    ['build_authoring_economy.zig', 'reference', 'allocation'],
+  ]) {
+    const output = execFileSync(selected.executable, ['build', '--build-file', join(root, 'test', file),
+      `-Dsource=${root}`, '--cache-dir', cache, '--list-steps'], {
+      cwd: root, env: selected.env, encoding: 'utf8', timeout: 120000,
+    });
+    assert.match(output, new RegExp(`\\b${present}\\b`));
+    assert.doesNotMatch(output, new RegExp(`\\b${absent}\\b`));
+  }
+});

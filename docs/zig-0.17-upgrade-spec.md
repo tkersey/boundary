@@ -1,11 +1,12 @@
 # Boundary · World · Agent — Zig 0.17.0 upgrade specification
 
 **Document ID:** BWA-Z17-1  
-**Version:** 1.0  
+**Version:** 1.1
 **Prepared:** 2026-10-03  
 **Target toolchain:** Zig 0.17.0, the exact tagged release  
 **Repositories:** `tkersey/boundary`, `tkersey/world`, `tkersey/agent`  
-**Status:** Implementation specification. No repository was modified, compiled, or benchmarked while preparing this document. Requirements below are work to perform, not claims that the upgrade has passed.
+**Status:** Revised implementation specification; implementation is in progress. Requirements below are obligations, not claims that the upgrade has passed.
+**Revision authority:** User direction on 2026-10-03: no Zig 0.16 compatibility in Boundary, World, or Agent. All maintained successor code and workflows target exact Zig 0.17.0 only.
 
 > Upgrade the toolchain, reduce the cost of producing and qualifying portable programs, and strengthen the implementation's safety diagnostics—without weakening the calculus, changing portable contracts, duplicating the runtime, or manufacturing performance claims.
 
@@ -51,13 +52,15 @@ Deliver a coordinated Zig 0.17.0 successor of the existing stack with:
 
 The upgrade is not complete when the three top-level manifests merely say `0.17.0`, when a local `zig build` succeeds, or when one synthetic benchmark improves.
 
+**Zig support policy:** Zig 0.17.0 is the sole supported compiler for all three successor repositories. Remove 0.16 support paths, version-dispatch branches, compatibility adapters, fallback compiler discovery, and dual-version CI from maintained code and tooling. Do not retain a workaround solely to compile successor source with 0.16. Historical artifacts and isolated predecessor worktrees are measurement/rollback evidence only; they create no ongoing support obligation. Portable bytes and externally observable behavior remain governed by Section 3.4.
+
 ### 1.2 Required implementation versus required investigation
 
 **Mandatory implementation:** compatibility repairs; correct compiler propagation; complete dependency/profile migration; package-path correctness; retained authentication; appropriate borrowing diagnostics; new regression tests; exact-artifact qualification; documentation and CI updates.
 
 **Mandatory evaluated opportunities:** each experiment in Section 12 must be performed to a deciding result. A useful change is implemented and qualified. A candidate that is slower, redundant, unsafe, or unsupported is rejected with evidence and no dormant production implementation. A technically unavailable experiment remains explicitly blocked unless a platform exclusion is approved; inability to run is not a successful experiment.
 
-**Conditional promotion:** alternate WASM backend, production optimizer retuning, a resident Agent path, and an incremental workflow become defaults only after their specific gates pass. They are not prerequisites for obtaining a usable compatibility-only 0.17 successor. They are prerequisites for claiming this entire specification has been evaluated.
+**Conditional promotion:** alternate WASM backend, production optimizer retuning, a resident Agent path, and an incremental workflow become defaults only after their specific gates pass. They are not prerequisites for obtaining a usable migration-only 0.17 successor. They are prerequisites for claiming this entire specification has been evaluated.
 
 This distinction prevents both shallow “upgrade completed” claims and permanent accumulation of speculative code.
 
@@ -76,6 +79,8 @@ This distinction prevents both shallow “upgrade completed” claims and perman
 **Z17-D06 — Evidence rather than ceremonial counts.** Reuse existing tests that prove the requirement. Add missing discriminating cases, not redundant wrappers. Review scope follows the changed invariants; this specification adds no arbitrary number of review rounds.
 
 ## 2. Inspected baseline and authority
+
+Revision 1.1 was inspected against Boundary `046ffefc8f7d99a3ad4f7b3cce21d471746e9048`, World `d55d39b9fdb29fb9ed3dc15333e8c51f994132f8`, and the Agent migration worktree at `2b7c439112258d3b84d200eed27c2fb8356e8652`, all on `codex/zig-0.17-upgrade`. World and Agent contain in-progress migration edits. The original anchors below remain historical evidence. Changed source/dependency identities invalidate affected proof; revised user requirements invalidate their dependent plan clauses.
 
 ### 2.1 Observed repository heads
 
@@ -100,7 +105,7 @@ At the observed heads, World pins Boundary `511fe388587b36ae37307d277e04c22b0bb6
 - **C0:** Agent's actual pre-upgrade locked consumer tuple, as delivered.
 - **U0:** The coherent, qualified 0.16 tuple selected as the immediate source-level predecessor of the migration.
 
-If current-source reconciliation is needed to obtain U0, measure and describe `C0 → U0` separately. The compiler migration is `U0 → U1`, where U1 has only necessary 0.17 compatibility changes. Later experiments derive from U1. Do not silently substitute repository heads for locked consumer inputs.
+If current-source reconciliation is needed to obtain U0, measure and describe `C0 → U0` separately. The compiler migration is `U0 → U1`, where U1 has only necessary 0.17 migration changes and supports 0.17.0 exclusively. Later experiments derive from U1. Do not silently substitute repository heads for locked consumer inputs.
 
 ### 2.3 Concrete implementation surfaces
 
@@ -156,13 +161,13 @@ No agent-travel architecture implementation; no new persistence system or databa
 
 Do not bump BMO1, BPI3, PST3, invocation grammars, or World ABI 3 merely because the compiler changed. A package/toolchain version and a wire/ABI version are separate decisions. Any genuine wire-contract change is outside this compatibility migration and requires a separately approved specification.
 
-### 3.4 Three different compatibility obligations
+### 3.4 Portable compatibility and migration attribution
 
-Keep these distinctions explicit throughout implementation and reporting:
+Zig source/toolchain backward compatibility is expressly excluded. The obligations below concern portable contracts and comparison evidence, never building maintained successor code under 0.16. Keep these distinctions explicit throughout implementation and reporting:
 
 **Encoding compatibility:** encoding the same logical record under an unchanged wire contract produces the same canonical bytes. Codecs do not optimize records while reading or writing them.
 
-**Compatibility-only compilation:** U0 and U1 use the same compiler policies and authored inputs. Deterministic published program/component/descriptor bytes are expected to agree. An unexplained difference blocks a compiler-only claim even when a few executions happen to agree.
+**Migration-only compilation:** U0 and U1 use the same compiler policies and authored inputs. Deterministic published program/component/descriptor bytes are expected to agree. An unexplained difference blocks a compiler-only claim even when a few executions happen to agree.
 
 **Deliberately retuned compilation:** a separately qualified E08/F optimization may intentionally produce a different valid program image without changing its wire format. Record the new image identity, independently validate the transformation, and compare according to the structural or semantic observation contract. Never restore old-image state into a different optimized image merely because both came from equivalent source. A new image does not imply a new wire version.
 
@@ -182,7 +187,7 @@ Keep these distinctions explicit throughout implementation and reporting:
 
 ### 4.2 Package and source identities
 
-**Z17-T06.** Update maintained `.minimum_zig_version` declarations to `0.17.0`; pin exact 0.17.0 in qualification setup and CI. The manifest minimum is not an exact-version enforcement mechanism. Reject unqualified development versions in the producer. Do not add cross-version compatibility branches to production just to keep U0 runnable; use separate worktrees and binaries.
+**Z17-T06.** Support exact Zig `0.17.0` only in maintained successor source, builds, examples, test tooling, package consumers, qualification setup, and CI. Set maintained `.minimum_zig_version` declarations to `0.17.0`; the manifest minimum is not an exact-version enforcement mechanism. Existing repository-owned compiler selection/qualification boundaries must reject 0.16 and other unqualified versions before producing or publishing qualified artifacts. Do not add a separate gate to every source file. Remove cross-version branches, adapters, fallbacks, and dual-version jobs; prefer direct 0.17 APIs. C0/U0 reproduction uses frozen predecessor source in isolated worktrees and is never a successor support lane.
 
 **Z17-T07.** Preserve package names and fingerprints. Compute new package hashes with the selected toolchain. Retain separately the source commit/tree, source archive digest, complete source inventory, Zig package hash, extracted package inventory, runtime inventory, kernel digest, and delivery descriptor digest. Do not reuse an old hash after changing package contents.
 
@@ -495,8 +500,8 @@ Use these identities consistently:
 | Subject | Definition |
 |---|---|
 | C0 | The original locked Agent consumer tuple, before source reconciliation |
-| U0 | A coherent qualified 0.16 predecessor selected for the migration |
-| U1 | U0's implementation with only necessary 0.17 compatibility changes |
+| U0 | Frozen coherent 0.16 predecessor used only for comparison and rollback |
+| U1 | Successor supporting only exact 0.17.0, with necessary migration changes and unchanged policies |
 | E1…En | Individual experiments derived from U1; each changes one independently attributable mechanism |
 | F | Final selected 0.17 tuple with all promoted changes integrated |
 
@@ -525,14 +530,14 @@ An experiment may establish that current code is already adequate. A measured no
 
 For Boundary, report Zig compiling a native emitter separately from that emitter running the Boundary compiler. For World, report compiling the kernel separately from admission, execution, and serialization. For Agent, report framework/system time separately from external model/network/tool time.
 
-If feasible, use the codec-compatible cross matrix:
+If feasible, use this frozen-artifact cross matrix for portable format/behavior evidence. Each producer is built only from its own frozen source with its own compiler; no cell requires successor Zig source to build on 0.16, an active dual-version workflow, or new backward-compatibility code:
 
 | Program producer | Runtime kernel | Purpose |
 |---|---|---|
-| U0 compiler | U0 kernel | Baseline |
-| U1 compiler | U0 kernel | Compiler/producer changes with old runtime |
-| U0 compiler | U1 kernel | Runtime rebuild against frozen producer output |
-| U1 compiler | U1 kernel | Integrated migration |
+| Frozen U0 producer | U0 kernel | Baseline |
+| 0.17-only U1 producer | U0 kernel | Compiler/producer changes with old runtime |
+| Frozen U0 producer | U1 kernel | Runtime rebuild against frozen producer output |
+| 0.17-only U1 producer | U1 kernel | Integrated migration |
 
 Use exactly the same program bytes for the runtime-only comparison. If program bytes unexpectedly differ in U1, resolve that difference before using the comparison as compiler-only evidence. Do not average away a failed compatibility cell.
 
@@ -629,7 +634,7 @@ These are minimum distinguishing cases, not replacements for existing aggregates
 
 | Case | Required witness | Principal requirements |
 |---|---|---|
-| T01 | Every maintained build entrypoint and exported generic consumer compiles under exact 0.17.0; exclusions distinguish frozen/historical material. | C01–C05, T06, BD01 |
+| T01 | Every maintained build entrypoint and exported generic consumer compiles under exact 0.17.0; compiler qualification rejects 0.16 and unqualified versions. Reverse census finds no live cross-version support branches, adapters, fallbacks, or CI lanes; exclusions distinguish frozen/historical material. | C01–C05, T06, BD01 |
 | T02 | An alternate/fake `zig` placed first on PATH cannot intercept a nested build, producer, fixture, or hashing invocation. | T01–T05, G13 |
 | T03 | Changed executable or library-distribution identity invalidates qualification; a reported version alone cannot bless an altered toolchain. | T01, T04 |
 | T04 | Top-level, nested, and Node-driven builds report the same selected compiler and use the intended mode/target. | T02–T03, T10, G03 |
@@ -767,7 +772,7 @@ upgrade:
   subjects:
     C0?: exact original consumer tuple
     U0: exact pre-upgrade tuple
-    U1: exact compatibility-only tuple
+    U1: exact migration-only tuple
     experiments[]: id + predecessor + candidate tuple
     F?: exact final tuple
   runs[]:
@@ -810,9 +815,9 @@ The labels below are proposed work packages, not existing pull-request numbers. 
 | Package | Repository / owner | Required contents | Dependency |
 |---|---|---|---|
 | WP0 — Freeze and reproduce | All three, existing qualification owners | Census, C0/U0 identity, original artifacts, executed baseline, scope/limits | None |
-| WP1 — Boundary compatibility | Boundary | Language/reflection/build migration, public consumers, no policy retuning, package/CI updates, T15–T32 coverage | WP0 |
-| WP2 — World compatibility and diagnostics | World | Compatible data pin, build/kernel migration, producer/verifier selection, storage diagnostics, unchanged budgets, delivery tests | Qualified WP1 package |
-| WP3 — Agent compatibility and consumer cutover | Agent | Reflection/contracts, exported admission, compiler propagation, exact lock regeneration, actual consumer qualification | Qualified WP1 package and WP2 bundle |
+| WP1 — Boundary 0.17-only migration | Boundary | Language/reflection/build migration, public consumers, no policy retuning, package/CI updates, T15–T32 coverage | WP0 |
+| WP2 — World 0.17-only migration and diagnostics | World | Compatible data pin, build/kernel migration, producer/verifier selection, storage diagnostics, unchanged budgets, delivery tests | Qualified WP1 package |
+| WP3 — Agent 0.17-only migration and consumer cutover | Agent | Reflection/contracts, exported admission, compiler propagation, exact lock regeneration, actual consumer qualification | Qualified WP1 package and WP2 bundle |
 | WP4 — Build/authoring economics | Relevant existing owners | E02–E05 evaluations; measured graph/emitter/reflection improvements; incremental witness | U1 from WP1–WP3 |
 | WP5 — Runtime/backend/consumer economics | World and Agent, Boundary where policy changes | E06–E09 evaluation, isolated candidates, rejected-code removal, explicit cost decisions | U1; any precisely named local predecessor |
 | WP6 — Structured development interface | Existing tooling owner | E10 bounded adapter/witness and non-substitution for semantic gates | Migrated build graphs |
@@ -856,12 +861,12 @@ Source-bound artifacts cannot be claimed for a different commit after a rebase o
 
 ### 17.1 Procedure
 
-1. Read current repository instructions and the current `$zig` skill, inspect outstanding relevant work, and record actual branches/heads. Respect existing workflow and review policies without adding ceremony.
-2. Acquire and authenticate the exact 0.16 predecessor toolchain/artifacts and exact 0.17 distribution. Keep them isolated. Record identities before any upgrade edits.
+1. Read current repository instructions and the current `$zig` skill, inspect outstanding relevant work, and record actual branches/heads. Apply T06 first: audit and retire any maintained 0.16 support path without removing frozen comparison evidence or weakening portable contracts. Respect existing workflow and review policies without adding ceremony.
+2. Acquire and authenticate exact 0.17.0 for all successor work. Retain authenticated frozen 0.16 predecessor artifacts/toolchain separately only where needed for baseline reproduction and rollback. Reuse already qualified baseline evidence; do not extend or maintain the predecessor to follow successor edits.
 3. Complete the migration census and establish C0/U0. Reproduce the selected baseline's existing required checks and preserve frozen inputs.
-4. Implement Boundary compatibility and its independent consumer witnesses. Use the resulting immutable package as input to World/Agent; do not bypass dependency admission for convenience.
+4. Implement Boundary's 0.17-only migration and its independent consumer witnesses. Use the resulting immutable package as input to World/Agent; do not bypass dependency admission for convenience.
 5. Implement World migration and diagnostics, including producer/verifier agreement. Produce and independently acquire a candidate runtime with unchanged production limits.
-6. Implement Agent compatibility and regenerate the authenticated tuple. Establish U1 through full current consumer qualification.
+6. Implement Agent's 0.17-only migration and regenerate the authenticated tuple. Establish U1 through full current consumer qualification.
 7. Run every Section 12 experiment with local attribution. Promote justified changes; reject and remove the others. Record genuine external blockers separately.
 8. Form F and run cumulative, cross-engine, byte-compatibility, packaged-consumer, capacity, failure, and delivered-artifact gates.
 9. Prepare the work-package PRs and report actual dependency/merge order. After any final source-ID changes, complete S05. Merge/release only when separately authorized.
@@ -945,7 +950,7 @@ Use a finite controller for that watcher in tests; do not leave it running. Disc
 
 ### 18.2 Rollback unit
 
-**Z17-R01.** Retain C0 and U0 source identities, toolchains, package archives, runtime bundles, manifests, and locks before promotion. Rollback selects a complete known tuple; it is not “install Zig 0.16 and hope the new source still builds.”
+**Z17-R01.** Retain C0 and U0 source identities, toolchains, package archives, runtime bundles, manifests, and locks before promotion. Rollback restores a complete frozen predecessor tuple in isolation. It never adds 0.16 support to successor source or restores a dual-version maintenance obligation.
 
 **Z17-R02.** Preserve the ability to restore predecessor-compatible canonical states where the unchanged protocol permits it. A newer runtime's private resident handles are never part of rollback data. Export the canonical state through the supported path before retiring a resident.
 
@@ -965,7 +970,7 @@ For nonpublic repositories, use an independent least-privilege consumer identity
 
 ### 19.1 Compatibility-qualified
 
-All mandatory live source/build/API migrations are complete; exact compiler propagation is proven; no maintained exported generic contract is left uninstantiated; current aggregates and new migration witnesses pass; producer/verifier and all dependent locks agree; required native/WASM/browser/package lanes execute; canonical interchange and negative cases pass; the delivered runtime is independently acquired and consumed; no unaccepted material compatibility regression remains.
+All maintained successor surfaces support only exact Zig 0.17.0; no live 0.16 compatibility branch, adapter, fallback, or CI lane remains. All mandatory live source/build/API migrations are complete; exact compiler propagation is proven; no maintained exported generic contract is left uninstantiated; current aggregates and new migration witnesses pass; producer/verifier and all dependent locks agree; required native/WASM/browser/package lanes execute; canonical interchange and negative cases pass; the delivered runtime is independently acquired and consumed; no unaccepted material compatibility regression remains.
 
 This status may be achieved before every optional promotion decision, but it is not the final completion of this specification.
 
@@ -980,9 +985,10 @@ The final F tuple is immutable and matches the final source/package/runtime/Agen
 ### 19.4 Final checklist
 
 - [ ] The census covers all maintained entrypoints, nested manifests, packaged examples, generated inputs, and scripts.
-- [ ] Exact Zig 0.17.0 executable and distribution identities govern every invocation.
+- [ ] Exact Zig 0.17.0 executable and distribution identities govern every successor invocation; qualification rejects 0.16 and other unqualified versions.
+- [ ] All three maintained repositories are 0.17-only; no cross-version support code or dual-version CI remains.
 - [ ] Distinct Boundary compiler/data pins and World's delivered artifact are recorded, not conflated.
-- [ ] C0 and U0 are frozen; U1 is a genuinely compatibility-only successor.
+- [ ] C0 and U0 are frozen; U1 is a genuinely migration-only successor.
 - [ ] Reflection, bit representation, cleanup, arithmetic, and ownership migrations preserve contract-level positives and negatives.
 - [ ] Host/guest module graphs, generated paths, pass-through arguments, and configuration invalidation are correct.
 - [ ] Required authentication still runs on warm graphs and external module-consumer paths.
