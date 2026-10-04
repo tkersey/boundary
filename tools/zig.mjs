@@ -43,7 +43,8 @@ function identity(executable, library) {
     libraryInventorySha256: hash(JSON.stringify(files)), libraryEntries: files.length, libraryBytes: bytes };
 }
 
-export function selectZig(argv, { inherited = process.env.BOUNDARY_ZIG_EXE } = {}) {
+export function selectZig(argv, { inherited = process.env.BOUNDARY_ZIG_EXE,
+  inheritedLibrary = inherited ? (process.env.BOUNDARY_ZIG_LIB ?? process.env.ZIG_LIB_DIR) : undefined } = {}) {
   const args = [], selections = new Map();
   for (let i = 0; i < argv.length; i++) {
     const name = argv[i];
@@ -56,9 +57,15 @@ export function selectZig(argv, { inherited = process.env.BOUNDARY_ZIG_EXE } = {
   if (inherited && !isAbsolute(inherited)) throw new Error('Inherited Zig path must be absolute');
   const outer = inherited && realpathSync(inherited), explicit = selections.get('--zig-exe');
   if (outer && explicit && outer !== explicit) throw new Error('Conflicting Zig selections');
+  if (inheritedLibrary && !isAbsolute(inheritedLibrary)) throw new Error('Inherited Zig library path must be absolute');
+  const outerLibrary = inheritedLibrary && realpathSync(inheritedLibrary);
+  for (const selection of [selections.get('--zig-lib'), process.env.ZIG_LIB_DIR]) {
+    if (outerLibrary && selection && realpathSync(selection) !== outerLibrary)
+      throw new Error('Conflicting Zig library selections');
+  }
   const executable = outer ?? explicit ?? executableOnPath(process.env.PATH ?? '');
   const env = { ...process.env, BOUNDARY_ZIG_EXE: executable };
-  if (selections.has('--zig-lib')) env.ZIG_LIB_DIR = selections.get('--zig-lib');
+  if (outerLibrary || selections.has('--zig-lib')) env.ZIG_LIB_DIR = outerLibrary ?? selections.get('--zig-lib');
   const options = { encoding: 'utf8', maxBuffer: 64 * 1024, timeout: 30000, env };
   if (execFileSync(executable, ['version'], options).trim() !== '0.17.0')
     throw new Error('Zig 0.17.0 is required');
@@ -68,7 +75,9 @@ export function selectZig(argv, { inherited = process.env.BOUNDARY_ZIG_EXE } = {
   const fields = [...description.matchAll(/^\s*\.lib_dir = ("(?:[^"\\\r\n]|\\.)*"),$/gm)];
   if (fields.length !== 1) throw new Error('Invalid Zig library description');
   const library = realpathSync(resolve(JSON.parse(fields[0][1])));
+  if (outerLibrary && library !== outerLibrary) throw new Error('Conflicting Zig library description');
   env.ZIG_LIB_DIR = library;
+  env.BOUNDARY_ZIG_LIB = library;
   const before = identity(executable, library);
   return { args, executable, env, identity: before,
     assertUnchanged() {
