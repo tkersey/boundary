@@ -65,7 +65,8 @@ export function selectZig(argv, { inherited = process.env.BOUNDARY_ZIG_EXE,
   }
   const executable = outer ?? explicit ?? executableOnPath(process.env.PATH ?? '');
   const env = { ...process.env, BOUNDARY_ZIG_EXE: executable };
-  if (outerLibrary || selections.has('--zig-lib')) env.ZIG_LIB_DIR = outerLibrary ?? selections.get('--zig-lib');
+  const selectedLibrary = outerLibrary ?? selections.get('--zig-lib');
+  if (selectedLibrary) env.ZIG_LIB_DIR = selectedLibrary;
   const options = { encoding: 'utf8', maxBuffer: 64 * 1024, timeout: 30000, env };
   if (execFileSync(executable, ['version'], options).trim() !== '0.17.0')
     throw new Error('Zig 0.17.0 is required');
@@ -75,7 +76,7 @@ export function selectZig(argv, { inherited = process.env.BOUNDARY_ZIG_EXE,
   const fields = [...description.matchAll(/^\s*\.lib_dir = ("(?:[^"\\\r\n]|\\.)*"),$/gm)];
   if (fields.length !== 1) throw new Error('Invalid Zig library description');
   const library = realpathSync(resolve(JSON.parse(fields[0][1])));
-  if (outerLibrary && library !== outerLibrary) throw new Error('Conflicting Zig library description');
+  if (selectedLibrary && library !== selectedLibrary) throw new Error('Conflicting Zig library description');
   env.ZIG_LIB_DIR = library;
   env.BOUNDARY_ZIG_LIB = library;
   const before = identity(executable, library);

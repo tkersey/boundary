@@ -156,3 +156,19 @@ test('nested toolchain selection preserves the inherited library', async t => {
   assert.equal(parent.env.BOUNDARY_ZIG_LIB, await realpath(a));
   parent.assertUnchanged();
 });
+
+test('explicit library selection rejects a compiler describing another library', async t => {
+  const { selectZig: select } = await import('../../tools/zig.mjs');
+  const root = await mkdtemp(join(tmpdir(), 'explicit zig library '));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const a = join(root, 'a'), b = join(root, 'b'), zig = join(root, 'zig');
+  await mkdir(a); await mkdir(b);
+  await writeFile(join(a, 'std.zig'), '// selected\n');
+  await writeFile(join(b, 'std.zig'), '// reported\n');
+  const description = '.{\n    .lib_dir = ' + JSON.stringify(b) + ',\n}\n';
+  const quote = text => "'" + text.replaceAll("'", "'\\''") + "'";
+  await writeFile(zig, '#!/bin/sh\ncase "$1" in\nversion) echo 0.17.0;;\nenv) printf "%s" ' + quote(description) + ';;\nesac\n');
+  await chmod(zig, 0o755);
+  assert.throws(() => select(['--zig-exe', zig, '--zig-lib', a], { inherited: null }), /Conflicting Zig library/);
+  assert.equal(select(['--zig-exe', zig, '--zig-lib', b], { inherited: null }).identity.library, await (await import('node:fs/promises')).realpath(b));
+});

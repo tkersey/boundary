@@ -1,6 +1,10 @@
 const std = @import("std");
 
 pub fn build(b: *std.Build) void {
+    comptime {
+        if (!std.mem.eql(u8, @import("builtin").zig_version_string, "0.17.0"))
+            @compileError("Zig 0.17.0 is required");
+    }
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
     const public_data = b.addModule("boundary_data", .{
