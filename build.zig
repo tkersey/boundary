@@ -24,7 +24,8 @@ pub fn build(b: *std.Build) void {
         }),
     });
     const data_step = b.step("check-data", "Check canonical records and pure admission");
-    data_step.dependOn(&b.addRunArtifact(tests).step);
+    const run_data_tests = b.addRunArtifact(tests);
+    data_step.dependOn(&run_data_tests.step);
     _ = b.addModule("boundary", .{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
@@ -107,25 +108,17 @@ pub fn build(b: *std.Build) void {
     coalescing_components.addArtifactArg2(coalescing_inspect, .{});
     coalescing_components.has_side_effects = true;
     component_step.dependOn(&coalescing_components.step);
-    const component_data_tests = b.addTest(.{ .root_module = b.createModule(.{
-        .root_source_file = b.path("src/data/component_tests.zig"),
-        .target = b.graph.host,
-        .optimize = optimize,
-    }) });
-    component_step.dependOn(&b.addRunArtifact(component_data_tests).step);
-    const component_source_tests = b.addTest(.{ .root_module = b.createModule(.{
-        .root_source_file = b.path("src/test_root.zig"),
-        .target = b.graph.host,
-        .optimize = optimize,
-        .imports = &.{.{ .name = "boundary_data", .module = data }},
-    }), .filters = &.{ "component", "public linker", "combinator" } });
-    component_step.dependOn(&b.addRunArtifact(component_source_tests).step);
     const authoring = b.addTest(.{ .root_module = b.createModule(.{
         .root_source_file = b.path("src/test_root.zig"),
         .target = b.graph.host,
         .optimize = optimize,
         .imports = &.{.{ .name = "boundary_data", .module = data }},
     }) });
+    // Both complete test roots already include the component cases. Share their
+    // runners instead of compiling and executing two subset-only test binaries.
+    const run_authoring_tests = b.addRunArtifact(authoring);
+    component_step.dependOn(&run_data_tests.step);
+    component_step.dependOn(&run_authoring_tests.step);
     const stable_lowering = b.addTest(.{ .root_module = b.createModule(.{
         .root_source_file = b.path("src/test_root.zig"),
         .target = b.graph.host,
@@ -225,9 +218,9 @@ pub fn build(b: *std.Build) void {
     }) });
     b.step("emit-one-effect", "Compile and inspect a complete public authoring example").dependOn(&b.addRunArtifact(one_effect).step);
     b.step("check-authoring", "Check staged typed construction and lowering")
-        .dependOn(&b.addRunArtifact(authoring).step);
+        .dependOn(&run_authoring_tests.step);
     const economy = b.step("check-economy", "Check code and constant sharing and emit executable economy workloads");
-    economy.dependOn(&b.addRunArtifact(authoring).step);
+    economy.dependOn(&run_authoring_tests.step);
     const compiler_options = b.addOptions();
     compiler_options.addOption(usize, "kind", b.option(usize, "economy-kind", "Matched compiler workload: 0 effect, 1 arithmetic") orelse 0);
     const compiler_module = b.createModule(.{ .root_source_file = b.path("test/v2/economy_v2.zig"), .target = b.graph.host, .optimize = optimize, .imports = &.{.{ .name = "boundary", .module = boundary }} });
@@ -285,7 +278,7 @@ pub fn build(b: *std.Build) void {
     semantics.dependOn(&oracle.step);
     semantics.dependOn(&oracleScopeChecks(b, boundary, optimize, authoring_cases).step);
     semantics.dependOn(&borrowReturnChecks(b, boundary, optimize).step);
-    semantics.dependOn(&b.addRunArtifact(authoring).step);
+    semantics.dependOn(&run_authoring_tests.step);
     const exact_json = b.addSystemCommand(&.{ "node", "--test" });
     exact_json.addFileArg2(b.path("test/v2/exact_json.test.mjs"), .{});
     semantics.dependOn(&exact_json.step);
