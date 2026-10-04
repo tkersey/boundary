@@ -41,8 +41,8 @@ fn familyData(f: *const Family) *FamilyData {
 pub fn family(c: *a.Context, identity: []const u8, element: *const a.Schema) a.Error!*const Family {
     const allocator = a.interop.builder(c).allocator();
     const unit = try c.scalar(void);
-    const get = try c.local(try std.fmt.allocPrint(allocator, "{s}/get", .{identity}), unit, element, .linear);
-    const put = try c.local(try std.fmt.allocPrint(allocator, "{s}/put", .{identity}), element, unit, .linear);
+    const get = try c.local(try allocator.print("{s}/get", .{identity}), unit, element, .linear);
+    const put = try c.local(try allocator.print("{s}/put", .{identity}), element, unit, .linear);
     const saved = try allocator.create(FamilyData);
     saved.* = .{ .get = get, .put = put, .get_capability = try c.capability(get), .put_capability = try c.capability(put), .element = element };
     return @ptrCast(saved);

@@ -11,7 +11,7 @@ test "bounded equality search reports exhaustion without discarding its checked 
     const p = @import("program.zig");
     var inputs: [128]p.Id = undefined;
     for (&inputs, 0..) |*slot, id| slot.* = id;
-    const slots = [_]p.Id{0} ** 130;
+    const slots = @as([130]p.Id, @splat(0));
     var instructions: [128]ir.Instruction = undefined;
     instructions[0] = .{ .destination = 129, .opcode = .constant };
     var operands: [127][2]p.Id = undefined;
@@ -55,7 +55,7 @@ test "shared profile policy reaches independently checked loop and tail consumer
 test "shared profile budget is bound to original records and consumed only once" {
     const program = @import("call_patterns_tests.zig").repeated;
     const profiles = @import("optimization_profile.zig");
-    var counts = [_]u64{0} ** program.blocks.len;
+    var counts = @as([program.blocks.len]u64, @splat(0));
     counts[4] = 100;
     const record: profiles.Record = .{ .image_identity = try image.identity(a, program), .block_counts = &counts, .total = 100 };
     var stats: compile.Statistics = .{};
@@ -150,7 +150,7 @@ fn allocationAttempt(allocator: std.mem.Allocator) !void {
     defer result.deinit();
 }
 test "closed compilation releases baseline and successor owners on every allocation failure" {
-    try std.testing.checkAllAllocationFailures(a, allocationAttempt, .{});
+    try @import("allocation_testing.zig").check(a, allocationAttempt, .{});
 }
 
 test "observers do not change selected semantic bytes" {
@@ -258,7 +258,7 @@ fn shrinkingAllocationAttempt(allocator: std.mem.Allocator) !void {
     defer result.deinit();
 }
 test "independent shrinking candidate releases every partial owner and charges its work" {
-    try std.testing.checkAllAllocationFailures(a, shrinkingAllocationAttempt, .{});
+    try @import("allocation_testing.zig").check(a, shrinkingAllocationAttempt, .{});
     var stats: compile.Statistics = .{};
     var limited = try compile.run(a, shrinking_fixture, .{ .contract = .semantic, .work_limit = 1, .statistics = &stats });
     defer limited.deinit();

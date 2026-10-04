@@ -28,7 +28,7 @@ fn attempt(allocator: std.mem.Allocator) !void {
     defer result.deinit();
 }
 test "empty identity handler disappears without deleting state evaluation" {
-    try std.testing.checkAllAllocationFailures(a, attempt, .{});
+    try @import("allocation_testing.zig").check(a, attempt, .{});
     var stats: eliminate.Statistics = .{};
     var result = try eliminate.run(a, identity, &stats, .{});
     defer result.deinit();
@@ -68,7 +68,7 @@ test "nonidentity return calls are preserved and shallow handlers are retained" 
             defer result.deinit();
         }
     };
-    try std.testing.checkAllAllocationFailures(a, Mutation.allocation, .{original});
+    try @import("allocation_testing.zig").check(a, Mutation.allocation, .{original});
     const altered = try a.dupe(ir.Block, candidate.program.blocks);
     defer a.free(altered);
     const bridge = original.blocks.len;

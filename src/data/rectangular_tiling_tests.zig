@@ -71,7 +71,7 @@ fn allocationAttempt(allocator: std.mem.Allocator) !void {
     defer result.deinit();
 }
 test "uneconomical tiling retains checked input and cleans every allocation failure" {
-    try std.testing.checkAllAllocationFailures(a, allocationAttempt, .{});
+    try @import("allocation_testing.zig").check(a, allocationAttempt, .{});
     var stats: tiling.Statistics = .{};
     var result = try tiling.run(a, fixture.base, &stats, .{});
     defer result.deinit();

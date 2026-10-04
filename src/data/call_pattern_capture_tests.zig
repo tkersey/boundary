@@ -68,7 +68,7 @@ fn allocationAttempt(allocator: std.mem.Allocator) !void {
     defer result.deinit();
 }
 test "capture substitution allocation failure releases temporary owners" {
-    try std.testing.checkAllAllocationFailures(a, allocationAttempt, .{});
+    try @import("allocation_testing.zig").check(a, allocationAttempt, .{});
 }
 test "shared compilation selects captured callable specialization" {
     var stats: @import("closed_compilation.zig").Statistics = .{};

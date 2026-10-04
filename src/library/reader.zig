@@ -39,10 +39,10 @@ pub const Reader = struct { handler: *const a.Handler, inside_handler: *const a.
 const Cached = struct { result: *const a.Schema, captures: a.CaptureBounds, value: Reader };
 pub fn family(c: *a.Context, identity: []const u8, environment: *const a.Schema, inside_result: *const a.Schema, inside_captures: []const *const a.Schema, residual: []const *const a.Operation, regions: []const *const a.Region) a.Error!*const Family {
     const allocator = a.interop.builder(c).allocator();
-    const ask = try c.local(try std.fmt.allocPrint(allocator, "{s}/ask", .{identity}), try c.scalar(void), environment, .linear);
+    const ask = try c.local(try allocator.print("{s}/ask", .{identity}), try c.scalar(void), environment, .linear);
     const declaration = try c.declareSchema(.callable);
     const inside = declaration.schema();
-    const local = try c.scoped(try std.fmt.allocPrint(allocator, "{s}/local", .{identity}), environment, inside_result, .linear, &.{.{ .name = "inside", .schema = inside }});
+    const local = try c.scoped(try allocator.print("{s}/local", .{identity}), environment, inside_result, .linear, &.{.{ .name = "inside", .schema = inside }});
     const ask_capability = try c.capability(ask);
     const local_capability = try c.capability(local);
     const bound = try allocator.alloc(*const a.Schema, inside_captures.len + 1);

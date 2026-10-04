@@ -176,7 +176,7 @@ fn exchangeAllocation(allocator: @import("std").mem.Allocator) !void {
     _ = try defineExchange(&builder, "allocation/exchange", integer, boolean, integer, &.{ integer, boolean }, &.{}, &.{}, .{ .effects = &.{} });
 }
 test "owned exchange construction releases partial allocation owners" {
-    try @import("std").testing.checkAllAllocationFailures(@import("std").testing.allocator, exchangeAllocation, .{});
+    try @import("../allocation_testing.zig").check(@import("std").testing.allocator, exchangeAllocation, .{});
 }
 
 /// A derived sequential pipeline. Construction emits code only; start consumes
@@ -295,7 +295,7 @@ fn compositionAllocation(allocator: std.mem.Allocator) !void {
 
 test "owned composition checks compatibility and releases partial construction" {
     const testing = @import("std").testing;
-    try testing.checkAllAllocationFailures(testing.allocator, compositionAllocation, .{});
+    try @import("../allocation_testing.zig").check(testing.allocator, compositionAllocation, .{});
 }
 
 test "typed exchange pipelines preserve ownership, compatibility and definition sharing" {

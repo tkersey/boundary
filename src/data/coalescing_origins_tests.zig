@@ -14,9 +14,9 @@ const fixture = @import("coalescing_witness_tests.zig").original;
 fn withDeadFunction(a: std.mem.Allocator) !ir.Program {
     var maps = try r.identityMaps(a, try r.sizes(fixture));
     inline for (.{ r.Kind.function, r.Kind.block }) |kind| {
-        const shifted = try a.dupe(p.Id, maps[@intFromEnum(kind)]);
+        const shifted = try a.dupe(p.Id, maps[@backingInt(kind)]);
         for (shifted) |*id| id.* += 1;
-        maps[@intFromEnum(kind)] = shifted;
+        maps[@backingInt(kind)] = shifted;
     }
     const mapper: r.Mapper = .{ .allocator = a, .maps = maps };
     const functions = try a.alloc(ir.Function, fixture.functions.len + 1);
@@ -85,7 +85,7 @@ test "coalescing diagnostics preserve original aliases across projection and suc
     try testing.expectError(error.InvalidCorrespondence, trace.advance(stale));
     try testing.expectEqualSlices(p.Id, before, trace.map(.function));
     stale = second.correspondence;
-    stale.final[@intFromEnum(r.Kind.schema)] = &.{};
+    stale.final[@backingInt(r.Kind.schema)] = &.{};
     try testing.expectError(error.InvalidCorrespondence, trace.advance(stale));
     try testing.expectEqualSlices(p.Id, before, trace.map(.function));
     try testing.expectEqualSlices(p.Id, &.{ 1, 0 }, trace.locals[2].slots);
@@ -117,7 +117,7 @@ fn allocationCase(a: std.mem.Allocator) !void {
 }
 
 test "coalescing diagnostic tracking owns partial storage and clears successful observations" {
-    try testing.checkAllAllocationFailures(testing.allocator, allocationCase, .{});
+    try @import("allocation_testing.zig").check(testing.allocator, allocationCase, .{});
 }
 
 test "coalescing diagnostics do not change the selected image" {
@@ -338,7 +338,7 @@ test "coalescing origin composition retains sparse nominal regions without dense
     try trace.advance(result.correspondence);
     try testing.expectEqual(@as(?p.Id, 0), trace.resolve(.region, large));
     var stale = result.correspondence;
-    stale.final[@intFromEnum(r.Kind.region)] = &.{};
+    stale.final[@backingInt(r.Kind.region)] = &.{};
     try testing.expectError(error.InvalidCorrespondence, trace.advance(stale));
     try testing.expectEqual(@as(?p.Id, 0), trace.resolve(.region, large));
 }

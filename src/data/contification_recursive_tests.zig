@@ -86,7 +86,7 @@ fn allocationAttempt(allocator: std.mem.Allocator) !void {
     defer result.deinit();
 }
 test "recursive join allocation and group limits preserve baseline ownership" {
-    try std.testing.checkAllAllocationFailures(a, allocationAttempt, .{});
+    try @import("allocation_testing.zig").check(a, allocationAttempt, .{});
     var stats: joins.Statistics = .{};
     var result = try joins.run(a, mutual, &stats, .{ .max_helpers = 1 });
     defer result.deinit();

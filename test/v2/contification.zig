@@ -126,7 +126,7 @@ test "contified recursive control retains nonterminating finite prefixes" {
     original.blocks = &blocks;
     var candidate = try data.contification.run(a, original, null, .{});
     defer candidate.deinit();
-    var args = [_]u8{0} ** 18;
+    var args = @as([18]u8, @splat(0));
     args[16] = 1;
     args[17] = 1;
     for ([_]ir.Program{ original, candidate.program }) |program| {

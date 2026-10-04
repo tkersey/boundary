@@ -165,7 +165,7 @@ fn allocationCase(a: std.mem.Allocator) !void {
 }
 
 test "coalescing discovery releases every partial allocation" {
-    try testing.checkAllAllocationFailures(testing.allocator, allocationCase, .{});
+    try @import("allocation_testing.zig").check(testing.allocator, allocationCase, .{});
 }
 
 test "coalescing work accounting rejects overflow without wrapping or publishing extra units" {

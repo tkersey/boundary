@@ -164,7 +164,7 @@ fn writeKey(
     initial: bool,
 ) wire.Error!void {
     try writer.natural(if (initial) 0 else classes[id]);
-    try writer.natural(@intFromEnum(node.kind));
+    try writer.natural(@backingInt(node.kind));
     try writer.natural(node.label.len);
     try writer.put(node.label);
     try writer.natural(node.anchors.len);
@@ -174,7 +174,7 @@ fn writeKey(
     try writer.natural(node.edges.len);
     for (node.edges) |edge| {
         try writer.natural(edge.role);
-        try writer.natural(@intFromEnum(nodes[edge.target].kind));
+        try writer.natural(@backingInt(nodes[edge.target].kind));
         try writer.natural(if (initial) 0 else classes[edge.target]);
     }
 }

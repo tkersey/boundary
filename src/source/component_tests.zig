@@ -263,7 +263,7 @@ test "component linking releases every partial owner on allocation failure" {
     defer testing.allocator.free(provider);
     const client = try object(false, false);
     defer testing.allocator.free(client);
-    try testing.checkAllAllocationFailures(testing.allocator, failureLink, .{ provider, client });
+    try @import("../allocation_testing.zig").check(testing.allocator, failureLink, .{ provider, client });
 }
 
 test "one reusable combinator specializes for two residual effect contexts" {

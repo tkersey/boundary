@@ -61,5 +61,5 @@ test "closed projection follows resource authority and owns remapped output afte
 }
 
 test "closed projection releases partial owners at every allocation failure" {
-    try testing.checkAllAllocationFailures(testing.allocator, projectionCase, .{});
+    try @import("allocation_testing.zig").check(testing.allocator, projectionCase, .{});
 }

@@ -1,5 +1,37 @@
 # Optimization acceptance
 
+## Zig 0.17 upgrade evidence
+
+The [accepted specification](zig-0.17-upgrade-spec.md),
+[execution and cost report](zig-0.17-upgrade.md), and
+[machine record](performance/zig17-upgrade.json) own the coordinated upgrade.
+They retain all ten opportunity decisions, the T01–T70 witness map, final-code
+macOS/Linux qualification, cumulative comparisons, and the user's conditional
+acceptance of the measured compatibility costs. Exact execution subjects are
+kept distinct from later source/provenance rebinding and live PR review state.
+
+The maintained successor in each repository supports **Zig 0.17.0 only**.
+References to 0.16 below describe frozen measurement/rollback evidence, never
+successor builds or dual-version CI. All 114 Boundary and 188 Agent frozen
+artifacts remain byte-identical. Captured error cleanup was checked under 0.16
+before reflection migration; deterministic allocation-failure sweeps preserve
+OOM/leak assertions while ordinary tests retain the real diagnostic allocator.
+
+### Zig 0.17 standalone configuration-cache witness
+
+Switching `--build-file` between sibling scripts while reusing a local cache
+selected the preceding script's graph on the official 0.17.0 distribution.
+A two-file step-list reproducer confirmed the behavior independently of project
+code. The maintained standalone authoring/hyper helpers therefore call
+`b.graph.poisonCache()`; their compiled artifacts remain cached, while configuration
+is recomputed. The normal build keeps configuration caching. A regression test
+alternates the actual helper scripts using one cache and checks their distinct
+step sets. This necessary workaround's configuration cost belongs in E02; no
+performance improvement is claimed for it. World applies the same scoped remedy
+to its sibling source/benchmark helpers.
+
+## Historical optimization acceptance
+
 **State:** repository cleanup is retained. Boundary `65f4613` and Agent `20362f1`
 qualify the retained-argument repair; current results are below. Fresh final serial
 reviews remain open. This is the consolidated acceptance report for

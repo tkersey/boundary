@@ -212,11 +212,11 @@ pub fn CheckFor(comptime Program: type, comptime State: type) type {
                         if (info.child != u8) for (value) |item| try self.collect(info.child, check, item);
                     },
                     .optional => |info| if (value) |item| try self.collect(info.child, check, item),
-                    .@"struct" => |info| inline for (info.fields) |field|
-                        try self.collect(field.type, check, @field(value, field.name)),
-                    .@"union" => |info| inline for (info.fields) |field| {
-                        if (std.mem.eql(u8, @tagName(value), field.name)) {
-                            try self.collect(field.type, check, @field(value, field.name));
+                    .@"struct" => |info| inline for (info.field_names, info.field_types) |field_name, FieldType|
+                        try self.collect(FieldType, check, @field(value, field_name)),
+                    .@"union" => |info| inline for (info.field_names, info.field_types) |field_name, FieldType| {
+                        if (std.mem.eql(u8, @tagName(value), field_name)) {
+                            try self.collect(FieldType, check, @field(value, field_name));
                             return;
                         }
                     },
@@ -277,12 +277,12 @@ pub fn CheckFor(comptime Program: type, comptime State: type) type {
                     .optional => |info| if (input) |item| {
                         changed = try self.values(info.child, check, into, item) or changed;
                     },
-                    .@"struct" => |info| inline for (info.fields) |field| {
-                        changed = try self.values(field.type, check, into, @field(input, field.name)) or changed;
+                    .@"struct" => |info| inline for (info.field_names, info.field_types) |field_name, FieldType| {
+                        changed = try self.values(FieldType, check, into, @field(input, field_name)) or changed;
                     },
-                    .@"union" => |info| inline for (info.fields) |field| {
-                        if (std.mem.eql(u8, @tagName(input), field.name))
-                            return self.values(field.type, check, into, @field(input, field.name));
+                    .@"union" => |info| inline for (info.field_names, info.field_types) |field_name, FieldType| {
+                        if (std.mem.eql(u8, @tagName(input), field_name))
+                            return self.values(FieldType, check, into, @field(input, field_name));
                     },
                     else => {},
                 }

@@ -103,5 +103,5 @@ fn failedInsertion(allocator: std.mem.Allocator) !void {
 }
 
 test "lexical scope insertion preserves earlier roots at every allocation failure" {
-    try std.testing.checkAllAllocationFailures(std.testing.allocator, failedInsertion, .{});
+    try @import("../allocation_testing.zig").check(std.testing.allocator, failedInsertion, .{});
 }

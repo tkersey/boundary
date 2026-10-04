@@ -599,7 +599,7 @@ test "G41 branch specialization dead capture arguments and coalescing have separ
     defer selected.deinit();
     try std.testing.expectEqual(@as(usize, 3), removed.parameters_removed);
     try std.testing.expectEqual(@as(usize, 3), removed.call_arguments_removed);
-    const function_kind = @intFromEnum(data.relocation.Kind.function);
+    const function_kind = @backingInt(data.relocation.Kind.function);
     // The admitted pre-P01 candidate still has three declarations. Mandatory
     // P01 then shares the two workers whose formerly captured inputs disappeared.
     try std.testing.expectEqual(@as(usize, 3), p01.baseline.catalogs[function_kind]);

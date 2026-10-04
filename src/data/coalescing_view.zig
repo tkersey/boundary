@@ -82,7 +82,7 @@ const Sink = struct {
     }
     fn global(self: *Sink, kind: r.Kind, id: p.Id) Error!void {
         try self.raw(kind);
-        const map = self.fixed[@intFromEnum(kind)];
+        const map = self.fixed[@backingInt(kind)];
         if (id >= map.len) return error.InvalidReference;
         const offset: usize = switch (kind) {
             .function => 0,
@@ -156,7 +156,7 @@ const Body = struct {
             for (block.instructions) |operation| try self.instruction(operation);
             try self.terminator(block.terminator);
         }
-        try self.locals.complete(self.sink.fixed[@intFromEnum(r.Kind.schema)]);
+        try self.locals.complete(self.sink.fixed[@backingInt(r.Kind.schema)]);
         try self.sink.natural(self.locals.slot_order.items.len);
         for (self.locals.slot_order.items) |old|
             try self.sink.global(.schema, code.layout.slots[@intCast(old)]);
@@ -235,27 +235,27 @@ const Body = struct {
         }
     }
     fn control(self: *Body, value: anytype) Error!void {
-        inline for (std.meta.fields(@TypeOf(value))) |field| {
-            const item = @field(value, field.name);
-            if (comptime std.mem.eql(u8, field.name, "function")) {
+        inline for (@typeInfo(@TypeOf(value)).@"struct".field_names, @typeInfo(@TypeOf(value)).@"struct".field_types) |field_name, FieldType| {
+            const item = @field(value, field_name);
+            if (comptime std.mem.eql(u8, field_name, "function")) {
                 try self.sink.global(.function, item);
-            } else if (comptime std.mem.eql(u8, field.name, "handler")) {
+            } else if (comptime std.mem.eql(u8, field_name, "handler")) {
                 try self.sink.global(.handler, item);
-            } else if (comptime std.mem.eql(u8, field.name, "region")) {
+            } else if (comptime std.mem.eql(u8, field_name, "region")) {
                 try self.sink.global(.region, item);
-            } else if (comptime std.mem.eql(u8, field.name, "loan_region")) {
+            } else if (comptime std.mem.eql(u8, field_name, "loan_region")) {
                 try self.sink.raw(item != null);
                 if (item) |id| try self.sink.global(.region, id);
-            } else if (field.type == ir.Edge) {
+            } else if (FieldType == ir.Edge) {
                 try self.edge(item);
-            } else if (field.type == []const ir.Edge) {
+            } else if (FieldType == []const ir.Edge) {
                 try self.sink.natural(item.len);
                 for (item) |next| try self.edge(next);
-            } else if (field.type == []const p.Id) {
+            } else if (FieldType == []const p.Id) {
                 try self.slots(item);
-            } else if (field.type == ?p.Id) {
+            } else if (FieldType == ?p.Id) {
                 try self.optionalSlot(item);
-            } else if (field.type == p.Id) {
+            } else if (FieldType == p.Id) {
                 try self.slot(item);
             } else @compileError("classify new control field in coalescing view");
         }

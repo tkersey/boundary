@@ -46,8 +46,8 @@ adds a reusable callable, two ordered calls, named records, a derived responder,
 residual lookup and checked overflow. Both emit ordinary BPI3:
 
 ```sh
-zig build emit-structured-branch -Doptimize=ReleaseSafe > branch.bpi3
-zig build emit-authoring-client -Doptimize=ReleaseSafe > client.bpi3
+zig build emit-structured-branch -Doptimize=safe > branch.bpi3
+zig build emit-authoring-client -Doptimize=safe > client.bpi3
 ```
 
 The canonical route is:
@@ -283,9 +283,9 @@ Finite cases establish their exercised observations, not universal soundness.
 | A18 | Existing low-level aggregate, component APIs, source oracle and separate data-only package import |
 
 ```sh
-zig build check -Doptimize=Debug
-zig build check -Doptimize=ReleaseSafe
-zig build build-authoring-cases -Doptimize=ReleaseSafe
+zig build check -Doptimize=debug
+zig build check -Doptimize=safe
+zig build build-authoring-cases -Doptimize=safe
 node test/run_authoring_cases.mjs RUNTIME_DIR NATIVE_RUNNER zig-out/bin/authoring-cases
 node test/package_authoring.mjs RUNTIME_DIR NATIVE_RUNNER /absolute/client.bpi3
 node test/authoring_execution.mjs RUNTIME_DIR NATIVE_RUNNER hyper BASELINE.bpi3 CANDIDATE.bpi3

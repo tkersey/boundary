@@ -15,10 +15,10 @@ fn require(ok: bool) Error!void {
 
 // A new field cannot silently inherit structural equality or be omitted.
 fn fields(comptime T: type, comptime names: []const []const u8) void {
-    const actual = std.meta.fields(T);
+    const actual = @typeInfo(T).@"struct".field_names;
     if (actual.len != names.len) @compileError("classify new coalescing field: " ++ @typeName(T));
-    for (actual, names) |field, name|
-        if (!std.mem.eql(u8, field.name, name))
+    for (actual, names) |field_name, name|
+        if (!std.mem.eql(u8, field_name, name))
             @compileError("classify changed coalescing field: " ++ @typeName(T));
 }
 
@@ -108,7 +108,7 @@ const Check = struct {
     diagnostic: ?*Diagnostic = null,
 
     fn id(self: Check, kind: r.Kind, old: p.Id) Error!usize {
-        const map = self.maps[@intFromEnum(kind)];
+        const map = self.maps[@backingInt(kind)];
         if (old >= map.len) return error.InvalidCorrespondence;
         return std.math.cast(usize, map[@intCast(old)]) orelse error.InvalidCorrespondence;
     }
@@ -467,28 +467,28 @@ const Body = struct {
             else => @compileError("control payload requires explicit classification"),
         };
         comptime fields(@TypeOf(old), names);
-        inline for (std.meta.fields(@TypeOf(old))) |field| {
-            const a = @field(old, field.name);
-            const b = @field(new, field.name);
-            if (comptime std.mem.eql(u8, field.name, "function")) {
+        inline for (@typeInfo(@TypeOf(old)).@"struct".field_names, @typeInfo(@TypeOf(old)).@"struct".field_types) |field_name, FieldType| {
+            const a = @field(old, field_name);
+            const b = @field(new, field_name);
+            if (comptime std.mem.eql(u8, field_name, "function")) {
                 try self.check.ref(.function, a, b);
-            } else if (comptime std.mem.eql(u8, field.name, "handler")) {
+            } else if (comptime std.mem.eql(u8, field_name, "handler")) {
                 try self.check.ref(.handler, a, b);
-            } else if (comptime std.mem.eql(u8, field.name, "region")) {
+            } else if (comptime std.mem.eql(u8, field_name, "region")) {
                 try self.check.ref(.region, a, b);
-            } else if (comptime std.mem.eql(u8, field.name, "loan_region")) {
+            } else if (comptime std.mem.eql(u8, field_name, "loan_region")) {
                 try require((a == null) == (b == null));
                 if (a) |id| try self.check.ref(.region, id, b.?);
-            } else if (field.type == ir.Edge) {
+            } else if (FieldType == ir.Edge) {
                 try self.edge(a, b);
-            } else if (field.type == []const ir.Edge) {
+            } else if (FieldType == []const ir.Edge) {
                 try require(a.len == b.len);
                 for (a, b) |x, y| try self.edge(x, y);
-            } else if (field.type == []const p.Id) {
+            } else if (FieldType == []const p.Id) {
                 try self.slots(a, b);
-            } else if (field.type == ?p.Id) {
+            } else if (FieldType == ?p.Id) {
                 try self.optionalSlot(a, b);
-            } else if (field.type == p.Id) {
+            } else if (FieldType == p.Id) {
                 try self.slot(a, b);
             } else @compileError("unclassified control field");
         }

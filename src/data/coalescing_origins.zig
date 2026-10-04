@@ -29,7 +29,7 @@ pub const Trace = struct {
     locals: []Local,
 
     pub fn map(self: *const Trace, kind: r.Kind) []const p.Id {
-        return self.maps[@intFromEnum(kind)];
+        return self.maps[@backingInt(kind)];
     }
     pub fn resolve(self: *const Trace, kind: r.Kind, original: p.Id) ?p.Id {
         if (kind == .region) {
@@ -77,7 +77,7 @@ pub const Trace = struct {
             regions[index] = .{ .original = entry.key_ptr.*, .current = entry.value_ptr.* };
         }
         const locals = try a.alloc(Local, original.functions.len);
-        const functions = maps[@intFromEnum(r.Kind.function)];
+        const functions = maps[@backingInt(r.Kind.function)];
         for (locals, functions, original.functions) |*local, function, code| {
             local.slots = try identity(a, if (function == r.missing) 0 else code.layout.slots.len);
             local.custody = try identity(a, if (function == r.missing) 0 else code.custody.len);
@@ -108,7 +108,7 @@ pub const Trace = struct {
                 return error.InvalidCorrespondence;
         }
         for (self.maps, 0..) |ids, kind| for (ids) |id| if (id != r.missing) {
-            _ = try mapped(next.final, @enumFromInt(kind), id);
+            _ = try mapped(next.final, @fromBackingInt(@intCast(kind)), id);
         };
         for (self.regions) |region| _ = try mapped(next.final, .region, region.current);
         // No mutation precedes the complete domain check above.
@@ -122,7 +122,7 @@ pub const Trace = struct {
             id.* = next_ids[@intCast(id.*)];
         };
         for (self.regions) |*region|
-            region.current = next.final[@intFromEnum(r.Kind.region)][@intCast(region.current)];
+            region.current = next.final[@backingInt(r.Kind.region)][@intCast(region.current)];
     }
     /// `next` is supplied only after raw-record validation, for an admission
     /// failure in a not-yet-selected candidate. No provisional discovery is trusted.
@@ -207,7 +207,7 @@ fn identity(a: std.mem.Allocator, count: usize) Error![]p.Id {
 }
 
 fn mapped(maps: r.Maps, kind: r.Kind, old: p.Id) Error!p.Id {
-    const map = maps[@intFromEnum(kind)];
+    const map = maps[@backingInt(kind)];
     if (old >= map.len or map[@intCast(old)] == r.missing) return error.InvalidCorrespondence;
     return map[@intCast(old)];
 }

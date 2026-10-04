@@ -101,7 +101,7 @@ fn productAllocationAttempt(allocator: std.mem.Allocator) !void {
     try pass.validate(allocator, shared_product, candidate.program, candidate.proof, .{});
 }
 test "typed product extraction and replay clean every allocation failure" {
-    try std.testing.checkAllAllocationFailures(a, productAllocationAttempt, .{});
+    try @import("allocation_testing.zig").check(a, productAllocationAttempt, .{});
 }
 pub const interaction: ir.Program = .{
     .roots = .{ .entry = 0, .result = 0, .failure = 1 },
@@ -209,7 +209,7 @@ fn allocationAttempt(allocator: std.mem.Allocator) !void {
     defer result.deinit();
 }
 test "saturation proof and extraction release every failed allocation" {
-    try std.testing.checkAllAllocationFailures(a, allocationAttempt, .{});
+    try @import("allocation_testing.zig").check(a, allocationAttempt, .{});
 }
 
 test "repeated slot definitions use their actual value versions" {

@@ -73,7 +73,7 @@ fn allocationAttempt(allocator: std.mem.Allocator) !void {
 }
 test "sequence fusion releases each failed allocation and limits roll back through P01" {
     const fusion = @import("sequence_fusion.zig");
-    try std.testing.checkAllAllocationFailures(a, allocationAttempt, .{});
+    try @import("allocation_testing.zig").check(a, allocationAttempt, .{});
     var baseline = try @import("coalescing.zig").run(a, map_fold, .{});
     defer baseline.deinit();
     var stats: fusion.Statistics = .{};

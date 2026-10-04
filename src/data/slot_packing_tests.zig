@@ -67,7 +67,7 @@ fn allocationAttempt(allocator: std.mem.Allocator) !void {
     defer result.deinit();
 }
 test "packing allocation failure and work exhaustion retain P01" {
-    try std.testing.checkAllAllocationFailures(a, allocationAttempt, .{});
+    try @import("allocation_testing.zig").check(a, allocationAttempt, .{});
     var stats: pack.Statistics = .{};
     var result = try pack.run(a, chain, &stats, .{ .work_limit = 0 });
     defer result.deinit();

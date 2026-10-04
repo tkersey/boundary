@@ -53,7 +53,7 @@ fn computeImpl(a: std.mem.Allocator, program: ir.Program, statistics: ?*Statisti
         stats.rounds += 1;
         var pass = std.heap.ArenaAllocator.init(a);
         defer pass.deinit();
-        maps[@intFromEnum(Kind.schema)] = classes;
+        maps[@backingInt(Kind.schema)] = classes;
         const mapper: relocate.Mapper = .{ .allocator = pass.allocator(), .maps = maps };
         const shapes = try pass.allocator().alloc(p.Schema, classes.len);
         var distinct: usize = 0;
@@ -110,7 +110,7 @@ fn reference(a: std.mem.Allocator, program: ir.Program) Error![]const Id {
     while (true) {
         var pass = std.heap.ArenaAllocator.init(a);
         defer pass.deinit();
-        maps[@intFromEnum(Kind.schema)] = classes;
+        maps[@backingInt(Kind.schema)] = classes;
         const mapper: relocate.Mapper = .{ .allocator = pass.allocator(), .maps = maps };
         const shapes = try pass.allocator().alloc(p.Schema, classes.len);
         for (shapes, program.schemas, 0..) |*shape, original, i| {
@@ -191,7 +191,7 @@ fn fixtureProgram(schemas: []const p.Schema, regions: Id) ir.Program {
     return .{ .roots = .{ .entry = 0, .result = 0, .failure = 0 }, .schemas = schemas, .constants = &.{}, .effects = &.{}, .functions = &.{.{ .entry = 0, .inputs = &.{0}, .layout = .{ .slots = &.{0} }, .result = 0 }}, .blocks = &.{.{ .function = 0, .instructions = &.{}, .terminator = .{ .return_value = 0 } }}, .scopes = .{ .region_count = regions } };
 }
 test "partition indexing releases every failed allocation" {
-    try std.testing.checkAllAllocationFailures(std.testing.allocator, allocationAttempt, .{});
+    try @import("allocation_testing.zig").check(std.testing.allocator, allocationAttempt, .{});
 }
 test "indexed and reference partitions preserve invalid-reference diagnostics" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

@@ -96,7 +96,7 @@ fn allocationAttempt(allocator: std.mem.Allocator) !void {
     defer result.deinit();
 }
 test "join allocation and budget exhaustion preserve the P01 baseline" {
-    try std.testing.checkAllAllocationFailures(a, allocationAttempt, .{});
+    try @import("allocation_testing.zig").check(a, allocationAttempt, .{});
     var baseline = try @import("coalescing.zig").run(a, shared, .{});
     defer baseline.deinit();
     for ([_]joins.Options{ .{ .work_limit = 0 }, .{ .max_blocks = 0 }, .{ .max_slots = 0 }, .{ .max_added_bytes = 0 } }) |options| {

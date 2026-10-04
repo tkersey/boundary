@@ -39,8 +39,8 @@ const Cached = struct { element: *const a.Schema, options: Options, value: Searc
 pub fn family(c: *a.Context, identity: []const u8) a.Error!*const Family {
     const allocator = a.interop.builder(c).allocator();
     const unit = try c.scalar(void);
-    const pick = try c.local(try std.fmt.allocPrint(allocator, "{s}/pick", .{identity}), unit, try c.scalar(bool), .multi);
-    const reject = try c.local(try std.fmt.allocPrint(allocator, "{s}/reject", .{identity}), unit, unit, .multi);
+    const pick = try c.local(try allocator.print("{s}/pick", .{identity}), unit, try c.scalar(bool), .multi);
+    const reject = try c.local(try allocator.print("{s}/reject", .{identity}), unit, unit, .multi);
     const value = try allocator.create(FamilyData);
     value.* = .{ .pick = pick, .reject = reject, .pick_capability = try c.capability(pick), .reject_capability = try c.capability(reject) };
     return @ptrCast(value);

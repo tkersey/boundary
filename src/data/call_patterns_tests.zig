@@ -5,7 +5,7 @@ const a = std.testing.allocator;
 const profile = @import("optimization_profile.zig");
 
 test "an exact immutable profile prioritizes a proved hot constructor within one variant" {
-    var counts = [_]u64{0} ** repeated.blocks.len;
+    var counts = @as([repeated.blocks.len]u64, @splat(0));
     counts[4] = 100;
     const record: profile.Record = .{ .image_identity = try @import("program_image.zig").identity(a, repeated), .block_counts = &counts, .total = 100 };
     var candidate = (try patterns.construct(a, repeated, .{ .profile = record, .max_variants = 1 })).?;
@@ -29,7 +29,7 @@ test "a hot polymorphic call does not acquire a constructor proof from its profi
     blocks[4].terminator = .{ .jump = .{ .block = repeated.blocks.len } };
     var original = repeated;
     original.blocks = &blocks;
-    var counts = [_]u64{0} ** blocks.len;
+    var counts = @as([blocks.len]u64, @splat(0));
     counts[repeated.blocks.len] = 1000000;
     const record: profile.Record = .{ .image_identity = try @import("program_image.zig").identity(a, original), .block_counts = &counts, .total = 1000000 };
     var candidate = (try patterns.construct(a, original, .{ .profile = record, .max_variants = 1 })).?;
@@ -40,7 +40,7 @@ test "a hot polymorphic call does not acquire a constructor proof from its profi
 }
 
 test "profile identity toolchain locations and overflowing counters reject" {
-    var counts = [_]u64{0} ** repeated.blocks.len;
+    var counts = @as([repeated.blocks.len]u64, @splat(0));
     var record: profile.Record = .{ .image_identity = try @import("program_image.zig").identity(a, repeated), .block_counts = &counts, .total = 0 };
     try profile.validate(a, repeated, record);
     record.image_identity[0] ^= 1;
@@ -154,7 +154,7 @@ fn allocationAttempt(allocator: std.mem.Allocator) !void {
     defer result.deinit();
 }
 test "call-pattern allocation and code-growth exhaustion retain P01 baseline" {
-    try std.testing.checkAllAllocationFailures(a, allocationAttempt, .{});
+    try @import("allocation_testing.zig").check(a, allocationAttempt, .{});
     var baseline = try @import("coalescing.zig").run(a, repeated, .{});
     defer baseline.deinit();
     for ([_]patterns.Options{ .{ .max_variants = 1 }, .{ .max_added_blocks = 1 }, .{ .max_added_bytes = 0 }, .{ .work_limit = 0 } }) |options| {

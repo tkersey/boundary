@@ -153,20 +153,20 @@ fn control(a: std.mem.Allocator, value: ir.Terminator, mapping: []const Id) Erro
         .with_region,
         => |v, tag| blk: {
             var result = v;
-            inline for (std.meta.fields(@TypeOf(v))) |field| {
-                const original = @field(v, field.name);
-                if (comptime named(field.name, &.{ "condition", "value", "computation", "body", "cleanup", "owned", "payload", "resumption", "argument", "capability", "resource" })) {
-                    @field(result, field.name) = local(field.type, original, mapping);
-                } else if (comptime named(field.name, &.{ "arguments", "state", "bodies", "use_site_capabilities", "destinations" })) {
-                    @field(result, field.name) = try ids(a, original, mapping);
-                } else if (comptime named(field.name, &.{ "next", "when_true", "when_false" })) {
-                    @field(result, field.name) = try edge(a, original, mapping);
-                } else if (comptime std.mem.eql(u8, field.name, "cases")) {
+            inline for (@typeInfo(@TypeOf(v)).@"struct".field_names, @typeInfo(@TypeOf(v)).@"struct".field_types) |field_name, FieldType| {
+                const original = @field(v, field_name);
+                if (comptime named(field_name, &.{ "condition", "value", "computation", "body", "cleanup", "owned", "payload", "resumption", "argument", "capability", "resource" })) {
+                    @field(result, field_name) = local(FieldType, original, mapping);
+                } else if (comptime named(field_name, &.{ "arguments", "state", "bodies", "use_site_capabilities", "destinations" })) {
+                    @field(result, field_name) = try ids(a, original, mapping);
+                } else if (comptime named(field_name, &.{ "next", "when_true", "when_false" })) {
+                    @field(result, field_name) = try edge(a, original, mapping);
+                } else if (comptime std.mem.eql(u8, field_name, "cases")) {
                     const cases = try a.alloc(ir.Edge, original.len);
                     for (cases, original) |*to, from| to.* = try edge(a, from, mapping);
-                    @field(result, field.name) = cases;
-                } else if (comptime !named(field.name, &.{ "function", "effect", "handler", "region", "loan_region" })) {
-                    @compileError("classify the new control field before relabeling slots: " ++ field.name);
+                    @field(result, field_name) = cases;
+                } else if (comptime !named(field_name, &.{ "function", "effect", "handler", "region", "loan_region" })) {
+                    @compileError("classify the new control field before relabeling slots: " ++ field_name);
                 }
             }
             break :blk @unionInit(ir.Terminator, @tagName(tag), result);
@@ -176,7 +176,7 @@ fn control(a: std.mem.Allocator, value: ir.Terminator, mapping: []const Id) Erro
 
 test "slot ordering is an immutable idempotent renaming of schemas and simultaneous edges" {
     const testing = std.testing;
-    const layout = [_]Id{ 0, 1, 0, 0, 0, 3 } ++ [_]Id{0} ** 60;
+    const layout = [_]Id{ 0, 1, 0, 0, 0, 3 } ++ @as([60]Id, @splat(0));
     const input: ir.Program = .{
         .roots = .{ .entry = 0, .result = 3, .failure = 2 },
         .schemas = &.{ .u64, .boolean, .unit, .{ .product = &.{ 0, 0 } } },
@@ -195,7 +195,7 @@ test "slot ordering is an immutable idempotent renaming of schemas and simultane
     const output = try optimize(arena.allocator(), input);
     var checked = try data.activation_ownership.analyze(testing.allocator, output);
     defer checked.deinit();
-    var expected = [_]Id{0} ** 66;
+    var expected = @as([66]Id, @splat(0));
     expected[63] = 1;
     expected[65] = 3;
     try testing.expectEqualSlices(Id, &expected, output.functions[0].layout.slots);

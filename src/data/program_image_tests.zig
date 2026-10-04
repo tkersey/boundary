@@ -69,7 +69,7 @@ fn admittedFailure(allocator: std.mem.Allocator) !void {
     try testing.expectEqualDeep(example, owner.program());
 }
 test "immutable admitted image allocation failures release records and facts" {
-    try testing.checkAllAllocationFailures(testing.allocator, admittedFailure, .{});
+    try @import("allocation_testing.zig").check(testing.allocator, admittedFailure, .{});
 }
 
 fn retainedContractFacts(allocator: std.mem.Allocator) !void {
@@ -107,7 +107,7 @@ fn retainedContractFacts(allocator: std.mem.Allocator) !void {
 }
 
 test "admitted schema traits and effect facts survive scratch release and failed construction" {
-    try testing.checkAllAllocationFailures(testing.allocator, retainedContractFacts, .{});
+    try @import("allocation_testing.zig").check(testing.allocator, retainedContractFacts, .{});
 }
 
 test "BPI3 scalar and unit golden encodings" {
@@ -163,19 +163,19 @@ test "BPI3 owns decoded records and binds identity to its canonical bytes" {
 }
 
 test "BPI3 rejects output overlap and capacity without mutation" {
-    var bytes = [_]u8{0} ** 256;
+    var bytes = @as([256]u8, @splat(0));
     const constants = [_]p.Literal{.{ .schema = 0, .bytes = bytes[0..8] }};
     var program = example;
     program.constants = &constants;
     try testing.expectError(error.InvalidBuffers, image.encode(testing.allocator, program, &bytes));
-    try testing.expectEqualSlices(u8, &([_]u8{0} ** 256), &bytes);
+    try testing.expectEqualSlices(u8, &(@as([256]u8, @splat(0))), &bytes);
     @memset(&bytes, 0xa5);
     try testing.expectError(error.Capacity, image.encode(testing.allocator, example, bytes[0..1]));
-    try testing.expectEqualSlices(u8, &([_]u8{0xa5} ** 256), &bytes);
+    try testing.expectEqualSlices(u8, &(@as([256]u8, @splat(0xa5))), &bytes);
     program = example;
     program.roots.entry = 999;
     try testing.expectError(error.InvalidReference, image.encode(testing.allocator, program, &bytes));
-    try testing.expectEqualSlices(u8, &([_]u8{0xa5} ** 256), &bytes);
+    try testing.expectEqualSlices(u8, &(@as([256]u8, @splat(0xa5))), &bytes);
 }
 
 test "BPI3 single-bit mutations either reject or remain admitted canonical owners" {
@@ -195,7 +195,7 @@ test "BPI3 single-bit mutations either reject or remain admitted canonical owner
 }
 
 fn allocationFailure(allocator: std.mem.Allocator) !void {
-    var bytes = [_]u8{0xa5} ** 256;
+    var bytes = @as([256]u8, @splat(0xa5));
     const encoded = image.encode(allocator, example, &bytes) catch |err| {
         for (bytes) |byte| try testing.expectEqual(@as(u8, 0xa5), byte);
         return err;
@@ -206,7 +206,7 @@ fn allocationFailure(allocator: std.mem.Allocator) !void {
 }
 
 test "BPI3 allocation failures release owners and leave uncommitted output intact" {
-    try testing.checkAllAllocationFailures(testing.allocator, allocationFailure, .{});
+    try @import("allocation_testing.zig").check(testing.allocator, allocationFailure, .{});
 }
 
 test "BPI3 framing rejects truncation, old families, flags and trailing input" {
@@ -289,7 +289,7 @@ test "large decoded arrays and owned image bytes survive caller mutation and all
     defer testing.allocator.free(bytes);
     _ = try image.encode(testing.allocator, program, bytes);
     try testing.expect(bytes.len >= 4096);
-    try testing.checkAllAllocationFailures(testing.allocator, bulkDecodeFailure, .{bytes});
+    try @import("allocation_testing.zig").check(testing.allocator, bulkDecodeFailure, .{bytes});
     var decoded = try image.decode(testing.allocator, bytes);
     defer decoded.deinit();
     @memset(bytes, 0xff);
@@ -319,11 +319,11 @@ test "large outer block catalogs own exact storage and release partial decode fa
     defer decoded.deinit();
     try testing.expectEqual(blocks.len, decoded.block_catalog.len);
     try testing.expectEqualDeep(program, decoded.program);
-    try testing.checkAllAllocationFailures(testing.allocator, decodeBlockCatalog, .{ encoded, false });
+    try @import("allocation_testing.zig").check(testing.allocator, decodeBlockCatalog, .{ encoded, false });
     const truncated = try testing.allocator.dupe(u8, encoded[0 .. encoded.len - 1]);
     defer testing.allocator.free(truncated);
     std.mem.writeInt(u64, truncated[12..20], truncated.len - 20, .little);
-    try testing.checkAllAllocationFailures(testing.allocator, decodeBlockCatalog, .{ truncated, true });
+    try @import("allocation_testing.zig").check(testing.allocator, decodeBlockCatalog, .{ truncated, true });
     @memset(encoded, 0xff);
     try testing.expectEqualDeep(program, decoded.program);
 }
@@ -345,9 +345,9 @@ test "retired forwarding constructors are absent while accepted handler bytes st
     try testing.expect(!@hasField(ir.Terminator, "forward"));
     try testing.expect(!@hasField(ir.Handler, "forward_function"));
     try testing.expect(!@hasField(p.Handler, "forward_function"));
-    try testing.expectEqual(@as(u8, 15), @intFromEnum(p.TerminatorTag.dispose));
-    try testing.expectEqual(@as(u8, 16), @intFromEnum(p.TerminatorTag.protect));
-    try testing.expectEqual(@as(u8, 17), @intFromEnum(p.TerminatorTag.with_region));
+    try testing.expectEqual(@as(u8, 15), @backingInt(p.TerminatorTag.dispose));
+    try testing.expectEqual(@as(u8, 16), @backingInt(p.TerminatorTag.protect));
+    try testing.expectEqual(@as(u8, 17), @backingInt(p.TerminatorTag.with_region));
     // Independent record grammar: deep, input, answer, return, no clauses,
     // mandatory zero retired field, no state, no effects.
     const expected = [_]u8{ 0, 3, 4, 5, 0, 0, 0, 0 };

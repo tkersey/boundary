@@ -437,7 +437,7 @@ test "hyper group rejects invalid schemas and excessive graph expansion before r
     const before = b.schemas.items.len;
     try std.testing.expectError(error.InvalidReference, group(&b, &.{before}, &.{}));
     try std.testing.expectError(error.InvalidReference, pairWith(&b, integer, before, &.{}));
-    const repeated = [_]Id{integer} ** 64;
+    const repeated = @as([64]Id, @splat(integer));
     try std.testing.expectError(error.Capacity, group(&b, &repeated, &.{}));
     try std.testing.expectEqual(before, b.schemas.items.len);
 }

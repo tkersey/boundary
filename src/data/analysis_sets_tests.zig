@@ -124,7 +124,7 @@ fn failureCase(allocator: std.mem.Allocator) !void {
 }
 
 test "analysis sets preserve prior roots and ownership through allocation failures" {
-    try testing.checkAllAllocationFailures(testing.allocator, failureCase, .{});
+    try @import("allocation_testing.zig").check(testing.allocator, failureCase, .{});
 }
 
 test "low-word projection matches membership without allocating or changing shared roots" {
@@ -325,5 +325,5 @@ fn directInsertFailure(allocator: std.mem.Allocator) !void {
     try testing.expectEqual(129, base.count(before));
 }
 test "direct insertion failures preserve the immutable base and release local backing" {
-    try testing.checkAllAllocationFailures(testing.allocator, directInsertFailure, .{});
+    try @import("allocation_testing.zig").check(testing.allocator, directInsertFailure, .{});
 }

@@ -76,7 +76,7 @@ test "coalescing views identify renamed cyclic CFGs slots and unused custody sub
     var admitted = try @import("activation_ownership.zig").analyze(testing.allocator, fixture);
     admitted.deinit();
     try renamedCase(testing.allocator);
-    try testing.checkAllAllocationFailures(testing.allocator, renamedCase, .{});
+    try @import("allocation_testing.zig").check(testing.allocator, renamedCase, .{});
 }
 
 test "coalescing views retain input order branch order and unused slot multiplicity" {

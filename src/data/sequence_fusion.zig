@@ -22,7 +22,7 @@ const Budget = struct {
     fn record(self: *@This(), comptime T: type, value: T) Error!void {
         try self.take(1);
         switch (@typeInfo(T)) {
-            .@"struct" => |info| inline for (info.fields) |field| try self.record(field.type, @field(value, field.name)),
+            .@"struct" => |info| inline for (info.field_names, info.field_types) |field_name, FieldType| try self.record(FieldType, @field(value, field_name)),
             .@"union" => switch (value) {
                 inline else => |v| try self.record(@TypeOf(v), v),
             },

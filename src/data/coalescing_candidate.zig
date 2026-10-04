@@ -89,7 +89,7 @@ pub fn materialize(
     var composed: r.Maps = undefined;
     for (correspondence.final, &composed, 0..) |map, *result, kind| {
         const values = try scratch.alloc(p.Id, map.len);
-        for (map, values) |old, *target| target.* = try projected.mapped(@enumFromInt(kind), old);
+        for (map, values) |old, *target| target.* = try projected.mapped(@fromBackingInt(@intCast(kind)), old);
         result.* = values;
     }
     correspondence.final = composed;

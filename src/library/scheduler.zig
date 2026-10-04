@@ -115,7 +115,7 @@ fn constructionAllocation(allocator: std.mem.Allocator) !void {
     try std.testing.expectEqual(count, b.functions.items.len);
 }
 test "typed scheduler construction shares definitions and releases allocation failures" {
-    try std.testing.checkAllAllocationFailures(std.testing.allocator, constructionAllocation, .{});
+    try @import("../allocation_testing.zig").check(std.testing.allocator, constructionAllocation, .{});
 }
 test "FIFO requires unit input and unit completion" {
     var b = source.Builder.init(std.testing.allocator);

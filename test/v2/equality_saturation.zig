@@ -76,7 +76,7 @@ test "zero times a failing checked expression still fails in shared compilation"
     original.blocks = &.{.{ .function = 0, .instructions = &.{ .{ .destination = 2, .opcode = .constant, .immediate = 1 }, .{ .destination = 3, .opcode = .integer_add, .operands = &.{ 0, 1 }, .failures = &.{.{ .kind = .arithmetic_overflow, .value = 0 }} }, .{ .destination = 2, .opcode = .integer_mul, .operands = &.{ 2, 3 }, .failures = &.{.{ .kind = .arithmetic_overflow, .value = 0 }} } }, .terminator = .{ .return_value = 2 } }};
     var shared = try data.closed_compilation.run(a, original, .{ .contract = .semantic });
     defer shared.deinit();
-    var input = [_]u8{0} ** 16;
+    var input = @as([16]u8, @splat(0));
     @memset(input[0..8], 255);
     input[8] = 1;
     for ([_]ir.Program{ original, shared.program }) |program| {

@@ -27,7 +27,7 @@ fn symbols(program: ir.Program, values: []const Symbol) Error!void {
         if (symbol.name.len == 0 or !std.unicode.utf8ValidateSlice(symbol.name)) return error.InvalidSymbol;
         if (previous) |prior| if (!std.mem.lessThan(u8, prior, symbol.name)) return error.DuplicateSymbol;
         previous = symbol.name;
-        if (symbol.reference.id >= counts[@intFromEnum(symbol.reference.kind)]) return error.InvalidReference;
+        if (symbol.reference.id >= counts[@backingInt(symbol.reference.kind)]) return error.InvalidReference;
     }
 }
 

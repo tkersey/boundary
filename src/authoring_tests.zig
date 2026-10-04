@@ -80,7 +80,7 @@ fn allocationWitness(allocator: std.mem.Allocator) !void {
     _ = try branchWitness(&raw);
 }
 test "A15 authoring constructors and snapshot tolerate allocation failure" {
-    try testing.checkAllAllocationFailures(testing.allocator, allocationWitness, .{});
+    try @import("allocation_testing.zig").check(testing.allocator, allocationWitness, .{});
 }
 
 test "authoring derived responder preserves explicit residual allowance" {
@@ -246,7 +246,7 @@ fn handlerAllocation(allocator: std.mem.Allocator) !void {
     _ = try @import("authoring_cases.zig").build(&raw, .transform_deep);
 }
 test "A15 handler construction and finalization allocation failures" {
-    try testing.checkAllAllocationFailures(testing.allocator, handlerAllocation, .{});
+    try @import("allocation_testing.zig").check(testing.allocator, handlerAllocation, .{});
 }
 
 fn labelBytes(allocator: std.mem.Allocator, name: []const u8) ![]u8 {
@@ -292,7 +292,7 @@ fn diagnosticAllocation(allocator: std.mem.Allocator) !void {
     return error.TestExpectedError;
 }
 test "A15 A17 diagnostic rendering fails cleanly under allocation pressure" {
-    try testing.checkAllAllocationFailures(testing.allocator, diagnosticAllocation, .{});
+    try @import("allocation_testing.zig").check(testing.allocator, diagnosticAllocation, .{});
 }
 
 test "structured scoped operations expose named body and state clauses" {
@@ -472,7 +472,7 @@ fn importedSequence(allocator: std.mem.Allocator) !void {
     _ = try c.module(entry, unit);
 }
 test "review compatible imported sequences compose and tolerate allocation failures" {
-    try testing.checkAllAllocationFailures(testing.allocator, importedSequence, .{});
+    try @import("allocation_testing.zig").check(testing.allocator, importedSequence, .{});
 }
 
 test "review shared schema graph comparison does not unfold a binary tree" {
@@ -807,7 +807,7 @@ fn sequenceConstruction(allocator: std.mem.Allocator) !void {
 
 test "typed sequence pop and consuming destructure preserve names and scope" {
     try sequenceConstruction(testing.allocator);
-    try testing.checkAllAllocationFailures(testing.allocator, sequenceConstruction, .{});
+    try @import("allocation_testing.zig").check(testing.allocator, sequenceConstruction, .{});
 }
 
 fn explicitFailure(allocator: std.mem.Allocator, mode: FailureCase) !void {
@@ -837,7 +837,7 @@ test "explicit failure retains names and closes only its authored body" {
 }
 
 test "explicit failure publication releases partial allocation failures" {
-    try testing.checkAllAllocationFailures(testing.allocator, explicitFailure, .{.matching});
+    try @import("allocation_testing.zig").check(testing.allocator, explicitFailure, .{.matching});
 }
 
 test "typed twice shares definitions without erasing names or builder origins" {
@@ -845,7 +845,7 @@ test "typed twice shares definitions without erasing names or builder origins" {
 }
 
 test "typed twice definition sharing releases partial allocation failures" {
-    try testing.checkAllAllocationFailures(testing.allocator, twiceSharing, .{});
+    try @import("allocation_testing.zig").check(testing.allocator, twiceSharing, .{});
 }
 
 test "review twice rejection replaces stale diagnostics with its own relationship" {
@@ -870,7 +870,7 @@ fn publicationAllocation(allocator: std.mem.Allocator) !void {
     try namedCleanupPublication(allocator, false);
 }
 test "review publication metadata and traversal tolerate allocation failure" {
-    try testing.checkAllAllocationFailures(testing.allocator, publicationAllocation, .{});
+    try @import("allocation_testing.zig").check(testing.allocator, publicationAllocation, .{});
 }
 
 test "review resumption capture contracts preserve nested names" {
@@ -957,7 +957,7 @@ test "canonical coalescing preserves named captures using authoritative liveness
 }
 
 test "review named capture observation reclaims scratch and tolerates allocation failure" {
-    try testing.checkAllAllocationFailures(testing.allocator, namedContinuation, .{ true, true, true });
+    try @import("allocation_testing.zig").check(testing.allocator, namedContinuation, .{ true, true, true });
 }
 
 test "review actual generic closure captures must satisfy named callable allowance" {
@@ -1040,7 +1040,7 @@ test "review late function scope rejects prior sibling calls and lambdas" {
 }
 
 test "review pending forward scope checks tolerate allocation failure" {
-    try testing.checkAllAllocationFailures(testing.allocator, forwardScope, .{ .same, true });
+    try @import("allocation_testing.zig").check(testing.allocator, forwardScope, .{ .same, true });
 }
 
 test "failure literals reject foreign contexts for both arithmetic faults" {
@@ -1132,7 +1132,7 @@ test "published snapshots survive 128 later declarations independently" {
 }
 
 test "failure literal and independent growing snapshots tolerate allocation failure" {
-    try testing.checkAllAllocationFailures(testing.allocator, snapshotGrowth, .{});
+    try @import("allocation_testing.zig").check(testing.allocator, snapshotGrowth, .{});
 }
 
 test "consolidation arithmetic requires exactly the applicable literal faults" {
@@ -1290,7 +1290,7 @@ test "handler cleanup obligations require explicit opt-in" {
 }
 
 test "obligation-bearing handler publication tolerates allocation failures" {
-    try testing.checkAllAllocationFailures(testing.allocator, obligationAllocation, .{});
+    try @import("allocation_testing.zig").check(testing.allocator, obligationAllocation, .{});
 }
 
 fn cellConstruction(allocator: std.mem.Allocator, negatives: bool) !void {
@@ -1333,7 +1333,7 @@ test "typed cells preserve named elements, nominal regions and body lifetime" {
     try cellConstruction(testing.allocator, true);
 }
 test "typed cells release partial construction allocations" {
-    try testing.checkAllAllocationFailures(testing.allocator, cellConstruction, .{false});
+    try @import("allocation_testing.zig").check(testing.allocator, cellConstruction, .{false});
 }
 
 fn librarySharing(allocator: std.mem.Allocator) !void {
@@ -1368,7 +1368,7 @@ test "typed Writer and Raise preserve named contracts and share 64 installations
     try librarySharing(testing.allocator);
 }
 test "typed Writer and Raise release partial construction allocations" {
-    try testing.checkAllAllocationFailures(testing.allocator, librarySharing, .{});
+    try @import("allocation_testing.zig").check(testing.allocator, librarySharing, .{});
 }
 
 fn groupedHandler(allocator: std.mem.Allocator, negative: bool, older_capture: bool) !void {
@@ -1424,7 +1424,7 @@ test "handler sets preserve positional capabilities and reject ambiguous selecti
     try testing.expectError(error.InvalidEffect, groupedHandler(testing.allocator, false, true));
 }
 test "handler sets release partial allocations" {
-    try testing.checkAllAllocationFailures(testing.allocator, groupedHandler, .{ false, false });
+    try @import("allocation_testing.zig").check(testing.allocator, groupedHandler, .{ false, false });
 }
 
 fn stateSharing(allocator: std.mem.Allocator) !void {
@@ -1456,7 +1456,7 @@ test "typed State shares each answer policy through 64 installations" {
     try stateSharing(testing.allocator);
 }
 test "typed State releases partial allocations" {
-    try testing.checkAllAllocationFailures(testing.allocator, stateSharing, .{});
+    try @import("allocation_testing.zig").check(testing.allocator, stateSharing, .{});
 }
 
 fn choiceSharing(allocator: std.mem.Allocator) !void {
@@ -1498,7 +1498,7 @@ test "typed Choice shares definitions and preserves names, policy and region cus
     try choiceSharing(testing.allocator);
 }
 test "typed Choice releases partial construction allocations" {
-    try testing.checkAllAllocationFailures(testing.allocator, choiceSharing, .{});
+    try @import("allocation_testing.zig").check(testing.allocator, choiceSharing, .{});
 }
 
 const ResourceCase = enum { valid, unauthorized_pack, unauthorized_unpack, duplicate_owner, escaping_loan, wrong_region, wrong_names };
@@ -1557,7 +1557,7 @@ test "typed resources preserve representation authority and exclusive bracket cu
     try testing.expectError(error.SchemaMismatch, resourceConstruction(testing.allocator, .wrong_names));
 }
 test "typed resource construction releases partial allocations" {
-    try testing.checkAllAllocationFailures(testing.allocator, resourceConstruction, .{.valid});
+    try @import("allocation_testing.zig").check(testing.allocator, resourceConstruction, .{.valid});
 }
 
 test "typed resource authority rejects foreign declarations before granting rights" {
@@ -1612,7 +1612,7 @@ test "recursive declarations are single assignment and cannot alias empty sums o
     try schemaDeclarations(testing.allocator, false);
 }
 test "recursive declaration construction releases partial allocations" {
-    try testing.checkAllAllocationFailures(testing.allocator, schemaDeclarations, .{false});
+    try @import("allocation_testing.zig").check(testing.allocator, schemaDeclarations, .{false});
 }
 
 fn readerConstruction(allocator: std.mem.Allocator, sharing: bool) !void {
@@ -1652,7 +1652,7 @@ test "typed Reader preserves scoped local work and shares 64 installations" {
     try readerConstruction(testing.allocator, true);
 }
 test "typed Reader releases partial recursive construction allocations" {
-    try testing.checkAllAllocationFailures(testing.allocator, readerConstruction, .{false});
+    try @import("allocation_testing.zig").check(testing.allocator, readerConstruction, .{false});
 }
 
 test "recursive Reader retains distinct named answers with equal wire layouts" {
@@ -1743,7 +1743,7 @@ test "handler inputs are named and separate from handler state" {
     try testing.expectError(error.SchemaMismatch, handlerArguments(testing.allocator, .wrong_type));
 }
 test "handler input construction releases partial allocations" {
-    try testing.checkAllAllocationFailures(testing.allocator, handlerArguments, .{.valid});
+    try @import("allocation_testing.zig").check(testing.allocator, handlerArguments, .{.valid});
 }
 
 fn tailReturn(allocator: std.mem.Allocator, intervening_effect: bool) !void {
@@ -1772,7 +1772,7 @@ test "terminal identity bindings collapse without moving intervening effects" {
     try tailReturn(testing.allocator, true);
 }
 test "terminal identity normalization releases partial allocations" {
-    try testing.checkAllAllocationFailures(testing.allocator, tailReturn, .{false});
+    try @import("allocation_testing.zig").check(testing.allocator, tailReturn, .{false});
 }
 
 fn searchSharing(allocator: std.mem.Allocator) !void {
@@ -1801,7 +1801,7 @@ test "typed Search shares definitions without erasing names or traversal policy"
     try searchSharing(testing.allocator);
 }
 test "typed Search releases partial construction allocations" {
-    try testing.checkAllAllocationFailures(testing.allocator, searchSharing, .{});
+    try @import("allocation_testing.zig").check(testing.allocator, searchSharing, .{});
 }
 
 test "region body contracts canonicalize region sets without changing token position" {
@@ -1848,7 +1848,7 @@ test "typed sequence queries, ordering, yield and failing cases preserve contrac
     try sequenceQueries(testing.allocator, true);
 }
 test "sequence query construction releases partial allocations" {
-    try testing.checkAllAllocationFailures(testing.allocator, sequenceQueries, .{false});
+    try @import("allocation_testing.zig").check(testing.allocator, sequenceQueries, .{false});
 }
 
 test "declared function recovery retains names and refuses another context or raw declaration" {

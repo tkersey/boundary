@@ -138,8 +138,8 @@ pub fn linked(a: std.mem.Allocator, original: ir.Program) !data.linker.Linked {
 
 test "argument specialization preserves retained-schema execution and source-free linking" {
     const a = std.testing.allocator;
-    inline for (@typeInfo(Case).@"enum".fields) |field| {
-        const case: Case = @enumFromInt(field.value);
+    inline for (@typeInfo(Case).@"enum".field_values) |field_value| {
+        const case: Case = @fromBackingInt(@intCast(field_value));
         var arena = std.heap.ArenaAllocator.init(a);
         defer arena.deinit();
         const original = try fixture(arena.allocator(), case);

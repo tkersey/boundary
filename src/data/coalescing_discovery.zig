@@ -63,7 +63,7 @@ fn encoded(a: std.mem.Allocator, value: anytype, work: *graph.Work) Error![]cons
 fn descriptionClasses(a: std.mem.Allocator, program: ir.Program, work: *graph.Work) Error!r.Maps {
     var maps = try r.identityMaps(a, try r.sizes(program));
     const schemas = try @import("schema_partition.zig").compute(a, program);
-    maps[@intFromEnum(r.Kind.schema)] = try firstRepresentatives(a, schemas);
+    maps[@backingInt(r.Kind.schema)] = try firstRepresentatives(a, schemas);
     const mapper: r.Mapper = .{ .allocator = a, .maps = maps };
     const total = std.math.add(
         usize,
@@ -80,8 +80,8 @@ fn descriptionClasses(a: std.mem.Allocator, program: ir.Program, work: *graph.Wo
         .label = try encoded(a, try mapper.capture(value), work),
     };
     const classes = try graph.discover(a, nodes, &.{}, work);
-    maps[@intFromEnum(r.Kind.constant)] = try extract(a, classes, 0, program.constants.len);
-    maps[@intFromEnum(r.Kind.capture)] =
+    maps[@backingInt(r.Kind.constant)] = try extract(a, classes, 0, program.constants.len);
+    maps[@backingInt(r.Kind.capture)] =
         try extract(a, classes, program.constants.len, program.scopes.captures.len);
     return maps;
 }
@@ -125,10 +125,10 @@ pub fn correspondence(
     if (profile == .descriptions) @memset(singletons[0..program.functions.len], true);
     const classes = try graph.discover(a, analysis.nodes, singletons, work);
     var reps = analysis.descriptions;
-    reps[@intFromEnum(r.Kind.function)] = try extract(a, classes, 0, program.functions.len);
-    reps[@intFromEnum(r.Kind.constructor)] =
+    reps[@backingInt(r.Kind.function)] = try extract(a, classes, 0, program.functions.len);
+    reps[@backingInt(r.Kind.constructor)] =
         try extract(a, classes, program.functions.len, program.constructors.len);
-    reps[@intFromEnum(r.Kind.handler)] = try extract(
+    reps[@backingInt(r.Kind.handler)] = try extract(
         a,
         classes,
         program.functions.len + program.constructors.len,
@@ -137,7 +137,7 @@ pub fn correspondence(
     const blocks = try a.alloc(p.Id, program.blocks.len);
     @memset(blocks, r.missing);
     const locals = try a.alloc(w.Local, program.functions.len);
-    const function_reps = reps[@intFromEnum(r.Kind.function)];
+    const function_reps = reps[@backingInt(r.Kind.function)];
     for (analysis.functions, locals, function_reps) |function, *local, representative| {
         const target = analysis.functions[@intCast(representative)];
         if (function.blocks.len != target.blocks.len) return error.InvalidCorrespondence;
@@ -148,7 +148,7 @@ pub fn correspondence(
         };
     }
     for (blocks) |block| if (block == r.missing) return error.InvalidCorrespondence;
-    reps[@intFromEnum(r.Kind.block)] = blocks;
+    reps[@backingInt(r.Kind.block)] = blocks;
     var final: r.Maps = undefined;
     for (reps, &final) |map, *dense| dense.* = try denseMap(a, map);
     return .{ .profile = profile, .representatives = reps, .final = final, .locals = locals };
