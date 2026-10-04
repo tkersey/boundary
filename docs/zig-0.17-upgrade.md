@@ -1,4 +1,4 @@
-# Zig 0.17 upgrade: qualification in progress
+# Zig 0.17 upgrade: execution evidence
 
 The maintained successor supports **exact Zig 0.17.0 only**. Frozen 0.16
 checkouts, executables, and delivery artifacts are comparison and rollback
@@ -6,20 +6,24 @@ inputs, not a supported successor configuration.
 
 The [execution specification](zig-0.17-upgrade-spec.md) remains the completion
 contract. The [machine record](performance/zig17-upgrade.json) retains source,
-toolchain, census, and observation identities. This report does not claim that
-all experiments, acceptance cases, or final reviews have passed.
+toolchain, census, and observation identities. The retained records cover all ten opportunities, the acceptance-case witnesses,
+and the recorded cross-stack execution subjects. Independent review and live PR
+readiness remain provider facts, not claims inferred from benchmark success.
 
 ## Delivery order and executed subjects
 
 | Order | Draft PR | Executed source snapshot | Current evidence |
 |---|---|---|---|
-| 1 | [Boundary #164](https://github.com/tkersey/boundary/pull/164) | `1ba2234f8781d5ab063cee7fe19b8073a89f8283` | Linux: 317 steps and 857 tests; independent public-package authoring passed; affected macOS checks passed after the predecessor's 317-step aggregate |
-| 2 | [World #62](https://github.com/tkersey/world/pull/62) | `50cc310d2027a1392ad1c864506300c3ab55f442` | macOS aggregate: 48 steps, with native/storage suites; Linux delivered runtime independently acquired and smoked |
-| 3 | [Agent #42](https://github.com/tkersey/agent/pull/42) | `6c6a0675d833d5f31bcfb1f2b9910e39af66fb68` | Linux: 430 steps and 218 tests, including the permanent incremental lock witness; affected macOS consumer checks passed after the predecessor's 528-step aggregate |
+| 1 | [Boundary #164](https://github.com/tkersey/boundary/pull/164) | `2981507d9d0967babf69c5140674e6536263bfea` | macOS: 317 steps; Linux aggregate and independent public-package authoring pass; 114 frozen artifacts unchanged |
+| 2 | [World #62](https://github.com/tkersey/world/pull/62) | `60214850e1be215c57e52a7b36f9ab82cd9cae92` | All 13 public-producer checks pass on macOS and Linux; independently acquired bundles have identical kernels |
+| 3 | [Agent #42](https://github.com/tkersey/agent/pull/42) | `539f3fb1444acd7dcf22dda1c8b825de5132cdf8` | macOS: 528 steps / 218 tests including integration, mobility and browsers; Linux: 430 steps / 218 tests; 188 frozen artifacts unchanged |
 
-These are tested snapshots, not a final immutable F tuple. Subsequent source
-changes require the specification's final rebinding and affected qualification.
-No merge or release has been performed.
+These are immutable **executed** subjects. Documentation/provenance successors
+must retain verified code/package/kernel correspondence and rerun affected
+consumer/delivery checks under S05. The dependent PR proof blocks and Agent's
+[dependency lock](https://github.com/tkersey/agent/blob/codex/zig-0.17-upgrade/conformance/agent4/dependencies.lock.json)
+carry the resulting live binding; that branch link is a locator, not an immutable
+measurement identity. No merge or release has been performed.
 
 The original macOS Agent aggregate started at `3a0676f`; `f7fe530` changed only
 CI setup and one documentation command. The later cache-environment repair at
@@ -59,7 +63,9 @@ without changing the installed executable bytes or modification time.
   12.824 ms. The kernel shrinks from 477,875 to 451,779 bytes. Process RSS has
   mixed changes, all retained individually. Separately, C0→U0 retained-loop
   invocation costs rise about 6.8–9.4%; these are source-reconciliation costs.
-  Material costs await explicit Z17-D05/M09 acceptance; cumulative F remains open.
+  The user explicitly accepted the bounded compatibility costs under D05/M09,
+  conditional on no further final-integration regression or capacity failure.
+  The cumulative and direct integration comparisons are recorded below.
 - **E02, configuration caching: retained with an environment repair.** On the
   maintained Agent mobility-authoring check, five paired warm windows measure
   about 23% less elapsed time and 19% less CPU than forcing reconfiguration
@@ -74,7 +80,7 @@ without changing the installed executable bytes or modification time.
   are also exercised; 23 cross-target outputs match their native bytes. These
   measurements do not estimate every cold build or standalone-helper cost.
   The narrow helper cache opt-out for the separate sibling-build-file defect
-  remains. Final cross-platform qualification is still open.
+  remains. The recorded macOS/Linux qualification passes.
 - **E03, emitter reuse: selected.** The candidate compiles one economy emitter
   instead of four and retains a fresh process for each configuration. Both
   variants pass 227 authoring tests. All four BPI3 outputs are byte-identical;
@@ -87,7 +93,7 @@ without changing the installed executable bytes or modification time.
   increase in reported process peak RSS; that fixture-emitter cost is accepted
   for these CPU and storage savings, without changing any memory allowance.
   The updated macOS aggregate passes 317 steps, and all 114 frozen portable
-  artifacts remain byte-identical. Final publication/platform gates are open.
+  artifacts remain byte-identical. The final-code package and platform checks pass on the recorded subjects.
 - **E04, reflection demand: rejected.** Direct union dispatch passes 227
   authoring tests and preserves all 19 measured images and work counts. Some
   microsecond-scale construction cases improve, and the probe executable is
@@ -144,8 +150,8 @@ without changing the installed executable bytes or modification time.
   phases report source checks, lowering, target checks, integrated discovery/
   checking, semantic optimization, encoding and cold admission; they do not
   isolate every internal pass clock. These results do not justify larger
-  optimizer allowances or changed candidate ordering. Cost acceptance and final
-  held-out qualification remain open; no policy retuning is promoted.
+  optimizer allowances or changed candidate ordering. The user accepted the compatibility cost, and the final Agent consumer,
+  native/browser and packaged checks pass. No policy retuning is promoted.
 - **E09, Agent resident candidate: rejected.** The actual bridge passes nine
   lifecycle cases, thirteen held-out Document cases, and byte equality at every
   replay boundary for 1, 8, 64 and 1024 turns. Five paired windows show useful
@@ -190,10 +196,82 @@ serialized desktop trials with recorded background activity, not a claim of
 an uncontended benchmark machine. Unrelated process-list names are excluded from the
 public export; all measured values are retained.
 
-## Remaining work
+## Cumulative result and explicit cost decision
 
-Complete and decide E01–E10; map every T01–T70 case to executed evidence or an
-approved exclusion; qualify all affected held-out and packaged consumers;
-review measured regressions; bind the final delivery tuple; and complete the
-requested serial reviews. Native bootstrap-build and diagnostic allocator
-regressions require explicit cost decisions before promotion.
+On October 4, the user selected **“Accept these bounded costs; finish qualification”**
+under Z17-D05/M09, provided final integration adds no further regression or
+capacity failure. Decision `Z17-D05-M09-2026-10-04` is retained in the machine
+record with its exact scope. It grants no merge, release or budget-inflation authority.
+
+Five fresh matched windows compare U0, the measured 0.17 reference, and final
+code. Every process uses three warmups and nine samples; whole windows are the
+statistical units. All canonical images, outcomes, work reservations and applied/
+no-op decisions agree. No additional material primary or whole-stage regression
+is confirmed against the 0.17 reference. Requested working peaks and reserved
+WASM memory agree exactly; process-RSS differences remain itemized, not treated
+as budget growth. These are bounded measurements, not a universal zero-regression theorem.
+
+Against U0, the final production-WASM results retain the already disclosed cost:
+scheduler about 16.7% longer, mixed-64 about 9.7%, and install-16 about 20.9%.
+Native structural compiler phases range about 15–71% longer in these windows;
+the direct 0.17-reference comparison does not identify an added integration cost.
+Fresh Agent conversations at 8/64/1024 turns have median ratios 1.012/1.026/1.024;
+the one-turn estimate is 1.109 with an interval spanning parity. Setup, compiler
+phases, whole conversations, process CPU/RSS and workspace are separate fields
+in all **172** per-comparison workload rows.
+
+Three cumulative economy-build pairs retain a useful development tradeoff:
+
+| Metric | U0 | Final code | Paired median change |
+|---|---:|---:|---:|
+| Bootstrap-cold elapsed | 59.70 s | 94.17 s | +34.47 s |
+| Bootstrap-cold CPU | 188.40 s | 117.60 s | −70.75 s (about 37% less) |
+| Reported bootstrap peak RSS | 1,899,593,728 B | 2,024,243,200 B | +130,760,704 B |
+| Warm no-change command elapsed | 4.87 s | 0.12 s | −4.75 s |
+| Warm no-change command CPU | 5.19 s | 0.16 s | −5.02 s |
+| Project cache logical bytes | 112,149,137 B | 56,334,410 B | −55,814,727 B |
+| Global cache logical bytes | 43,518,332 B | 58,006,529 B | +14,488,197 B |
+
+The warm comparison is **command latency**: U0 reruns the 227 authoring tests;
+0.17 reuses their eligible successful result. It is not a claim that those tests
+execute forty times faster. Cold runs execute the suite in both arms. Mandatory
+external dependency authentication has separate repeated-call witnesses (E02).
+RSS is the tool-reported maximum, not a sum of simultaneous build-child memory.
+The first-use elapsed cost is within the accepted bootstrap scope; the higher
+compiler-process RSS is reported separately from unchanged application budgets.
+
+Both native compilers use LLVM and the same host-native safe intent, but their
+resolved native descriptions differ: 0.16 selects `apple_m2` with 74 feature
+names; 0.17 selects `apple_a15` with 77. The changed interleave and zero-cycle
+move/zeroing tuning flags are retained. Native results therefore include the
+compiler's changed native selection; they are not an isolated allocator-only
+claim. The production WASM profile remains LLVM/LLD, `lime1`, and the same seven
+features, so this native mapping does not explain the WASM regression.
+
+## Acceptance and source-free delivery
+
+The machine record maps all T01–T70 cases to executed witnesses and immutable
+records. T23 has no maintained multi-element repetition rewrite: the census
+found 48 single-element repeats. T47's alternate backend fails the build gate
+on both required hosts, so no alternate artifact is promoted or assigned engine
+qualification credit. Independent closure reviews still challenge these dispositions.
+
+Additional final-code witnesses establish:
+
+- 235 old/new native/WASM boundaries across 16 workloads, with the actual
+  checkpoint producer rotating among all four peers; wrong images, stale
+  replies and malformed envelopes reject, and rejected resident replies preserve state.
+- Four unchanged BMO1 objects, eight old/new producer/linker composition cells,
+  and 71 malformed inputs rejected by both linkers. Copied linkers run with
+  repository reads and process forks denied and no tools on PATH.
+- Fifteen isolated mutations of the actual delivered manifest reject. A real
+  producer interrupted after staging starts publishes no ready bundle, archive
+  or delivery descriptor and leaves no process group.
+- The independently acquired Linux bundle passes its installed CLI and fresh-
+  process smoke with all repository reads and network access denied and only
+  Node on PATH. It has no compiler or sibling-source fallback.
+
+The implementation remains 0.17-only. Frozen C0/U0 sources, compiler distributions,
+archives and delivered runtimes are retained as comparison and rollback inputs.
+The requested serial reviews and exact provider readbacks determine PR readiness;
+this evidence record itself performs neither a merge nor a release.

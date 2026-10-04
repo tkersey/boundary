@@ -1,8 +1,8 @@
 {
   "document_id": "BWA-Z17-1",
   "target_zig": "0.17.0",
-  "status": "in-progress",
-  "qualification": "in-progress; no full-spec qualification claim",
+  "status": "execution-evidence-qualified",
+  "qualification": "Exact recorded execution subjects. Later documentation/provenance-only source IDs require S05 rebinding, verified code/package/kernel correspondence and affected delivery/consumer checks; they are not relabeled as these runs.",
   "source_specification": "../zig-0.17-upgrade-spec.md",
   "initial_subjects": [
     {
@@ -15589,11 +15589,8 @@
     }
   ],
   "outstanding": [
-    "Complete maintained entrypoint/package/toolchain witnesses and reverse census",
-    "Agent U0 is qualified; finish U1 runtime/browser/mobility qualification and final lock rebinding",
-    "Run and decide E01-E10 with source reconciliation separated",
-    "Complete T01-T70 and final platform/delivery/rollback qualification",
-    "Serial Actuating review convergence on final immutable heads"
+    "Final documentation/provenance source-ID rebinding and affected consumer checks under S05",
+    "Independent serial review convergence and exact public-head readback; no merge or release authorization"
   ],
   "specification_revision": "1.1",
   "toolchain_support": {
@@ -18848,52 +18845,4579 @@
     }
   ],
   "reverse_census": {
-    "status": "source scan complete; entrypoint execution mapping pending",
-    "path": "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/reverse-census.json",
-    "sha256": "91009912754a8defeaf7a0a032bd6487f35e1f40d7159f61a036616ed4a0a661",
+    "status": "passed for the recorded execution subjects",
+    "path": "zig17-samples.json.gz#/final/reverseCensus",
+    "sha256": "cb6bd55719ef2057ac7ad9bc50aa5414d2eb6a1a0efdefed0a1179e616e29021",
     "repositories": [
       {
-        "repository": "tkersey/boundary",
-        "commit": "9e68b6e8382a24e22f8b34986e4e7fb21ec80d31",
-        "files": 507,
-        "buildEntries": 5,
-        "unresolvedRelativeImports": [],
-        "oldSyntaxCandidates": []
+        "repository": "boundary",
+        "commit": "2981507d9d0967babf69c5140674e6536263bfea",
+        "trackedFiles": 510,
+        "unresolvedMaintainedRelativeImports": 0,
+        "oldSyntaxCandidates": 0
       },
       {
-        "repository": "tkersey/world",
-        "commit": "50cc310d2027a1392ad1c864506300c3ab55f442",
-        "files": 172,
-        "buildEntries": 17,
-        "unresolvedRelativeImports": [],
-        "oldSyntaxCandidates": []
+        "repository": "world",
+        "commit": "60214850e1be215c57e52a7b36f9ab82cd9cae92",
+        "trackedFiles": 172,
+        "unresolvedMaintainedRelativeImports": 0,
+        "oldSyntaxCandidates": 0
       },
       {
-        "repository": "tkersey/agent",
-        "commit": "3a0676f85553d3eb81f0dc826f105eb45a6f56c6",
-        "files": 389,
-        "buildEntries": 20,
-        "unresolvedRelativeImports": [],
-        "oldSyntaxCandidates": []
+        "repository": "agent",
+        "commit": "539f3fb1444acd7dcf22dda1c8b825de5132cdf8",
+        "trackedFiles": 389,
+        "unresolvedMaintainedRelativeImports": 0,
+        "oldSyntaxCandidates": 0
       }
     ]
   },
   "measurements": {
     "path": "zig17-samples.json.gz",
     "format": "gzip-compressed JSON",
-    "sha256": "28ed645ea34301791b811664606734c8c24f902b7f1299f528946fd871f5b99e",
-    "method": "Median of paired window ratios and deltas. 20,000 independent-window bootstrap resamples with replacement, percentile 95% interval, xorshift32 initial seed 0x20261003. Three cold build pairs and five runtime/phase windows; no inner sample is treated as an independent window. OS page cache was not flushed. RSS is the maximum reported by /usr/bin/time, not a sum over concurrent children.",
+    "sha256": "e9ff639cd4adea1fcf0a63062b2e659148eb81e967d2934cfaa01d70f5e229d5",
+    "method": "Median of paired window ratios and deltas. 20,000 independent-window bootstrap resamples with replacement, percentile 95% interval, xorshift32 initial seed 0x20261003. Three cold build pairs and five runtime/phase windows; no inner sample is treated as an independent window. OS page cache was not flushed. RSS is the maximum reported by /usr/bin/time, not a sum over concurrent children. Final runtime/phase/Agent comparison uses five matched three-arm windows and seed 0x20261004; final economy bootstrap/no-change builds use three pairs with observed ranges only. Warm F reuses eligible authoring-test results; U0 reruns those tests, so the warm comparison is command latency, not test execution speed.",
     "conditions": "Serialized local experiments on macOS arm64 with ordinary desktop background activity; CPU/load observations retained. No dedicated-machine or uncontended-host claim.",
-    "scope": "E01 native phase attribution, E03 build and fresh emitter costs, E04 isolated reflection candidate, E06 native allocator attribution. Remaining dimensions and experiments are open. E02 repaired warm configuration caching, mutation checks and retained failure evidence. E05 Linux correctness pilot and E10 finite protocol cost/cancellation qualification. E01 native build/runtime, E06 N/2N/4N, executed E07 backend rejection and E09 actual Agent lifecycle/rejection. Five E05 windows; E01 production-WASM cross matrix, source reconciliation, kernel bootstrap and verified support-warm builds; E08 semantic repricing."
+    "scope": "C0/U0 reconciliation, migration-only and isolated opportunity evidence, and cumulative final-code execution qualification; no merge/release or independent review claim."
   },
   "editor": {
     "observed": "zls not found on host PATH; no tracked .vscode/.zed/zls.json configuration found",
     "workingPath": "The selected Zig 0.17 executable runs build/check and compiler diagnostics directly. No editor files or Zig skill were changed."
   },
   "cost_acceptance": {
-    "status": "pending explicit user decision under Z17-D05/M09",
-    "requested": "Measured native diagnostic/compiler setup and production-WASM regressions; final tuple must add no new regression/capacity failure.",
-    "kernelTradeoff": "U0 477875 bytes; U1 451779 bytes. All 22 frozen inputs and outputs match, and U0/U1 requested workspace/WASM memory are equal. Individual latency/RSS regressions remain visible.",
-    "sourceReconciliation": "C0→U0 retained-loop invocation medians rise 6.8–9.4%; this is separately attributed to predecessor source reconciliation, not Zig."
-  }
+    "id": "Z17-D05-M09-2026-10-04",
+    "recordedAt": "2026-10-04T07:38:55.034Z",
+    "actor": "user",
+    "decision": "accepted-conditional-on-final-integration",
+    "response": "Accept these bounded costs; finish qualification",
+    "scope": {
+      "productionWasm": "Measured U0→U1 latency increases about 7–20%, including scheduler 0.97→1.13 ms and mixed-64 11.68→12.82 ms.",
+      "nativeSafeCompiler": "Measured native safe-profile compiler phases about 19–66% longer.",
+      "bootstrap": "First-use build support about 38 seconds longer; support-warm/project-cold kernel build about 9.3→7.8 seconds.",
+      "unchanged": "Memory budgets and canonical bytes."
+    },
+    "condition": "provided final integration adds no further regression or capacity failure",
+    "authorityLimits": "This accepts the stated costs for qualification; no merge, release, budget inflation, or new performance regression is authorized.",
+    "priorCostEvidence": {
+      "repository": "tkersey/boundary",
+      "commit": "2981507d9d0967babf69c5140674e6536263bfea",
+      "path": "docs/performance/zig17-samples.json.gz",
+      "sha256": "28ed645ea34301791b811664606734c8c24f902b7f1299f528946fd871f5b99e"
+    },
+    "finalConditionStatus": "supported by the five-window U1-reference/F comparison and passing unchanged-capacity/byte/consumer gates; no additional material primary regression confirmed",
+    "finalObservation": "All positive RSS deltas and per-workload costs remain in the raw/summary records. This is bounded measurement evidence, not a universal zero-regression theorem."
+  },
+  "final_qualification": {
+    "recordedSubjects": {
+      "boundary": "2981507d9d0967babf69c5140674e6536263bfea",
+      "world": "60214850e1be215c57e52a7b36f9ab82cd9cae92",
+      "agent": "539f3fb1444acd7dcf22dda1c8b825de5132cdf8"
+    },
+    "qualification": {
+      "boundary": {
+        "commit": "2981507d9d0967babf69c5140674e6536263bfea",
+        "macos": "317/317 steps; independent public-package authoring",
+        "linux": {
+          "runId": 37181358353,
+          "status": "passed"
+        }
+      },
+      "world": {
+        "commit": "60214850e1be215c57e52a7b36f9ab82cd9cae92",
+        "macos": "all 13 producer checks passed",
+        "linux": "all 13 producer checks passed",
+        "runId": 37181860187,
+        "artifactId": 11295054241,
+        "kernelSha256": "e6a982f3f13790e3dec7a5e26770549a6be8d0cb5e97a25cd97cead993f2b394"
+      },
+      "agent": {
+        "commit": "539f3fb1444acd7dcf22dda1c8b825de5132cdf8",
+        "macos": {
+          "source": "539f3fb1444acd7dcf22dda1c8b825de5132cdf8",
+          "exitCode": 0,
+          "summary": "Build Summary: 528/528 steps succeeded; 218/218 tests passed",
+          "scope": "check-agent4 check-agent4-integration check-compiled-tool-browser check-mobility check-native check-zig17; safe; exact final acquired runtime; -j2",
+          "logSha256": "4257dc8b522ca4ac277732e9f822eee3bc1c0471da925ace8a5d329a77520202",
+          "recordedAt": "2026-10-04T07:45:17.467Z"
+        },
+        "linux": {
+          "runId": 37182534401,
+          "status": "passed",
+          "summary": "430/430 steps; 218/218 tests"
+        }
+      }
+    },
+    "evidenceScope": "Exact recorded execution subjects. Later documentation/provenance-only source IDs require S05 rebinding, verified code/package/kernel correspondence and affected delivery/consumer checks; they are not relabeled as these runs.",
+    "nativeProfile": {
+      "scope": "Default native CLI safe profile probe under the two exact distributions; same target/mode selections as the maintained native graphs.",
+      "u0": {
+        "features": [
+          "aes",
+          "alternate_sextload_cvt_f32_pattern",
+          "altnzcv",
+          "am",
+          "amvs",
+          "arith_bcc_fusion",
+          "arith_cbz_fusion",
+          "bf16",
+          "bti",
+          "ccdp",
+          "ccidx",
+          "ccpp",
+          "complxnum",
+          "contextidr_el2",
+          "crc",
+          "disable_latency_sched_heuristic",
+          "dit",
+          "dotprod",
+          "ecv",
+          "el2vmsa",
+          "el3",
+          "fgt",
+          "flagm",
+          "fp16fml",
+          "fp_armv8",
+          "fpac",
+          "fptoint",
+          "fullfp16",
+          "fuse_address",
+          "fuse_adrp_add",
+          "fuse_aes",
+          "fuse_arith_logic",
+          "fuse_crypto_eor",
+          "fuse_csel",
+          "fuse_literals",
+          "i8mm",
+          "jsconv",
+          "lor",
+          "lse",
+          "lse2",
+          "mpam",
+          "neon",
+          "nv",
+          "pan",
+          "pan_rwv",
+          "pauth",
+          "perfmon",
+          "predres",
+          "ras",
+          "rcpc",
+          "rcpc_immo",
+          "rdm",
+          "sb",
+          "sel2",
+          "sha2",
+          "sha3",
+          "specrestrict",
+          "ssbs",
+          "store_pair_suppress",
+          "tlb_rmi",
+          "tracev8_4",
+          "uaops",
+          "v8_1a",
+          "v8_2a",
+          "v8_3a",
+          "v8_4a",
+          "v8_5a",
+          "v8_6a",
+          "v8a",
+          "vh",
+          "zcm_fpr64",
+          "zcm_gpr64",
+          "zcz",
+          "zcz_gp"
+        ],
+        "backend": "stage2_llvm",
+        "mode": "ReleaseSafe",
+        "architecture": "aarch64",
+        "cpu": "apple_m2"
+      },
+      "f": {
+        "features": [
+          "aes",
+          "alternate_sextload_cvt_f32_pattern",
+          "altnzcv",
+          "am",
+          "amvs",
+          "arith_bcc_fusion",
+          "arith_cbz_fusion",
+          "bf16",
+          "bti",
+          "ccdp",
+          "ccidx",
+          "ccpp",
+          "complxnum",
+          "contextidr_el2",
+          "crc",
+          "disable_latency_sched_heuristic",
+          "dit",
+          "dotprod",
+          "ecv",
+          "el2vmsa",
+          "el3",
+          "fgt",
+          "flagm",
+          "fp16fml",
+          "fp_armv8",
+          "fpac",
+          "fptoint",
+          "fullfp16",
+          "fuse_address",
+          "fuse_adrp_add",
+          "fuse_aes",
+          "fuse_arith_logic",
+          "fuse_crypto_eor",
+          "fuse_csel",
+          "fuse_literals",
+          "i8mm",
+          "jsconv",
+          "lor",
+          "lse",
+          "lse2",
+          "max_interleave_factor_4",
+          "mpam",
+          "neon",
+          "no_zcz_fpr64",
+          "nv",
+          "pan",
+          "pan_rwv",
+          "pauth",
+          "perfmon",
+          "predres",
+          "ras",
+          "rcpc",
+          "rcpc_immo",
+          "rdm",
+          "sb",
+          "sel2",
+          "sha2",
+          "sha3",
+          "specrestrict",
+          "ssbs",
+          "store_pair_suppress",
+          "tlb_rmi",
+          "tracev8_4",
+          "uaops",
+          "v8_1a",
+          "v8_2a",
+          "v8_3a",
+          "v8_4a",
+          "v8_5a",
+          "v8_6a",
+          "v8a",
+          "vh",
+          "zcm_fpr128",
+          "zcm_gpr64",
+          "zcz_fpr128",
+          "zcz_gpr32",
+          "zcz_gpr64"
+        ],
+        "backend": "stage2_llvm",
+        "mode": "safe",
+        "architecture": "aarch64",
+        "cpu": "apple_a15"
+      },
+      "featuresAdded": [
+        "max_interleave_factor_4",
+        "no_zcz_fpr64",
+        "zcm_fpr128",
+        "zcz_fpr128",
+        "zcz_gpr32",
+        "zcz_gpr64"
+      ],
+      "featuresRemoved": [
+        "zcm_fpr64",
+        "zcz",
+        "zcz_gp"
+      ],
+      "sourceSha256": "83258491aef77887548d7d0506fec18324e378d764d5db57e92b7b77dd462d18"
+    },
+    "build": {
+      "comparison": "U0 → F cumulative economy build",
+      "subjects": {
+        "u0": {
+          "root": "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/boundary-u0",
+          "version": "0.16.0",
+          "mode": "ReleaseSafe",
+          "commit": "93340dade30b7d27a1e139f107359f91fb66fad3",
+          "compiler": "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/toolchains/zig-aarch64-macos-0.16.0/zig",
+          "library": "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/toolchains/zig-aarch64-macos-0.16.0/lib",
+          "compilerSha256": "e6cd688d25664983833aae272f501d4bceeae304875b8f1741209d15fd13a4ec",
+          "distribution": {
+            "archive": {
+              "tarball": "https://ziglang.org/download/0.16.0/zig-aarch64-macos-0.16.0.tar.xz",
+              "shasum": "b23d70deaa879b5c2d486ed3316f7eaa53e84acf6fc9cc747de152450d401489",
+              "size": "52238004"
+            },
+            "executableSha256": "e6cd688d25664983833aae272f501d4bceeae304875b8f1741209d15fd13a4ec",
+            "libraryInventorySha256": "95d73950096f74970484806e3b57c78b9c8d4b99c14e65f2172a805ecfa50484",
+            "libraryFiles": 19542,
+            "libraryDirectories": 1283
+          }
+        },
+        "f": {
+          "root": "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/boundary-final-source",
+          "version": "0.17.0",
+          "mode": "safe",
+          "commit": "2981507d9d0967babf69c5140674e6536263bfea",
+          "compiler": "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/toolchains/zig-aarch64-macos-0.17.0/zig",
+          "library": "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/toolchains/zig-aarch64-macos-0.17.0/lib",
+          "compilerSha256": "1c5f706db0ed6d55451940f31dc05a6177d05696bc1fa5d853696d04c718b523",
+          "distribution": {
+            "archive": {
+              "tarball": "https://ziglang.org/download/0.17.0/zig-aarch64-macos-0.17.0.tar.xz",
+              "shasum": "b607e9b9234790a008116ae5bdb71c6243b84b9fb42a53a9e70fde41c06c536a",
+              "size": "53985220"
+            },
+            "executableSha256": "1c5f706db0ed6d55451940f31dc05a6177d05696bc1fa5d853696d04c718b523",
+            "libraryInventorySha256": "d1569db639e37350c0cb4a856ceee56a99e86f98e62bb906176b109d999bfb72",
+            "libraryFiles": 19501,
+            "libraryDirectories": 1269
+          }
+        }
+      },
+      "nativeDefaultProfiles": {
+        "scope": "Default native CLI safe profile probe under the two exact distributions; same target/mode selections as the maintained native graphs.",
+        "u0": {
+          "features": [
+            "aes",
+            "alternate_sextload_cvt_f32_pattern",
+            "altnzcv",
+            "am",
+            "amvs",
+            "arith_bcc_fusion",
+            "arith_cbz_fusion",
+            "bf16",
+            "bti",
+            "ccdp",
+            "ccidx",
+            "ccpp",
+            "complxnum",
+            "contextidr_el2",
+            "crc",
+            "disable_latency_sched_heuristic",
+            "dit",
+            "dotprod",
+            "ecv",
+            "el2vmsa",
+            "el3",
+            "fgt",
+            "flagm",
+            "fp16fml",
+            "fp_armv8",
+            "fpac",
+            "fptoint",
+            "fullfp16",
+            "fuse_address",
+            "fuse_adrp_add",
+            "fuse_aes",
+            "fuse_arith_logic",
+            "fuse_crypto_eor",
+            "fuse_csel",
+            "fuse_literals",
+            "i8mm",
+            "jsconv",
+            "lor",
+            "lse",
+            "lse2",
+            "mpam",
+            "neon",
+            "nv",
+            "pan",
+            "pan_rwv",
+            "pauth",
+            "perfmon",
+            "predres",
+            "ras",
+            "rcpc",
+            "rcpc_immo",
+            "rdm",
+            "sb",
+            "sel2",
+            "sha2",
+            "sha3",
+            "specrestrict",
+            "ssbs",
+            "store_pair_suppress",
+            "tlb_rmi",
+            "tracev8_4",
+            "uaops",
+            "v8_1a",
+            "v8_2a",
+            "v8_3a",
+            "v8_4a",
+            "v8_5a",
+            "v8_6a",
+            "v8a",
+            "vh",
+            "zcm_fpr64",
+            "zcm_gpr64",
+            "zcz",
+            "zcz_gp"
+          ],
+          "backend": "stage2_llvm",
+          "mode": "ReleaseSafe",
+          "architecture": "aarch64",
+          "cpu": "apple_m2"
+        },
+        "f": {
+          "features": [
+            "aes",
+            "alternate_sextload_cvt_f32_pattern",
+            "altnzcv",
+            "am",
+            "amvs",
+            "arith_bcc_fusion",
+            "arith_cbz_fusion",
+            "bf16",
+            "bti",
+            "ccdp",
+            "ccidx",
+            "ccpp",
+            "complxnum",
+            "contextidr_el2",
+            "crc",
+            "disable_latency_sched_heuristic",
+            "dit",
+            "dotprod",
+            "ecv",
+            "el2vmsa",
+            "el3",
+            "fgt",
+            "flagm",
+            "fp16fml",
+            "fp_armv8",
+            "fpac",
+            "fptoint",
+            "fullfp16",
+            "fuse_address",
+            "fuse_adrp_add",
+            "fuse_aes",
+            "fuse_arith_logic",
+            "fuse_crypto_eor",
+            "fuse_csel",
+            "fuse_literals",
+            "i8mm",
+            "jsconv",
+            "lor",
+            "lse",
+            "lse2",
+            "max_interleave_factor_4",
+            "mpam",
+            "neon",
+            "no_zcz_fpr64",
+            "nv",
+            "pan",
+            "pan_rwv",
+            "pauth",
+            "perfmon",
+            "predres",
+            "ras",
+            "rcpc",
+            "rcpc_immo",
+            "rdm",
+            "sb",
+            "sel2",
+            "sha2",
+            "sha3",
+            "specrestrict",
+            "ssbs",
+            "store_pair_suppress",
+            "tlb_rmi",
+            "tracev8_4",
+            "uaops",
+            "v8_1a",
+            "v8_2a",
+            "v8_3a",
+            "v8_4a",
+            "v8_5a",
+            "v8_6a",
+            "v8a",
+            "vh",
+            "zcm_fpr128",
+            "zcm_gpr64",
+            "zcz_fpr128",
+            "zcz_gpr32",
+            "zcz_gpr64"
+          ],
+          "backend": "stage2_llvm",
+          "mode": "safe",
+          "architecture": "aarch64",
+          "cpu": "apple_a15"
+        },
+        "featuresAdded": [
+          "max_interleave_factor_4",
+          "no_zcz_fpr64",
+          "zcm_fpr128",
+          "zcz_fpr128",
+          "zcz_gpr32",
+          "zcz_gpr64"
+        ],
+        "featuresRemoved": [
+          "zcm_fpr64",
+          "zcz",
+          "zcz_gp"
+        ],
+        "sourceSha256": "83258491aef77887548d7d0506fec18324e378d764d5db57e92b7b77dd462d18"
+      },
+      "method": "Three independent paired bootstrap builds. Warm no-change invocations are summarized within each bootstrap-owned cache arm (three discarded warmups and nine measured invocations). Pair medians and observed ranges only; no precision or tail claim from three pairs.",
+      "hostIdleRange": [
+        0.6885072094995759,
+        0.7679240526137342
+      ],
+      "bootstrap": {
+        "wallSeconds": {
+          "pairs": [
+            {
+              "u0": 59.7,
+              "f": 94.17
+            },
+            {
+              "u0": 59.74,
+              "f": 94.47
+            },
+            {
+              "u0": 59.49,
+              "f": 93.72
+            }
+          ],
+          "baselineMedian": 59.7,
+          "finalMedian": 94.17,
+          "pairedMedianDelta": 34.47,
+          "pairedMedianRatio": 1.5773869346733669,
+          "observedRatioRange": [
+            1.5753908219868884,
+            1.5813525276196851
+          ]
+        },
+        "cpuSeconds": {
+          "pairs": [
+            {
+              "u0": 188.39999999999998,
+              "f": 117.6
+            },
+            {
+              "u0": 188.92999999999998,
+              "f": 118.18
+            },
+            {
+              "u0": 186.48999999999998,
+              "f": 117.28
+            }
+          ],
+          "baselineMedian": 188.39999999999998,
+          "finalMedian": 117.6,
+          "pairedMedianDelta": -70.74999999999997,
+          "pairedMedianRatio": 0.6255226803578046,
+          "observedRatioRange": [
+            0.624203821656051,
+            0.6288809051423669
+          ]
+        },
+        "peakRssBytes": {
+          "pairs": [
+            {
+              "u0": 1893482496,
+              "f": 2024243200
+            },
+            {
+              "u0": 1899593728,
+              "f": 2032566272
+            },
+            {
+              "u0": 1910571008,
+              "f": 2007105536
+            }
+          ],
+          "baselineMedian": 1899593728,
+          "finalMedian": 2024243200,
+          "pairedMedianDelta": 130760704,
+          "pairedMedianRatio": 1.0690583114849137,
+          "observedRatioRange": [
+            1.0505265324323396,
+            1.0700005175001295
+          ]
+        }
+      },
+      "warm": {
+        "wallSeconds": {
+          "pairs": [
+            {
+              "u0": 4.86,
+              "f": 0.12
+            },
+            {
+              "u0": 4.87,
+              "f": 0.12
+            },
+            {
+              "u0": 4.87,
+              "f": 0.12
+            }
+          ],
+          "baselineMedian": 4.87,
+          "finalMedian": 0.12,
+          "pairedMedianDelta": -4.75,
+          "pairedMedianRatio": 0.02464065708418891,
+          "observedRatioRange": [
+            0.02464065708418891,
+            0.024691358024691357
+          ]
+        },
+        "cpuSeconds": {
+          "pairs": [
+            {
+              "u0": 5.17,
+              "f": 0.16
+            },
+            {
+              "u0": 5.19,
+              "f": 0.16999999999999998
+            },
+            {
+              "u0": 5.220000000000001,
+              "f": 0.16
+            }
+          ],
+          "baselineMedian": 5.19,
+          "finalMedian": 0.16,
+          "pairedMedianDelta": -5.0200000000000005,
+          "pairedMedianRatio": 0.030947775628626693,
+          "observedRatioRange": [
+            0.03065134099616858,
+            0.0327552986512524
+          ]
+        },
+        "peakRssBytes": {
+          "pairs": [
+            {
+              "u0": 938475520,
+              "f": 32194560
+            },
+            {
+              "u0": 938459136,
+              "f": 32178176
+            },
+            {
+              "u0": 938475520,
+              "f": 32194560
+            }
+          ],
+          "baselineMedian": 938475520,
+          "finalMedian": 32194560,
+          "pairedMedianDelta": -906280960,
+          "pairedMedianRatio": 0.03430516759776536,
+          "observedRatioRange": [
+            0.0342883081059376,
+            0.03430516759776536
+          ]
+        }
+      },
+      "cache": {
+        "bootstrapCache_localLogicalBytes": {
+          "pairs": [
+            {
+              "u0": 112149137,
+              "f": 56334394
+            },
+            {
+              "u0": 112149137,
+              "f": 56334410
+            },
+            {
+              "u0": 112149137,
+              "f": 56334410
+            }
+          ],
+          "baselineMedian": 112149137,
+          "finalMedian": 56334410,
+          "pairedMedianDelta": -55814727,
+          "pairedMedianRatio": 0.5023169282167548,
+          "observedRatioRange": [
+            0.5023167855495847,
+            0.5023169282167548
+          ]
+        },
+        "bootstrapCache_globalLogicalBytes": {
+          "pairs": [
+            {
+              "u0": 43518332,
+              "f": 58006481
+            },
+            {
+              "u0": 43518332,
+              "f": 58006529
+            },
+            {
+              "u0": 43518332,
+              "f": 58006529
+            }
+          ],
+          "baselineMedian": 43518332,
+          "finalMedian": 58006529,
+          "pairedMedianDelta": 14488197,
+          "pairedMedianRatio": 1.332921698377594,
+          "observedRatioRange": [
+            1.3329205953941434,
+            1.332921698377594
+          ]
+        },
+        "finalCache_localLogicalBytes": {
+          "pairs": [
+            {
+              "u0": 112150517,
+              "f": 56334394
+            },
+            {
+              "u0": 112150517,
+              "f": 56334410
+            },
+            {
+              "u0": 112150517,
+              "f": 56334410
+            }
+          ],
+          "baselineMedian": 112150517,
+          "finalMedian": 56334410,
+          "pairedMedianDelta": -55816107,
+          "pairedMedianRatio": 0.5023107472612007,
+          "observedRatioRange": [
+            0.5023106045957862,
+            0.5023107472612007
+          ]
+        },
+        "finalCache_globalLogicalBytes": {
+          "pairs": [
+            {
+              "u0": 43518332,
+              "f": 58006481
+            },
+            {
+              "u0": 43518332,
+              "f": 58006529
+            },
+            {
+              "u0": 43518332,
+              "f": 58006529
+            }
+          ],
+          "baselineMedian": 43518332,
+          "finalMedian": 58006529,
+          "pairedMedianDelta": 14488197,
+          "pairedMedianRatio": 1.332921698377594,
+          "observedRatioRange": [
+            1.3329205953941434,
+            1.332921698377594
+          ]
+        }
+      }
+    },
+    "hostIdleFraction": [
+      0.7441145697096521,
+      0.7566800430654791
+    ],
+    "proofs": {
+      "f-transfer-proof": {
+        "status": "passed",
+        "sha256": "3a6e06858c84cf299dfaddbf3cb2739579638ca0f87285e9dca51e21b19659ab"
+      },
+      "f-transfer-negative": {
+        "status": "passed",
+        "sha256": "9b5d02fb98860a9fa311b65aa694a5cfaa33e11cd45fd572f6bd8324b40a01fe"
+      },
+      "f-components-proof": {
+        "status": "passed",
+        "sha256": "bbd89cbb8423d25565bb2533e83593fabda32e8bc8c29682a45fa9bbf0fc7529"
+      },
+      "f-delivery-negatives": {
+        "status": "passed",
+        "sha256": "a75086dd1eeda798b81431a70f3260ede6ea8946bb8c901120c7658096177a2a"
+      },
+      "f-source-free-runtime": {
+        "status": "passed",
+        "sha256": "eb8155e231fb66200c7f8c512556fb4ea9c10d024bb520309cc61ab8511b6be0"
+      },
+      "f-boundary-artifact-correspondence": {
+        "status": "passed",
+        "sha256": "77c663b206b0bf88d9b9dfd671862ace0c7a1c4f80f22bd7526ad851afccedf8"
+      },
+      "f-agent-artifact-correspondence": {
+        "status": "passed",
+        "sha256": "f435fb6d8d9ed99daa37d4a2aa695764a37bcd42ecf84ff808c2fee405341042"
+      }
+    },
+    "cases": [
+      {
+        "id": "T01",
+        "requiredWitness": "Every maintained build entrypoint and exported generic consumer compiles under exact 0.17.0; compiler qualification rejects 0.16 and unqualified versions. Reverse census finds no live cross-version support branches, adapters, fallbacks, or CI lanes; exclusions distinguish frozen/historical material.",
+        "requirements": "C01–C05, T06, BD01",
+        "witness": "Boundary check/check-zig17 and public package; World public producer; Agent check-agent4/check-zig17/check-native and external contracts; final reverse census.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-components-proof",
+          "f-boundary-artifact-correspondence",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T02",
+        "requiredWitness": "An alternate/fake `zig` placed first on PATH cannot intercept a nested build, producer, fixture, or hashing invocation.",
+        "requirements": "T01–T05, G13",
+        "witness": "Boundary test/v2/toolchain.test.mjs poisoned PATH and shared helper graph; Agent test/agent4/consumer_build.test.mjs successive changed PATH/context exports; World selected compiler propagated into public producer and nested capacity fixture builds.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-components-proof",
+          "f-boundary-artifact-correspondence",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T03",
+        "requiredWitness": "Changed executable or library-distribution identity invalidates qualification; a reported version alone cannot bless an altered toolchain.",
+        "requirements": "T01, T04",
+        "witness": "Boundary and Agent toolchain tests replace executable/library bytes without changing the reported version; World producer records and rechecks the complete distribution.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-components-proof",
+          "f-boundary-artifact-correspondence",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T04",
+        "requiredWitness": "Top-level, nested, and Node-driven builds report the same selected compiler and use the intended mode/target.",
+        "requirements": "T02–T03, T10, G03",
+        "witness": "Final Boundary package log, World manifest/build log and Agent setup/aggregate record the selected absolute compiler, standard library, safe host mode and small WASM mode.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-components-proof",
+          "f-boundary-artifact-correspondence",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T05",
+        "requiredWitness": "A second no-op build reuses eligible graph/outputs while mandatory authentication still executes.",
+        "requirements": "G05–G08, A04",
+        "witness": "E02 five-window current graph versus forced reconfiguration: authentication on all 120 calls; permanent exported-consumer warm checks; final cumulative build no-op samples.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-components-proof",
+          "f-boundary-artifact-correspondence",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T06",
+        "requiredWitness": "Editing an imported build file or a configuration-read file changes the graph/output appropriately.",
+        "requirements": "G05–G08",
+        "witness": "E02 real-graph imported build/helper source edits and configuration invalidation; Boundary standalone sibling build-file regression.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-components-proof",
+          "f-boundary-artifact-correspondence",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T07",
+        "requiredWitness": "Adding, renaming, deleting, and changing executable intent in a tracked source-inventory directory invalidates the relevant decision.",
+        "requirements": "G08, C01",
+        "witness": "E02 24 source/inventory/permission/lock mutations across four exports; World package authentication membership/mode/alias mutations.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-components-proof",
+          "f-boundary-artifact-correspondence",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T08",
+        "requiredWitness": "Changes to target, optimization, compiler, source override, package root, and output prefix cannot reuse incompatible results.",
+        "requirements": "T10, G03, G08",
+        "witness": "E02 real target/mode/prefix/source/package-root changes, current-PATH regression, 23 native/cross-target output pairs; toolchain selection and change rejection.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-components-proof",
+          "f-boundary-artifact-correspondence",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T09",
+        "requiredWitness": "Pass-through arguments preserve empty, spaced, Unicode, separator, and repeated values without unrelated recompilation.",
+        "requirements": "G01–G02",
+        "witness": "Boundary Run argument witness checks empty, spaced, Unicode, repeated, separator and changed arguments and unchanged installed executable bytes/mtime.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-components-proof",
+          "f-boundary-artifact-correspondence",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T10",
+        "requiredWitness": "Run/artifact/file/directory/output/dependency argument roles preserve execution and generation edges.",
+        "requirements": "G01, G15",
+        "witness": "Final build aggregates exercise Run artifact/file/directory/output dependencies; public package linker and current fixture generation consume installed outputs.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-components-proof",
+          "f-boundary-artifact-correspondence",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T11",
+        "requiredWitness": "Data-only and authoring-only public consumers succeed without browser/runtime tool availability.",
+        "requirements": "I01, I03, G04, BD02, A05",
+        "witness": "Boundary public-package authoring-only probe; Agent pure authoring/contracts exports and authoring-only setup with absent World path.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-components-proof",
+          "f-boundary-artifact-correspondence",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T12",
+        "requiredWitness": "Package tests cover explicit/environment/custom/symlinked stores, offline availability, and absent dependencies.",
+        "requirements": "G09–G12",
+        "witness": "World current/zig17.test.mjs package stores and offline producer; Agent setup.test.mjs offline availability/missing package; explicit canonical package acquisition.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-components-proof",
+          "f-boundary-artifact-correspondence",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T13",
+        "requiredWitness": "Cleanup cannot delete a preexisting/custom/symlink-target package store, checkout, home, or parent directory.",
+        "requirements": "G10–G11",
+        "witness": "World current/zig17.test.mjs unsafe cleanup parents, selected parent replacement, custom/symlink ownership; Agent setup owned-directory and symlink rejection.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-components-proof",
+          "f-boundary-artifact-correspondence",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T14",
+        "requiredWitness": "Actual response-file/long-argument paths either execute correctly or produce a precise unqualified blocker without dropping arguments.",
+        "requirements": "G15, B04",
+        "witness": "Boundary Run witness executes 1,000 actual long arguments with spaces/Unicode, preserving the exact list and executable identity. No Windows response-file claim.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-components-proof",
+          "f-boundary-artifact-correspondence",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T15",
+        "requiredWitness": "Empty/nested structs and tuples preserve field order, field/type correspondence, and canonical descriptors.",
+        "requirements": "L01–L03, A01–A02",
+        "witness": "Boundary data/zig17_tests empty/nested records, tuples, optionals and arrays; public Agent schemas/contracts and generated named-field witnesses.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-components-proof",
+          "f-boundary-artifact-correspondence",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T16",
+        "requiredWitness": "Tagged unions and enums preserve their existing ordinal/numeric-tag conventions, including explicit nonconsecutive tags.",
+        "requirements": "L02–L04",
+        "witness": "Boundary union declaration order versus explicit nonconsecutive wire tags; Agent model_invocation_tests normalized Answer ordinal versus explicit enum payload tags.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-components-proof",
+          "f-boundary-artifact-correspondence",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T17",
+        "requiredWitness": "Compile-time fields and unsupported portable widths/pointers/sentinels/untagged unions remain rejected at the appropriate boundary.",
+        "requirements": "L04, A01",
+        "witness": "Boundary public authoring rejection fixtures and Agent contracts compile-fail corpus preserve unsupported descriptor rejection; pure data schema/value negatives.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-components-proof",
+          "f-boundary-artifact-correspondence",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T18",
+        "requiredWitness": "Public wrapper markers work both locally and when imported; internal-only declarations do not become a public protocol accidentally.",
+        "requirements": "L07",
+        "witness": "Agent private descriptor constructor admission regression and four independently imported public contracts; Boundary wrapper/public package category and foreign nominal rejection.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-components-proof",
+          "f-boundary-artifact-correspondence",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T19",
+        "requiredWitness": "Recursive descriptors, retained capture schemas, and independent nominal operations retain identity and rejection behavior.",
+        "requirements": "I04, L05, A01",
+        "witness": "Boundary recursive Reader/declaration/capture tests and public package foreign nominal rejection; Agent schema/contracts round trips.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-components-proof",
+          "f-boundary-artifact-correspondence",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T20",
+        "requiredWitness": "Logical-bit, memory-layout, and explicit-wire cases have distinct expectations; array/vector and narrow-integer witnesses run at comptime and runtime.",
+        "requirements": "L08–L10",
+        "witness": "Boundary nine Z17 native representation tests cover comptime/runtime logical array/vector/packed bits, initialized extern memory and explicit wire encodings. Big-endian PowerPC64 cross-compilation is recorded separately.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-components-proof",
+          "f-boundary-artifact-correspondence",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T21",
+        "requiredWitness": "Native and WASM codecs match frozen canonical goldens; endian witness execution is reported separately from cross-compilation.",
+        "requirements": "L09–L11, Q04",
+        "witness": "114 unchanged Boundary canonical artifacts; frozen Agent artifacts; U0/F native/WASM canonical transfers. Big-endian execution is not claimed because no suitable emulator was available.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-components-proof",
+          "f-boundary-artifact-correspondence",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T22",
+        "requiredWitness": "Old→new and new→old value/component decode reject noncanonical, truncated, trailing, unknown-tag, and malformed inputs independently.",
+        "requirements": "L11, A02",
+        "witness": "Both frozen U0 and F Boundary data/schema/wire rejection suites; final 2×2 BMO1 producer/linker matrix plus every golden truncation, trailing byte, unknown tag, noncanonical tag, version and flags; final U0/F native/WASM malformed-envelope matrix; independent Agent value-codec negatives.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-components-proof",
+          "f-boundary-artifact-correspondence",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T23",
+        "requiredWitness": "Repeated multi-element array patterns preserve content for zero, one, and several repetitions after syntax migration.",
+        "requirements": "L12",
+        "witness": "Applicability exclusion proposed: the migration census found only single-element array repetition (48 sites), migrated to typed @splat. No maintained repeated multi-element pattern required a rewrite. Exclusion requires final review.",
+        "status": "not-applicable",
+        "evidenceRefs": [
+          "f-reverse-census",
+          "prior-experiments"
+        ],
+        "applicabilityBasis": "The retained migration census identified 48 single-element repeats and no maintained multi-element repeated pattern requiring migration. Frozen comparison sources are not successor support paths."
+      },
+      {
+        "id": "T24",
+        "requiredWitness": "Migrated error handling preserves original failure and exact cleanup order on early, late, and nested allocation failures.",
+        "requirements": "L13, L15",
+        "witness": "Migration-only error-capture patch first passed all 227 authoring tests under frozen 0.16; F actual authoring allocation sweeps cover early, late and nested construction failures, diagnostic replacement and cleanup. Lexical defer locations remain unchanged.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-components-proof",
+          "f-boundary-artifact-correspondence",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T25",
+        "requiredWitness": "Capacity/ceiling arithmetic preserves checked behavior near zero, maximum, signed overflow, and allocation-page boundaries.",
+        "requirements": "L14",
+        "witness": "Boundary wire minimal-natural/u64 overflow, scalar checked remainder/conversions, allocation length and sequence endpoint tests; World current capacity suite and physical-page limits.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-components-proof",
+          "f-boundary-artifact-correspondence",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T26",
+        "requiredWitness": "Parser/formatting/allocator ownership tests expose dangling output, diagnostic lifetime, malformed-input bounds, and failed allocations.",
+        "requirements": "L15, L17",
+        "witness": "Boundary diagnostic/formatting/authoring OOM sweeps; Agent parser/document malformed-input and lifetime/ownership tests; SafeAllocator leak checks.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-components-proof",
+          "f-boundary-artifact-correspondence",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T27",
+        "requiredWitness": "Applicable floating-point equality distinguishes numeric semantics from representation for NaN, zero, and aliased slices.",
+        "requirements": "L16",
+        "witness": "Boundary Z17 structural equality test distinguishes NaN/numeric zero and equal contents in distinct slices; bit tests retain representation expectations separately.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-components-proof",
+          "f-boundary-artifact-correspondence",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T28",
+        "requiredWitness": "A candidate with an admissible shape but deliberately wrong result/capture rewrite is rejected by the independent checker.",
+        "requirements": "L06, BD08–BD10",
+        "witness": "Boundary coalescing_mutation_tests and independent checker wrong-success-edge/result/capture mutations; semantic closed-compilation P01 test.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-components-proof",
+          "f-boundary-artifact-correspondence",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T29",
+        "requiredWitness": "Existing first-failure, lazy-unused-suffix, state-cell separation, handler scope, memo, and ownership negatives still discriminate wrong transformations.",
+        "requirements": "I01–I04, BD08",
+        "witness": "Boundary first-failure/lazy suffix/cell/handler/memo/ownership semantic oracle and mutation suites; all 114 emitted portable artifacts unchanged.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-components-proof",
+          "f-boundary-artifact-correspondence",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T30",
+        "requiredWitness": "Budget exhaustion and allocation failure roll back to the specified compiler fallback without stale observations.",
+        "requirements": "D04, BD07–BD10",
+        "witness": "Boundary bounded-work/coalescing allocation failures and retry/fallback tests; E08 work reservations and applied/no-op decisions unchanged.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-components-proof",
+          "f-boundary-artifact-correspondence",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T31",
+        "requiredWitness": "Valid→invalid→valid and interleaved emitter configurations match isolated execution; no stale facts, policy, or nominal identity leak.",
+        "requirements": "BD05–BD07",
+        "witness": "E03 nine interleaved valid/invalid invocations plus the retained economy-reuse witness in final check-zig17; all four configurations match isolated outputs.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-components-proof",
+          "f-boundary-artifact-correspondence",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T32",
+        "requiredWitness": "Independently emitted components link through the installed linker after source and original construction memory are unavailable.",
+        "requirements": "BD11, Q06",
+        "witness": "Boundary test/components.mjs and final 2×2 old/new producer/linker proof transport only copied installed linkers and once-emitted BMO1 objects into a separate directory. PATH has no tools, all emitter processes have exited, and a validated macOS sandbox denies repository-source reads and process forks; both programs link byte-identically across all four pairs.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-components-proof",
+          "f-boundary-artifact-correspondence",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T33",
+        "requiredWitness": "A forced reallocating mutation during a real element borrow triggers the intended diagnostic; the corrected path succeeds.",
+        "requirements": "W04–W08",
+        "witness": "World actual activation-view growth fault child panics at the intended borrow diagnostic; valid neighboring growth/retry succeeds.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-transfer-proof",
+          "f-transfer-negative",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T34",
+        "requiredWitness": "A nonallocating element-moving/removing mutation is detected where it invalidates a borrow.",
+        "requirements": "W05–W08",
+        "witness": "World actual activation-view nonallocating shift fault child panics at the intended borrow diagnostic.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-transfer-proof",
+          "f-transfer-negative",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T35",
+        "requiredWitness": "Valid borrows release on every success/error/early-return path; container moves/copies do not duplicate lock state incorrectly.",
+        "requirements": "W05, W08",
+        "witness": "World borrow_diagnostics valid cases cover ordinary growth, allocation failure retry, retired generation and owner move without leaks; storage success/error paths execute under native safety.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-transfer-proof",
+          "f-transfer-negative",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T36",
+        "requiredWitness": "Stable raw pointers to retired/replaced objects remain protected by logical ownership/handle validation.",
+        "requirements": "W06",
+        "witness": "World retired slot/custody generation tests and frame_transaction_tests removal/retirement prevent stale handle revival.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-transfer-proof",
+          "f-transfer-negative",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T37",
+        "requiredWitness": "Borrow begun before transaction entry remains correct through mutation, rejected operation, and rollback.",
+        "requirements": "W08, W11",
+        "witness": "World frame_transaction_tests mutable preexisting borrows across begin/commit, failed protection and retry with current entries.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-transfer-proof",
+          "f-transfer-negative",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T38",
+        "requiredWitness": "Multiple mutations of one original frame save the correct rollback state once; aliases and retained branches observe the proper version.",
+        "requirements": "W11–W12",
+        "witness": "World frame_transaction_tests first saved version, repeated mutations, alias/retained branches and entry-membership restoration.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-transfer-proof",
+          "f-transfer-negative",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T39",
+        "requiredWitness": "Failure after successor ownership transfer restores original values, owners, pending bindings, and cleanup obligations without rollback allocation.",
+        "requirements": "W10–W12",
+        "witness": "World direct-slot and retained descriptor rollback tests after ownership transfer; original values/owners/bindings restored without rollback allocation.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-transfer-proof",
+          "f-transfer-negative",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T40",
+        "requiredWitness": "Complete normal/cancelled/rejected lifecycle releases all expected allocations; failure sweeps cover the successor's actual allocation sites.",
+        "requirements": "W09–W11",
+        "witness": "World native safe storage and explicit allocator failure sweeps; cancellation/disposal/complete lifecycle; final production fast guard lane.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-transfer-proof",
+          "f-transfer-negative",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T41",
+        "requiredWitness": "N/2N/4N retained-state tests with fixed mutations preserve the predecessor's change-proportional behavior and bounded live metadata.",
+        "requirements": "W12",
+        "witness": "E06 native and production-WASM 128/256/512 continuation proof and five paired windows; identical checkpoint/outcome bytes, requested workspace, reserved WASM pages and cleanup.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-transfer-proof",
+          "f-transfer-negative",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T42",
+        "requiredWitness": "Scalar batching/frame reuse agrees with the reference at every applicable quantum cut, demanded arithmetic failure, and cancellation point.",
+        "requirements": "W03, Q03",
+        "witness": "World scalar_batch_tests every quantum prefix, exact checked-failure prefix and every allocation failure; final cross-version transfer proof includes quantum 1 and 23.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-transfer-proof",
+          "f-transfer-negative",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T43",
+        "requiredWitness": "Deep/shallow/dynamic handlers, owned exchange, suspending disposal, and already supported cloning/multi-shot cases survive transfer.",
+        "requirements": "I02–I04, Q02–Q03",
+        "witness": "World current source/native/Node/Wasmtime/browser suites cover deep/shallow/dynamic handlers, exchange, cleanup and supported multi-shot; final native/WASM transfer corpus and Agent consumer aggregate.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-transfer-proof",
+          "f-transfer-negative",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T44",
+        "requiredWitness": "Unchanged-capacity failure permits the same retry behavior and exposes no partially committed state.",
+        "requirements": "D04, W01–W03, Q03",
+        "witness": "World unchanged-capacity output/working/input retries preserve checkpoints and response binding; final producer delivered-capacity check and explicit rejected resident reply checkpoint test.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-transfer-proof",
+          "f-transfer-negative",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T45",
+        "requiredWitness": "Same-image states transfer old↔new and native↔WASM; wrong-image and wrong-request cases reject.",
+        "requirements": "Q02–Q04",
+        "witness": "Final U0/F cross-version/native/WASM proof: 235 boundaries across 16 workloads; all four peers consume identical transferred states, plus wrong-image and stale-request rejection. World public producer adds Wasmtime/browser transfer.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-transfer-proof",
+          "f-transfer-negative",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T46",
+        "requiredWitness": "Production kernel preserves import/export, memory maximum, unshared memory, stack/default budget, and ABI profile.",
+        "requirements": "W01–W03, W14",
+        "witness": "Final macOS/Linux manifests and kernel inspection: import-free ABI3, exact exports, 18 initial/4096 maximum unshared WASM pages, 64KiB stack/default input/output and 1MiB working defaults.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-transfer-proof",
+          "f-transfer-negative",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T47",
+        "requiredWitness": "Alternate backend runs the required engine/semantic/negative matrix before any promotion; differences are not normalized away.",
+        "requirements": "W16–W18",
+        "witness": "Alternate-backend candidate rejected before promotion: both official host compilers fail the actual kernel with __heap_base; neighboring controls discriminate the unsupported heap path. No alternate executable exists for downstream engine qualification.",
+        "status": "passed-by-build-gate-rejection",
+        "evidenceRefs": [
+          "qualification",
+          "f-transfer-proof",
+          "f-transfer-negative",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T48",
+        "requiredWitness": "Diagnostic-enabled and production-mode tests retain actual explicit guards; safety-disabled execution does not rely on allocator/lock panics.",
+        "requirements": "W08–W10, M10",
+        "witness": "World public producer executes safe native/storage and fast storage guard lanes; production small kernel explicit budget/input/handle checks; diagnostic-only panics stay outside production guards.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-transfer-proof",
+          "f-transfer-negative",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T49",
+        "requiredWitness": "Changing one of compiler, host mode, kernel mode, target, limits, dependency, or required-check metadata makes the new verifier reject.",
+        "requirements": "T10, W13–W15",
+        "witness": "World runtime_bundle.test.mjs plus 15 isolated mutations of the actual final delivered manifest reject compiler, host/kernel mode, target, limits, dependency and required-check changes; the valid bundle verifies before and after.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-delivery-negatives",
+          "f-source-free-runtime",
+          "f-agent-artifact-correspondence",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T50",
+        "requiredWitness": "Producer and verifier bind the actual selected compiler/distribution, consumed package, and delivered kernel rather than hard-coded stale values.",
+        "requirements": "T01–T10, W13–W14",
+        "witness": "Final World manifests bind actual compiler/distribution, consumed managed package inventory and kernel; independent Agent verification binds source archives, both package profiles and acquired runtime.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-delivery-negatives",
+          "f-source-free-runtime",
+          "f-agent-artifact-correspondence",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T51",
+        "requiredWitness": "Kernel/module/package/lock/inventory tampering fails before execution; existing verified-copy substitution protection remains effective.",
+        "requirements": "Q05–Q07, W15",
+        "witness": "World bundle/package mutation and verified-copy tests; Agent dependencies.test.mjs runtime/module/kernel/lock/inventory tampering; final exported-consumer warm admission negatives.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-delivery-negatives",
+          "f-source-free-runtime",
+          "f-agent-artifact-correspondence",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T52",
+        "requiredWitness": "Archive traversal, excessive inventory/input, executable-mode changes, and destination collisions preserve the existing fail-closed behavior.",
+        "requirements": "G11, W15, Q07",
+        "witness": "World bundle acquisition and Agent authenticated extraction reject traversal, duplicate/unsafe entries, excessive inputs, executable mode changes and destination collisions.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-delivery-negatives",
+          "f-source-free-runtime",
+          "f-agent-artifact-correspondence",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T53",
+        "requiredWitness": "Missing tool, failed qualification, interrupted producer, and corrupted archive never publish a ready bundle.",
+        "requirements": "G14, W15, Q08",
+        "witness": "World producer/output reservation tests, an actual final producer interrupted with SIGTERM after reserving staging (no ready/archive/descriptor, process group gone), and Agent missing/corrupt offline bundle tests preserve no-ready-publication behavior and forbid fallback builds.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-delivery-negatives",
+          "f-source-free-runtime",
+          "f-agent-artifact-correspondence",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T54",
+        "requiredWitness": "Independently reacquired runtime runs source-free and offline without compiler or sibling-checkout fallback.",
+        "requirements": "Q05–Q06",
+        "witness": "Both final World bundles independently acquired through the public CLI. The copied Linux bundle verifies and runs its own CLI/fresh-process smoke under a validated macOS repository-read/network denial with only Node on PATH; Agent offline setup consumes preacquired transport.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-delivery-negatives",
+          "f-source-free-runtime",
+          "f-agent-artifact-correspondence",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T55",
+        "requiredWitness": "Agent lock, package manifest, source/archive/package inventories, final linker, and delivered runtime resolve to one exact qualified tuple.",
+        "requirements": "B01–B02, T07–T09, A06",
+        "witness": "Final Agent lock binds Boundary 2981507 and World 6021485 plus run37181860187/artifact11295054241, source/package/archive/runtime/kernel identities; setup and packaged consumers authenticate the same tuple.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-delivery-negatives",
+          "f-source-free-runtime",
+          "f-agent-artifact-correspondence",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T56",
+        "requiredWitness": "Warm authoring cache plus a tampered dependency still fails through the exported admission prerequisite.",
+        "requirements": "G06, A04–A05",
+        "witness": "Permanent Agent external-consumer regression warms each of four exported module graphs then tampers dependency/source/inventory/mode/lock; Linux watcher explicitly tracks the lock Run inputs.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-delivery-negatives",
+          "f-source-free-runtime",
+          "f-agent-artifact-correspondence",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T57",
+        "requiredWitness": "Packaged Agent/contracts consumers exercise the same portable positives/negatives as in-repository tests.",
+        "requirements": "A01–A06, Q06",
+        "witness": "Agent public package consumers, contracts schema/value positives and negatives, independently extracted parser/text consumers and source-free tests in the final integration aggregate.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-delivery-negatives",
+          "f-source-free-runtime",
+          "f-agent-artifact-correspondence",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T58",
+        "requiredWitness": "Original maintained parser/document/repository/inquiry/model/tool consumers pass with unchanged external inputs, bounds, approval, and negative cases.",
+        "requirements": "A03, A07–A08",
+        "witness": "Final Agent maintained parser, document, repository, inquiry, model, tool and mobility aggregates, including browser and native counterparts; unchanged external bounds and approval negatives.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-delivery-negatives",
+          "f-source-free-runtime",
+          "f-agent-artifact-correspondence",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T59",
+        "requiredWitness": "Fresh-invocation replay uses the actual bridge, reports all boundary costs, and is not mislabeled as resident execution.",
+        "requirements": "A07–A08, M01",
+        "witness": "Final cumulative U0/F actual loadWorldRuntime/start/resume fresh bridge measurements for 1/8/64/1024 turns; setup/authentication separate, host codec included in complete conversation clocks, no model/network time.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-delivery-negatives",
+          "f-source-free-runtime",
+          "f-agent-artifact-correspondence",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T60",
+        "requiredWitness": "Resident experiment preserves setup, effect resume, checkpoint export, fresh recovery, cancellation, pending binding, and final retirement.",
+        "requirements": "A09–A12",
+        "witness": "E09 actual resident prototype passed nine lifecycle cases and thirteen held-out Document cases, plus exact replay-boundary bytes; rejected for short-lifecycle cost and removed.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-delivery-negatives",
+          "f-source-free-runtime",
+          "f-agent-artifact-correspondence",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T61",
+        "requiredWitness": "Source-free frozen producers and unchanged independent goldens remain unchanged; successor fixtures are separately identified.",
+        "requirements": "C03, Q04–Q06",
+        "witness": "Frozen U0 sources/binaries and canonical outputs retained; final 114 Boundary and Agent artifact correspondences compare unchanged bytes; no golden rewrite.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-delivery-negatives",
+          "f-source-free-runtime",
+          "f-agent-artifact-correspondence",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T62",
+        "requiredWitness": "A source/lock/profile change after an earlier qualification prevents reuse of that result for a new final tuple.",
+        "requirements": "T07–T10, Q08",
+        "witness": "World source/profile/dependency binding negatives and Agent lock/archive inventory admission; final source identity changes required new bundles, independent acquisition and lock qualification.",
+        "status": "passed",
+        "evidenceRefs": [
+          "qualification",
+          "f-delivery-negatives",
+          "f-source-free-runtime",
+          "f-agent-artifact-correspondence",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T63",
+        "requiredWitness": "Structured discovery lists real configured steps/options/dependencies; requested step events and emitted files match the actual run.",
+        "requirements": "P01–P04",
+        "witness": "E10 real build protocol discovery (392 steps), selected maintained capacity emitter, four completed steps and both emitted outputs; ordinary graph remains production path.",
+        "status": "passed",
+        "evidenceRefs": [
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T64",
+        "requiredWitness": "Truncated/malformed/oversized protocol input, unknown version, missing terminal event, nonzero exit, and cancellation cannot produce success.",
+        "requirements": "P02–P04",
+        "witness": "E10 twelve tests cover malformed/truncated/oversized frames, version, sequence, missing terminal, nonzero exit, diagnostic bounds, deadline, cancellation and child process cleanup.",
+        "status": "passed",
+        "evidenceRefs": [
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T65",
+        "requiredWitness": "A graph-informed narrow check never substitutes for the final required aggregate or independent semantic witnesses.",
+        "requirements": "P04, Q01",
+        "witness": "Final full Boundary/World/Agent aggregates and independent semantic/delivery proofs remain required; E10 narrow graph experiment never grants aggregate credit.",
+        "status": "passed",
+        "evidenceRefs": [
+          "prior-experiments",
+          "qualification"
+        ]
+      },
+      {
+        "id": "T66",
+        "requiredWitness": "Each incremental edit class agrees with a fresh build of the same edited source and identifies its actual invalidated steps.",
+        "requirements": "P05–P07",
+        "witness": "E05 five Linux windows/240 checked edit pairs across private optimizer, authoring helper, public type and build configuration; each agrees with fresh outputs and restoration, actual backend explicitly matched.",
+        "status": "passed",
+        "evidenceRefs": [
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T67",
+        "requiredWitness": "Incremental/watch failure and termination leave no child process and do not alter the user's active worktree.",
+        "requirements": "P08–P09",
+        "witness": "E10 cancellation/termination tests reap child groups; E05 runs in isolated CI worktrees, reports live compiler persistence/restarts and restoration; no watcher remains in the user worktree.",
+        "status": "passed",
+        "evidenceRefs": [
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T68",
+        "requiredWitness": "Bootstrap-cold, maker-warm/project-cold, no-op, and incremental measurements have distinct reproducible cache manifests.",
+        "requirements": "M02–M04",
+        "witness": "Separate bootstrap-cold, support-only Maker-warm/project-cold, warm no-op and persistent incremental records retain cache identities and manifests; final cumulative build pairs retain bootstrap/no-op separately.",
+        "status": "passed",
+        "evidenceRefs": [
+          "runtime",
+          "build",
+          "cost-decision",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T69",
+        "requiredWitness": "Compiler-only, source-reconciliation, isolated experiments, and final cumulative comparisons retain their correct identities and attribution.",
+        "requirements": "B02, M01, M07–M11",
+        "witness": "C0/U0 reconciliation, migration-only U1, each isolated experiment and final U0/F cumulative rows retain their own immutable subject and artifact identities. Final measurement pending.",
+        "status": "passed",
+        "evidenceRefs": [
+          "runtime",
+          "build",
+          "cost-decision",
+          "prior-experiments"
+        ]
+      },
+      {
+        "id": "T70",
+        "requiredWitness": "A rejected candidate leaves no speculative production branch; accepted candidates retain per-workload costs and explicit exceptions.",
+        "requirements": "D03–D05, M07–M11",
+        "witness": "E04/E07/E09 candidates rejected and removed/never built; E05 ordinary default retained; E02/E03/E06 adopted within existing owners; E08 policies unchanged; E10 archived qualification witness only. Final material cost acceptance pending.",
+        "status": "passed",
+        "evidenceRefs": [
+          "runtime",
+          "build",
+          "cost-decision",
+          "prior-experiments"
+        ]
+      }
+    ],
+    "costs": [
+      {
+        "comparison": "u0→f",
+        "kind": "native",
+        "fixture": "scalar",
+        "count": 0,
+        "metric": "cycleNs",
+        "baseline": 2458,
+        "final": 2417,
+        "pairedMedianRatio": 0.983319772172498,
+        "pairedMedianDelta": -41,
+        "ratio95PercentileBootstrap": [
+          0.8925406203840472,
+          0.983319772172498
+        ],
+        "processPeakRssDelta": 163840
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "wasm",
+        "fixture": "scalar",
+        "count": 0,
+        "metric": "invocationNs",
+        "baseline": 23292,
+        "final": 24083,
+        "pairedMedianRatio": 1.033960157994161,
+        "pairedMedianDelta": 791,
+        "ratio95PercentileBootstrap": [
+          0.9760820512820513,
+          1.160600884684448
+        ],
+        "processPeakRssDelta": -98304,
+        "requestedWorkingPeakDelta": 0,
+        "reservedWasmBytesDelta": 0
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "native",
+        "fixture": "deep",
+        "count": 0,
+        "metric": "cycleNs",
+        "baseline": 11375,
+        "final": 10792,
+        "pairedMedianRatio": 0.9487472527472528,
+        "pairedMedianDelta": -583,
+        "ratio95PercentileBootstrap": [
+          0.8993333333333333,
+          0.9740444444444445
+        ],
+        "processPeakRssDelta": -16384
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "wasm",
+        "fixture": "deep",
+        "count": 0,
+        "metric": "invocationNs",
+        "baseline": 73875,
+        "final": 76542,
+        "pairedMedianRatio": 1.0372809692238891,
+        "pairedMedianDelta": 2751,
+        "ratio95PercentileBootstrap": [
+          1.0005535420098848,
+          1.0538557833384932
+        ],
+        "processPeakRssDelta": -802816,
+        "requestedWorkingPeakDelta": 0,
+        "reservedWasmBytesDelta": 0
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "native",
+        "fixture": "residual",
+        "count": 0,
+        "metric": "cycleNs",
+        "baseline": 13042,
+        "final": 12875,
+        "pairedMedianRatio": 0.9871952154577519,
+        "pairedMedianDelta": -167,
+        "ratio95PercentileBootstrap": [
+          0.9713390400489147,
+          1.0352307692307692
+        ],
+        "processPeakRssDelta": 65536
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "wasm",
+        "fixture": "residual",
+        "count": 0,
+        "metric": "invocationNs",
+        "baseline": 103250,
+        "final": 113875,
+        "pairedMedianRatio": 1.1343922518159806,
+        "pairedMedianDelta": 13750,
+        "ratio95PercentileBootstrap": [
+          1.0659159622962942,
+          1.1455710594315245
+        ],
+        "processPeakRssDelta": -671744,
+        "requestedWorkingPeakDelta": 0,
+        "reservedWasmBytesDelta": 0
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "native",
+        "fixture": "reentrant",
+        "count": 0,
+        "metric": "cycleNs",
+        "baseline": 86167,
+        "final": 83333,
+        "pairedMedianRatio": 0.9671103786832546,
+        "pairedMedianDelta": -2834,
+        "ratio95PercentileBootstrap": [
+          0.9002848385734245,
+          0.969953488372093
+        ],
+        "processPeakRssDelta": -65536
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "wasm",
+        "fixture": "reentrant",
+        "count": 0,
+        "metric": "invocationNs",
+        "baseline": 407000,
+        "final": 433958,
+        "pairedMedianRatio": 1.067768001259793,
+        "pairedMedianDelta": 27542,
+        "ratio95PercentileBootstrap": [
+          1.0119074944139705,
+          1.0785233415233415
+        ],
+        "processPeakRssDelta": 262144,
+        "requestedWorkingPeakDelta": 0,
+        "reservedWasmBytesDelta": 0
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "native",
+        "fixture": "shallow",
+        "count": 0,
+        "metric": "cycleNs",
+        "baseline": 178083,
+        "final": 166083,
+        "pairedMedianRatio": 0.9316835408208533,
+        "pairedMedianDelta": -12166,
+        "ratio95PercentileBootstrap": [
+          0.9177986052012069,
+          0.9384236730014948
+        ],
+        "processPeakRssDelta": -425984
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "wasm",
+        "fixture": "shallow",
+        "count": 0,
+        "metric": "invocationNs",
+        "baseline": 694958,
+        "final": 775541,
+        "pairedMedianRatio": 1.1166897048236142,
+        "pairedMedianDelta": 81041,
+        "ratio95PercentileBootstrap": [
+          1.11073906624573,
+          1.1302652491377732
+        ],
+        "processPeakRssDelta": 376832,
+        "requestedWorkingPeakDelta": 0,
+        "reservedWasmBytesDelta": 0
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "native",
+        "fixture": "generator",
+        "count": 0,
+        "metric": "cycleNs",
+        "baseline": 148709,
+        "final": 143208,
+        "pairedMedianRatio": 0.9637707051027081,
+        "pairedMedianDelta": -5374,
+        "ratio95PercentileBootstrap": [
+          0.9590878830467557,
+          0.9660089123795784
+        ],
+        "processPeakRssDelta": -393216
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "wasm",
+        "fixture": "generator",
+        "count": 0,
+        "metric": "invocationNs",
+        "baseline": 707583,
+        "final": 836750,
+        "pairedMedianRatio": 1.182546782497601,
+        "pairedMedianDelta": 129167,
+        "ratio95PercentileBootstrap": [
+          1.1339245315985955,
+          1.2115527651534637
+        ],
+        "processPeakRssDelta": -163840,
+        "requestedWorkingPeakDelta": 0,
+        "reservedWasmBytesDelta": 0
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "native",
+        "fixture": "scheduler",
+        "count": 0,
+        "metric": "cycleNs",
+        "baseline": 230334,
+        "final": 218250,
+        "pairedMedianRatio": 0.9483976099945681,
+        "pairedMedianDelta": -11875,
+        "ratio95PercentileBootstrap": [
+          0.9138525674295568,
+          0.9493431278057083
+        ],
+        "processPeakRssDelta": -425984
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "wasm",
+        "fixture": "scheduler",
+        "count": 0,
+        "metric": "invocationNs",
+        "baseline": 965625,
+        "final": 1125834,
+        "pairedMedianRatio": 1.167005976294864,
+        "pairedMedianDelta": 160291,
+        "ratio95PercentileBootstrap": [
+          1.133107129432402,
+          1.1701154122768533
+        ],
+        "processPeakRssDelta": -540672,
+        "requestedWorkingPeakDelta": 0,
+        "reservedWasmBytesDelta": 0
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "native",
+        "fixture": "queens_dfs",
+        "count": 0,
+        "metric": "cycleNs",
+        "baseline": 3048751,
+        "final": 2946708,
+        "pairedMedianRatio": 0.9671977593214905,
+        "pairedMedianDelta": -99876,
+        "ratio95PercentileBootstrap": [
+          0.952083042046232,
+          0.9753614608972856
+        ],
+        "processPeakRssDelta": -638976
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "wasm",
+        "fixture": "queens_dfs",
+        "count": 0,
+        "metric": "invocationNs",
+        "baseline": 6899500,
+        "final": 7247918,
+        "pairedMedianRatio": 1.0520844370459819,
+        "pairedMedianDelta": 356876,
+        "ratio95PercentileBootstrap": [
+          1.0423474251728313,
+          1.069974925719255
+        ],
+        "processPeakRssDelta": -2310144,
+        "requestedWorkingPeakDelta": 0,
+        "reservedWasmBytesDelta": 0
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "native",
+        "fixture": "queens_bfs",
+        "count": 0,
+        "metric": "cycleNs",
+        "baseline": 3152874,
+        "final": 3066916,
+        "pairedMedianRatio": 0.9727745705258677,
+        "pairedMedianDelta": -85835,
+        "ratio95PercentileBootstrap": [
+          0.9559600250503648,
+          0.9757263502346797
+        ],
+        "processPeakRssDelta": -655360
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "wasm",
+        "fixture": "queens_bfs",
+        "count": 0,
+        "metric": "invocationNs",
+        "baseline": 7036335,
+        "final": 7385168,
+        "pairedMedianRatio": 1.0566542000748051,
+        "pairedMedianDelta": 400793,
+        "ratio95PercentileBootstrap": [
+          1.01802358616978,
+          1.0651346663044055
+        ],
+        "processPeakRssDelta": -3244032,
+        "requestedWorkingPeakDelta": 0,
+        "reservedWasmBytesDelta": 0
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "native",
+        "fixture": "cleanup",
+        "count": 0,
+        "metric": "cycleNs",
+        "baseline": 175752,
+        "final": 167041,
+        "pairedMedianRatio": 0.9516193272338295,
+        "pairedMedianDelta": -8503,
+        "ratio95PercentileBootstrap": [
+          0.8881887253599703,
+          0.9590459770114943
+        ],
+        "processPeakRssDelta": -196608
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "wasm",
+        "fixture": "cleanup",
+        "count": 0,
+        "metric": "invocationNs",
+        "baseline": 856083,
+        "final": 919708,
+        "pairedMedianRatio": 1.106781308411215,
+        "pairedMedianDelta": 92833,
+        "ratio95PercentileBootstrap": [
+          1.066151466511017,
+          1.134776299054372
+        ],
+        "processPeakRssDelta": -1097728,
+        "requestedWorkingPeakDelta": 0,
+        "reservedWasmBytesDelta": 0
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "native",
+        "fixture": "install",
+        "count": 16,
+        "metric": "cycleNs",
+        "baseline": 51041,
+        "final": 49541,
+        "pairedMedianRatio": 0.9698085852549911,
+        "pairedMedianDelta": -1541,
+        "ratio95PercentileBootstrap": [
+          0.9332743062750787,
+          0.9991744471744471
+        ],
+        "processPeakRssDelta": -131072
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "wasm",
+        "fixture": "install",
+        "count": 16,
+        "metric": "invocationNs",
+        "baseline": 293667,
+        "final": 355333,
+        "pairedMedianRatio": 1.2093025630204912,
+        "pairedMedianDelta": 61500,
+        "ratio95PercentileBootstrap": [
+          1.0990339398025655,
+          1.2301121615344681
+        ],
+        "processPeakRssDelta": 1130496,
+        "requestedWorkingPeakDelta": 0,
+        "reservedWasmBytesDelta": 0
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "native",
+        "fixture": "install",
+        "count": 32,
+        "metric": "cycleNs",
+        "baseline": 106000,
+        "final": 106375,
+        "pairedMedianRatio": 0.9940921808832426,
+        "pairedMedianDelta": -625,
+        "ratio95PercentileBootstrap": [
+          0.981630309988519,
+          1.0228018867924529
+        ],
+        "processPeakRssDelta": -262144
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "wasm",
+        "fixture": "install",
+        "count": 32,
+        "metric": "invocationNs",
+        "baseline": 590417,
+        "final": 648042,
+        "pairedMedianRatio": 1.097600509470425,
+        "pairedMedianDelta": 57625,
+        "ratio95PercentileBootstrap": [
+          1.0020406853188908,
+          1.1073491873837422
+        ],
+        "processPeakRssDelta": -376832,
+        "requestedWorkingPeakDelta": 0,
+        "reservedWasmBytesDelta": 0
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "native",
+        "fixture": "install",
+        "count": 64,
+        "metric": "cycleNs",
+        "baseline": 224166,
+        "final": 223958,
+        "pairedMedianRatio": 1.0007417602059054,
+        "pairedMedianDelta": 166,
+        "ratio95PercentileBootstrap": [
+          0.9858340177869627,
+          1.0346503613118399
+        ],
+        "processPeakRssDelta": -278528
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "wasm",
+        "fixture": "install",
+        "count": 64,
+        "metric": "invocationNs",
+        "baseline": 1134167,
+        "final": 1239791,
+        "pairedMedianRatio": 1.0898414692208964,
+        "pairedMedianDelta": 101708,
+        "ratio95PercentileBootstrap": [
+          1.0786305401451748,
+          1.1001104775575379
+        ],
+        "processPeakRssDelta": -933888,
+        "requestedWorkingPeakDelta": 0,
+        "reservedWasmBytesDelta": 0
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "native",
+        "fixture": "retained_loop",
+        "count": 16,
+        "metric": "cycleNs",
+        "baseline": 51750,
+        "final": 51667,
+        "pairedMedianRatio": 0.999207729468599,
+        "pairedMedianDelta": -41,
+        "ratio95PercentileBootstrap": [
+          0.9935302663438257,
+          1.0024446557109874
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "wasm",
+        "fixture": "retained_loop",
+        "count": 16,
+        "metric": "invocationNs",
+        "baseline": 275958,
+        "final": 308625,
+        "pairedMedianRatio": 1.106289947652632,
+        "pairedMedianDelta": 29584,
+        "ratio95PercentileBootstrap": [
+          1.0779104066560854,
+          1.1998765320018157
+        ],
+        "processPeakRssDelta": -3948544,
+        "requestedWorkingPeakDelta": 0,
+        "reservedWasmBytesDelta": 0
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "native",
+        "fixture": "retained_loop",
+        "count": 32,
+        "metric": "cycleNs",
+        "baseline": 82333,
+        "final": 82792,
+        "pairedMedianRatio": 1.0045317220543806,
+        "pairedMedianDelta": 375,
+        "ratio95PercentileBootstrap": [
+          0.9974736739824858,
+          1.152384962406015
+        ],
+        "processPeakRssDelta": 16384
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "wasm",
+        "fixture": "retained_loop",
+        "count": 32,
+        "metric": "invocationNs",
+        "baseline": 432125,
+        "final": 489500,
+        "pairedMedianRatio": 1.1390263386396526,
+        "pairedMedianDelta": 60042,
+        "ratio95PercentileBootstrap": [
+          1.0946712793305255,
+          1.1800132185779337
+        ],
+        "processPeakRssDelta": 1556480,
+        "requestedWorkingPeakDelta": 0,
+        "reservedWasmBytesDelta": 0
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "native",
+        "fixture": "retained_loop",
+        "count": 64,
+        "metric": "cycleNs",
+        "baseline": 144083,
+        "final": 145125,
+        "pairedMedianRatio": 1.0086680350604682,
+        "pairedMedianDelta": 1250,
+        "ratio95PercentileBootstrap": [
+          0.9184142048063677,
+          1.011044211730725
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "wasm",
+        "fixture": "retained_loop",
+        "count": 64,
+        "metric": "invocationNs",
+        "baseline": 714167,
+        "final": 754291,
+        "pairedMedianRatio": 1.0670361414067018,
+        "pairedMedianDelta": 47875,
+        "ratio95PercentileBootstrap": [
+          1.0190538313168507,
+          1.0810333213901828
+        ],
+        "processPeakRssDelta": -720896,
+        "requestedWorkingPeakDelta": 0,
+        "reservedWasmBytesDelta": 0
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "native",
+        "fixture": "mixed",
+        "count": 16,
+        "metric": "cycleNs",
+        "baseline": 403540,
+        "final": 396915,
+        "pairedMedianRatio": 0.983377112553898,
+        "pairedMedianDelta": -6708,
+        "ratio95PercentileBootstrap": [
+          0.9804590241603351,
+          0.998970006080687
+        ],
+        "processPeakRssDelta": -212992
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "wasm",
+        "fixture": "mixed",
+        "count": 16,
+        "metric": "invocationNs",
+        "baseline": 1533543,
+        "final": 1590624,
+        "pairedMedianRatio": 1.0497474036868708,
+        "pairedMedianDelta": 74957,
+        "ratio95PercentileBootstrap": [
+          1.0157035048903096,
+          1.070675565684519
+        ],
+        "processPeakRssDelta": -5210112,
+        "requestedWorkingPeakDelta": 0,
+        "reservedWasmBytesDelta": 0
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "native",
+        "fixture": "mixed",
+        "count": 32,
+        "metric": "cycleNs",
+        "baseline": 1316212,
+        "final": 1256038,
+        "pairedMedianRatio": 0.9729640817740607,
+        "pairedMedianDelta": -35585,
+        "ratio95PercentileBootstrap": [
+          0.9410115455880886,
+          0.9755006085044614
+        ],
+        "processPeakRssDelta": -311296
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "wasm",
+        "fixture": "mixed",
+        "count": 32,
+        "metric": "invocationNs",
+        "baseline": 3575253,
+        "final": 3929205,
+        "pairedMedianRatio": 1.100824301017927,
+        "pairedMedianDelta": 362627,
+        "ratio95PercentileBootstrap": [
+          1.0714517266330523,
+          1.1103851535218867
+        ],
+        "processPeakRssDelta": -3686400,
+        "requestedWorkingPeakDelta": 0,
+        "reservedWasmBytesDelta": 0
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "native",
+        "fixture": "mixed",
+        "count": 64,
+        "metric": "cycleNs",
+        "baseline": 4886835,
+        "final": 4787037,
+        "pairedMedianRatio": 0.9818377361310032,
+        "pairedMedianDelta": -86295,
+        "ratio95PercentileBootstrap": [
+          0.9794110444058303,
+          0.9838376915192768
+        ],
+        "processPeakRssDelta": -393216
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "wasm",
+        "fixture": "mixed",
+        "count": 64,
+        "metric": "invocationNs",
+        "baseline": 11747835,
+        "final": 12873125,
+        "pairedMedianRatio": 1.0973014176654676,
+        "pairedMedianDelta": 1143081,
+        "ratio95PercentileBootstrap": [
+          1.0829617137657386,
+          1.1037689661558723
+        ],
+        "processPeakRssDelta": -3031040,
+        "requestedWorkingPeakDelta": 0,
+        "reservedWasmBytesDelta": 0
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "native",
+        "fixture": "irregular",
+        "count": 16,
+        "metric": "cycleNs",
+        "baseline": 404709,
+        "final": 396832,
+        "pairedMedianRatio": 0.9805366324939648,
+        "pairedMedianDelta": -7877,
+        "ratio95PercentileBootstrap": [
+          0.941790179483646,
+          1.0112520402527312
+        ],
+        "processPeakRssDelta": -212992
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "wasm",
+        "fixture": "irregular",
+        "count": 16,
+        "metric": "invocationNs",
+        "baseline": 1492040,
+        "final": 1608042,
+        "pairedMedianRatio": 1.0777472453821613,
+        "pairedMedianDelta": 116002,
+        "ratio95PercentileBootstrap": [
+          0.9787673849642392,
+          1.098662573548222
+        ],
+        "processPeakRssDelta": -4292608,
+        "requestedWorkingPeakDelta": 0,
+        "reservedWasmBytesDelta": 0
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "native",
+        "fixture": "irregular",
+        "count": 32,
+        "metric": "cycleNs",
+        "baseline": 1286376,
+        "final": 1259582,
+        "pairedMedianRatio": 0.969841632617524,
+        "pairedMedianDelta": -38795,
+        "ratio95PercentileBootstrap": [
+          0.9565680752553721,
+          0.9812373458225536
+        ],
+        "processPeakRssDelta": -311296
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "wasm",
+        "fixture": "irregular",
+        "count": 32,
+        "metric": "invocationNs",
+        "baseline": 3542583,
+        "final": 3930500,
+        "pairedMedianRatio": 1.0880826824302323,
+        "pairedMedianDelta": 318665,
+        "ratio95PercentileBootstrap": [
+          1.0804497735127165,
+          1.1489449257742732
+        ],
+        "processPeakRssDelta": -4308992,
+        "requestedWorkingPeakDelta": 0,
+        "reservedWasmBytesDelta": 0
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "native",
+        "fixture": "irregular",
+        "count": 64,
+        "metric": "cycleNs",
+        "baseline": 4862747,
+        "final": 4664791,
+        "pairedMedianRatio": 0.9736945258582931,
+        "pairedMedianDelta": -124621,
+        "ratio95PercentileBootstrap": [
+          0.9574698101271799,
+          0.9781323889525662
+        ],
+        "processPeakRssDelta": -376832
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "wasm",
+        "fixture": "irregular",
+        "count": 64,
+        "metric": "invocationNs",
+        "baseline": 11599796,
+        "final": 12741623,
+        "pairedMedianRatio": 1.1059257502480482,
+        "pairedMedianDelta": 1216628,
+        "ratio95PercentileBootstrap": [
+          1.0770492026116165,
+          1.1087645106492325
+        ],
+        "processPeakRssDelta": -1753088,
+        "requestedWorkingPeakDelta": 0,
+        "reservedWasmBytesDelta": 0
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "compiler",
+        "fixture": "arithmetic",
+        "contract": "structural",
+        "metric": "compile_ns",
+        "baseline": 20458,
+        "final": 29917,
+        "pairedMedianRatio": 1.4989978955807195,
+        "pairedMedianDelta": 9959,
+        "ratio95PercentileBootstrap": [
+          1.3576406516822819,
+          1.5138595254874325
+        ],
+        "processPeakRssDelta": -311296
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "compiler",
+        "fixture": "arithmetic",
+        "contract": "semantic",
+        "metric": "compile_ns",
+        "baseline": 157333,
+        "final": 239542,
+        "pairedMedianRatio": 1.4801092416111228,
+        "pairedMedianDelta": 75417,
+        "ratio95PercentileBootstrap": [
+          1.3595258462666504,
+          1.5245314240254575
+        ],
+        "processPeakRssDelta": -327680
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "compiler",
+        "fixture": "arithmetic_fail",
+        "contract": "structural",
+        "metric": "compile_ns",
+        "baseline": 11375,
+        "final": 13084,
+        "pairedMedianRatio": 1.1465494505494505,
+        "pairedMedianDelta": 1667,
+        "ratio95PercentileBootstrap": [
+          1.1377391304347826,
+          1.1726663137462503
+        ],
+        "processPeakRssDelta": -180224
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "compiler",
+        "fixture": "arithmetic_fail",
+        "contract": "semantic",
+        "metric": "compile_ns",
+        "baseline": 34125,
+        "final": 46542,
+        "pairedMedianRatio": 1.3543407407407408,
+        "pairedMedianDelta": 11959,
+        "ratio95PercentileBootstrap": [
+          1.329078369208521,
+          1.399013795462319
+        ],
+        "processPeakRssDelta": -262144
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "compiler",
+        "fixture": "deep",
+        "contract": "structural",
+        "metric": "compile_ns",
+        "baseline": 38458,
+        "final": 59000,
+        "pairedMedianRatio": 1.488077922077922,
+        "pairedMedianDelta": 18791,
+        "ratio95PercentileBootstrap": [
+          1.3964497041420119,
+          1.564485932705809
+        ],
+        "processPeakRssDelta": -311296
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "compiler",
+        "fixture": "deep",
+        "contract": "semantic",
+        "metric": "compile_ns",
+        "baseline": 201250,
+        "final": 298167,
+        "pairedMedianRatio": 1.4951934890204948,
+        "pairedMedianDelta": 98750,
+        "ratio95PercentileBootstrap": [
+          1.39335502076556,
+          1.557675135563881
+        ],
+        "processPeakRssDelta": -278528
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "compiler",
+        "fixture": "shallow",
+        "contract": "structural",
+        "metric": "compile_ns",
+        "baseline": 38958,
+        "final": 60875,
+        "pairedMedianRatio": 1.5625802145900713,
+        "pairedMedianDelta": 21917,
+        "ratio95PercentileBootstrap": [
+          1.5566410256410257,
+          1.647194805194805
+        ],
+        "processPeakRssDelta": -311296
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "compiler",
+        "fixture": "shallow",
+        "contract": "semantic",
+        "metric": "compile_ns",
+        "baseline": 172375,
+        "final": 241000,
+        "pairedMedianRatio": 1.4045680516135048,
+        "pairedMedianDelta": 69542,
+        "ratio95PercentileBootstrap": [
+          1.3270709318497913,
+          1.4736096940237764
+        ],
+        "processPeakRssDelta": -327680
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "compiler",
+        "fixture": "cleanup",
+        "contract": "structural",
+        "metric": "compile_ns",
+        "baseline": 71500,
+        "final": 103958,
+        "pairedMedianRatio": 1.4737036091973577,
+        "pairedMedianDelta": 33416,
+        "ratio95PercentileBootstrap": [
+          1.3072064756454378,
+          1.5332167832167831
+        ],
+        "processPeakRssDelta": -262144
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "compiler",
+        "fixture": "cleanup",
+        "contract": "semantic",
+        "metric": "compile_ns",
+        "baseline": 158834,
+        "final": 224750,
+        "pairedMedianRatio": 1.404520979440338,
+        "pairedMedianDelta": 64083,
+        "ratio95PercentileBootstrap": [
+          1.335484369336447,
+          1.4554238004783573
+        ],
+        "processPeakRssDelta": -278528
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "compiler",
+        "fixture": "shared_cleanup",
+        "contract": "structural",
+        "metric": "compile_ns",
+        "baseline": 143917,
+        "final": 201625,
+        "pairedMedianRatio": 1.4081810269799826,
+        "pairedMedianDelta": 58500,
+        "ratio95PercentileBootstrap": [
+          1.2752032302920098,
+          1.4325340300311986
+        ],
+        "processPeakRssDelta": -311296
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "compiler",
+        "fixture": "shared_cleanup",
+        "contract": "semantic",
+        "metric": "compile_ns",
+        "baseline": 545083,
+        "final": 752542,
+        "pairedMedianRatio": 1.361520737327189,
+        "pairedMedianDelta": 196376,
+        "ratio95PercentileBootstrap": [
+          1.3459277515467998,
+          1.388856376001453
+        ],
+        "processPeakRssDelta": -376832
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "compiler",
+        "fixture": "twice",
+        "contract": "structural",
+        "metric": "compile_ns",
+        "baseline": 25250,
+        "final": 38833,
+        "pairedMedianRatio": 1.537940594059406,
+        "pairedMedianDelta": 13583,
+        "ratio95PercentileBootstrap": [
+          1.4206419643517492,
+          1.6132180260234845
+        ],
+        "processPeakRssDelta": -278528
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "compiler",
+        "fixture": "twice",
+        "contract": "semantic",
+        "metric": "compile_ns",
+        "baseline": 278792,
+        "final": 393625,
+        "pairedMedianRatio": 1.470889613414066,
+        "pairedMedianDelta": 126292,
+        "ratio95PercentileBootstrap": [
+          1.3498258344927105,
+          1.5108324485638038
+        ],
+        "processPeakRssDelta": -278528
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "compiler",
+        "fixture": "lazy",
+        "contract": "structural",
+        "metric": "compile_ns",
+        "baseline": 15625,
+        "final": 27542,
+        "pairedMedianRatio": 1.712322695035461,
+        "pairedMedianDelta": 11249,
+        "ratio95PercentileBootstrap": [
+          1.632,
+          1.808
+        ],
+        "processPeakRssDelta": -229376
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "compiler",
+        "fixture": "lazy",
+        "contract": "semantic",
+        "metric": "compile_ns",
+        "baseline": 72500,
+        "final": 106625,
+        "pairedMedianRatio": 1.4706896551724138,
+        "pairedMedianDelta": 34125,
+        "ratio95PercentileBootstrap": [
+          1.4448868223960798,
+          1.6153013698630136
+        ],
+        "processPeakRssDelta": -294912
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "compiler",
+        "fixture": "demanded",
+        "contract": "structural",
+        "metric": "compile_ns",
+        "baseline": 17333,
+        "final": 26208,
+        "pairedMedianRatio": 1.5742957320759279,
+        "pairedMedianDelta": 9500,
+        "ratio95PercentileBootstrap": [
+          1.4856175001435379,
+          1.619718309859155
+        ],
+        "processPeakRssDelta": -229376
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "compiler",
+        "fixture": "demanded",
+        "contract": "semantic",
+        "metric": "compile_ns",
+        "baseline": 124916,
+        "final": 185250,
+        "pairedMedianRatio": 1.4737078129152272,
+        "pairedMedianDelta": 59333,
+        "ratio95PercentileBootstrap": [
+          1.421955554132377,
+          1.6133238403523442
+        ],
+        "processPeakRssDelta": -311296
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "compiler",
+        "fixture": "failure_before",
+        "contract": "structural",
+        "metric": "compile_ns",
+        "baseline": 14708,
+        "final": 19042,
+        "pairedMedianRatio": 1.2915038058012756,
+        "pairedMedianDelta": 4251,
+        "ratio95PercentileBootstrap": [
+          1.2583333333333333,
+          1.328449839542347
+        ],
+        "processPeakRssDelta": -229376
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "compiler",
+        "fixture": "failure_before",
+        "contract": "semantic",
+        "metric": "compile_ns",
+        "baseline": 47000,
+        "final": 68750,
+        "pairedMedianRatio": 1.4306540754602028,
+        "pairedMedianDelta": 19792,
+        "ratio95PercentileBootstrap": [
+          1.3918510638297872,
+          1.569476032664024
+        ],
+        "processPeakRssDelta": -311296
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "compiler",
+        "fixture": "failure_after",
+        "contract": "structural",
+        "metric": "compile_ns",
+        "baseline": 14916,
+        "final": 20459,
+        "pairedMedianRatio": 1.3503560029462314,
+        "pairedMedianDelta": 5667,
+        "ratio95PercentileBootstrap": [
+          1.3240815231965675,
+          1.4353873873873875
+        ],
+        "processPeakRssDelta": -196608
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "compiler",
+        "fixture": "failure_after",
+        "contract": "semantic",
+        "metric": "compile_ns",
+        "baseline": 45375,
+        "final": 65833,
+        "pairedMedianRatio": 1.4664683195592287,
+        "pairedMedianDelta": 21166,
+        "ratio95PercentileBootstrap": [
+          1.3403464566929133,
+          1.4800702878241914
+        ],
+        "processPeakRssDelta": -311296
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "compiler",
+        "fixture": "cells_independent",
+        "contract": "structural",
+        "metric": "compile_ns",
+        "baseline": 96875,
+        "final": 134375,
+        "pairedMedianRatio": 1.3847239826465103,
+        "pairedMedianDelta": 37334,
+        "ratio95PercentileBootstrap": [
+          1.315437438687238,
+          1.4111896774193549
+        ],
+        "processPeakRssDelta": -212992
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "compiler",
+        "fixture": "cells_independent",
+        "contract": "semantic",
+        "metric": "compile_ns",
+        "baseline": 483583,
+        "final": 703916,
+        "pairedMedianRatio": 1.4457322761659905,
+        "pairedMedianDelta": 219208,
+        "ratio95PercentileBootstrap": [
+          1.4081512377399537,
+          1.5007459773146927
+        ],
+        "processPeakRssDelta": -180224
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "compiler",
+        "fixture": "cells_shared",
+        "contract": "structural",
+        "metric": "compile_ns",
+        "baseline": 98166,
+        "final": 135500,
+        "pairedMedianRatio": 1.3803149766721676,
+        "pairedMedianDelta": 37334,
+        "ratio95PercentileBootstrap": [
+          1.2874832535885168,
+          1.4517191917512058
+        ],
+        "processPeakRssDelta": -245760
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "compiler",
+        "fixture": "cells_shared",
+        "contract": "semantic",
+        "metric": "compile_ns",
+        "baseline": 289375,
+        "final": 419333,
+        "pairedMedianRatio": 1.4443986135181976,
+        "pairedMedianDelta": 128209,
+        "ratio95PercentileBootstrap": [
+          1.3647694225176568,
+          1.4784725701943844
+        ],
+        "processPeakRssDelta": -245760
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "compiler",
+        "fixture": "memo_independent",
+        "contract": "structural",
+        "metric": "compile_ns",
+        "baseline": 126375,
+        "final": 178584,
+        "pairedMedianRatio": 1.4196769269905876,
+        "pairedMedianDelta": 52792,
+        "ratio95PercentileBootstrap": [
+          1.3057413953488373,
+          1.4426070038910506
+        ],
+        "processPeakRssDelta": -180224
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "compiler",
+        "fixture": "memo_independent",
+        "contract": "semantic",
+        "metric": "compile_ns",
+        "baseline": 689542,
+        "final": 978458,
+        "pairedMedianRatio": 1.4145514949205518,
+        "pairedMedianDelta": 286749,
+        "ratio95PercentileBootstrap": [
+          1.3686383053839364,
+          1.4786136042266937
+        ],
+        "processPeakRssDelta": -327680
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "compiler",
+        "fixture": "hyper_duplicate",
+        "contract": "structural",
+        "metric": "compile_ns",
+        "baseline": 324667,
+        "final": 396625,
+        "pairedMedianRatio": 1.2293979238754325,
+        "pairedMedianDelta": 74500,
+        "ratio95PercentileBootstrap": [
+          1.2098785796105385,
+          1.2408702408702408
+        ],
+        "processPeakRssDelta": -229376
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "compiler",
+        "fixture": "hyper_duplicate",
+        "contract": "semantic",
+        "metric": "compile_ns",
+        "baseline": 1523416,
+        "final": 2040292,
+        "pairedMedianRatio": 1.337099649734544,
+        "pairedMedianDelta": 513543,
+        "ratio95PercentileBootstrap": [
+          1.3170229885057472,
+          1.3439915050814053
+        ],
+        "processPeakRssDelta": -425984
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "compiler",
+        "fixture": "hyper_configured",
+        "contract": "structural",
+        "metric": "compile_ns",
+        "baseline": 415291,
+        "final": 499750,
+        "pairedMedianRatio": 1.2033730564832852,
+        "pairedMedianDelta": 84459,
+        "ratio95PercentileBootstrap": [
+          1.1299723405643964,
+          1.2081574803149606
+        ],
+        "processPeakRssDelta": -262144
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "compiler",
+        "fixture": "hyper_configured",
+        "contract": "semantic",
+        "metric": "compile_ns",
+        "baseline": 2508500,
+        "final": 3082167,
+        "pairedMedianRatio": 1.2320500575662012,
+        "pairedMedianDelta": 579458,
+        "ratio95PercentileBootstrap": [
+          1.2236810208384163,
+          1.2440203308750248
+        ],
+        "processPeakRssDelta": -393216
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "compiler",
+        "fixture": "hyper_lazy",
+        "contract": "structural",
+        "metric": "compile_ns",
+        "baseline": 265584,
+        "final": 341042,
+        "pairedMedianRatio": 1.2823965299114404,
+        "pairedMedianDelta": 75000,
+        "ratio95PercentileBootstrap": [
+          1.2699811202013844,
+          1.387802205225589
+        ],
+        "processPeakRssDelta": -327680
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "compiler",
+        "fixture": "hyper_lazy",
+        "contract": "semantic",
+        "metric": "compile_ns",
+        "baseline": 832042,
+        "final": 1110834,
+        "pairedMedianRatio": 1.3400365277854849,
+        "pairedMedianDelta": 281876,
+        "ratio95PercentileBootstrap": [
+          1.3201196457093074,
+          1.3539977549210256
+        ],
+        "processPeakRssDelta": -393216
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "compiler",
+        "fixture": "capture_order",
+        "contract": "structural",
+        "metric": "compile_ns",
+        "baseline": 67500,
+        "final": 100541,
+        "pairedMedianRatio": 1.4858074074074075,
+        "pairedMedianDelta": 32792,
+        "ratio95PercentileBootstrap": [
+          1.4759259259259259,
+          1.539511111111111
+        ],
+        "processPeakRssDelta": -278528
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "compiler",
+        "fixture": "capture_order",
+        "contract": "semantic",
+        "metric": "compile_ns",
+        "baseline": 216875,
+        "final": 325584,
+        "pairedMedianRatio": 1.5069829967241395,
+        "pairedMedianDelta": 109708,
+        "ratio95PercentileBootstrap": [
+          1.4824038510074937,
+          1.5486148629766938
+        ],
+        "processPeakRssDelta": -409600
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "compiler",
+        "fixture": "borrow_contexts",
+        "contract": "structural",
+        "metric": "compile_ns",
+        "baseline": 191666,
+        "final": 258584,
+        "pairedMedianRatio": 1.3480481671240596,
+        "pairedMedianDelta": 66709,
+        "ratio95PercentileBootstrap": [
+          1.3325662317519626,
+          1.359180026281209
+        ],
+        "processPeakRssDelta": -212992
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "compiler",
+        "fixture": "borrow_contexts",
+        "contract": "semantic",
+        "metric": "compile_ns",
+        "baseline": 406084,
+        "final": 555834,
+        "pairedMedianRatio": 1.364454152342865,
+        "pairedMedianDelta": 147999,
+        "ratio95PercentileBootstrap": [
+          1.3083729603729604,
+          1.3752578030864913
+        ],
+        "processPeakRssDelta": -278528
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "agent",
+        "turns": 1,
+        "metric": "conversationNs",
+        "baseline": 604333,
+        "final": 670250,
+        "pairedMedianRatio": 1.1090739708074853,
+        "pairedMedianDelta": 65917,
+        "ratio95PercentileBootstrap": [
+          0.9768476716653512,
+          1.1887029116631025
+        ],
+        "processPeakRssDelta": -1228800
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "agent",
+        "turns": 8,
+        "metric": "conversationNs",
+        "baseline": 3003917,
+        "final": 3116542,
+        "pairedMedianRatio": 1.0119464242227454,
+        "pairedMedianDelta": 36792,
+        "ratio95PercentileBootstrap": [
+          1.0011511636306862,
+          1.1389813727123324
+        ],
+        "processPeakRssDelta": -1802240
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "agent",
+        "turns": 64,
+        "metric": "conversationNs",
+        "baseline": 15449709,
+        "final": 15866209,
+        "pairedMedianRatio": 1.0264896588355465,
+        "pairedMedianDelta": 405209,
+        "ratio95PercentileBootstrap": [
+          1.0071391003579087,
+          1.0305828211394656
+        ],
+        "processPeakRssDelta": -245760
+      },
+      {
+        "comparison": "u0→f",
+        "kind": "agent",
+        "turns": 1024,
+        "metric": "conversationNs",
+        "baseline": 215055208,
+        "final": 221542375,
+        "pairedMedianRatio": 1.023717473492643,
+        "pairedMedianDelta": 5134750,
+        "ratio95PercentileBootstrap": [
+          1.021642312424259,
+          1.0315027306500166
+        ],
+        "processPeakRssDelta": -1474560
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "native",
+        "fixture": "scalar",
+        "count": 0,
+        "metric": "cycleNs",
+        "baseline": 2416,
+        "final": 2417,
+        "pairedMedianRatio": 1.0004139072847682,
+        "pairedMedianDelta": 1,
+        "ratio95PercentileBootstrap": [
+          0.9830298013245033,
+          1.0004139072847682
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "wasm",
+        "fixture": "scalar",
+        "count": 0,
+        "metric": "invocationNs",
+        "baseline": 26458,
+        "final": 24083,
+        "pairedMedianRatio": 1,
+        "pairedMedianDelta": 0,
+        "ratio95PercentileBootstrap": [
+          0.8935962441314554,
+          1.1050353059852052
+        ],
+        "processPeakRssDelta": -278528,
+        "requestedWorkingPeakDelta": 0,
+        "reservedWasmBytesDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "native",
+        "fixture": "deep",
+        "count": 0,
+        "metric": "cycleNs",
+        "baseline": 10834,
+        "final": 10792,
+        "pairedMedianRatio": 0.9962152681620973,
+        "pairedMedianDelta": -41,
+        "ratio95PercentileBootstrap": [
+          0.996076284332512,
+          1.007632183908046
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "wasm",
+        "fixture": "deep",
+        "count": 0,
+        "metric": "invocationNs",
+        "baseline": 77208,
+        "final": 76542,
+        "pairedMedianRatio": 0.9967444525471403,
+        "pairedMedianDelta": -250,
+        "ratio95PercentileBootstrap": [
+          0.9881614789759744,
+          1.0037435897435898
+        ],
+        "processPeakRssDelta": 65536,
+        "requestedWorkingPeakDelta": 0,
+        "reservedWasmBytesDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "native",
+        "fixture": "residual",
+        "count": 0,
+        "metric": "cycleNs",
+        "baseline": 12917,
+        "final": 12875,
+        "pairedMedianRatio": 0.9967484710071998,
+        "pairedMedianDelta": -42,
+        "ratio95PercentileBootstrap": [
+          0.9773902307276796,
+          1.059017941454202
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "wasm",
+        "fixture": "residual",
+        "count": 0,
+        "metric": "invocationNs",
+        "baseline": 115833,
+        "final": 113875,
+        "pairedMedianRatio": 0.9908509574477417,
+        "pairedMedianDelta": -1043,
+        "ratio95PercentileBootstrap": [
+          0.9466276060572414,
+          1.0171224923632076
+        ],
+        "processPeakRssDelta": -49152,
+        "requestedWorkingPeakDelta": 0,
+        "reservedWasmBytesDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "native",
+        "fixture": "reentrant",
+        "count": 0,
+        "metric": "cycleNs",
+        "baseline": 83334,
+        "final": 83333,
+        "pairedMedianRatio": 0.9980079920319681,
+        "pairedMedianDelta": -166,
+        "ratio95PercentileBootstrap": [
+          0.9388206859943756,
+          1.0030090391536175
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "wasm",
+        "fixture": "reentrant",
+        "count": 0,
+        "metric": "invocationNs",
+        "baseline": 433625,
+        "final": 433958,
+        "pairedMedianRatio": 1.0017412837272281,
+        "pairedMedianDelta": 751,
+        "ratio95PercentileBootstrap": [
+          0.9744726478384222,
+          1.002117582399819
+        ],
+        "processPeakRssDelta": 720896,
+        "requestedWorkingPeakDelta": 0,
+        "reservedWasmBytesDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "native",
+        "fixture": "shallow",
+        "count": 0,
+        "metric": "cycleNs",
+        "baseline": 166458,
+        "final": 166083,
+        "pairedMedianRatio": 0.9980009965002431,
+        "pairedMedianDelta": -333,
+        "ratio95PercentileBootstrap": [
+          0.9967499309135037,
+          1.0042636101773397
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "wasm",
+        "fixture": "shallow",
+        "count": 0,
+        "metric": "invocationNs",
+        "baseline": 778500,
+        "final": 775541,
+        "pairedMedianRatio": 0.9959858702633269,
+        "pairedMedianDelta": -3125,
+        "ratio95PercentileBootstrap": [
+          0.983125861282837,
+          1.0010718417019766
+        ],
+        "processPeakRssDelta": 0,
+        "requestedWorkingPeakDelta": 0,
+        "reservedWasmBytesDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "native",
+        "fixture": "generator",
+        "count": 0,
+        "metric": "cycleNs",
+        "baseline": 144541,
+        "final": 143208,
+        "pairedMedianRatio": 0.9947901471262451,
+        "pairedMedianDelta": -750,
+        "ratio95PercentileBootstrap": [
+          0.973669189894405,
+          1.001457082612381
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "wasm",
+        "fixture": "generator",
+        "count": 0,
+        "metric": "invocationNs",
+        "baseline": 861334,
+        "final": 836750,
+        "pairedMedianRatio": 0.9661362491205502,
+        "pairedMedianDelta": -29168,
+        "ratio95PercentileBootstrap": [
+          0.9483370247142587,
+          1.0242914836998938
+        ],
+        "processPeakRssDelta": 360448,
+        "requestedWorkingPeakDelta": 0,
+        "reservedWasmBytesDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "native",
+        "fixture": "scheduler",
+        "count": 0,
+        "metric": "cycleNs",
+        "baseline": 219500,
+        "final": 218250,
+        "pairedMedianRatio": 0.9948753721510215,
+        "pairedMedianDelta": -1124,
+        "ratio95PercentileBootstrap": [
+          0.9901768707482993,
+          0.998097555175473
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "wasm",
+        "fixture": "scheduler",
+        "count": 0,
+        "metric": "invocationNs",
+        "baseline": 1123750,
+        "final": 1125834,
+        "pairedMedianRatio": 1.0018545050055618,
+        "pairedMedianDelta": 2084,
+        "ratio95PercentileBootstrap": [
+          0.9662400482853262,
+          1.0423464452828033
+        ],
+        "processPeakRssDelta": 180224,
+        "requestedWorkingPeakDelta": 0,
+        "reservedWasmBytesDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "native",
+        "fixture": "queens_dfs",
+        "count": 0,
+        "metric": "cycleNs",
+        "baseline": 2976750,
+        "final": 2946708,
+        "pairedMedianRatio": 0.9990627362055934,
+        "pairedMedianDelta": -2790,
+        "ratio95PercentileBootstrap": [
+          0.9777486902273604,
+          1.0051523209222002
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "wasm",
+        "fixture": "queens_dfs",
+        "count": 0,
+        "metric": "invocationNs",
+        "baseline": 7253083,
+        "final": 7247918,
+        "pairedMedianRatio": 1.007173456483685,
+        "pairedMedianDelta": 51081,
+        "ratio95PercentileBootstrap": [
+          0.9639459155303237,
+          1.0178143556333217
+        ],
+        "processPeakRssDelta": 2211840,
+        "requestedWorkingPeakDelta": 0,
+        "reservedWasmBytesDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "native",
+        "fixture": "queens_bfs",
+        "count": 0,
+        "metric": "cycleNs",
+        "baseline": 3062291,
+        "final": 3066916,
+        "pairedMedianRatio": 0.9999176762576022,
+        "pairedMedianDelta": -250,
+        "ratio95PercentileBootstrap": [
+          0.979839200002298,
+          1.0083158766118883
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "wasm",
+        "fixture": "queens_bfs",
+        "count": 0,
+        "metric": "invocationNs",
+        "baseline": 7367498,
+        "final": 7385168,
+        "pairedMedianRatio": 1.0022626405870758,
+        "pairedMedianDelta": 16670,
+        "ratio95PercentileBootstrap": [
+          0.9805673302781841,
+          1.0199670288526193
+        ],
+        "processPeakRssDelta": -507904,
+        "requestedWorkingPeakDelta": 0,
+        "reservedWasmBytesDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "native",
+        "fixture": "cleanup",
+        "count": 0,
+        "metric": "cycleNs",
+        "baseline": 166833,
+        "final": 167041,
+        "pairedMedianRatio": 1.0002457547367727,
+        "pairedMedianDelta": 41,
+        "ratio95PercentileBootstrap": [
+          0.9928172433648543,
+          1.0040271941264551
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "wasm",
+        "fixture": "cleanup",
+        "count": 0,
+        "metric": "invocationNs",
+        "baseline": 913251,
+        "final": 919708,
+        "pairedMedianRatio": 1.0060173511114296,
+        "pairedMedianDelta": 5374,
+        "ratio95PercentileBootstrap": [
+          0.9580710822765163,
+          1.0940917569233386
+        ],
+        "processPeakRssDelta": 1081344,
+        "requestedWorkingPeakDelta": 0,
+        "reservedWasmBytesDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "native",
+        "fixture": "install",
+        "count": 16,
+        "metric": "cycleNs",
+        "baseline": 49500,
+        "final": 49541,
+        "pairedMedianRatio": 1.0016795839488435,
+        "pairedMedianDelta": 83,
+        "ratio95PercentileBootstrap": [
+          0.984245241784877,
+          1.026929292929293
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "wasm",
+        "fixture": "install",
+        "count": 16,
+        "metric": "invocationNs",
+        "baseline": 351000,
+        "final": 355333,
+        "pairedMedianRatio": 1.0123447293447294,
+        "pairedMedianDelta": 4333,
+        "ratio95PercentileBootstrap": [
+          0.880327309921582,
+          1.1645601886956831
+        ],
+        "processPeakRssDelta": -229376,
+        "requestedWorkingPeakDelta": 0,
+        "reservedWasmBytesDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "native",
+        "fixture": "install",
+        "count": 32,
+        "metric": "cycleNs",
+        "baseline": 105125,
+        "final": 106375,
+        "pairedMedianRatio": 0.9960270466440004,
+        "pairedMedianDelta": -416,
+        "ratio95PercentileBootstrap": [
+          0.9701268994063504,
+          1.0329560395586805
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "wasm",
+        "fixture": "install",
+        "count": 32,
+        "metric": "invocationNs",
+        "baseline": 651542,
+        "final": 648042,
+        "pairedMedianRatio": 0.9930933078757778,
+        "pairedMedianDelta": -4500,
+        "ratio95PercentileBootstrap": [
+          0.9035277989337396,
+          1.0023200348933248
+        ],
+        "processPeakRssDelta": 212992,
+        "requestedWorkingPeakDelta": 0,
+        "reservedWasmBytesDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "native",
+        "fixture": "install",
+        "count": 64,
+        "metric": "cycleNs",
+        "baseline": 224417,
+        "final": 223958,
+        "pairedMedianRatio": 0.9983283779024932,
+        "pairedMedianDelta": -375,
+        "ratio95PercentileBootstrap": [
+          0.994799859190703,
+          1.0315951423466243
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "wasm",
+        "fixture": "install",
+        "count": 64,
+        "metric": "invocationNs",
+        "baseline": 1237792,
+        "final": 1239791,
+        "pairedMedianRatio": 1.0042390298416957,
+        "pairedMedianDelta": 5208,
+        "ratio95PercentileBootstrap": [
+          0.9976096943494596,
+          1.0078766807920785
+        ],
+        "processPeakRssDelta": 147456,
+        "requestedWorkingPeakDelta": 0,
+        "reservedWasmBytesDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "native",
+        "fixture": "retained_loop",
+        "count": 16,
+        "metric": "cycleNs",
+        "baseline": 51459,
+        "final": 51667,
+        "pairedMedianRatio": 1.000813559322034,
+        "pairedMedianDelta": 42,
+        "ratio95PercentileBootstrap": [
+          0.9903692432151319,
+          1.0113756097560975
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "wasm",
+        "fixture": "retained_loop",
+        "count": 16,
+        "metric": "invocationNs",
+        "baseline": 322500,
+        "final": 308625,
+        "pairedMedianRatio": 0.9608344127423017,
+        "pairedMedianDelta": -12125,
+        "ratio95PercentileBootstrap": [
+          0.9513418153281469,
+          1.077101322846881
+        ],
+        "processPeakRssDelta": -131072,
+        "requestedWorkingPeakDelta": 0,
+        "reservedWasmBytesDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "native",
+        "fixture": "retained_loop",
+        "count": 32,
+        "metric": "cycleNs",
+        "baseline": 82167,
+        "final": 82792,
+        "pairedMedianRatio": 1.0055749213559568,
+        "pairedMedianDelta": 459,
+        "ratio95PercentileBootstrap": [
+          0.9995010101501838,
+          1.1058239538239538
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "wasm",
+        "fixture": "retained_loop",
+        "count": 32,
+        "metric": "invocationNs",
+        "baseline": 473291,
+        "final": 489500,
+        "pairedMedianRatio": 1.0534425728532475,
+        "pairedMedianDelta": 24833,
+        "ratio95PercentileBootstrap": [
+          0.9609869696478623,
+          1.1107355348574655
+        ],
+        "processPeakRssDelta": -278528,
+        "requestedWorkingPeakDelta": 0,
+        "reservedWasmBytesDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "native",
+        "fixture": "retained_loop",
+        "count": 64,
+        "metric": "cycleNs",
+        "baseline": 144750,
+        "final": 145125,
+        "pairedMedianRatio": 1.002577816988779,
+        "pairedMedianDelta": 374,
+        "ratio95PercentileBootstrap": [
+          0.9948186528497409,
+          1.0040392023958558
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "wasm",
+        "fixture": "retained_loop",
+        "count": 64,
+        "metric": "invocationNs",
+        "baseline": 765333,
+        "final": 754291,
+        "pairedMedianRatio": 0.9972447529333994,
+        "pairedMedianDelta": -2084,
+        "ratio95PercentileBootstrap": [
+          0.9423810604832171,
+          1.011504230960677
+        ],
+        "processPeakRssDelta": -1048576,
+        "requestedWorkingPeakDelta": 0,
+        "reservedWasmBytesDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "native",
+        "fixture": "mixed",
+        "count": 16,
+        "metric": "cycleNs",
+        "baseline": 398082,
+        "final": 396915,
+        "pairedMedianRatio": 1.0003151249911766,
+        "pairedMedianDelta": 125,
+        "ratio95PercentileBootstrap": [
+          0.9506848067999147,
+          1.0110982159454585
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "wasm",
+        "fixture": "mixed",
+        "count": 16,
+        "metric": "invocationNs",
+        "baseline": 1625918,
+        "final": 1590624,
+        "pairedMedianRatio": 0.9999489167306221,
+        "pairedMedianDelta": -84,
+        "ratio95PercentileBootstrap": [
+          0.9621267761546995,
+          1.015750083016169
+        ],
+        "processPeakRssDelta": 212992,
+        "requestedWorkingPeakDelta": 0,
+        "reservedWasmBytesDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "native",
+        "fixture": "mixed",
+        "count": 32,
+        "metric": "cycleNs",
+        "baseline": 1267667,
+        "final": 1256038,
+        "pairedMedianRatio": 0.9979217544849427,
+        "pairedMedianDelta": -2667,
+        "ratio95PercentileBootstrap": [
+          0.9873301945136211,
+          1.0037599903462948
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "wasm",
+        "fixture": "mixed",
+        "count": 32,
+        "metric": "invocationNs",
+        "baseline": 3850917,
+        "final": 3929205,
+        "pairedMedianRatio": 1.0118863436171466,
+        "pairedMedianDelta": 45705,
+        "ratio95PercentileBootstrap": [
+          0.9911932139413007,
+          1.0273097445272268
+        ],
+        "processPeakRssDelta": -1654784,
+        "requestedWorkingPeakDelta": 0,
+        "reservedWasmBytesDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "native",
+        "fixture": "mixed",
+        "count": 64,
+        "metric": "cycleNs",
+        "baseline": 4732086,
+        "final": 4787037,
+        "pairedMedianRatio": 1.0000444452420012,
+        "pairedMedianDelta": 213,
+        "ratio95PercentileBootstrap": [
+          0.9952881563858442,
+          1.0159804787994131
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "wasm",
+        "fixture": "mixed",
+        "count": 64,
+        "metric": "invocationNs",
+        "baseline": 12941628,
+        "final": 12873125,
+        "pairedMedianRatio": 0.9960814821751947,
+        "pairedMedianDelta": -50712,
+        "ratio95PercentileBootstrap": [
+          0.9841663441458904,
+          1.0036468084318382
+        ],
+        "processPeakRssDelta": -1261568,
+        "requestedWorkingPeakDelta": 0,
+        "reservedWasmBytesDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "native",
+        "fixture": "irregular",
+        "count": 16,
+        "metric": "cycleNs",
+        "baseline": 396042,
+        "final": 396832,
+        "pairedMedianRatio": 1.0021010101010102,
+        "pairedMedianDelta": 832,
+        "ratio95PercentileBootstrap": [
+          0.9950845147150751,
+          1.0305953742197183
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "wasm",
+        "fixture": "irregular",
+        "count": 16,
+        "metric": "invocationNs",
+        "baseline": 1604875,
+        "final": 1608042,
+        "pairedMedianRatio": 1.0019209213444082,
+        "pairedMedianDelta": 3083,
+        "ratio95PercentileBootstrap": [
+          0.981509171662321,
+          1.0338628998710964
+        ],
+        "processPeakRssDelta": 393216,
+        "requestedWorkingPeakDelta": 0,
+        "reservedWasmBytesDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "native",
+        "fixture": "irregular",
+        "count": 32,
+        "metric": "cycleNs",
+        "baseline": 1252333,
+        "final": 1259582,
+        "pairedMedianRatio": 0.9997948449997877,
+        "pairedMedianDelta": -256,
+        "ratio95PercentileBootstrap": [
+          0.9838190812983804,
+          1.0248066345204392
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "wasm",
+        "fixture": "irregular",
+        "count": 32,
+        "metric": "invocationNs",
+        "baseline": 3874500,
+        "final": 3930500,
+        "pairedMedianRatio": 1.0074116480673823,
+        "pairedMedianDelta": 28961,
+        "ratio95PercentileBootstrap": [
+          0.9873345665981005,
+          1.063157437361995
+        ],
+        "processPeakRssDelta": -1032192,
+        "requestedWorkingPeakDelta": 0,
+        "reservedWasmBytesDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "native",
+        "fixture": "irregular",
+        "count": 64,
+        "metric": "cycleNs",
+        "baseline": 4734086,
+        "final": 4664791,
+        "pairedMedianRatio": 0.9964445974795719,
+        "pairedMedianDelta": -16459,
+        "ratio95PercentileBootstrap": [
+          0.9823760737641776,
+          1.000990703551063
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "wasm",
+        "fixture": "irregular",
+        "count": 64,
+        "metric": "invocationNs",
+        "baseline": 12731336,
+        "final": 12741623,
+        "pairedMedianRatio": 1.003014218166461,
+        "pairedMedianDelta": 38584,
+        "ratio95PercentileBootstrap": [
+          0.9827669123406415,
+          1.0089270771560672
+        ],
+        "processPeakRssDelta": -966656,
+        "requestedWorkingPeakDelta": 0,
+        "reservedWasmBytesDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "compiler",
+        "fixture": "arithmetic",
+        "contract": "structural",
+        "metric": "compile_ns",
+        "baseline": 30625,
+        "final": 29917,
+        "pairedMedianRatio": 0.9918367346938776,
+        "pairedMedianDelta": -250,
+        "ratio95PercentileBootstrap": [
+          0.9191287470347207,
+          1.009793168285804
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "compiler",
+        "fixture": "arithmetic",
+        "contract": "semantic",
+        "metric": "compile_ns",
+        "baseline": 233917,
+        "final": 239542,
+        "pairedMedianRatio": 1.0219717135980542,
+        "pairedMedianDelta": 5167,
+        "ratio95PercentileBootstrap": [
+          0.9966051129057147,
+          1.0938709029271065
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "compiler",
+        "fixture": "arithmetic_fail",
+        "contract": "structural",
+        "metric": "compile_ns",
+        "baseline": 13458,
+        "final": 13084,
+        "pairedMedianRatio": 0.9781744543613591,
+        "pairedMedianDelta": -291,
+        "ratio95PercentileBootstrap": [
+          0.9544791362707907,
+          1.0190921637785615
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "compiler",
+        "fixture": "arithmetic_fail",
+        "contract": "semantic",
+        "metric": "compile_ns",
+        "baseline": 45625,
+        "final": 46542,
+        "pairedMedianRatio": 1.0008564262555821,
+        "pairedMedianDelta": 42,
+        "ratio95PercentileBootstrap": [
+          0.9226313027330346,
+          1.0474739726027398
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "compiler",
+        "fixture": "deep",
+        "contract": "structural",
+        "metric": "compile_ns",
+        "baseline": 57083,
+        "final": 59000,
+        "pairedMedianRatio": 0.9897619298061078,
+        "pairedMedianDelta": -584,
+        "ratio95PercentileBootstrap": [
+          0.9746683543471472,
+          1.040399231162602
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "compiler",
+        "fixture": "deep",
+        "contract": "semantic",
+        "metric": "compile_ns",
+        "baseline": 301625,
+        "final": 298167,
+        "pairedMedianRatio": 1.009595947625223,
+        "pairedMedianDelta": 2834,
+        "ratio95PercentileBootstrap": [
+          0.985495234148363,
+          1.0197316856515832
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "compiler",
+        "fixture": "shallow",
+        "contract": "structural",
+        "metric": "compile_ns",
+        "baseline": 61334,
+        "final": 60875,
+        "pairedMedianRatio": 0.9898098933707242,
+        "pairedMedianDelta": -625,
+        "ratio95PercentileBootstrap": [
+          0.8992058287795993,
+          1.051098882885272
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "compiler",
+        "fixture": "shallow",
+        "contract": "semantic",
+        "metric": "compile_ns",
+        "baseline": 239625,
+        "final": 241000,
+        "pairedMedianRatio": 1.009564945226917,
+        "pairedMedianDelta": 2292,
+        "ratio95PercentileBootstrap": [
+          0.9840068268025495,
+          1.0397694641051567
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "compiler",
+        "fixture": "cleanup",
+        "contract": "structural",
+        "metric": "compile_ns",
+        "baseline": 99875,
+        "final": 103958,
+        "pairedMedianRatio": 1.0474357682619648,
+        "pairedMedianDelta": 4708,
+        "ratio95PercentileBootstrap": [
+          1.0062578222778473,
+          1.1036110859432413
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "compiler",
+        "fixture": "cleanup",
+        "contract": "semantic",
+        "metric": "compile_ns",
+        "baseline": 222458,
+        "final": 224750,
+        "pairedMedianRatio": 1.007357102433503,
+        "pairedMedianDelta": 1625,
+        "ratio95PercentileBootstrap": [
+          1.0033204205866075,
+          1.0139189919941616
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "compiler",
+        "fixture": "shared_cleanup",
+        "contract": "structural",
+        "metric": "compile_ns",
+        "baseline": 192833,
+        "final": 201625,
+        "pairedMedianRatio": 1.0488350023076962,
+        "pairedMedianDelta": 9417,
+        "ratio95PercentileBootstrap": [
+          0.9454770755885997,
+          1.0896262314489873
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "compiler",
+        "fixture": "shared_cleanup",
+        "contract": "semantic",
+        "metric": "compile_ns",
+        "baseline": 742709,
+        "final": 752542,
+        "pairedMedianRatio": 1.0128997870673713,
+        "pairedMedianDelta": 9584,
+        "ratio95PercentileBootstrap": [
+          1.0057846110291435,
+          1.0192982715976244
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "compiler",
+        "fixture": "twice",
+        "contract": "structural",
+        "metric": "compile_ns",
+        "baseline": 38625,
+        "final": 38833,
+        "pairedMedianRatio": 1.0053851132686085,
+        "pairedMedianDelta": 208,
+        "ratio95PercentileBootstrap": [
+          0.9285075528700907,
+          1.0643042215184904
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "compiler",
+        "fixture": "twice",
+        "contract": "semantic",
+        "metric": "compile_ns",
+        "baseline": 398000,
+        "final": 393625,
+        "pairedMedianRatio": 0.997024226923734,
+        "pairedMedianDelta": -1167,
+        "ratio95PercentileBootstrap": [
+          0.963095902208912,
+          1.0556591478696742
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "compiler",
+        "fixture": "lazy",
+        "contract": "structural",
+        "metric": "compile_ns",
+        "baseline": 26375,
+        "final": 27542,
+        "pairedMedianRatio": 1.0226244343891402,
+        "pairedMedianDelta": 625,
+        "ratio95PercentileBootstrap": [
+          0.9967556580541767,
+          1.089695403648892
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "compiler",
+        "fixture": "lazy",
+        "contract": "semantic",
+        "metric": "compile_ns",
+        "baseline": 105875,
+        "final": 106625,
+        "pairedMedianRatio": 1.0085401629802095,
+        "pairedMedianDelta": 917,
+        "ratio95PercentileBootstrap": [
+          0.9803258559622196,
+          1.1462162818955042
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "compiler",
+        "fixture": "demanded",
+        "contract": "structural",
+        "metric": "compile_ns",
+        "baseline": 26458,
+        "final": 26208,
+        "pairedMedianRatio": 1.003177033492823,
+        "pairedMedianDelta": 83,
+        "ratio95PercentileBootstrap": [
+          0.9553963741092198,
+          1.0391441066975096
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "compiler",
+        "fixture": "demanded",
+        "contract": "semantic",
+        "metric": "compile_ns",
+        "baseline": 188500,
+        "final": 185250,
+        "pairedMedianRatio": 0.9981214002879769,
+        "pairedMedianDelta": -334,
+        "ratio95PercentileBootstrap": [
+          0.9272445278298936,
+          1.0338196286472148
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "compiler",
+        "fixture": "failure_before",
+        "contract": "structural",
+        "metric": "compile_ns",
+        "baseline": 18875,
+        "final": 19042,
+        "pairedMedianRatio": 1.011221476510067,
+        "pairedMedianDelta": 209,
+        "ratio95PercentileBootstrap": [
+          0.9188491870314478,
+          1.0177989203057352
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "compiler",
+        "fixture": "failure_before",
+        "contract": "semantic",
+        "metric": "compile_ns",
+        "baseline": 70500,
+        "final": 68750,
+        "pairedMedianRatio": 0.9777302589930081,
+        "pairedMedianDelta": -1583,
+        "ratio95PercentileBootstrap": [
+          0.9279007092198581,
+          1.0701383863297347
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "compiler",
+        "fixture": "failure_after",
+        "contract": "structural",
+        "metric": "compile_ns",
+        "baseline": 20625,
+        "final": 20459,
+        "pairedMedianRatio": 0.9839842247018084,
+        "pairedMedianDelta": -333,
+        "ratio95PercentileBootstrap": [
+          0.9372235294117647,
+          1.1069182389937107
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "compiler",
+        "fixture": "failure_after",
+        "contract": "semantic",
+        "metric": "compile_ns",
+        "baseline": 67667,
+        "final": 65833,
+        "pairedMedianRatio": 0.9728966852380038,
+        "pairedMedianDelta": -1834,
+        "ratio95PercentileBootstrap": [
+          0.9589051180870487,
+          1.0376764132553606
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "compiler",
+        "fixture": "cells_independent",
+        "contract": "structural",
+        "metric": "compile_ns",
+        "baseline": 136458,
+        "final": 134375,
+        "pairedMedianRatio": 0.9940767255000337,
+        "pairedMedianDelta": -791,
+        "ratio95PercentileBootstrap": [
+          0.9787533141042449,
+          0.9993696060037524
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "compiler",
+        "fixture": "cells_independent",
+        "contract": "semantic",
+        "metric": "compile_ns",
+        "baseline": 704500,
+        "final": 703916,
+        "pairedMedianRatio": 0.9788562631258921,
+        "pairedMedianDelta": -14709,
+        "ratio95PercentileBootstrap": [
+          0.9208022964187728,
+          1.0446900036088056
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "compiler",
+        "fixture": "cells_shared",
+        "contract": "structural",
+        "metric": "compile_ns",
+        "baseline": 135084,
+        "final": 135500,
+        "pairedMedianRatio": 1.0012427906976744,
+        "pairedMedianDelta": 167,
+        "ratio95PercentileBootstrap": [
+          0.9552895169658424,
+          1.0339346920041752
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "compiler",
+        "fixture": "cells_shared",
+        "contract": "semantic",
+        "metric": "compile_ns",
+        "baseline": 412916,
+        "final": 419333,
+        "pairedMedianRatio": 1.0087427055702918,
+        "pairedMedianDelta": 3708,
+        "ratio95PercentileBootstrap": [
+          0.9702188591385332,
+          1.0210513276399777
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "compiler",
+        "fixture": "memo_independent",
+        "contract": "structural",
+        "metric": "compile_ns",
+        "baseline": 176500,
+        "final": 178584,
+        "pairedMedianRatio": 1.0123869390410076,
+        "pairedMedianDelta": 2209,
+        "ratio95PercentileBootstrap": [
+          0.9540118640473692,
+          1.0502832861189801
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "compiler",
+        "fixture": "memo_independent",
+        "contract": "semantic",
+        "metric": "compile_ns",
+        "baseline": 981084,
+        "final": 978458,
+        "pairedMedianRatio": 1.0037784736067452,
+        "pairedMedianDelta": 3707,
+        "ratio95PercentileBootstrap": [
+          0.9798641772227407,
+          1.0315150264413775
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "compiler",
+        "fixture": "hyper_duplicate",
+        "contract": "structural",
+        "metric": "compile_ns",
+        "baseline": 398542,
+        "final": 396625,
+        "pairedMedianRatio": 0.992969468051621,
+        "pairedMedianDelta": -2792,
+        "ratio95PercentileBootstrap": [
+          0.9739093992436942,
+          0.9970663060091706
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "compiler",
+        "fixture": "hyper_duplicate",
+        "contract": "semantic",
+        "metric": "compile_ns",
+        "baseline": 2045208,
+        "final": 2040292,
+        "pairedMedianRatio": 0.9975963325001662,
+        "pairedMedianDelta": -4916,
+        "ratio95PercentileBootstrap": [
+          0.9646003831654526,
+          1.0096244878455958
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "compiler",
+        "fixture": "hyper_configured",
+        "contract": "structural",
+        "metric": "compile_ns",
+        "baseline": 499667,
+        "final": 499750,
+        "pairedMedianRatio": 1.000830953723649,
+        "pairedMedianDelta": 417,
+        "ratio95PercentileBootstrap": [
+          0.9524344969011336,
+          1.0059283746556473
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "compiler",
+        "fixture": "hyper_configured",
+        "contract": "semantic",
+        "metric": "compile_ns",
+        "baseline": 3082167,
+        "final": 3082167,
+        "pairedMedianRatio": 0.9981882876560549,
+        "pairedMedianDelta": -5584,
+        "ratio95PercentileBootstrap": [
+          0.9923897024775094,
+          1.0191459830176355
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "compiler",
+        "fixture": "hyper_lazy",
+        "contract": "structural",
+        "metric": "compile_ns",
+        "baseline": 342209,
+        "final": 341042,
+        "pairedMedianRatio": 0.9988989183492019,
+        "pairedMedianDelta": -374,
+        "ratio95PercentileBootstrap": [
+          0.9961113444887862,
+          1.0731519745548255
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "compiler",
+        "fixture": "hyper_lazy",
+        "contract": "semantic",
+        "metric": "compile_ns",
+        "baseline": 1099584,
+        "final": 1110834,
+        "pairedMedianRatio": 1.0058731302019672,
+        "pairedMedianDelta": 6458,
+        "ratio95PercentileBootstrap": [
+          0.9515169498323605,
+          1.0388886908238926
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "compiler",
+        "fixture": "capture_order",
+        "contract": "structural",
+        "metric": "compile_ns",
+        "baseline": 103792,
+        "final": 100541,
+        "pairedMedianRatio": 0.9848946445539414,
+        "pairedMedianDelta": -1542,
+        "ratio95PercentileBootstrap": [
+          0.9413465238734384,
+          1.0177546468401486
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "compiler",
+        "fixture": "capture_order",
+        "contract": "semantic",
+        "metric": "compile_ns",
+        "baseline": 329250,
+        "final": 325584,
+        "pairedMedianRatio": 0.9858820082583842,
+        "pairedMedianDelta": -4626,
+        "ratio95PercentileBootstrap": [
+          0.9779764264859604,
+          1.0144927536231885
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "compiler",
+        "fixture": "borrow_contexts",
+        "contract": "structural",
+        "metric": "compile_ns",
+        "baseline": 274625,
+        "final": 258584,
+        "pairedMedianRatio": 0.93976513427401,
+        "pairedMedianDelta": -16542,
+        "ratio95PercentileBootstrap": [
+          0.9071817738500777,
+          0.9855679702048417
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "compiler",
+        "fixture": "borrow_contexts",
+        "contract": "semantic",
+        "metric": "compile_ns",
+        "baseline": 554542,
+        "final": 555834,
+        "pairedMedianRatio": 1.002329850579397,
+        "pairedMedianDelta": 1292,
+        "ratio95PercentileBootstrap": [
+          0.9613913567749682,
+          1.0166970575216
+        ],
+        "processPeakRssDelta": 0
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "agent",
+        "turns": 1,
+        "metric": "conversationNs",
+        "baseline": 614209,
+        "final": 670250,
+        "pairedMedianRatio": 1.0869413897280966,
+        "pairedMedianDelta": 53958,
+        "ratio95PercentileBootstrap": [
+          0.9878393966487693,
+          1.144260618556701
+        ],
+        "processPeakRssDelta": 720896
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "agent",
+        "turns": 8,
+        "metric": "conversationNs",
+        "baseline": 3015958,
+        "final": 3116542,
+        "pairedMedianRatio": 1.0111515401747289,
+        "pairedMedianDelta": 33167,
+        "ratio95PercentileBootstrap": [
+          0.9141669841981397,
+          1.0474008590305304
+        ],
+        "processPeakRssDelta": -884736
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "agent",
+        "turns": 64,
+        "metric": "conversationNs",
+        "baseline": 16004250,
+        "final": 15866209,
+        "pairedMedianRatio": 0.9913747285877189,
+        "pairedMedianDelta": -138041,
+        "ratio95PercentileBootstrap": [
+          0.9202101973418949,
+          1.0038266553815836
+        ],
+        "processPeakRssDelta": 425984
+      },
+      {
+        "comparison": "u1→f",
+        "kind": "agent",
+        "turns": 1024,
+        "metric": "conversationNs",
+        "baseline": 222105625,
+        "final": 221542375,
+        "pairedMedianRatio": 1.0029252003279165,
+        "pairedMedianDelta": 650459,
+        "ratio95PercentileBootstrap": [
+          0.991409336738167,
+          1.0051442586817079
+        ],
+        "processPeakRssDelta": 1802240
+      }
+    ],
+    "build_decision": {
+      "id": "Z17-F-ECONOMY-BUILD-001",
+      "actor": "implementation owner",
+      "decision": "retain measured final economy build",
+      "scope": "Development check-economy under native safe profiles, three bootstrap pairs and warm no-change commands; no application memory/work budget change.",
+      "observations": {
+        "coldElapsedSeconds": [
+          59.7,
+          94.17
+        ],
+        "pairedElapsedDeltaSeconds": 34.47,
+        "coldCpuSeconds": [
+          188.4,
+          117.6
+        ],
+        "pairedCpuDeltaSeconds": -70.75,
+        "pairedReportedPeakRssDeltaBytes": 130760704,
+        "projectCacheDeltaBytes": -55814727,
+        "globalCacheDeltaBytes": 14488197,
+        "warmElapsedSeconds": [
+          4.87,
+          0.12
+        ]
+      },
+      "rationale": "The exact 0.17 requirement and user-accepted first-use support cost remain binding. Retained emitter reuse reduces bootstrap CPU about 37% and combined logical caches about 41.3MB. The extra compiler-process RSS is disclosed development overhead, with no changed application allowance or new capacity failure. The preceding 0.17 E03 build already used about 2.0GB peak RSS; final-code peak is about 2.02GB. Warm command savings include eligible authoring-test result reuse, not faster test execution.",
+      "authority": "User accepted the disclosed compatibility costs and directed completion, conditional on no further integration regression/capacity failure. This record names the engineering build tradeoff; it does not claim separate user approval of a newly increased application budget."
+    }
+  },
+  "observation_history_policy": "Earlier observations/experiment entries retain their original investigation epoch and subject. final_qualification and cost_acceptance supersede open statuses for the recorded final-code executions; later source-ID rebinding and reviews remain exact provider/consumer facts."
 }

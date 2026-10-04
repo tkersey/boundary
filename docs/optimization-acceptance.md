@@ -1,28 +1,21 @@
 # Optimization acceptance
 
-## Zig 0.17 upgrade in progress
+## Zig 0.17 upgrade evidence
 
-The [accepted upgrade specification](zig-0.17-upgrade-spec.md) governs the
-coordinated successor. The [upgrade record](performance/zig17-upgrade.json)
-separates its source census, compiler identities and current observations from
-the historical optimization results below. Full compatibility, experiment and
-landing qualification remain open. The maintained successor in each repository
-supports **Zig 0.17.0 only**. References to 0.16 below describe frozen measurement
-and rollback evidence, never supported successor builds or dual-version CI.
+The [accepted specification](zig-0.17-upgrade-spec.md),
+[execution and cost report](zig-0.17-upgrade.md), and
+[machine record](performance/zig17-upgrade.json) own the coordinated upgrade.
+They retain all ten opportunity decisions, the T01–T70 witness map, final-code
+macOS/Linux qualification, cumulative comparisons, and the user's conditional
+acceptance of the measured compatibility costs. Exact execution subjects are
+kept distinct from later source/provenance rebinding and live PR review state.
 
-Boundary's first compatibility candidate passed the native aggregate and kept
-all 114 emitted program/component/JSON artifacts byte-identical to its 0.16
-baseline. Captured error cleanup was checked on 0.16 before migrating reflection.
-Allocation-failure sweeps retain their OOM/leak assertions with deterministic
-growth: the 0.17 safety allocator's successful remaps otherwise change the number
-of allocation sites between identical executions. Ordinary tests still exercise
-the real safety allocator.
-
-World's [draft upgrade PR](https://github.com/tkersey/world/pull/62) first binds
-current Boundary source under 0.16. Its authenticated Linux delivery and local
-macOS delivery passed; Agent's reconciled consumer baseline is being qualified.
-These are preparation and compatibility observations, not performance claims or
-completion of E01–E10 and T01–T70.
+The maintained successor in each repository supports **Zig 0.17.0 only**.
+References to 0.16 below describe frozen measurement/rollback evidence, never
+successor builds or dual-version CI. All 114 Boundary and 188 Agent frozen
+artifacts remain byte-identical. Captured error cleanup was checked under 0.16
+before reflection migration; deterministic allocation-failure sweeps preserve
+OOM/leak assertions while ordinary tests retain the real diagnostic allocator.
 
 ### Zig 0.17 standalone configuration-cache witness
 
