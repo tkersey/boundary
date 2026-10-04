@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+# Superseded PR heads cannot qualify their successors. Preserve every main and
+# manually requested run by giving non-PR events their own concurrency group.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
 jobs:
@@ -20,7 +25,9 @@ jobs:
       - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
         with:
           version: '0.17.0'
+          # The observed qualification cache exceeds the action's 2 GiB purge limit.
+          cache-size-limit: 4096
       - name: Native and portable contracts
-        run: zig build check check-zig17 -Doptimize=safe --summary all
+        run: zig build check -Doptimize=safe --summary all
       - name: Independent public package authoring
         run: node test/package_authoring.mjs --zig-exe "$(command -v zig)" --authoring-only
