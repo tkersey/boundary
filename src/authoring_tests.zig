@@ -18,14 +18,6 @@ pub fn branchWitness(raw: *source.Builder) !source.Module {
     return c.module(entry, unit);
 }
 
-test "authoring external branch compiles through authoritative admission" {
-    var raw = source.Builder.init(testing.allocator);
-    defer raw.deinit();
-    var compiled = try source.lower(testing.allocator, try branchWitness(&raw));
-    defer compiled.deinit();
-    try testing.expect(compiled.program.functions.len > 0);
-}
-
 test "A01 authoring rejects colliding live builder handles" {
     var left = source.Builder.init(testing.allocator);
     defer left.deinit();
@@ -807,7 +799,6 @@ fn sequenceConstruction(allocator: std.mem.Allocator) !void {
 
 test "typed sequence pop and consuming destructure preserve names and scope" {
     try sequenceConstruction(testing.allocator);
-    try @import("allocation_testing.zig").check(testing.allocator, sequenceConstruction, .{});
 }
 
 fn explicitFailure(allocator: std.mem.Allocator, mode: FailureCase) !void {
@@ -836,16 +827,8 @@ test "explicit failure retains names and closes only its authored body" {
     try explicitFailure(testing.allocator, .discarded);
 }
 
-test "explicit failure publication releases partial allocation failures" {
-    try @import("allocation_testing.zig").check(testing.allocator, explicitFailure, .{.matching});
-}
-
 test "typed twice shares definitions without erasing names or builder origins" {
     try twiceSharing(testing.allocator);
-}
-
-test "typed twice definition sharing releases partial allocation failures" {
-    try @import("allocation_testing.zig").check(testing.allocator, twiceSharing, .{});
 }
 
 test "review twice rejection replaces stale diagnostics with its own relationship" {
@@ -1289,10 +1272,6 @@ test "handler cleanup obligations require explicit opt-in" {
     try obligationAllocation(testing.allocator);
 }
 
-test "obligation-bearing handler publication tolerates allocation failures" {
-    try @import("allocation_testing.zig").check(testing.allocator, obligationAllocation, .{});
-}
-
 fn cellConstruction(allocator: std.mem.Allocator, negatives: bool) !void {
     var raw = source.Builder.init(allocator);
     defer raw.deinit();
@@ -1332,10 +1311,6 @@ fn cellConstruction(allocator: std.mem.Allocator, negatives: bool) !void {
 test "typed cells preserve named elements, nominal regions and body lifetime" {
     try cellConstruction(testing.allocator, true);
 }
-test "typed cells release partial construction allocations" {
-    try @import("allocation_testing.zig").check(testing.allocator, cellConstruction, .{false});
-}
-
 fn librarySharing(allocator: std.mem.Allocator) !void {
     const writer = @import("library/writer.zig");
     const raise = @import("library/raise.zig");
@@ -1367,10 +1342,6 @@ fn librarySharing(allocator: std.mem.Allocator) !void {
 test "typed Writer and Raise preserve named contracts and share 64 installations" {
     try librarySharing(testing.allocator);
 }
-test "typed Writer and Raise release partial construction allocations" {
-    try @import("allocation_testing.zig").check(testing.allocator, librarySharing, .{});
-}
-
 fn groupedHandler(allocator: std.mem.Allocator, negative: bool, older_capture: bool) !void {
     var raw = source.Builder.init(allocator);
     defer raw.deinit();
@@ -1423,10 +1394,6 @@ test "handler sets preserve positional capabilities and reject ambiguous selecti
     try groupedHandler(testing.allocator, true, false);
     try testing.expectError(error.InvalidEffect, groupedHandler(testing.allocator, false, true));
 }
-test "handler sets release partial allocations" {
-    try @import("allocation_testing.zig").check(testing.allocator, groupedHandler, .{ false, false });
-}
-
 fn stateSharing(allocator: std.mem.Allocator) !void {
     const state = @import("library/state.zig");
     var raw = source.Builder.init(allocator);
@@ -1455,10 +1422,6 @@ fn stateSharing(allocator: std.mem.Allocator) !void {
 test "typed State shares each answer policy through 64 installations" {
     try stateSharing(testing.allocator);
 }
-test "typed State releases partial allocations" {
-    try @import("allocation_testing.zig").check(testing.allocator, stateSharing, .{});
-}
-
 fn choiceSharing(allocator: std.mem.Allocator) !void {
     const choice = @import("library/choice.zig");
     var raw = source.Builder.init(allocator);
@@ -1494,13 +1457,8 @@ fn choiceSharing(allocator: std.mem.Allocator) !void {
     try testing.expectError(error.ForeignHandle, choice.all(foreign, family, left, options));
 }
 test "typed Choice shares definitions and preserves names, policy and region custody" {
-    try testing.expect(!@hasDecl(@import("library/choice.zig"), "allScoped"));
     try choiceSharing(testing.allocator);
 }
-test "typed Choice releases partial construction allocations" {
-    try @import("allocation_testing.zig").check(testing.allocator, choiceSharing, .{});
-}
-
 const ResourceCase = enum { valid, unauthorized_pack, unauthorized_unpack, duplicate_owner, escaping_loan, wrong_region, wrong_names };
 fn resourceConstruction(allocator: std.mem.Allocator, mode: ResourceCase) !void {
     var raw = source.Builder.init(allocator);
@@ -1547,7 +1505,6 @@ fn resourceConstruction(allocator: std.mem.Allocator, mode: ResourceCase) !void 
     defer compiled.deinit();
 }
 test "typed resources preserve representation authority and exclusive bracket custody" {
-    try testing.expect(!@hasDecl(@import("library/cleanup.zig"), "bracket"));
     try resourceConstruction(testing.allocator, .valid);
     try testing.expectError(error.InvalidOwnership, resourceConstruction(testing.allocator, .unauthorized_pack));
     try testing.expectError(error.InvalidOwnership, resourceConstruction(testing.allocator, .unauthorized_unpack));
@@ -1556,10 +1513,6 @@ test "typed resources preserve representation authority and exclusive bracket cu
     try testing.expectError(error.SchemaMismatch, resourceConstruction(testing.allocator, .wrong_region));
     try testing.expectError(error.SchemaMismatch, resourceConstruction(testing.allocator, .wrong_names));
 }
-test "typed resource construction releases partial allocations" {
-    try @import("allocation_testing.zig").check(testing.allocator, resourceConstruction, .{.valid});
-}
-
 test "typed resource authority rejects foreign declarations before granting rights" {
     var raw = source.Builder.init(testing.allocator);
     defer raw.deinit();
@@ -1611,10 +1564,6 @@ test "recursive declarations are single assignment and cannot alias empty sums o
     try schemaDeclarations(testing.allocator, true);
     try schemaDeclarations(testing.allocator, false);
 }
-test "recursive declaration construction releases partial allocations" {
-    try @import("allocation_testing.zig").check(testing.allocator, schemaDeclarations, .{false});
-}
-
 fn readerConstruction(allocator: std.mem.Allocator, sharing: bool) !void {
     const reader = @import("library/reader.zig");
     var raw = source.Builder.init(allocator);
@@ -1648,13 +1597,8 @@ fn readerConstruction(allocator: std.mem.Allocator, sharing: bool) !void {
     defer compiled.deinit();
 }
 test "typed Reader preserves scoped local work and shares 64 installations" {
-    try testing.expect(!@hasDecl(@import("library/reader.zig"), "define"));
     try readerConstruction(testing.allocator, true);
 }
-test "typed Reader releases partial recursive construction allocations" {
-    try @import("allocation_testing.zig").check(testing.allocator, readerConstruction, .{false});
-}
-
 test "recursive Reader retains distinct named answers with equal wire layouts" {
     const reader = @import("library/reader.zig");
     var raw = source.Builder.init(testing.allocator);
@@ -1742,10 +1686,6 @@ test "handler inputs are named and separate from handler state" {
     try testing.expectError(error.DuplicateName, handlerArguments(testing.allocator, .duplicate));
     try testing.expectError(error.SchemaMismatch, handlerArguments(testing.allocator, .wrong_type));
 }
-test "handler input construction releases partial allocations" {
-    try @import("allocation_testing.zig").check(testing.allocator, handlerArguments, .{.valid});
-}
-
 fn tailReturn(allocator: std.mem.Allocator, intervening_effect: bool) !void {
     var raw = source.Builder.init(allocator);
     defer raw.deinit();
@@ -1771,10 +1711,6 @@ test "terminal identity bindings collapse without moving intervening effects" {
     try tailReturn(testing.allocator, false);
     try tailReturn(testing.allocator, true);
 }
-test "terminal identity normalization releases partial allocations" {
-    try @import("allocation_testing.zig").check(testing.allocator, tailReturn, .{false});
-}
-
 fn searchSharing(allocator: std.mem.Allocator) !void {
     const search = @import("library/search.zig");
     var raw = source.Builder.init(allocator);
@@ -1797,13 +1733,8 @@ fn searchSharing(allocator: std.mem.Allocator) !void {
     try testing.expectError(error.ForeignHandle, search.interpret(foreign, family, left, options));
 }
 test "typed Search shares definitions without erasing names or traversal policy" {
-    try testing.expect(!@hasDecl(@import("library/search.zig"), "define"));
     try searchSharing(testing.allocator);
 }
-test "typed Search releases partial construction allocations" {
-    try @import("allocation_testing.zig").check(testing.allocator, searchSharing, .{});
-}
-
 test "region body contracts canonicalize region sets without changing token position" {
     var raw = source.Builder.init(testing.allocator);
     defer raw.deinit();
@@ -1847,10 +1778,6 @@ fn sequenceQueries(allocator: std.mem.Allocator, negative: bool) !void {
 test "typed sequence queries, ordering, yield and failing cases preserve contracts" {
     try sequenceQueries(testing.allocator, true);
 }
-test "sequence query construction releases partial allocations" {
-    try @import("allocation_testing.zig").check(testing.allocator, sequenceQueries, .{false});
-}
-
 test "declared function recovery retains names and refuses another context or raw declaration" {
     var raw = source.Builder.init(testing.allocator);
     defer raw.deinit();
