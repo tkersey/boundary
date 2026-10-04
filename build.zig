@@ -234,13 +234,20 @@ pub fn build(b: *std.Build) void {
     compiler_module.addOptions("economy_options", compiler_options);
     const compiler_executable = b.addExecutable(.{ .name = "economy-compiler", .root_module = compiler_module });
     b.step("emit-economy-compiler", "Compile a matched public authoring workload and emit its image").dependOn(&b.addRunArtifact(compiler_executable).step);
+    const economy_emitter = b.addExecutable(.{ .name = "emit-economy", .root_module = b.createModule(.{
+        .root_source_file = b.path("test/v2/emit_economy.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "boundary", .module = boundary }},
+    }) });
+    const economy_reuse = b.addSystemCommand(&.{"node"});
+    economy_reuse.addFileArg2(b.path("test/v2/economy_emitter.mjs"), .{});
+    economy_reuse.addArtifactArg2(economy_emitter, .{});
     for ([_]usize{ 0, 1, 8, 64 }) |count| {
-        const configuration = b.addOptions();
-        configuration.addOption(usize, "installations", count);
-        const module = b.createModule(.{ .root_source_file = b.path("test/v2/emit_economy.zig"), .target = b.graph.host, .optimize = optimize, .imports = &.{.{ .name = "boundary", .module = boundary }} });
-        module.addOptions("economy_options", configuration);
-        const emit = b.addExecutable(.{ .name = b.fmt("emit-economy-{d}", .{count}), .root_module = module });
-        const bytes = b.addRunArtifact(emit).captureStdOut(.{});
+        const run = b.addRunArtifact(economy_emitter);
+        run.addArg(b.fmt("{d}", .{count}));
+        const bytes = run.captureStdOut(.{});
+        economy_reuse.addFileArg2(bytes, .{});
         economy.dependOn(&b.addInstallFileWithDir(bytes, .prefix, b.fmt("economy-{d}.bpi3", .{count})).step);
     }
     const options = b.addOptions();
@@ -284,6 +291,7 @@ pub fn build(b: *std.Build) void {
     semantics.dependOn(&exact_json.step);
     const aggregate = b.step("check", "Check current authoring, data, source semantics and component linking");
     const zig17 = b.step("check-zig17", "Check Zig 0.17 record traversal and selected toolchain identity");
+    zig17.dependOn(&economy_reuse.step);
     const zig17_records = b.addTest(.{
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/data/zig17_tests.zig"),

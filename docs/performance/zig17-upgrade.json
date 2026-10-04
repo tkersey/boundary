@@ -1,7 +1,7 @@
 {
   "document_id": "BWA-Z17-1",
   "target_zig": "0.17.0",
-  "status": "not-run",
+  "status": "in-progress",
   "qualification": "in-progress; no full-spec qualification claim",
   "source_specification": "../zig-0.17-upgrade-spec.md",
   "initial_subjects": [
@@ -858,6 +858,123 @@
       "result": "authoring aggregate passed 406/406 steps",
       "logSha256": "77204aade6fcc526028725fda6538b6e93f858126d4c608688a0ab7de5d4dceb",
       "note": "Working-tree qualification only; source/lock changed subsequently. Full runtime/browser aggregate is running against the qualified World0.17 delivery."
+    },
+    {
+      "subject": "Boundary current uncommitted argument witness",
+      "result": "passed",
+      "scope": "actual native Run pass-through, changed arguments, 1000 long graph arguments, exact JSON output and unchanged installed executable bytes/mtime",
+      "log": {
+        "path": "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/build-arguments-test.log",
+        "sha256": "d356cfb90ccd6f20fe0f4e13bf0dfffa1f211856d92bf8e37a1a39da81f06ddb"
+      }
+    },
+    {
+      "subject": "Boundary current uncommitted representation witnesses",
+      "result": "passed native; big-endian compiled only",
+      "native": {
+        "command": [
+          "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/toolchains/zig-aarch64-macos-0.17.0/zig",
+          "test",
+          "src/data/zig17_tests.zig",
+          "-Osafe"
+        ],
+        "cwd": "/Users/tk/workspace/tk/boundary",
+        "tests": 9,
+        "log": {
+          "path": "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/representation-native.log",
+          "sha256": "bfe565a7f1247b270fcb38c451eff026318ded045c9e4dbc7f418ebbc976ebc9"
+        }
+      },
+      "bigEndian": {
+        "command": [
+          "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/toolchains/zig-aarch64-macos-0.17.0/zig",
+          "test",
+          "src/data/zig17_tests.zig",
+          "-Osafe",
+          "-target",
+          "powerpc64-linux-musl",
+          "--test-no-exec",
+          "-femit-bin=/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/representation-ppc64"
+        ],
+        "artifact": {
+          "path": "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/representation-ppc64",
+          "sha256": "d45bc4d1c09b99e9e23efce8c95cca17784789d220cd4cacad31fec2f9d48ed4"
+        },
+        "format": "ELF 64-bit MSB executable, PowerPC64",
+        "executed": false,
+        "limitation": "qemu-ppc64 and qemu-s390x not found on host PATH; no big-endian execution claim"
+      },
+      "scope": "Compile-time and runtime narrow integer/array/vector/packed logic, zero length, extremes, cross-element high bits; initialized aligned extern memory view; actual wire.Writer.fixed/Reader.fixed little-endian bytes"
+    },
+    {
+      "subject": "Boundary working branch with selected E03 and representation/argument witnesses",
+      "result": "passed",
+      "steps": 317,
+      "freshMigrationTests": 5,
+      "nodeToolchainTests": 6,
+      "command": [
+        "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/toolchains/zig-aarch64-macos-0.17.0/zig",
+        "build",
+        "check",
+        "check-zig17",
+        "-Doptimize=safe",
+        "--cache-dir",
+        "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/local-u1",
+        "--prefix",
+        "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/output-u1",
+        "-j4",
+        "--summary",
+        "all"
+      ],
+      "environment": {
+        "ZIG_GLOBAL_CACHE_DIR": "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/cache-u1"
+      },
+      "log": {
+        "path": "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/boundary-e03-full-check.log",
+        "sha256": "4d09485d88c3bc8769bdf4d58598f1c866f3757b65d5f25de1cf887484251646"
+      },
+      "correspondence": {
+        "files": 114,
+        "result": "all bytes equal frozen U0 and the earlier published correspondence entries",
+        "record": {
+          "path": "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/boundary-e03-correspondence.json",
+          "sha256": "e7ec49158fe033545ffbc998c057d83fe5a56c8f72aef310a22b895f1d13c7d8"
+        }
+      }
+    },
+    {
+      "subject": "Agent migration implementation shared by 3a0676f and f7fe530",
+      "result": "macOS aggregate and Linux successor qualification passed",
+      "macOS": {
+        "steps": 528,
+        "zigTests": 218,
+        "nodeIntegrationTests": 96,
+        "nodeIntegrationSkips": 0,
+        "log": {
+          "path": "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/agent-config-full-check.log",
+          "sha256": "b30ca4b72c84e930b6b1acd46962415b5e74461ece977330b3f531d88744e4ec"
+        },
+        "provenance": "Run started at 3a0676f; only CI workflow and documentation changed to f7fe530 while running. This is implementation correspondence, not relabeling it as a final-head archive run."
+      },
+      "linux": {
+        "head": "f7fe530ec170290b40dd52bdfabc0b7266990690",
+        "workflow": "https://github.com/tkersey/agent/actions/runs/37166851846",
+        "steps": 430,
+        "tests": 218,
+        "result": "success",
+        "log": {
+          "path": "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/agent-linux-ci-fix.log",
+          "sha256": "c1dd42472da7a7e3bb1cd85b3ad96ef4513b5f614c171c51236477b1d17f128d"
+        }
+      },
+      "earlierFailure": {
+        "workflow": "https://github.com/tkersey/agent/actions/runs/37164492451",
+        "reason": "runner lacked ripgrep for the required source-registry check",
+        "log": {
+          "path": "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/agent-linux-u1-failed.log",
+          "sha256": "0a0586803b2e82876b18b0f85af3008ebd2dd7801a61a9c178b2a06de504b075"
+        }
+      }
     }
   ],
   "census": {
@@ -15426,5 +15543,267 @@
     ],
     "predecessor": "0.16.0 retained only as frozen baseline/rollback evidence",
     "cross_version_support": false
+  },
+  "experiment_observations": [
+    {
+      "id": "E01",
+      "status": "correctness and allocation attribution executed; controlled timing pending",
+      "evidence": [
+        {
+          "path": "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/e01-phase-proof.json",
+          "sha256": "dd64e7ec9c48c6f3bf6fdd3ae6608a80f6d8d009533908787444d37bd5b1f26e"
+        },
+        {
+          "path": "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/e01-layout/results.json",
+          "sha256": "1784d2419c185718d053ed67de248314b60698d0f42d8cfc6972b2155ab7680e"
+        }
+      ]
+    },
+    {
+      "id": "E03",
+      "status": "selected in working branch; three cold pairs and five runtime windows complete; macOS full aggregate and all 114 frozen artifacts pass; final publication/platform gates pending",
+      "evidence": [
+        {
+          "path": "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/e03-correspondence.json",
+          "sha256": "46e21feb47277622ade1f60bc387e30dc4967f048d36983cc36e9f432db9f82b"
+        },
+        {
+          "path": "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/e03-state-isolation.json",
+          "sha256": "4f6ecc0dc5b938719a2fba8fab3fd7d99e72ee61609b5109dddd468981b2a83d"
+        },
+        {
+          "path": "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/e03-candidate.patch",
+          "sha256": "539995caa830bcc725e50e1d69df288aac24270e819b2a6132f4eef7d3e7f777"
+        }
+      ],
+      "metrics": {
+        "wallSeconds": {
+          "pairs": [
+            {
+              "baseline": 96.16,
+              "candidate": 95.62
+            },
+            {
+              "baseline": 96.52,
+              "candidate": 94.65
+            },
+            {
+              "baseline": 96.37,
+              "candidate": 94.33
+            }
+          ],
+          "pairedMedianRatio": 0.9806257770410278,
+          "pairedMedianDelta": -1.8699999999999903,
+          "ratio95PercentileBootstrap": [
+            0.9788315865933381,
+            0.9943843594009985
+          ],
+          "delta95PercentileBootstrap": [
+            -2.0400000000000063,
+            -0.539999999999992
+          ],
+          "baselineMedian": 96.37,
+          "candidateMedian": 94.65
+        },
+        "cpuSeconds": {
+          "pairs": [
+            {
+              "baseline": 192.70999999999998,
+              "candidate": 119.13
+            },
+            {
+              "baseline": 197.72000000000003,
+              "candidate": 118.36
+            },
+            {
+              "baseline": 197.38000000000002,
+              "candidate": 117.26
+            }
+          ],
+          "pairedMedianRatio": 0.5986243172162653,
+          "pairedMedianDelta": -79.36000000000003,
+          "ratio95PercentileBootstrap": [
+            0.5940824804944776,
+            0.6181827616626019
+          ],
+          "delta95PercentileBootstrap": [
+            -80.12000000000002,
+            -73.57999999999998
+          ],
+          "baselineMedian": 197.38000000000002,
+          "candidateMedian": 118.36
+        },
+        "maxRssBytes": {
+          "pairs": [
+            {
+              "baseline": 2006843392,
+              "candidate": 1994522624
+            },
+            {
+              "baseline": 2011971584,
+              "candidate": 2008743936
+            },
+            {
+              "baseline": 2007973888,
+              "candidate": 1999454208
+            }
+          ],
+          "pairedMedianRatio": 0.9957570762991914,
+          "pairedMedianDelta": -8519680,
+          "ratio95PercentileBootstrap": [
+            0.9938606230814447,
+            0.9983957785360054
+          ],
+          "delta95PercentileBootstrap": [
+            -12320768,
+            -3227648
+          ],
+          "baselineMedian": 2007973888,
+          "candidateMedian": 1999454208
+        },
+        "logicalCacheBytes": {
+          "pairs": [
+            {
+              "baseline": 137294493,
+              "candidate": 114394461
+            },
+            {
+              "baseline": 137294493,
+              "candidate": 114394461
+            },
+            {
+              "baseline": 137294493,
+              "candidate": 114394461
+            }
+          ],
+          "pairedMedianRatio": 0.833205021559022,
+          "pairedMedianDelta": -22900032,
+          "ratio95PercentileBootstrap": [
+            0.833205021559022,
+            0.833205021559022
+          ],
+          "delta95PercentileBootstrap": [
+            -22900032,
+            -22900032
+          ],
+          "baselineMedian": 137294493,
+          "candidateMedian": 114394461
+        }
+      },
+      "acceptedCost": "Counts 0 and 1 show a 16 KiB paired median process peak-RSS increase. Accepted for these fixture emitters in exchange for about 40% less complete-build CPU and one executable replacing four. No capacity or production memory limit changes."
+    },
+    {
+      "id": "E04",
+      "status": "executed and rejected; shipping traversal unchanged",
+      "decision": "Direct union dispatch improves some microsecond-scale construction cases and reduces the probe executable by about 19 KB, but complete cold authoring/probe builds are about 1% slower and compiler-phase time is broadly unchanged. No demonstrated tool-compilation/RSS benefit justifies promotion.",
+      "evidence": [
+        {
+          "path": "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/e04-measurement-1791077691319/samples.json",
+          "sha256": "7855312a5dfc5f2463cba832525a2dac4f39f2e4eef0413688cac3c9b7afc81b"
+        },
+        {
+          "path": "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/e04-correspondence.json",
+          "sha256": "a821effc19e9771ab4e0e5f916c0d8473c77cd484891b029d5c9ef8a8d0e78a3"
+        },
+        {
+          "path": "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/e04-tag-dispatch.patch",
+          "sha256": "9ba722bf60ac54c092772d1976f90f2f11023b7e80dfee52fc943bcc94c8cbf8"
+        }
+      ]
+    },
+    {
+      "id": "E06",
+      "status": "diagnostic ablation and allocator attribution executed; costs pending",
+      "evidence": [
+        {
+          "path": "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/e06-no-locks.patch",
+          "sha256": "6d429202660a4363a3a1f147fc7fd69cafc5ef201c11cf29248ca68a27eb91bf"
+        },
+        {
+          "path": "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/e06-production-ablation.log",
+          "sha256": "a077b7bf240a0489b831141ec1af17bfb3404fdaea7b580faa1123fb8e9956e0"
+        },
+        {
+          "path": "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/e06-ablation-check.log",
+          "sha256": "acdb52f386a153d798a2a90a4fee4d3355bd7bdd193875d1711432ed475ec8b1"
+        },
+        {
+          "path": "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/e06-native-allocator-proof.json",
+          "sha256": "260702b2cff2d6e5da459a57bcec5342f9e735259884c01f962c5e38525497ad"
+        }
+      ]
+    },
+    {
+      "id": "E07",
+      "status": "blocked by official self-hosted backend/linker; not promoted or classified as a completed experiment",
+      "reason": "undefined data: __heap_base; self-hosted backends do not support linking with LLD",
+      "evidence": [
+        {
+          "path": "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/e07-alternate-build.log",
+          "sha256": "5c81426c0aa379cec389a6f9e01b630a62278e49ebb98044f118be52d862e39b"
+        },
+        {
+          "path": "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/e07-alternate-lld-build.log",
+          "sha256": "66ad55d57e1925fac5da7f3a8c0c9409f28830f14d992fd018155ba7c7ae366d"
+        },
+        {
+          "path": "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/e07-reproducer/results.json",
+          "sha256": "9876c56877ab4b27440acc83249710719ff9f657939505b0067f7b42d3764f21"
+        }
+      ]
+    },
+    {
+      "id": "E10",
+      "status": "prototype semantic/lifecycle checks passed; maintenance and economic decision pending",
+      "evidence": [
+        {
+          "path": "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/protocol-probe-tests-terminal.log",
+          "sha256": "71c177136ba7b55937215bc5172e5755c20dee1d505904388e3c83765139d275"
+        }
+      ]
+    }
+  ],
+  "reverse_census": {
+    "status": "source scan complete; entrypoint execution mapping pending",
+    "path": "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/reverse-census.json",
+    "sha256": "91009912754a8defeaf7a0a032bd6487f35e1f40d7159f61a036616ed4a0a661",
+    "repositories": [
+      {
+        "repository": "tkersey/boundary",
+        "commit": "9e68b6e8382a24e22f8b34986e4e7fb21ec80d31",
+        "files": 507,
+        "buildEntries": 5,
+        "unresolvedRelativeImports": [],
+        "oldSyntaxCandidates": []
+      },
+      {
+        "repository": "tkersey/world",
+        "commit": "50cc310d2027a1392ad1c864506300c3ab55f442",
+        "files": 172,
+        "buildEntries": 17,
+        "unresolvedRelativeImports": [],
+        "oldSyntaxCandidates": []
+      },
+      {
+        "repository": "tkersey/agent",
+        "commit": "3a0676f85553d3eb81f0dc826f105eb45a6f56c6",
+        "files": 389,
+        "buildEntries": 20,
+        "unresolvedRelativeImports": [],
+        "oldSyntaxCandidates": []
+      }
+    ]
+  },
+  "measurements": {
+    "path": "zig17-samples.json.gz",
+    "format": "gzip-compressed JSON",
+    "sha256": "6a56fbb1e69c6695c15a281132a00a257dfe1e1b0527426baa0a5674e49583c1",
+    "method": "Median of paired window ratios and deltas. 20,000 independent-window bootstrap resamples with replacement, percentile 95% interval, xorshift32 initial seed 0x20261003. Three cold build pairs and five runtime/phase windows; no inner sample is treated as an independent window. OS page cache was not flushed. RSS is the maximum reported by /usr/bin/time, not a sum over concurrent children.",
+    "conditions": "Serialized local experiments on macOS arm64 with ordinary desktop background activity; CPU/load observations retained. No dedicated-machine or uncontended-host claim.",
+    "scope": "E01 native phase attribution, E03 build and fresh emitter costs, E04 isolated reflection candidate, E06 native allocator attribution. Remaining dimensions and experiments are open."
+  },
+  "editor": {
+    "observed": "zls not found on host PATH; no tracked .vscode/.zed/zls.json configuration found",
+    "workingPath": "The selected Zig 0.17 executable runs build/check and compiler diagnostics directly. No editor files or Zig skill were changed."
   }
 }

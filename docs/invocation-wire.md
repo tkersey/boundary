@@ -105,7 +105,7 @@ on operational failure. Failed output allocation/capacity leaves the command reu
 
 Boundary tests cover independent PKI3 bytes, ownership, stale binding, typed
 replies, flags/families, atomic output and allocation failures.
-`zig build check-invocation-wasm -Doptimize=ReleaseSafe` checks independent bytes
+`zig build check-invocation-wasm -Doptimize=safe` checks independent bytes
 for all four families and a JavaScript-computed request hash on import-free wasm32.
 World compares fresh, resident and restored execution at matching quanta, retaining
 the source corpus's independent expectations. Tests distinguish identical visible

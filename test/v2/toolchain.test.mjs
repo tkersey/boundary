@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtemp, mkdir, writeFile, chmod, rm, readFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, chmod, rm, readFile, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -77,5 +77,56 @@ test('standalone build-file selection survives a shared configuration cache', as
     });
     assert.match(output, new RegExp(`\\b${present}\\b`));
     assert.doesNotMatch(output, new RegExp(`\\b${absent}\\b`));
+  }
+});
+
+test('Run preserves pass-through and long arguments without recompiling the executable', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'boundary args Ω '));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await writeFile(join(root, 'main.zig'), `const std = @import("std");
+pub fn main(init: std.process.Init) !void {
+    var args = init.minimal.args.iterate();
+    _ = args.next();
+    var buffer: [4096]u8 = undefined;
+    var output = std.Io.File.stdout().writer(init.io, &buffer);
+    var json: std.json.Stringify = .{ .writer = &output.interface };
+    try json.beginArray();
+    while (args.next()) |arg| try json.write(arg);
+    try json.endArray();
+    try output.interface.flush();
+}
+`);
+  await writeFile(join(root, 'build.zig'), `const std = @import("std");
+pub fn build(b: *std.Build) void {
+    const exe = b.addExecutable(.{ .name = "argv-probe", .root_module = b.createModule(.{
+        .root_source_file = b.path("main.zig"), .target = b.graph.host, .optimize = .safe,
+    }) });
+    const run = b.addRunArtifact(exe);
+    if (b.option(bool, "long", "Exercise an actual long command line") orelse false)
+        for (0..1000) |_| run.addArg("a repeated argument with spaces and Unicode Ω");
+    run.addPassthruArgs();
+    const step = b.step("args", "Preserve exact child arguments");
+    step.dependOn(&b.addInstallArtifact(exe, .{}).step);
+    step.dependOn(&b.addInstallFileWithDir(run.captureStdOut(.{}), .prefix, "argv.json").step);
+}
+`);
+  const prefix = join(root, 'output Ω'), cache = join(root, 'cache');
+  let initial;
+  for (const [long, args] of [
+    [false, ['', 'space value', 'Ω', '-leading-dash', 'repeat', 'repeat']],
+    [false, ['', 'changed value', 'Ω', '-leading-dash', 'repeat', 'repeat']],
+    [true, ['', '--', 'tail Ω']],
+  ]) {
+    execFileSync(selected.executable, ['build', 'args', `-Dlong=${long}`,
+      '--cache-dir', cache, '--prefix', prefix, '--summary', 'all', '--', ...args], {
+      cwd: root, env: selected.env, encoding: 'utf8', timeout: 120000,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const expected = [...(long ? Array(1000).fill('a repeated argument with spaces and Unicode Ω') : []), ...args];
+    assert.deepEqual(JSON.parse(await readFile(join(prefix, 'argv.json'), 'utf8')), expected);
+    const binary = join(prefix, 'bin', 'argv-probe');
+    const observed = { bytes: await readFile(binary), modified: (await stat(binary)).mtimeMs };
+    if (initial) assert.deepEqual(observed, initial, 'runtime arguments must not rebuild the executable');
+    else initial = observed;
   }
 });
