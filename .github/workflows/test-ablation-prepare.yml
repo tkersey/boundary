@@ -1,4 +1,4 @@
-name: Prepare reviewed test ablation
+name: Prepare audited test ablation
 on:
   push:
     branches: [codex/test-ablation-prepare-20261004]
@@ -13,25 +13,37 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: 6ea3f6fba0968a421f8e97b3de0de4454a4e8e2b
-      - name: Apply exact audited patch to immutable parent
-        env:
-          PATCH: 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
+      - name: Apply hash-bound audited deletions
         shell: bash
         run: |
           set -euo pipefail
-          printf '%s' "$PATCH" | base64 -d | gzip -d > "$RUNNER_TEMP/ablation.patch"
-          echo "7b65316b13f559cfce910bc5ef071d7c8ab43e90979cf4b4b78168dd2d79ba46  $RUNNER_TEMP/ablation.patch" | sha256sum -c -
-          test "$(git rev-parse HEAD)" = "6ea3f6fba0968a421f8e97b3de0de4454a4e8e2b"
-          git apply --check --index "$RUNNER_TEMP/ablation.patch"
-          git apply --index "$RUNNER_TEMP/ablation.patch"
+          python3 - <<'PY'
+          import json, hashlib
+          from pathlib import Path
+          ops = json.loads(r'''[
+          {"path":"src/authoring_tests.zig","old":"1b922ea94a213fed922d5d2066f49edf2b252488","new":"6f41abc74fafb3ecdc15a3b11fabafa38431dd69","edits":[[18,26,""],[809,810,""],[838,842,""],[844,848,""],[1291,1295,""],[1334,1338,""],[1369,1373,""],[1425,1429,""],[1457,1461,""],[1496,1497,""],[1499,1503,""],[1549,1550,""],[1558,1562,""],[1613,1617,""],[1650,1651,""],[1653,1657,""],[1744,1748,""],[1773,1777,""],[1799,1800,""],[1802,1806,""],[1849,1853,""]]},
+          {"path":"src/data/analysis_sets_tests.zig","old":"e523fe2f3ce51fb20290e1b2fd3f3904d28959db","new":"2e23ff640700b85547cad44d5503cd4ad0693f22","edits":[[213,225,""]]},
+          {"path":"src/data/coalescing_tests.zig","old":"35e01539aa4bb53f6e24a7062ad69d0d7a7f5a9f","new":"3709bba7a940499c2437ff88f71c159e43cc64f3","edits":[[6,11,""]]},
+          {"path":"src/data/program_image_tests.zig","old":"43f89f9b2fdba40534a5ac000051b2296d1a4f9d","new":"d8624afd292557324c6e78b6948fed0b03afeb59","edits":[[341,342,"test \"accepted handler bytes and retired wire tags stay fixed\" {\n"],[344,347,""]]},
+          {"path":"src/library/generator.zig","old":"ce6f11889875679b184129540f294a92478bd4af","new":"e12272c148acce735a75c27b9b9420fc15962d7f","edits":[[170,181,""],[280,300,""]]},
+          {"path":"src/library/scheduler.zig","old":"980e193e9dcd7123570ea602cd5807f7d88d9299","new":"d7a1b441f6df0399384fdcb4da115587e7ada4a5","edits":[[97,98,"fn constructionCase(allocator: std.mem.Allocator) !void {\n"],[116,118,"test \"typed scheduler construction shares definitions\" {\n    try constructionCase(std.testing.allocator);\n"]]},
+          {"path":"test/package_authoring/rejection.zig","old":"0a05febf9ae3967bdb55d7d6991404b5eccd7691","new":"ef3431b42855a7fdd08cba7eedbf99978cc6670a","edits":[[2,23,""]]}
+          ]''')
+          def blob(data):
+              return hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()
+          for op in ops:
+              p = Path(op['path'])
+              data = p.read_bytes()
+              assert blob(data) == op['old'], op['path']
+              lines = data.decode().splitlines(keepends=True)
+              for start, end, text in reversed(op['edits']):
+                  lines[start:end] = text.splitlines(keepends=True)
+              result = ''.join(lines).encode()
+              assert blob(result) == op['new'], op['path']
+              p.write_bytes(result)
+          PY
+          git add -u
           git diff --cached --check
           test "$(git write-tree)" = "e80726526afcbb0b854433ff56243de513fa7144"
-          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'Ablate redundant test definitions and retired scaffolding'
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'Ablate redundant construction sweeps and implementation-shaped tests'
           git push origin HEAD:refs/heads/codex/test-ablation-candidate-20261004
-          printf '{"parent":"%s","commit":"%s","tree":"%s","patchSha256":"%s"}\n' '6ea3f6fba0968a421f8e97b3de0de4454a4e8e2b' "$(git rev-parse HEAD)" "$(git rev-parse HEAD^{tree})" '7b65316b13f559cfce910bc5ef071d7c8ab43e90979cf4b4b78168dd2d79ba46' > "$RUNNER_TEMP/ablation-commit.json"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: ablation-prepared-commit
-          path: ${{ runner.temp }}/ablation-commit.json
-          if-no-files-found: error
-          retention-days: 3
