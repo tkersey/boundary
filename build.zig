@@ -301,12 +301,11 @@ pub fn build(b: *std.Build) void {
         .filters = &.{"Z17"},
     });
     zig17.dependOn(&b.addRunArtifact(zig17_records).step);
-    const toolchain_check = b.addSystemCommand(&.{ "node", "test/v2/toolchain.test.mjs", "--zig-exe" });
+    const toolchain_check = b.addSystemCommand(&.{ "env", "-u", "NODE_TEST_CONTEXT", "node", "test/v2/toolchain.test.mjs", "--zig-exe" });
     toolchain_check.addFileArg2(.zig_exe, .{ .make_absolute = true });
     toolchain_check.addArg("--zig-lib");
     toolchain_check.addDirectoryArg2(.zig_lib, .{ .make_absolute = true });
     toolchain_check.has_side_effects = true;
-    toolchain_check.removeEnvironmentVariable("NODE_TEST_CONTEXT");
     zig17.dependOn(&toolchain_check.step);
     aggregate.dependOn(zig17);
     const lazy_hyper = b.addExecutable(.{ .name = "lazy-hyper", .root_module = b.createModule(.{

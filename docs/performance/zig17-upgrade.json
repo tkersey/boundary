@@ -975,6 +975,43 @@
           "sha256": "0a0586803b2e82876b18b0f85af3008ebd2dd7801a61a9c178b2a06de504b075"
         }
       }
+    },
+    {
+      "subject": "Boundary 024fca985a881ffa25529f9b149d1cd5d72afa52",
+      "result": "Linux aggregate passed",
+      "steps": 317,
+      "tests": 857,
+      "workflow": "https://github.com/tkersey/boundary/actions/runs/37170519625",
+      "log": {
+        "path": "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/boundary-024-linux.log",
+        "sha256": "54f775a7773e8d00f79adf49f5e45cd2598070f8f228b6214ff2ae7623087ae2"
+      }
+    },
+    {
+      "subject": "Launch-time NODE_TEST_CONTEXT removal in Boundary, World and Agent working trees",
+      "result": "affected checks passed",
+      "boundary": {
+        "steps": 10,
+        "log": {
+          "path": "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/boundary-e02-check.log",
+          "sha256": "ae6f55af29d25280e05610c7a2a95318272d4083578f2eb9787db6b04e014d13"
+        }
+      },
+      "world": {
+        "steps": 5,
+        "log": {
+          "path": "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/world-e02-check.log",
+          "sha256": "c3f022e8c5e187a6cf8a95fad0be9705a75f3a3b9676708b5edeae4e01c7c3ed"
+        }
+      },
+      "agent": {
+        "test": "all source-override module exports retain authentication in cached external builds",
+        "log": {
+          "path": "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/e02-auth-environment-fixed.log",
+          "sha256": "5c5e8c49ac2bfc587211ccb7026e2a92abe59591f64cec47fd80c9e352bbe0a2"
+        }
+      },
+      "limitation": "Full final-head and cross-platform qualification is still required; this is affected-check proof."
     }
   ],
   "census": {
@@ -15761,6 +15798,132 @@
           "sha256": "71c177136ba7b55937215bc5172e5755c20dee1d505904388e3c83765139d275"
         }
       ]
+    },
+    {
+      "id": "E02",
+      "status": "retain main-graph caching with launch-time environment repair; evaluated on macOS; final cross-platform qualification remains open",
+      "decision": {
+        "status": "retain main-graph caching with launch-time environment repair; evaluated on macOS; final cross-platform qualification remains open",
+        "reason": "Five paired windows: cached/uncached elapsed ratio 0.7722 and CPU ratio 0.8140; authentication executed in all 120 warm invocations. No clear RSS difference. Imported graph/source mutations, tool selection, target, optimization, output prefix, package root and authenticated source override were exercised.",
+        "scope": "No claim that one Agent warm check represents all cold-build or standalone-helper costs. Helpers with the separately witnessed --build-file cache defect retain their narrow cache opt-out."
+      },
+      "metrics": {
+        "method": "Five paired window medians; 20,000 bootstrap resamples of independent windows, xorshift32 seed 0x20261003; inner samples are not independent windows.",
+        "metrics": {
+          "elapsedMs": {
+            "pairs": [
+              {
+                "uncached": 408.77920900000026,
+                "cached": 315.64666699999907
+              },
+              {
+                "uncached": 407.5690419999992,
+                "cached": 316.2429580000007
+              },
+              {
+                "uncached": 406.2439169999998,
+                "cached": 312.9105000000018
+              },
+              {
+                "uncached": 407.65520800000377,
+                "cached": 315.04491699999926
+              },
+              {
+                "uncached": 412.1795409999977,
+                "cached": 315.34012500000244
+              }
+            ],
+            "pairedMedianRatio": 0.772169083090522,
+            "pairedMedianDelta": -93.1325420000012,
+            "ratio95PercentileBootstrap": [
+              0.765055257800882,
+              0.7759248750792053
+            ]
+          },
+          "cpuSeconds": {
+            "pairs": [
+              {
+                "uncached": 0.43000000000000005,
+                "cached": 0.35
+              },
+              {
+                "uncached": 0.43000000000000005,
+                "cached": 0.35
+              },
+              {
+                "uncached": 0.43000000000000005,
+                "cached": 0.33999999999999997
+              },
+              {
+                "uncached": 0.43000000000000005,
+                "cached": 0.35
+              },
+              {
+                "uncached": 0.43000000000000005,
+                "cached": 0.35
+              }
+            ],
+            "pairedMedianRatio": 0.8139534883720929,
+            "pairedMedianDelta": -0.08000000000000007,
+            "ratio95PercentileBootstrap": [
+              0.7906976744186045,
+              0.8139534883720929
+            ]
+          },
+          "peakRssBytes": {
+            "pairs": [
+              {
+                "uncached": 57049088,
+                "cached": 57081856
+              },
+              {
+                "uncached": 57131008,
+                "cached": 56983552
+              },
+              {
+                "uncached": 57081856,
+                "cached": 57081856
+              },
+              {
+                "uncached": 56967168,
+                "cached": 57114624
+              },
+              {
+                "uncached": 57098240,
+                "cached": 57131008
+              }
+            ],
+            "pairedMedianRatio": 1.000573888091822,
+            "pairedMedianDelta": 32768,
+            "ratio95PercentileBootstrap": [
+              0.9974189848006882,
+              1.002588438308887
+            ]
+          }
+        },
+        "hostIdleRange": [
+          0.7629074127487742,
+          0.7976556776556777
+        ]
+      },
+      "evidence": [
+        {
+          "path": "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/e02-measurement-1791081733913/samples.json",
+          "sha256": "40266282b1266ef38688f8ed6dbaf4d180b00f86836e11091d06ebc67f6482a1"
+        },
+        {
+          "path": "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/e02-invalidation-1791081621471/results.json",
+          "sha256": "5a80fa90d6ff38af17a5d2484312b36ea0fd4a42cc34f2b067e5d1ed5c45da46"
+        },
+        {
+          "path": "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/e02-paths-1791081937504/results.json",
+          "sha256": "61a5b4afdf5855103bcb0e85861fcbf06d20d5f47064d2e1401f4c73807eb8e6"
+        },
+        {
+          "path": "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/e02-auth-environment-fixed.log",
+          "sha256": "5c5e8c49ac2bfc587211ccb7026e2a92abe59591f64cec47fd80c9e352bbe0a2"
+        }
+      ]
     }
   ],
   "reverse_census": {
@@ -15797,10 +15960,10 @@
   "measurements": {
     "path": "zig17-samples.json.gz",
     "format": "gzip-compressed JSON",
-    "sha256": "6a56fbb1e69c6695c15a281132a00a257dfe1e1b0527426baa0a5674e49583c1",
+    "sha256": "4d0783aa87b8ad933eba045c25661d6e232a79bcc004859c79c5cd084dde5e10",
     "method": "Median of paired window ratios and deltas. 20,000 independent-window bootstrap resamples with replacement, percentile 95% interval, xorshift32 initial seed 0x20261003. Three cold build pairs and five runtime/phase windows; no inner sample is treated as an independent window. OS page cache was not flushed. RSS is the maximum reported by /usr/bin/time, not a sum over concurrent children.",
     "conditions": "Serialized local experiments on macOS arm64 with ordinary desktop background activity; CPU/load observations retained. No dedicated-machine or uncontended-host claim.",
-    "scope": "E01 native phase attribution, E03 build and fresh emitter costs, E04 isolated reflection candidate, E06 native allocator attribution. Remaining dimensions and experiments are open."
+    "scope": "E01 native phase attribution, E03 build and fresh emitter costs, E04 isolated reflection candidate, E06 native allocator attribution. Remaining dimensions and experiments are open. E02 repaired warm configuration caching, mutation checks and retained failure evidence."
   },
   "editor": {
     "observed": "zls not found on host PATH; no tracked .vscode/.zed/zls.json configuration found",

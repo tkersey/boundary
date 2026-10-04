@@ -13,7 +13,7 @@ all experiments, acceptance cases, or final reviews have passed.
 
 | Order | Draft PR | Executed source snapshot | Current evidence |
 |---|---|---|---|
-| 1 | [Boundary #164](https://github.com/tkersey/boundary/pull/164) | `9e68b6e8382a24e22f8b34986e4e7fb21ec80d31` | macOS aggregate: 323 steps; Linux aggregate and independent authoring package passed |
+| 1 | [Boundary #164](https://github.com/tkersey/boundary/pull/164) | `024fca985a881ffa25529f9b149d1cd5d72afa52` | macOS aggregate: 317 steps; Linux: 317 steps and 857 tests; independent authoring package passed |
 | 2 | [World #62](https://github.com/tkersey/world/pull/62) | `50cc310d2027a1392ad1c864506300c3ab55f442` | macOS aggregate: 48 steps, with native/storage suites; Linux delivered runtime independently acquired and smoked |
 | 3 | [Agent #42](https://github.com/tkersey/agent/pull/42) | `f7fe530ec170290b40dd52bdfabc0b7266990690` | Linux: 430 steps and 218 tests passed; matching implementation passed 528 macOS steps and 218 Zig tests, including consumer/browser/mobility checks |
 
@@ -41,6 +41,21 @@ without changing the installed executable bytes or modification time.
   retained captures, cleanup, and borrowing. Program bytes and optimizer work
   counts agree. Native requested allocation peaks change; timings from the
   concurrent correctness probe are not performance evidence.
+- **E02, configuration caching: retained with an environment repair.** On the
+  maintained Agent mobility-authoring check, five paired warm windows measure
+  about 23% less elapsed time and 19% less CPU than forcing reconfiguration
+  with the same compiler and graph. Authentication executes on all 120 calls.
+  Peak-RSS differences are mixed, with no clear regression. A changed-PATH
+  probe exposed a real false hit: removing `NODE_TEST_CONTEXT` while configuring
+  a Run step serialized the entire old environment. Boundary, World, and Agent
+  now remove that variable at process launch. The regression checks successive
+  tool selections on a warm graph and rejects 24 source/inventory/permission/
+  lock mutations across all four Agent exports. Imported-build and source edits,
+  optimization, target, prefix, package root, and authenticated source overrides
+  are also exercised; 23 cross-target outputs match their native bytes. These
+  measurements do not estimate every cold build or standalone-helper cost.
+  The narrow helper cache opt-out for the separate sibling-build-file defect
+  remains. Final cross-platform qualification is still open.
 - **E03, emitter reuse: selected.** The candidate compiles one economy emitter
   instead of four and retains a fresh process for each configuration. Both
   variants pass 227 authoring tests. All four BPI3 outputs are byte-identical;
