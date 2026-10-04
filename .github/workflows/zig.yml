@@ -7,7 +7,7 @@ on:
     inputs:
       mode:
         type: choice
-        options: [pilot, lock, measure]
+        options: [pilot, lock, measure, backend]
         default: lock
 permissions:
   contents: read
@@ -40,14 +40,25 @@ jobs:
       - name: Permanent external-consumer watcher regression
         if: inputs.mode == 'lock'
         run: AGENT_ZIG_EXE="$(command -v zig)" node --test --test-name-pattern='all source-override' lock-agent/test/agent4/consumer_build.test.mjs
+      - name: Acquire frozen World backend subject
+        if: inputs.mode == 'backend'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: tkersey/world
+          ref: 50cc310d2027a1392ad1c864506300c3ab55f442
+          path: backend-world
+          persist-credentials: false
+      - name: Alternate backend hard-gate comparison
+        if: inputs.mode == 'backend'
+        run: node test/experiments/zig17/backend_probe.mjs "$PWD/backend-world"
       - name: Linux incremental correctness pilot
-        if: inputs.mode != 'lock'
+        if: inputs.mode == 'pilot'
         run: node test/experiments/zig17/incremental.mjs
       - name: Retain experiment evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: zig17-incremental-pilot
+          name: zig17-${{ inputs.mode }}-experiment
           path: |
             ${{ runner.temp }}/zig17-incremental-*/result.json
             ${{ runner.temp }}/zig17-incremental-*/*.log
@@ -55,6 +66,8 @@ jobs:
             ${{ runner.temp }}/zig17-lock-*/result.json
             ${{ runner.temp }}/zig17-lock-*/*.log
             ${{ runner.temp }}/zig17-lock-*/watch.stderr
+            ${{ runner.temp }}/zig17-backend-*/result.json
+            ${{ runner.temp }}/zig17-backend-*/*.log
           if-no-files-found: error
   measured:
     if: inputs.mode == 'measure'
