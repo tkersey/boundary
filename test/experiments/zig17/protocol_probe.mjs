@@ -67,12 +67,17 @@ function groupExists(pid){
 }
 function signalGroup(pid,signal){try{process.kill(-pid,signal);}catch(error){if(!['ESRCH','EPERM'].includes(error.code)||groupExists(pid))throw error;}}
 
+async function waitForClose(closed,ms){
+  let timer;
+  try { await Promise.race([closed,new Promise(resolve=>{timer=setTimeout(resolve,ms);})]); }
+  finally { clearTimeout(timer); }
+}
 async function retire(child,closed){
   if(!child.pid)return;
-  await Promise.race([closed,delay(25)]);
-  if(groupExists(child.pid)){signalGroup(child.pid,'SIGTERM');await Promise.race([closed,delay(500)]);}
+  await waitForClose(closed,25);
+  if(groupExists(child.pid)){signalGroup(child.pid,'SIGTERM');await waitForClose(closed,500);}
   if(groupExists(child.pid))signalGroup(child.pid,'SIGKILL');
-  await Promise.race([closed,delay(1000)]);
+  await waitForClose(closed,1000);
   for(let i=0;i<20&&groupExists(child.pid);i++)await delay(50);
   if(groupExists(child.pid))throw Error('BuildProcessGroupSurvived');
 }

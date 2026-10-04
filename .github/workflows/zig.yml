@@ -7,12 +7,13 @@ on:
     inputs:
       mode:
         type: choice
-        options: [pilot, lock]
+        options: [pilot, lock, measure]
         default: lock
 permissions:
   contents: read
 jobs:
   native:
+    if: inputs.mode != 'measure'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -54,4 +55,37 @@ jobs:
             ${{ runner.temp }}/zig17-lock-*/result.json
             ${{ runner.temp }}/zig17-lock-*/*.log
             ${{ runner.temp }}/zig17-lock-*/watch.stderr
+          if-no-files-found: error
+  measured:
+    if: inputs.mode == 'measure'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: true
+      max-parallel: 2
+      matrix:
+        window: [0, 1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '26.9.0'
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29
+        with:
+          version: '0.17.0'
+      - name: Paired persistent and fresh edit window
+        env:
+          E05_WINDOW: ${{ matrix.window }}
+        run: node test/experiments/zig17/incremental_measure.mjs
+      - name: Retain raw window and failure evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: zig17-incremental-window-${{ matrix.window }}
+          path: |
+            ${{ runner.temp }}/zig17-measured-*/result.json
+            ${{ runner.temp }}/zig17-measured-*/*.log
+            ${{ runner.temp }}/zig17-measured-*/incremental.stderr
           if-no-files-found: error
