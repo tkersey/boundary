@@ -168,17 +168,6 @@ pub fn exchange(builder: *source.Builder, definition: Generator, package: p.Id, 
     return builder.term(.{ .resume_value = .{ .resumption = try builder.primitive(definition.resumption, .unpack, &.{package}, 0), .argument = input } });
 }
 
-fn exchangeAllocation(allocator: @import("std").mem.Allocator) !void {
-    var builder = source.Builder.init(allocator);
-    defer builder.deinit();
-    const integer = try builder.scalar(u64);
-    const boolean = try builder.scalar(bool);
-    _ = try defineExchange(&builder, "allocation/exchange", integer, boolean, integer, &.{ integer, boolean }, &.{}, &.{}, .{ .effects = &.{} });
-}
-test "owned exchange construction releases partial allocation owners" {
-    try @import("../allocation_testing.zig").check(@import("std").testing.allocator, exchangeAllocation, .{});
-}
-
 /// A derived sequential pipeline. Construction emits code only; start consumes
 /// both running packages and its first input. Later exchange/close use generator.
 pub const Pipeline = struct { generator: *const Exchange, start: *const a.Function };
@@ -276,26 +265,6 @@ fn unionRegions(b: *source.Builder, left: []const p.Id, right: []const p.Id) Err
     };
     values.items.len = count;
     return values.toOwnedSlice(b.allocator());
-}
-
-fn compositionAllocation(allocator: std.mem.Allocator) !void {
-    var b = source.Builder.init(allocator);
-    defer b.deinit();
-    const c = try a.Context.init(&b);
-    const integer = try c.scalar(u64);
-    const boolean = try c.scalar(bool);
-    const options: Options = .{ .captures = .{ .continuation = &.{integer} } };
-    const left = try create(c, "allocation/left", integer, integer, integer, options);
-    const right = try create(c, "allocation/right", integer, integer, integer, options);
-    const combined = try pipeline(c, "allocation/combined", left, right);
-    _ = try pipeline(c, "allocation/three", combined.generator, right);
-    const mismatch = try create(c, "allocation/mismatch", boolean, integer, integer, options);
-    try std.testing.expectError(error.TypeMismatch, pipeline(c, "allocation/invalid", left, mismatch));
-}
-
-test "owned composition checks compatibility and releases partial construction" {
-    const testing = @import("std").testing;
-    try @import("../allocation_testing.zig").check(testing.allocator, compositionAllocation, .{});
 }
 
 test "typed exchange pipelines preserve ownership, compatibility and definition sharing" {

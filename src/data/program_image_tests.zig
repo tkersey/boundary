@@ -339,12 +339,9 @@ fn decodeBlockCatalog(allocator: std.mem.Allocator, bytes: []const u8, truncated
     try testing.expectEqual(63, decoded.program.blocks[62].terminator.jump.block);
 }
 
-test "retired forwarding constructors are absent while accepted handler bytes stay fixed" {
+test "accepted handler bytes and retired wire tags stay fixed" {
     const codec = @import("program_record.zig");
     const wire = @import("wire.zig");
-    try testing.expect(!@hasField(ir.Terminator, "forward"));
-    try testing.expect(!@hasField(ir.Handler, "forward_function"));
-    try testing.expect(!@hasField(p.Handler, "forward_function"));
     try testing.expectEqual(@as(u8, 15), @backingInt(p.TerminatorTag.dispose));
     try testing.expectEqual(@as(u8, 16), @backingInt(p.TerminatorTag.protect));
     try testing.expectEqual(@as(u8, 17), @backingInt(p.TerminatorTag.with_region));

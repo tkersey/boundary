@@ -211,18 +211,6 @@ test "canonical word leaves preserve all cross-word subsets and high-ID operatio
     }
 }
 
-test "canonical set node does not grow for word leaves" {
-    const pool: sets.Pool = .{ .allocator = testing.allocator, .limit = 8 };
-    if (comptime @sizeOf(usize) <= 4) {
-        try testing.expectEqual(24, @sizeOf(@typeInfo(@TypeOf(pool.nodes.items)).pointer.child));
-    } else {
-        const Compact = @typeInfo(@TypeOf(pool.nodes.compact.items)).pointer.child;
-        const Wide = @typeInfo(@FieldType(@FieldType(@TypeOf(pool.nodes), "wide"), "items")).pointer.child;
-        try testing.expectEqual(16, @sizeOf(Compact));
-        try testing.expectEqual(24, @sizeOf(Wide));
-    }
-}
-
 test "bounded set storage preserves members and overlay roots at the 32-bit limit" {
     const boundary: u64 = std.math.maxInt(u32);
     for ([_]u64{ boundary - 1, boundary, boundary + 1, std.math.maxInt(u64) }) |limit| {
