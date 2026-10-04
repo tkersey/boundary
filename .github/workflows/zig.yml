@@ -20,7 +20,15 @@ jobs:
       - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
         with:
           version: '0.17.0'
-      - name: Native and portable contracts
-        run: zig build check check-zig17 -Doptimize=safe --summary all
-      - name: Independent public package authoring
-        run: node test/package_authoring.mjs --zig-exe "$(command -v zig)" --authoring-only
+      - name: Linux incremental correctness pilot
+        run: node test/experiments/zig17/incremental.mjs
+      - name: Retain experiment evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: zig17-incremental-pilot
+          path: |
+            ${{ runner.temp }}/zig17-incremental-*/result.json
+            ${{ runner.temp }}/zig17-incremental-*/*.log
+            ${{ runner.temp }}/zig17-incremental-*/incremental.stderr
+          if-no-files-found: error

@@ -257,6 +257,7 @@ test/authoring_economy.zig
 test/authoring_twice_reference.zig
 test/build_authoring_economy.zig
 test/build_hyper_compiler.zig
+test/experiments/zig17/build_config_reader.zig
 test/hyper_allocation.zig
 test/hyper_compile_bench.zig
 test/package_authoring/build.zig
