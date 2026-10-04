@@ -15771,47 +15771,6 @@
       ]
     },
     {
-      "id": "E06",
-      "status": "diagnostic ablation and allocator attribution executed; costs pending",
-      "evidence": [
-        {
-          "path": "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/e06-no-locks.patch",
-          "sha256": "6d429202660a4363a3a1f147fc7fd69cafc5ef201c11cf29248ca68a27eb91bf"
-        },
-        {
-          "path": "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/e06-production-ablation.log",
-          "sha256": "a077b7bf240a0489b831141ec1af17bfb3404fdaea7b580faa1123fb8e9956e0"
-        },
-        {
-          "path": "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/e06-ablation-check.log",
-          "sha256": "acdb52f386a153d798a2a90a4fee4d3355bd7bdd193875d1711432ed475ec8b1"
-        },
-        {
-          "path": "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/e06-native-allocator-proof.json",
-          "sha256": "260702b2cff2d6e5da459a57bcec5342f9e735259884c01f962c5e38525497ad"
-        }
-      ]
-    },
-    {
-      "id": "E07",
-      "status": "blocked by official self-hosted backend/linker; not promoted or classified as a completed experiment",
-      "reason": "undefined data: __heap_base; self-hosted backends do not support linking with LLD",
-      "evidence": [
-        {
-          "path": "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/e07-alternate-build.log",
-          "sha256": "5c81426c0aa379cec389a6f9e01b630a62278e49ebb98044f118be52d862e39b"
-        },
-        {
-          "path": "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/e07-alternate-lld-build.log",
-          "sha256": "66ad55d57e1925fac5da7f3a8c0c9409f28830f14d992fd018155ba7c7ae366d"
-        },
-        {
-          "path": "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/e07-reproducer/results.json",
-          "sha256": "9876c56877ab4b27440acc83249710719ff9f657939505b0067f7b42d3764f21"
-        }
-      ]
-    },
-    {
       "id": "E02",
       "status": "retain main-graph caching with launch-time environment repair; evaluated on macOS; final cross-platform qualification remains open",
       "decision": {
@@ -15936,16 +15895,6 @@
           "sha256": "5c5e8c49ac2bfc587211ccb7026e2a92abe59591f64cec47fd80c9e352bbe0a2"
         }
       ]
-    },
-    {
-      "id": "E05",
-      "status": "Four Linux source/configuration edit classes pass. The actual Agent lock edit failed to wake authentication; fresh rejection and restored success pass. Explicit Run file-input repair is in progress; repeated sampling remains open.",
-      "conditions": "One correctness pilot, not a deciding speedup result. Initial compilation and fresh comparison warm different compiler caches. Incidental no-compile watcher cycles are retained separately instead of being mistaken for the next edit. Canonical outputs are compared after every credited cycle.",
-      "workflows": [
-        "https://github.com/tkersey/boundary/actions/runs/37172817642",
-        "https://github.com/tkersey/boundary/actions/runs/37173174696"
-      ],
-      "lockCase": "https://github.com/tkersey/boundary/actions/runs/37174051662"
     },
     {
       "id": "E10",
@@ -16138,6 +16087,2764 @@
           }
         }
       ]
+    },
+    {
+      "id": "E06",
+      "decision": {
+        "status": "retain bounded borrow diagnostics",
+        "reason": "Existing injected growth/shift faults are detected. Five paired windows at 128/256/512 continuations preserve all checkpoint/outcome bytes and zero retained workspace, with fixed mutation work; no confirmed >5% latency regression. The lock-call ablation retains container layout, so it does not measure away layout growth.",
+        "acceptedCost": "Native process peak RSS has a paired median increase of 16,384 bytes in each tested case. WASM H128 increases by 917,504 process RSS bytes; other process RSS differences are mixed. Requested workspace peaks, live checkpoint storage and reserved WASM memory match exactly. Safe Store layout grows 624→696 bytes and Slots(u64) 136→144 bytes: constant per owner, not per frame. This diagnostic safety cost is accepted without changing any production capacity.",
+        "scope": "Six fixed-work N/2N/4N cases, native safe and production WASM, five windows. Native compiler SafeAllocator phase costs remain separately reported and require their own decision."
+      },
+      "metrics": {
+        "method": "Five paired window medians; 20,000 independent-window percentile bootstrap resamples, xorshift32 seed0x20261003. Internal nine samples are not independent windows. Ratio is diagnostics-on / lock-call ablation. Native and WASM are separate lanes.",
+        "hostIdleRange": [
+          0.77847891066091,
+          0.8229823978744603
+        ],
+        "rows": [
+          {
+            "engine": "native",
+            "mode": "H",
+            "depth": 128,
+            "totalNs": {
+              "offMedian": 490083,
+              "onMedian": 500583,
+              "pairedMedianRatio": 1.0137527541960987,
+              "pairedMedianDelta": 6791,
+              "ratio95PercentileBootstrap": [
+                0.9955290611028316,
+                1.0321394539292323
+              ]
+            },
+            "preparationNs": {
+              "offMedian": 123208,
+              "onMedian": 125250,
+              "pairedMedianRatio": 1.0241963840348023,
+              "pairedMedianDelta": 2959,
+              "ratio95PercentileBootstrap": [
+                0.9939127329394195,
+                1.0429371196754564
+              ]
+            },
+            "executionNs": {
+              "offMedian": 366375,
+              "onMedian": 372042,
+              "pairedMedianRatio": 1.0112195912804294,
+              "pairedMedianDelta": 4083,
+              "ratio95PercentileBootstrap": [
+                0.9958792970754233,
+                1.0346857727737973
+              ]
+            },
+            "mutationNs": {
+              "offMedian": 41292,
+              "onMedian": 41833,
+              "pairedMedianRatio": 1.0172158054711247,
+              "pairedMedianDelta": 708,
+              "ratio95PercentileBootstrap": [
+                1.0000239285970665,
+                1.0334688313901128
+              ]
+            },
+            "peakRssBytes": {
+              "offMedian": 137674752,
+              "onMedian": 137691136,
+              "pairedMedianRatio": 1.00011900511722,
+              "pairedMedianDelta": 16384,
+              "ratio95PercentileBootstrap": [
+                1.00011900511722,
+                1.00011900511722
+              ]
+            }
+          },
+          {
+            "engine": "wasm",
+            "mode": "H",
+            "depth": 128,
+            "totalNs": {
+              "offMedian": 2161375,
+              "onMedian": 2171750,
+              "pairedMedianRatio": 1.0014534876773784,
+              "pairedMedianDelta": 3041,
+              "ratio95PercentileBootstrap": [
+                0.9760758776241976,
+                1.0558981144269906
+              ]
+            },
+            "preparationNs": {
+              "offMedian": 553167,
+              "onMedian": 553792,
+              "pairedMedianRatio": 1.0056657933542357,
+              "pairedMedianDelta": 3166,
+              "ratio95PercentileBootstrap": [
+                0.9843003776938458,
+                1.1426046264291412
+              ]
+            },
+            "executionNs": {
+              "offMedian": 1608208,
+              "onMedian": 1612333,
+              "pairedMedianRatio": 0.9948834554569996,
+              "pairedMedianDelta": -8292,
+              "ratio95PercentileBootstrap": [
+                0.9635640074211502,
+                1.0587421406710207
+              ]
+            },
+            "mutationNs": {
+              "offMedian": 436000,
+              "onMedian": 436542,
+              "pairedMedianRatio": 1.001608023766046,
+              "pairedMedianDelta": 708,
+              "ratio95PercentileBootstrap": [
+                0.9672418835916935,
+                1.0257419745608722
+              ]
+            },
+            "peakRssBytes": {
+              "offMedian": 84000768,
+              "onMedian": 84557824,
+              "pairedMedianRatio": 1.0109954839976438,
+              "pairedMedianDelta": 917504,
+              "ratio95PercentileBootstrap": [
+                0.9734062617880045,
+                1.0217136150234742
+              ]
+            }
+          },
+          {
+            "engine": "native",
+            "mode": "H",
+            "depth": 256,
+            "totalNs": {
+              "offMedian": 833625,
+              "onMedian": 834208,
+              "pairedMedianRatio": 0.9994537317990114,
+              "pairedMedianDelta": -458,
+              "ratio95PercentileBootstrap": [
+                0.9777970757642889,
+                1.0226380554277492
+              ]
+            },
+            "preparationNs": {
+              "offMedian": 127834,
+              "onMedian": 128583,
+              "pairedMedianRatio": 1.0071749159923864,
+              "pairedMedianDelta": 916,
+              "ratio95PercentileBootstrap": [
+                0.9512041318839709,
+                1.0345964668111152
+              ]
+            },
+            "executionNs": {
+              "offMedian": 703375,
+              "onMedian": 703000,
+              "pairedMedianRatio": 1.000116648068561,
+              "pairedMedianDelta": 83,
+              "ratio95PercentileBootstrap": [
+                0.9844439952951612,
+                1.0189631506398595
+              ]
+            },
+            "mutationNs": {
+              "offMedian": 41792,
+              "onMedian": 41958,
+              "pairedMedianRatio": 1.0060240963855422,
+              "pairedMedianDelta": 250,
+              "ratio95PercentileBootstrap": [
+                0.9871967495807054,
+                1.0677880934150077
+              ]
+            },
+            "peakRssBytes": {
+              "offMedian": 138051584,
+              "onMedian": 138067968,
+              "pairedMedianRatio": 1.0001186802753383,
+              "pairedMedianDelta": 16384,
+              "ratio95PercentileBootstrap": [
+                1.0001186802753383,
+                1.0002373887240357
+              ]
+            }
+          },
+          {
+            "engine": "wasm",
+            "mode": "H",
+            "depth": 256,
+            "totalNs": {
+              "offMedian": 2943291,
+              "onMedian": 2897666,
+              "pairedMedianRatio": 0.9881708197284756,
+              "pairedMedianDelta": -34417,
+              "ratio95PercentileBootstrap": [
+                0.9777807717897539,
+                1.0131338009152595
+              ]
+            },
+            "preparationNs": {
+              "offMedian": 417875,
+              "onMedian": 415125,
+              "pairedMedianRatio": 0.9934190846545019,
+              "pairedMedianDelta": -2750,
+              "ratio95PercentileBootstrap": [
+                0.9081517944574472,
+                1.0189037400367873
+              ]
+            },
+            "executionNs": {
+              "offMedian": 2503125,
+              "onMedian": 2493208,
+              "pairedMedianRatio": 0.9910388810079829,
+              "pairedMedianDelta": -22874,
+              "ratio95PercentileBootstrap": [
+                0.9821096065783643,
+                1.0241769636083549
+              ]
+            },
+            "mutationNs": {
+              "offMedian": 392416,
+              "onMedian": 390209,
+              "pairedMedianRatio": 0.9901359555101484,
+              "pairedMedianDelta": -3833,
+              "ratio95PercentileBootstrap": [
+                0.960018655030876,
+                1.0097061000160432
+              ]
+            },
+            "peakRssBytes": {
+              "offMedian": 85704704,
+              "onMedian": 85082112,
+              "pairedMedianRatio": 0.992735614605238,
+              "pairedMedianDelta": -622592,
+              "ratio95PercentileBootstrap": [
+                0.9495395948434623,
+                1.0036538461538462
+              ]
+            }
+          },
+          {
+            "engine": "native",
+            "mode": "H",
+            "depth": 512,
+            "totalNs": {
+              "offMedian": 1543375,
+              "onMedian": 1560583,
+              "pairedMedianRatio": 1.0080827373397774,
+              "pairedMedianDelta": 12374,
+              "ratio95PercentileBootstrap": [
+                0.9826752488819219,
+                1.039172592532599
+              ]
+            },
+            "preparationNs": {
+              "offMedian": 129291,
+              "onMedian": 129875,
+              "pairedMedianRatio": 1.000971817298348,
+              "pairedMedianDelta": 125,
+              "ratio95PercentileBootstrap": [
+                0.9955490858096624,
+                1.0482643343051505
+              ]
+            },
+            "executionNs": {
+              "offMedian": 1415375,
+              "onMedian": 1425375,
+              "pairedMedianRatio": 1.0098120860637694,
+              "pairedMedianDelta": 13750,
+              "ratio95PercentileBootstrap": [
+                0.9770342336143127,
+                1.0319406517707321
+              ]
+            },
+            "mutationNs": {
+              "offMedian": 43750,
+              "onMedian": 43458,
+              "pairedMedianRatio": 1.010671761772724,
+              "pairedMedianDelta": 458,
+              "ratio95PercentileBootstrap": [
+                0.9457287319776556,
+                1.0620591726995507
+              ]
+            },
+            "peakRssBytes": {
+              "offMedian": 138608640,
+              "onMedian": 138625024,
+              "pairedMedianRatio": 1.0001182033096927,
+              "pairedMedianDelta": 16384,
+              "ratio95PercentileBootstrap": [
+                1,
+                1.0001182033096927
+              ]
+            }
+          },
+          {
+            "engine": "wasm",
+            "mode": "H",
+            "depth": 512,
+            "totalNs": {
+              "offMedian": 8056500,
+              "onMedian": 8117334,
+              "pairedMedianRatio": 1.011533171972941,
+              "pairedMedianDelta": 92917,
+              "ratio95PercentileBootstrap": [
+                0.9723291672057682,
+                1.0315816038089014
+              ]
+            },
+            "preparationNs": {
+              "offMedian": 414292,
+              "onMedian": 409042,
+              "pairedMedianRatio": 0.9852133277977851,
+              "pairedMedianDelta": -6126,
+              "ratio95PercentileBootstrap": [
+                0.9649762833983788,
+                1.0349122660878172
+              ]
+            },
+            "executionNs": {
+              "offMedian": 7623667,
+              "onMedian": 7705375,
+              "pairedMedianRatio": 1.0162486110686628,
+              "pairedMedianDelta": 123874,
+              "ratio95PercentileBootstrap": [
+                0.9745870925684486,
+                1.0295176183889876
+              ]
+            },
+            "mutationNs": {
+              "offMedian": 382500,
+              "onMedian": 390916,
+              "pairedMedianRatio": 1.0278256159733707,
+              "pairedMedianDelta": 10709,
+              "ratio95PercentileBootstrap": [
+                0.9594907084239731,
+                1.0357307189542484
+              ]
+            },
+            "peakRssBytes": {
+              "offMedian": 83771392,
+              "onMedian": 83591168,
+              "pairedMedianRatio": 0.993380062305296,
+              "pairedMedianDelta": -557056,
+              "ratio95PercentileBootstrap": [
+                0.9832337637309694,
+                1.028166239905456
+              ]
+            }
+          },
+          {
+            "engine": "native",
+            "mode": "Q",
+            "depth": 128,
+            "totalNs": {
+              "offMedian": 462500,
+              "onMedian": 461250,
+              "pairedMedianRatio": 1.0173697270471465,
+              "pairedMedianDelta": 7875,
+              "ratio95PercentileBootstrap": [
+                0.9778745492272619,
+                1.0364864864864864
+              ]
+            },
+            "preparationNs": {
+              "offMedian": 124959,
+              "onMedian": 127500,
+              "pairedMedianRatio": 1.0171984126984126,
+              "pairedMedianDelta": 2167,
+              "ratio95PercentileBootstrap": [
+                0.964354527938343,
+                1.0456709800814667
+              ]
+            },
+            "executionNs": {
+              "offMedian": 335750,
+              "onMedian": 333916,
+              "pairedMedianRatio": 1.0131469159513689,
+              "pairedMedianDelta": 4333,
+              "ratio95PercentileBootstrap": [
+                0.9799172475403477,
+                1.0377274758004467
+              ]
+            },
+            "mutationNs": {
+              "offMedian": 1500,
+              "onMedian": 1541,
+              "pairedMedianRatio": 1.0273333333333334,
+              "pairedMedianDelta": 41,
+              "ratio95PercentileBootstrap": [
+                0.9740998104864181,
+                1.0273333333333334
+              ]
+            },
+            "peakRssBytes": {
+              "offMedian": 137674752,
+              "onMedian": 137691136,
+              "pairedMedianRatio": 1.00011900511722,
+              "pairedMedianDelta": 16384,
+              "ratio95PercentileBootstrap": [
+                1.00011900511722,
+                1.00011900511722
+              ]
+            }
+          },
+          {
+            "engine": "wasm",
+            "mode": "Q",
+            "depth": 128,
+            "totalNs": {
+              "offMedian": 1946791,
+              "onMedian": 1959459,
+              "pairedMedianRatio": 1.0005535201378695,
+              "pairedMedianDelta": 1084,
+              "ratio95PercentileBootstrap": [
+                0.9881145627352173,
+                1.0513727961386339
+              ]
+            },
+            "preparationNs": {
+              "offMedian": 608292,
+              "onMedian": 612084,
+              "pairedMedianRatio": 1.0068362803547581,
+              "pairedMedianDelta": 4167,
+              "ratio95PercentileBootstrap": [
+                0.9832802599512591,
+                1.035617214424938
+              ]
+            },
+            "executionNs": {
+              "offMedian": 1337958,
+              "onMedian": 1341084,
+              "pairedMedianRatio": 0.9995022265272901,
+              "pairedMedianDelta": -666,
+              "ratio95PercentileBootstrap": [
+                0.9903282804798661,
+                1.050937794327701
+              ]
+            },
+            "mutationNs": {
+              "offMedian": 50500,
+              "onMedian": 51167,
+              "pairedMedianRatio": 1.0132079207920792,
+              "pairedMedianDelta": 667,
+              "ratio95PercentileBootstrap": [
+                0.9527671672509724,
+                1.0175
+              ]
+            },
+            "peakRssBytes": {
+              "offMedian": 81379328,
+              "onMedian": 81805312,
+              "pairedMedianRatio": 0.9997983464408147,
+              "pairedMedianDelta": -16384,
+              "ratio95PercentileBootstrap": [
+                0.973104657961411,
+                1.03987915407855
+              ]
+            }
+          },
+          {
+            "engine": "native",
+            "mode": "Q",
+            "depth": 256,
+            "totalNs": {
+              "offMedian": 788750,
+              "onMedian": 795375,
+              "pairedMedianRatio": 1.0094285714285713,
+              "pairedMedianDelta": 7458,
+              "ratio95PercentileBootstrap": [
+                0.9565544197233915,
+                1.0199683042789223
+              ]
+            },
+            "preparationNs": {
+              "offMedian": 128500,
+              "onMedian": 127666,
+              "pairedMedianRatio": 0.9977135519031548,
+              "pairedMedianDelta": -292,
+              "ratio95PercentileBootstrap": [
+                0.9574902125489373,
+                1.022373540856031
+              ]
+            },
+            "executionNs": {
+              "offMedian": 659375,
+              "onMedian": 668333,
+              "pairedMedianRatio": 1.0151104878874329,
+              "pairedMedianDelta": 10000,
+              "ratio95PercentileBootstrap": [
+                0.9561847779122636,
+                1.0207272037914692
+              ]
+            },
+            "mutationNs": {
+              "offMedian": 1709,
+              "onMedian": 1750,
+              "pairedMedianRatio": 1,
+              "pairedMedianDelta": 0,
+              "ratio95PercentileBootstrap": [
+                0.9525714285714286,
+                1.0239906377998829
+              ]
+            },
+            "peakRssBytes": {
+              "offMedian": 138018816,
+              "onMedian": 138035200,
+              "pairedMedianRatio": 1.0001187084520418,
+              "pairedMedianDelta": 16384,
+              "ratio95PercentileBootstrap": [
+                1.0001187084520418,
+                1.0001187084520418
+              ]
+            }
+          },
+          {
+            "engine": "wasm",
+            "mode": "Q",
+            "depth": 256,
+            "totalNs": {
+              "offMedian": 2624833,
+              "onMedian": 2647458,
+              "pairedMedianRatio": 1.016366374546495,
+              "pairedMedianDelta": 42959,
+              "ratio95PercentileBootstrap": [
+                0.9635993450948893,
+                1.0283055547247846
+              ]
+            },
+            "preparationNs": {
+              "offMedian": 415167,
+              "onMedian": 414333,
+              "pairedMedianRatio": 0.9788349413643537,
+              "pairedMedianDelta": -8959,
+              "ratio95PercentileBootstrap": [
+                0.9636700412123315,
+                1.1235014058106843
+              ]
+            },
+            "executionNs": {
+              "offMedian": 2195333,
+              "onMedian": 2190708,
+              "pairedMedianRatio": 0.9989931214875536,
+              "pairedMedianDelta": -2208,
+              "ratio95PercentileBootstrap": [
+                0.9845215736617746,
+                1.0247689074960382
+              ]
+            },
+            "mutationNs": {
+              "offMedian": 59000,
+              "onMedian": 61292,
+              "pairedMedianRatio": 1.0348164884627018,
+              "pairedMedianDelta": 1957,
+              "ratio95PercentileBootstrap": [
+                0.8829537433193598,
+                1.281894295379058
+              ]
+            },
+            "peakRssBytes": {
+              "offMedian": 84213760,
+              "onMedian": 83820544,
+              "pairedMedianRatio": 0.9988151658767772,
+              "pairedMedianDelta": -98304,
+              "ratio95PercentileBootstrap": [
+                0.9600983358547656,
+                1.0196498054474707
+              ]
+            }
+          },
+          {
+            "engine": "native",
+            "mode": "Q",
+            "depth": 512,
+            "totalNs": {
+              "offMedian": 1500917,
+              "onMedian": 1524333,
+              "pairedMedianRatio": 1.0158265048807664,
+              "pairedMedianDelta": 23749,
+              "ratio95PercentileBootstrap": [
+                0.9949919279730871,
+                1.0404188499901923
+              ]
+            },
+            "preparationNs": {
+              "offMedian": 129709,
+              "onMedian": 132375,
+              "pairedMedianRatio": 1.0238452495127308,
+              "pairedMedianDelta": 3083,
+              "ratio95PercentileBootstrap": [
+                0.95391015097763,
+                1.0595009596928984
+              ]
+            },
+            "executionNs": {
+              "offMedian": 1371292,
+              "onMedian": 1388916,
+              "pairedMedianRatio": 1.012852113189605,
+              "pairedMedianDelta": 17624,
+              "ratio95PercentileBootstrap": [
+                0.9947934430843841,
+                1.0449821826671581
+              ]
+            },
+            "mutationNs": {
+              "offMedian": 2000,
+              "onMedian": 1958,
+              "pairedMedianRatio": 0.979,
+              "pairedMedianDelta": -42,
+              "ratio95PercentileBootstrap": [
+                0.9585,
+                1.0423901940755873
+              ]
+            },
+            "peakRssBytes": {
+              "offMedian": 138608640,
+              "onMedian": 138625024,
+              "pairedMedianRatio": 1.0001182033096927,
+              "pairedMedianDelta": 16384,
+              "ratio95PercentileBootstrap": [
+                1.0001182033096927,
+                1.0001182033096927
+              ]
+            }
+          },
+          {
+            "engine": "wasm",
+            "mode": "Q",
+            "depth": 512,
+            "totalNs": {
+              "offMedian": 7564875,
+              "onMedian": 7513916,
+              "pairedMedianRatio": 1.0030088914341275,
+              "pairedMedianDelta": 22293,
+              "ratio95PercentileBootstrap": [
+                0.9807879851765164,
+                1.013465565207316
+              ]
+            },
+            "preparationNs": {
+              "offMedian": 407666,
+              "onMedian": 403209,
+              "pairedMedianRatio": 0.9951758206895858,
+              "pairedMedianDelta": -1916,
+              "ratio95PercentileBootstrap": [
+                0.9648889606258841,
+                1.0130027214998487
+              ]
+            },
+            "executionNs": {
+              "offMedian": 7135125,
+              "onMedian": 7115875,
+              "pairedMedianRatio": 1.004176104210414,
+              "pairedMedianDelta": 29334,
+              "ratio95PercentileBootstrap": [
+                0.9721084933665681,
+                1.0162335873963666
+              ]
+            },
+            "mutationNs": {
+              "offMedian": 73625,
+              "onMedian": 75459,
+              "pairedMedianRatio": 0.9896254588440241,
+              "pairedMedianDelta": -667,
+              "ratio95PercentileBootstrap": [
+                0.8072370789133795,
+                1.221111663877708
+              ]
+            },
+            "peakRssBytes": {
+              "offMedian": 82903040,
+              "onMedian": 82132992,
+              "pairedMedianRatio": 0.9906542056074766,
+              "pairedMedianDelta": -770048,
+              "ratio95PercentileBootstrap": [
+                0.9621913580246914,
+                1.0147793089674455
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "E07",
+      "decision": {
+        "status": "executed; candidate rejected at kernel-build hard gate",
+        "reason": "Official 0.17 macOS arm64 and Linux x64 compilers reject the actual alternate kernel with undefined data: __heap_base. Explicitly exported LLVM heap controls instantiate and return 65536; neighboring self-hosted value controls instantiate and return 42. The self-hosted heap control fails on both hosts, and self-hosted+LLD is explicitly unsupported. The measured experiment is available and executed; the candidate cannot produce a runnable kernel.",
+        "authority": "Specification 1.2 permits rejecting an unsupported candidate; M07 and W18 require the production kernel and lifecycle gates. Section 19.2 forbids declaring an unexecuted opportunity evaluated. Here the actual kernel build and discriminating controls were executed on both hosts.",
+        "downstream": "Alternate-kernel engine agreement and lifecycle timing are not applicable after the kernel build fails. No claim of alternate engine parity. Production retains LLVM/LLD; no alternate prototype enters production."
+      },
+      "metrics": {
+        "workflow": "https://github.com/tkersey/boundary/actions/runs/37177379116"
+      }
+    },
+    {
+      "id": "E09",
+      "decision": {
+        "status": "reject candidate; retain existing fresh bridge",
+        "reason": "The real checkpointed Agent bridge passes nine lifecycle/recovery cases, thirteen Document cases, and byte equality at every boundary for 1/8/64/1024 turns. Longer conversations can benefit, but complete one-turn replay has a paired median ratio 1.123 and delta +73,959 ns (95% window-bootstrap interval 1.015–2.354). Eight/1024 turns have ratios 0.692/0.817; 64-turn uncertainty crosses one. Mandatory admission priming and retained mutable cache add cost and complexity to the common short lifecycle. No default change is justified across affected workloads.",
+        "cost": "One-turn process RSS is mixed; 8/64/1024-turn paired median process RSS decreases about 8.5/15.7/12.6 MB. Setup/authentication is measured separately. All successful terminal candidate runs have zero working-live bytes. Timings include encode, invoke or drive, portable checkpoint, decode and consumer next action; no model or network time.",
+        "scope": "One real replayable economy conversation and thirteen held-out Document semantics; no claim of universal workload speedup. Only the archived patch and measurement/lifecycle witnesses remain; no production option is added."
+      },
+      "metrics": {
+        "method": "Five paired window medians; 20,000 independent-window percentile bootstrap resamples, xorshift32 seed0x20261003. Three warmups and nine samples per process. Ratio resident/fresh. CPU and RSS cover entire process, including setup, warmup and measured conversations.",
+        "hostIdleRange": [
+          0.7344017616833863,
+          0.7775563582015195
+        ],
+        "rows": [
+          {
+            "turns": 1,
+            "elapsedNs": {
+              "freshMedian": 624334,
+              "residentMedian": 676917,
+              "pairedMedianRatio": 1.122660284795956,
+              "pairedMedianDelta": 73959,
+              "ratio95PercentileBootstrap": [
+                1.015359682224429,
+                2.354308751405498
+              ]
+            },
+            "setupNs": {
+              "freshMedian": 10473542,
+              "residentMedian": 10795792,
+              "pairedMedianRatio": 1.0307680057042785,
+              "pairedMedianDelta": 322250,
+              "ratio95PercentileBootstrap": [
+                1.0050226280605952,
+                1.0938597910737264
+              ]
+            },
+            "peakRssBytes": {
+              "freshMedian": 76398592,
+              "residentMedian": 76627968,
+              "pairedMedianRatio": 0.9974408189379399,
+              "pairedMedianDelta": -196608,
+              "ratio95PercentileBootstrap": [
+                0.9935050876813163,
+                1.0218823029530486
+              ]
+            },
+            "cpuSeconds": {
+              "freshMedian": 0.19,
+              "residentMedian": 0.19,
+              "pairedMedianRatio": 1,
+              "pairedMedianDelta": 0,
+              "ratio95PercentileBootstrap": [
+                1,
+                1.2105263157894737
+              ]
+            }
+          },
+          {
+            "turns": 8,
+            "elapsedNs": {
+              "freshMedian": 3197250,
+              "residentMedian": 2267542,
+              "pairedMedianRatio": 0.692000938306357,
+              "pairedMedianDelta": -984750,
+              "ratio95PercentileBootstrap": [
+                0.5850525518397273,
+                0.7768401806315427
+              ]
+            },
+            "setupNs": {
+              "freshMedian": 10409875,
+              "residentMedian": 11091917,
+              "pairedMedianRatio": 1.0655187502251469,
+              "pairedMedianDelta": 682042,
+              "ratio95PercentileBootstrap": [
+                0.6973629334958775,
+                1.1500375000012206
+              ]
+            },
+            "peakRssBytes": {
+              "freshMedian": 91684864,
+              "residentMedian": 83230720,
+              "pairedMedianRatio": 0.9077912794853467,
+              "pairedMedianDelta": -8454144,
+              "ratio95PercentileBootstrap": [
+                0.8771201107649705,
+                0.933357413761965
+              ]
+            },
+            "cpuSeconds": {
+              "freshMedian": 0.30000000000000004,
+              "residentMedian": 0.25,
+              "pairedMedianRatio": 0.8387096774193548,
+              "pairedMedianDelta": -0.050000000000000044,
+              "ratio95PercentileBootstrap": [
+                0.7575757575757577,
+                0.8965517241379309
+              ]
+            }
+          },
+          {
+            "turns": 64,
+            "elapsedNs": {
+              "freshMedian": 16406167,
+              "residentMedian": 14157167,
+              "pairedMedianRatio": 0.838982556160114,
+              "pairedMedianDelta": -2717042,
+              "ratio95PercentileBootstrap": [
+                0.8256229274300048,
+                1.0182838906173721
+              ]
+            },
+            "setupNs": {
+              "freshMedian": 10861667,
+              "residentMedian": 10240167,
+              "pairedMedianRatio": 0.9820980565583038,
+              "pairedMedianDelta": -182749,
+              "ratio95PercentileBootstrap": [
+                0.9060815627832041,
+                1.116057482405587
+              ]
+            },
+            "peakRssBytes": {
+              "freshMedian": 94076928,
+              "residentMedian": 79069184,
+              "pairedMedianRatio": 0.8314123516256666,
+              "pairedMedianDelta": -15745024,
+              "ratio95PercentileBootstrap": [
+                0.827058621282448,
+                0.8567370850346174
+              ]
+            },
+            "cpuSeconds": {
+              "freshMedian": 0.56,
+              "residentMedian": 0.5,
+              "pairedMedianRatio": 0.8545454545454544,
+              "pairedMedianDelta": -0.08000000000000007,
+              "ratio95PercentileBootstrap": [
+                0.8392857142857142,
+                0.8928571428571428
+              ]
+            }
+          },
+          {
+            "turns": 1024,
+            "elapsedNs": {
+              "freshMedian": 228710708,
+              "residentMedian": 187092000,
+              "pairedMedianRatio": 0.817387965133518,
+              "pairedMedianDelta": -41798084,
+              "ratio95PercentileBootstrap": [
+                0.7895112736501633,
+                0.8466067886359989
+              ]
+            },
+            "setupNs": {
+              "freshMedian": 10651000,
+              "residentMedian": 11164167,
+              "pairedMedianRatio": 1.052976246361844,
+              "pairedMedianDelta": 564250,
+              "ratio95PercentileBootstrap": [
+                0.8681620032995007,
+                1.0842549864640112
+              ]
+            },
+            "peakRssBytes": {
+              "freshMedian": 96796672,
+              "residentMedian": 85016576,
+              "pairedMedianRatio": 0.8678986995208761,
+              "pairedMedianDelta": -12648448,
+              "ratio95PercentileBootstrap": [
+                0.8472538186545336,
+                0.8862559241706162
+              ]
+            },
+            "cpuSeconds": {
+              "freshMedian": 3.46,
+              "residentMedian": 2.94,
+              "pairedMedianRatio": 0.852601156069364,
+              "pairedMedianDelta": -0.5100000000000002,
+              "ratio95PercentileBootstrap": [
+                0.803921568627451,
+                0.8647058823529411
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "E01-runtime",
+      "status": "native compiler-only measurements complete; production WASM/cumulative comparisons remain open",
+      "nativeBuild": {
+        "method": "Three independent bootstrap-cold pairs; medians and paired ratios. No tail or high-confidence population estimate from three pairs.",
+        "rows": [
+          {
+            "metric": "wallSeconds",
+            "pairs": [
+              {
+                "u0": 43.51,
+                "u1": 81.73
+              },
+              {
+                "u0": 43.02,
+                "u1": 81.5
+              },
+              {
+                "u0": 42.97,
+                "u1": 81.6
+              }
+            ],
+            "u0Median": 43.02,
+            "u1Median": 81.6,
+            "pairedMedianRatio": 1.894467689446769,
+            "pairedMedianDelta": 38.48
+          },
+          {
+            "metric": "cpuSeconds",
+            "pairs": [
+              {
+                "u0": 42.81999999999999,
+                "u1": 81.56
+              },
+              {
+                "u0": 42.629999999999995,
+                "u1": 81.28
+              },
+              {
+                "u0": 42.599999999999994,
+                "u1": 81.42999999999999
+              }
+            ],
+            "u0Median": 42.629999999999995,
+            "u1Median": 81.42999999999999,
+            "pairedMedianRatio": 1.9066385174759561,
+            "pairedMedianDelta": 38.74000000000001
+          },
+          {
+            "metric": "peakRssBytes",
+            "pairs": [
+              {
+                "u0": 1584807936,
+                "u1": 1674887168
+              },
+              {
+                "u0": 1582104576,
+                "u1": 1662861312
+              },
+              {
+                "u0": 1582776320,
+                "u1": 1672282112
+              }
+            ],
+            "u0Median": 1582776320,
+            "u1Median": 1672282112,
+            "pairedMedianRatio": 1.0565498680192538,
+            "pairedMedianDelta": 89505792
+          },
+          {
+            "metric": "cacheBytes",
+            "pairs": [
+              {
+                "u0": 88634723,
+                "u1": 97157964
+              },
+              {
+                "u0": 88634723,
+                "u1": 97157964
+              },
+              {
+                "u0": 88634723,
+                "u1": 97157964
+              }
+            ],
+            "u0Median": 88634723,
+            "u1Median": 97157964,
+            "pairedMedianRatio": 1.0961614219745461,
+            "pairedMedianDelta": 8523241
+          },
+          {
+            "metric": "artifactBytes",
+            "pairs": [
+              {
+                "u0": 2674176,
+                "u1": 2678480
+              },
+              {
+                "u0": 2674176,
+                "u1": 2678480
+              },
+              {
+                "u0": 2674176,
+                "u1": 2678480
+              }
+            ],
+            "u0Median": 2674176,
+            "u1Median": 2678480,
+            "pairedMedianRatio": 1.0016094677388474,
+            "pairedMedianDelta": 4304
+          }
+        ]
+      },
+      "runtime": {
+        "workloads": 22,
+        "windows": 5,
+        "warmupsPerProcess": 3,
+        "samplesPerProcess": 9,
+        "details": "e01Runtime.runtime in zig17-samples.json.gz"
+      }
+    },
+    {
+      "id": "E05",
+      "decision": {
+        "status": "evaluated; retain ordinary default, reject making this incremental lane the default",
+        "reason": "Source/type edits improve checked-artifact latency by about 16–18%, but configuration edits have paired median ratio 14.600 (95% independent-window bootstrap 14.358–16.455) and delta +18.677 seconds. Summed retained process RSS reaches 463,339,520 bytes. Ordinary CLI remains the default; private benchmark forces/asserts the same stage2_x86_64 backend for both arms, and does not establish a stock unmodified default-backend claim.",
+        "correctness": "All 240 edit pairs and five restorations match fresh outputs; incidental no-compile cycles remain separate. Processes retire and run-owned files restore. Permanent Agent lock-file inputs repair the actual lost-invalidation witness; both Linux consumer tests pass with zero skips.",
+        "scope": "Bounded qualification witness only. No default flag, service or build-driver change promoted. Persistent summed RSS and fresh maximum-process RSS are distinct quantities."
+      },
+      "summary": {
+        "method": "Five independent Linux job windows with three warmup and nine measured pairs per edit category, alternating arm order. 20,000 independent-window bootstrap, xorshift32 seed0x20261003; ratio incremental/fresh. GitHub jobs used two EPYC CPU models, so absolute durations are stratified and aggregate claims use within-host paired ratios. Persistent memory is sum of live process RSS, not unique/private physical memory; fresh GNU time RSS is maximum process RSS, not a directly comparable summed peak. CPU from /proc live-tree self+waited-child ticks versus GNU time, 10ms tick resolution.",
+        "rows": [
+          {
+            "category": "optimizer",
+            "windows": [
+              {
+                "window": 0,
+                "cpu": "AMD EPYC 7763 64-Core Processor",
+                "elapsedMs": {
+                  "incremental": 14343.233080000035,
+                  "fresh": 17564.919716999982
+                },
+                "cpuSeconds": {
+                  "incremental": 14.67,
+                  "fresh": 25.98
+                },
+                "retainedSumRssMedianBytes": 410021888,
+                "retainedSumRssMaxBytes": 412696576,
+                "freshProcessPeakRssMedianBytes": 256188416
+              },
+              {
+                "window": 1,
+                "cpu": "AMD EPYC 9V74 80-Core Processor",
+                "elapsedMs": {
+                  "incremental": 15080.46746700001,
+                  "fresh": 17986.879482999968
+                },
+                "cpuSeconds": {
+                  "incremental": 15.44,
+                  "fresh": 25.439999999999998
+                },
+                "retainedSumRssMedianBytes": 391655424,
+                "retainedSumRssMaxBytes": 394153984,
+                "freshProcessPeakRssMedianBytes": 253358080
+              },
+              {
+                "window": 2,
+                "cpu": "AMD EPYC 9V74 80-Core Processor",
+                "elapsedMs": {
+                  "incremental": 15161.443563000066,
+                  "fresh": 18118.89825800003
+                },
+                "cpuSeconds": {
+                  "incremental": 15.51,
+                  "fresh": 25.61
+                },
+                "retainedSumRssMedianBytes": 396587008,
+                "retainedSumRssMaxBytes": 399368192,
+                "freshProcessPeakRssMedianBytes": 256331776
+              },
+              {
+                "window": 3,
+                "cpu": "AMD EPYC 7763 64-Core Processor",
+                "elapsedMs": {
+                  "incremental": 14220.605745000008,
+                  "fresh": 17488.098750000005
+                },
+                "cpuSeconds": {
+                  "incremental": 14.56,
+                  "fresh": 25.75
+                },
+                "retainedSumRssMedianBytes": 396333056,
+                "retainedSumRssMaxBytes": 397836288,
+                "freshProcessPeakRssMedianBytes": 256008192
+              },
+              {
+                "window": 4,
+                "cpu": "AMD EPYC 7763 64-Core Processor",
+                "elapsedMs": {
+                  "incremental": 14316.539180000022,
+                  "fresh": 17626.45206899999
+                },
+                "cpuSeconds": {
+                  "incremental": 14.65,
+                  "fresh": 26.080000000000002
+                },
+                "retainedSumRssMedianBytes": 397950976,
+                "retainedSumRssMaxBytes": 399843328,
+                "freshProcessPeakRssMedianBytes": 253550592
+              }
+            ],
+            "elapsedMs": {
+              "pairs": [
+                {
+                  "incremental": 14343.233080000035,
+                  "fresh": 17564.919716999982
+                },
+                {
+                  "incremental": 15080.46746700001,
+                  "fresh": 17986.879482999968
+                },
+                {
+                  "incremental": 15161.443563000066,
+                  "fresh": 18118.89825800003
+                },
+                {
+                  "incremental": 14220.605745000008,
+                  "fresh": 17488.098750000005
+                },
+                {
+                  "incremental": 14316.539180000022,
+                  "fresh": 17626.45206899999
+                }
+              ],
+              "pairedMedianRatio": 0.816584038589036,
+              "pairedMedianDelta": -3221.686636999948,
+              "ratio95PercentileBootstrap": [
+                0.8122189947220755,
+                0.8384148835406992
+              ]
+            },
+            "cpuSeconds": {
+              "pairs": [
+                {
+                  "incremental": 14.67,
+                  "fresh": 25.98
+                },
+                {
+                  "incremental": 15.44,
+                  "fresh": 25.439999999999998
+                },
+                {
+                  "incremental": 15.51,
+                  "fresh": 25.61
+                },
+                {
+                  "incremental": 14.56,
+                  "fresh": 25.75
+                },
+                {
+                  "incremental": 14.65,
+                  "fresh": 26.080000000000002
+                }
+              ],
+              "pairedMedianRatio": 0.5654368932038835,
+              "pairedMedianDelta": -11.19,
+              "ratio95PercentileBootstrap": [
+                0.5617331288343558,
+                0.6069182389937108
+              ]
+            },
+            "cpuStrata": {
+              "AMD EPYC 7763 64-Core Processor": [
+                {
+                  "window": 0,
+                  "incremental": 14343.233080000035,
+                  "fresh": 17564.919716999982
+                },
+                {
+                  "window": 3,
+                  "incremental": 14220.605745000008,
+                  "fresh": 17488.098750000005
+                },
+                {
+                  "window": 4,
+                  "incremental": 14316.539180000022,
+                  "fresh": 17626.45206899999
+                }
+              ],
+              "AMD EPYC 9V74 80-Core Processor": [
+                {
+                  "window": 1,
+                  "incremental": 15080.46746700001,
+                  "fresh": 17986.879482999968
+                },
+                {
+                  "window": 2,
+                  "incremental": 15161.443563000066,
+                  "fresh": 18118.89825800003
+                }
+              ]
+            }
+          },
+          {
+            "category": "authoring",
+            "windows": [
+              {
+                "window": 0,
+                "cpu": "AMD EPYC 7763 64-Core Processor",
+                "elapsedMs": {
+                  "incremental": 14349.86073299998,
+                  "fresh": 17604.97082399996
+                },
+                "cpuSeconds": {
+                  "incremental": 14.7,
+                  "fresh": 25.93
+                },
+                "retainedSumRssMedianBytes": 413057024,
+                "retainedSumRssMaxBytes": 413564928,
+                "freshProcessPeakRssMedianBytes": 255025152
+              },
+              {
+                "window": 1,
+                "cpu": "AMD EPYC 9V74 80-Core Processor",
+                "elapsedMs": {
+                  "incremental": 15112.328519999981,
+                  "fresh": 18180.83912899997
+                },
+                "cpuSeconds": {
+                  "incremental": 15.47,
+                  "fresh": 25.669999999999998
+                },
+                "retainedSumRssMedianBytes": 396980224,
+                "retainedSumRssMaxBytes": 397275136,
+                "freshProcessPeakRssMedianBytes": 255008768
+              },
+              {
+                "window": 2,
+                "cpu": "AMD EPYC 9V74 80-Core Processor",
+                "elapsedMs": {
+                  "incremental": 15114.34511600004,
+                  "fresh": 18078.182944
+                },
+                "cpuSeconds": {
+                  "incremental": 15.48,
+                  "fresh": 25.65
+                },
+                "retainedSumRssMedianBytes": 401731584,
+                "retainedSumRssMaxBytes": 401985536,
+                "freshProcessPeakRssMedianBytes": 254672896
+              },
+              {
+                "window": 3,
+                "cpu": "AMD EPYC 7763 64-Core Processor",
+                "elapsedMs": {
+                  "incremental": 14226.27755400003,
+                  "fresh": 17423.18189300003
+                },
+                "cpuSeconds": {
+                  "incremental": 14.55,
+                  "fresh": 25.56
+                },
+                "retainedSumRssMedianBytes": 401362944,
+                "retainedSumRssMaxBytes": 401838080,
+                "freshProcessPeakRssMedianBytes": 254509056
+              },
+              {
+                "window": 4,
+                "cpu": "AMD EPYC 7763 64-Core Processor",
+                "elapsedMs": {
+                  "incremental": 14346.659421000048,
+                  "fresh": 17724.540731999907
+                },
+                "cpuSeconds": {
+                  "incremental": 14.71,
+                  "fresh": 26.23
+                },
+                "retainedSumRssMedianBytes": 403599360,
+                "retainedSumRssMaxBytes": 403853312,
+                "freshProcessPeakRssMedianBytes": 254652416
+              }
+            ],
+            "elapsedMs": {
+              "pairs": [
+                {
+                  "incremental": 14349.86073299998,
+                  "fresh": 17604.97082399996
+                },
+                {
+                  "incremental": 15112.328519999981,
+                  "fresh": 18180.83912899997
+                },
+                {
+                  "incremental": 15114.34511600004,
+                  "fresh": 18078.182944
+                },
+                {
+                  "incremental": 14226.27755400003,
+                  "fresh": 17423.18189300003
+                },
+                {
+                  "incremental": 14346.659421000048,
+                  "fresh": 17724.540731999907
+                }
+              ],
+              "pairedMedianRatio": 0.816514322204006,
+              "pairedMedianDelta": -3196.9043390000006,
+              "ratio95PercentileBootstrap": [
+                0.8094234788887122,
+                0.8360544399190499
+              ]
+            },
+            "cpuSeconds": {
+              "pairs": [
+                {
+                  "incremental": 14.7,
+                  "fresh": 25.93
+                },
+                {
+                  "incremental": 15.47,
+                  "fresh": 25.669999999999998
+                },
+                {
+                  "incremental": 15.48,
+                  "fresh": 25.65
+                },
+                {
+                  "incremental": 14.55,
+                  "fresh": 25.56
+                },
+                {
+                  "incremental": 14.71,
+                  "fresh": 26.23
+                }
+              ],
+              "pairedMedianRatio": 0.5692488262910799,
+              "pairedMedianDelta": -11.009999999999998,
+              "ratio95PercentileBootstrap": [
+                0.5608082348455967,
+                0.6035087719298247
+              ]
+            },
+            "cpuStrata": {
+              "AMD EPYC 7763 64-Core Processor": [
+                {
+                  "window": 0,
+                  "incremental": 14349.86073299998,
+                  "fresh": 17604.97082399996
+                },
+                {
+                  "window": 3,
+                  "incremental": 14226.27755400003,
+                  "fresh": 17423.18189300003
+                },
+                {
+                  "window": 4,
+                  "incremental": 14346.659421000048,
+                  "fresh": 17724.540731999907
+                }
+              ],
+              "AMD EPYC 9V74 80-Core Processor": [
+                {
+                  "window": 1,
+                  "incremental": 15112.328519999981,
+                  "fresh": 18180.83912899997
+                },
+                {
+                  "window": 2,
+                  "incremental": 15114.34511600004,
+                  "fresh": 18078.182944
+                }
+              ]
+            }
+          },
+          {
+            "category": "type",
+            "windows": [
+              {
+                "window": 0,
+                "cpu": "AMD EPYC 7763 64-Core Processor",
+                "elapsedMs": {
+                  "incremental": 14601.238324000034,
+                  "fresh": 17603.035935999826
+                },
+                "cpuSeconds": {
+                  "incremental": 15.54,
+                  "fresh": 26.04
+                },
+                "retainedSumRssMedianBytes": 447782912,
+                "retainedSumRssMaxBytes": 461811712,
+                "freshProcessPeakRssMedianBytes": 254935040
+              },
+              {
+                "window": 1,
+                "cpu": "AMD EPYC 9V74 80-Core Processor",
+                "elapsedMs": {
+                  "incremental": 15356.260950000025,
+                  "fresh": 18222.204099999974
+                },
+                "cpuSeconds": {
+                  "incremental": 16.22,
+                  "fresh": 25.75
+                },
+                "retainedSumRssMedianBytes": 427560960,
+                "retainedSumRssMaxBytes": 444358656,
+                "freshProcessPeakRssMedianBytes": 256376832
+              },
+              {
+                "window": 2,
+                "cpu": "AMD EPYC 9V74 80-Core Processor",
+                "elapsedMs": {
+                  "incremental": 15436.932820999995,
+                  "fresh": 18230.737916999962
+                },
+                "cpuSeconds": {
+                  "incremental": 16.35,
+                  "fresh": 25.81
+                },
+                "retainedSumRssMedianBytes": 438870016,
+                "retainedSumRssMaxBytes": 462446592,
+                "freshProcessPeakRssMedianBytes": 254779392
+              },
+              {
+                "window": 3,
+                "cpu": "AMD EPYC 7763 64-Core Processor",
+                "elapsedMs": {
+                  "incremental": 14738.960520999972,
+                  "fresh": 17616.240824999986
+                },
+                "cpuSeconds": {
+                  "incremental": 15.67,
+                  "fresh": 25.91
+                },
+                "retainedSumRssMedianBytes": 432050176,
+                "retainedSumRssMaxBytes": 447463424,
+                "freshProcessPeakRssMedianBytes": 253378560
+              },
+              {
+                "window": 4,
+                "cpu": "AMD EPYC 7763 64-Core Processor",
+                "elapsedMs": {
+                  "incremental": 14672.305389000103,
+                  "fresh": 17795.590160000138
+                },
+                "cpuSeconds": {
+                  "incremental": 15.63,
+                  "fresh": 26.32
+                },
+                "retainedSumRssMedianBytes": 445898752,
+                "retainedSumRssMaxBytes": 463339520,
+                "freshProcessPeakRssMedianBytes": 252903424
+              }
+            ],
+            "elapsedMs": {
+              "pairs": [
+                {
+                  "incremental": 14601.238324000034,
+                  "fresh": 17603.035935999826
+                },
+                {
+                  "incremental": 15356.260950000025,
+                  "fresh": 18222.204099999974
+                },
+                {
+                  "incremental": 15436.932820999995,
+                  "fresh": 18230.737916999962
+                },
+                {
+                  "incremental": 14738.960520999972,
+                  "fresh": 17616.240824999986
+                },
+                {
+                  "incremental": 14672.305389000103,
+                  "fresh": 17795.590160000138
+                }
+              ],
+              "pairedMedianRatio": 0.8366688822784065,
+              "pairedMedianDelta": -2877.2803040000144,
+              "ratio95PercentileBootstrap": [
+                0.8244910821771807,
+                0.84675304374845
+              ]
+            },
+            "cpuSeconds": {
+              "pairs": [
+                {
+                  "incremental": 15.54,
+                  "fresh": 26.04
+                },
+                {
+                  "incremental": 16.22,
+                  "fresh": 25.75
+                },
+                {
+                  "incremental": 16.35,
+                  "fresh": 25.81
+                },
+                {
+                  "incremental": 15.67,
+                  "fresh": 25.91
+                },
+                {
+                  "incremental": 15.63,
+                  "fresh": 26.32
+                }
+              ],
+              "pairedMedianRatio": 0.6047857969895793,
+              "pairedMedianDelta": -10.24,
+              "ratio95PercentileBootstrap": [
+                0.5938449848024316,
+                0.6334753971328944
+              ]
+            },
+            "cpuStrata": {
+              "AMD EPYC 7763 64-Core Processor": [
+                {
+                  "window": 0,
+                  "incremental": 14601.238324000034,
+                  "fresh": 17603.035935999826
+                },
+                {
+                  "window": 3,
+                  "incremental": 14738.960520999972,
+                  "fresh": 17616.240824999986
+                },
+                {
+                  "window": 4,
+                  "incremental": 14672.305389000103,
+                  "fresh": 17795.590160000138
+                }
+              ],
+              "AMD EPYC 9V74 80-Core Processor": [
+                {
+                  "window": 1,
+                  "incremental": 15356.260950000025,
+                  "fresh": 18222.204099999974
+                },
+                {
+                  "window": 2,
+                  "incremental": 15436.932820999995,
+                  "fresh": 18230.737916999962
+                }
+              ]
+            }
+          },
+          {
+            "category": "configuration",
+            "windows": [
+              {
+                "window": 0,
+                "cpu": "AMD EPYC 7763 64-Core Processor",
+                "elapsedMs": {
+                  "incremental": 19858.353263000026,
+                  "fresh": 1360.2000949999783
+                },
+                "cpuSeconds": {
+                  "incremental": 29.71,
+                  "fresh": 2.6300000000000003
+                },
+                "retainedSumRssMedianBytes": 400441344,
+                "retainedSumRssMaxBytes": 408383488,
+                "freshProcessPeakRssMedianBytes": 188956672
+              },
+              {
+                "window": 1,
+                "cpu": "AMD EPYC 9V74 80-Core Processor",
+                "elapsedMs": {
+                  "incremental": 20124.25124299992,
+                  "fresh": 1222.9755960002076
+                },
+                "cpuSeconds": {
+                  "incremental": 29.24,
+                  "fresh": 2.38
+                },
+                "retainedSumRssMedianBytes": 401457152,
+                "retainedSumRssMaxBytes": 404738048,
+                "freshProcessPeakRssMedianBytes": 186351616
+              },
+              {
+                "window": 2,
+                "cpu": "AMD EPYC 9V74 80-Core Processor",
+                "elapsedMs": {
+                  "incremental": 20217.379717999836,
+                  "fresh": 1252.1167669999413
+                },
+                "cpuSeconds": {
+                  "incremental": 29.62,
+                  "fresh": 2.4299999999999997
+                },
+                "retainedSumRssMedianBytes": 395956224,
+                "retainedSumRssMaxBytes": 415121408,
+                "freshProcessPeakRssMedianBytes": 187682816
+              },
+              {
+                "window": 3,
+                "cpu": "AMD EPYC 7763 64-Core Processor",
+                "elapsedMs": {
+                  "incremental": 19891.466669999994,
+                  "fresh": 1363.1699359999038
+                },
+                "cpuSeconds": {
+                  "incremental": 29.48,
+                  "fresh": 2.6100000000000003
+                },
+                "retainedSumRssMedianBytes": 394579968,
+                "retainedSumRssMaxBytes": 405491712,
+                "freshProcessPeakRssMedianBytes": 187027456
+              },
+              {
+                "window": 4,
+                "cpu": "AMD EPYC 7763 64-Core Processor",
+                "elapsedMs": {
+                  "incremental": 20074.94007500005,
+                  "fresh": 1398.145644000033
+                },
+                "cpuSeconds": {
+                  "incremental": 30.41,
+                  "fresh": 2.68
+                },
+                "retainedSumRssMedianBytes": 396283904,
+                "retainedSumRssMaxBytes": 407293952,
+                "freshProcessPeakRssMedianBytes": 187998208
+              }
+            ],
+            "elapsedMs": {
+              "pairs": [
+                {
+                  "incremental": 19858.353263000026,
+                  "fresh": 1360.2000949999783
+                },
+                {
+                  "incremental": 20124.25124299992,
+                  "fresh": 1222.9755960002076
+                },
+                {
+                  "incremental": 20217.379717999836,
+                  "fresh": 1252.1167669999413
+                },
+                {
+                  "incremental": 19891.466669999994,
+                  "fresh": 1363.1699359999038
+                },
+                {
+                  "incremental": 20074.94007500005,
+                  "fresh": 1398.145644000033
+                }
+              ],
+              "pairedMedianRatio": 14.59958232321719,
+              "pairedMedianDelta": 18676.794431000017,
+              "ratio95PercentileBootstrap": [
+                14.35826100174123,
+                16.455153568736055
+              ]
+            },
+            "cpuSeconds": {
+              "pairs": [
+                {
+                  "incremental": 29.71,
+                  "fresh": 2.6300000000000003
+                },
+                {
+                  "incremental": 29.24,
+                  "fresh": 2.38
+                },
+                {
+                  "incremental": 29.62,
+                  "fresh": 2.4299999999999997
+                },
+                {
+                  "incremental": 29.48,
+                  "fresh": 2.6100000000000003
+                },
+                {
+                  "incremental": 30.41,
+                  "fresh": 2.68
+                }
+              ],
+              "pairedMedianRatio": 11.347014925373134,
+              "pairedMedianDelta": 27.080000000000002,
+              "ratio95PercentileBootstrap": [
+                11.295019157088122,
+                12.285714285714286
+              ]
+            },
+            "cpuStrata": {
+              "AMD EPYC 7763 64-Core Processor": [
+                {
+                  "window": 0,
+                  "incremental": 19858.353263000026,
+                  "fresh": 1360.2000949999783
+                },
+                {
+                  "window": 3,
+                  "incremental": 19891.466669999994,
+                  "fresh": 1363.1699359999038
+                },
+                {
+                  "window": 4,
+                  "incremental": 20074.94007500005,
+                  "fresh": 1398.145644000033
+                }
+              ],
+              "AMD EPYC 9V74 80-Core Processor": [
+                {
+                  "window": 1,
+                  "incremental": 20124.25124299992,
+                  "fresh": 1222.9755960002076
+                },
+                {
+                  "window": 2,
+                  "incremental": 20217.379717999836,
+                  "fresh": 1252.1167669999413
+                }
+              ]
+            }
+          }
+        ],
+        "hostIdleRange": [
+          0.6397798489613286,
+          0.6515978606974341
+        ],
+        "incidentalCycles": [
+          {
+            "window": 0,
+            "count": 18
+          },
+          {
+            "window": 1,
+            "count": 18
+          },
+          {
+            "window": 2,
+            "count": 18
+          },
+          {
+            "window": 3,
+            "count": 18
+          },
+          {
+            "window": 4,
+            "count": 18
+          }
+        ],
+        "workflow": "https://github.com/tkersey/boundary/actions/runs/37176856652"
+      }
+    },
+    {
+      "id": "E08",
+      "decision": {
+        "status": "retain current optimization policies and work bounds; cost acceptance and final held-out qualification remain open",
+        "reason": "Nineteen maintained structural/semantic cases retain exact image identities, work reservations and selection/no-op outcomes across the compiler migration. Five paired semantic windows show compiler-phase ratios 1.239–1.536 under the native diagnostic allocator. Nothing here supports spending more work or changing candidate order to offset a compiler/allocator cost. Existing independent validators, no-growth constraints, profile binding and source-free final linking remain authoritative.",
+        "limits": "Existing source observer measures integrated discovery/checking and semantic-pass phases. Raw records label that granularity; it is not a claim to separate every internal pass clock. No new policy is promoted."
+      },
+      "measurement": "e08 in zig17-samples.json.gz",
+      "workloads": 19,
+      "windows": 5
+    },
+    {
+      "id": "E01-wasm",
+      "status": "measured; material costs await explicit acceptance",
+      "measurement": "e01Wasm in zig17-samples.json.gz",
+      "cases": 22,
+      "producerRuntimeCells": 4,
+      "windows": 5,
+      "sourceComparison": "C0→U0 and U0→U1 separate",
+      "metrics": [
+        {
+          "comparison": "c0→u0",
+          "fixture": "scalar",
+          "count": 0,
+          "invocationNs": {
+            "controlMedian": 24458,
+            "candidateMedian": 24250,
+            "pairedMedianDelta": 250,
+            "pairedMedianRatio": 1.0107332989867766,
+            "ratio95PercentileBootstrap": [
+              0.9008,
+              1.0635876288659794
+            ]
+          },
+          "peakRssDelta": -524288,
+          "workspaceDelta": -32,
+          "wasmMemoryDelta": 0
+        },
+        {
+          "comparison": "c0→u0",
+          "fixture": "deep",
+          "count": 0,
+          "invocationNs": {
+            "controlMedian": 74000,
+            "candidateMedian": 74625,
+            "pairedMedianDelta": 625,
+            "pairedMedianRatio": 1.008445945945946,
+            "ratio95PercentileBootstrap": [
+              0.9881955018933013,
+              1.0845244901848676
+            ]
+          },
+          "peakRssDelta": 16384,
+          "workspaceDelta": -112,
+          "wasmMemoryDelta": 0
+        },
+        {
+          "comparison": "c0→u0",
+          "fixture": "residual",
+          "count": 0,
+          "invocationNs": {
+            "controlMedian": 97458,
+            "candidateMedian": 101999,
+            "pairedMedianDelta": 2207,
+            "pairedMedianRatio": 1.0227427299519796,
+            "ratio95PercentileBootstrap": [
+              0.9120653116700795,
+              1.1963755102040816
+            ]
+          },
+          "peakRssDelta": -786432,
+          "workspaceDelta": -32,
+          "wasmMemoryDelta": 0
+        },
+        {
+          "comparison": "c0→u0",
+          "fixture": "reentrant",
+          "count": 0,
+          "invocationNs": {
+            "controlMedian": 405709,
+            "candidateMedian": 405541,
+            "pairedMedianDelta": -2959,
+            "pairedMedianRatio": 0.9927065951211336,
+            "ratio95PercentileBootstrap": [
+              0.9541724360863889,
+              1.032751394916305
+            ]
+          },
+          "peakRssDelta": -688128,
+          "workspaceDelta": 0,
+          "wasmMemoryDelta": 0
+        },
+        {
+          "comparison": "c0→u0",
+          "fixture": "shallow",
+          "count": 0,
+          "invocationNs": {
+            "controlMedian": 680750,
+            "candidateMedian": 694041,
+            "pairedMedianDelta": 13958,
+            "pairedMedianRatio": 1.020496328928047,
+            "ratio95PercentileBootstrap": [
+              1.0015021645021644,
+              1.0634208515460082
+            ]
+          },
+          "peakRssDelta": 16384,
+          "workspaceDelta": 0,
+          "wasmMemoryDelta": 0
+        },
+        {
+          "comparison": "c0→u0",
+          "fixture": "generator",
+          "count": 0,
+          "invocationNs": {
+            "controlMedian": 723291,
+            "candidateMedian": 705957,
+            "pairedMedianDelta": 4626,
+            "pairedMedianRatio": 1.006395766019486,
+            "ratio95PercentileBootstrap": [
+              0.9173108196858027,
+              1.0555377174994185
+            ]
+          },
+          "peakRssDelta": -1097728,
+          "workspaceDelta": 0,
+          "wasmMemoryDelta": 0
+        },
+        {
+          "comparison": "c0→u0",
+          "fixture": "scheduler",
+          "count": 0,
+          "invocationNs": {
+            "controlMedian": 943667,
+            "candidateMedian": 966333,
+            "pairedMedianDelta": 22501,
+            "pairedMedianRatio": 1.0238663712318001,
+            "ratio95PercentileBootstrap": [
+              1.0073129351196397,
+              1.029793595258864
+            ]
+          },
+          "peakRssDelta": -2031616,
+          "workspaceDelta": 0,
+          "wasmMemoryDelta": 0
+        },
+        {
+          "comparison": "c0→u0",
+          "fixture": "queens_dfs",
+          "count": 0,
+          "invocationNs": {
+            "controlMedian": 6614666,
+            "candidateMedian": 6914498,
+            "pairedMedianDelta": 267543,
+            "pairedMedianRatio": 1.0400216366323265,
+            "ratio95PercentileBootstrap": [
+              1.026462862977511,
+              1.0487768993264892
+            ]
+          },
+          "peakRssDelta": 425984,
+          "workspaceDelta": 0,
+          "wasmMemoryDelta": 0
+        },
+        {
+          "comparison": "c0→u0",
+          "fixture": "queens_bfs",
+          "count": 0,
+          "invocationNs": {
+            "controlMedian": 6810501,
+            "candidateMedian": 6913750,
+            "pairedMedianDelta": 111790,
+            "pairedMedianRatio": 1.0164143577689806,
+            "ratio95PercentileBootstrap": [
+              1.0093204997379315,
+              1.0376137322952819
+            ]
+          },
+          "peakRssDelta": -786432,
+          "workspaceDelta": 0,
+          "wasmMemoryDelta": 0
+        },
+        {
+          "comparison": "c0→u0",
+          "fixture": "cleanup",
+          "count": 0,
+          "invocationNs": {
+            "controlMedian": 806708,
+            "candidateMedian": 808251,
+            "pairedMedianDelta": 5294,
+            "pairedMedianRatio": 1.00659313014271,
+            "ratio95PercentileBootstrap": [
+              0.9940585688997754,
+              1.022435129539167
+            ]
+          },
+          "peakRssDelta": 32768,
+          "workspaceDelta": 0,
+          "wasmMemoryDelta": 0
+        },
+        {
+          "comparison": "c0→u0",
+          "fixture": "install",
+          "count": 16,
+          "invocationNs": {
+            "controlMedian": 281041,
+            "candidateMedian": 295250,
+            "pairedMedianDelta": 11251,
+            "pairedMedianRatio": 1.040033304749129,
+            "ratio95PercentileBootstrap": [
+              1.028745644599303,
+              1.0632985874608172
+            ]
+          },
+          "peakRssDelta": -540672,
+          "workspaceDelta": 208,
+          "wasmMemoryDelta": 0
+        },
+        {
+          "comparison": "c0→u0",
+          "fixture": "install",
+          "count": 32,
+          "invocationNs": {
+            "controlMedian": 574292,
+            "candidateMedian": 590833,
+            "pairedMedianDelta": 16125,
+            "pairedMedianRatio": 1.0281864694458671,
+            "ratio95PercentileBootstrap": [
+              1.0248845535023994,
+              1.0376869374313942
+            ]
+          },
+          "peakRssDelta": -671744,
+          "workspaceDelta": 208,
+          "wasmMemoryDelta": 0
+        },
+        {
+          "comparison": "c0→u0",
+          "fixture": "install",
+          "count": 64,
+          "invocationNs": {
+            "controlMedian": 1081334,
+            "candidateMedian": 1129083,
+            "pairedMedianDelta": 47250,
+            "pairedMedianRatio": 1.0437314546238725,
+            "ratio95PercentileBootstrap": [
+              1.0371299176578226,
+              1.044762322477487
+            ]
+          },
+          "peakRssDelta": 32768,
+          "workspaceDelta": 208,
+          "wasmMemoryDelta": 0
+        },
+        {
+          "comparison": "c0→u0",
+          "fixture": "retained_loop",
+          "count": 16,
+          "invocationNs": {
+            "controlMedian": 258375,
+            "candidateMedian": 275834,
+            "pairedMedianDelta": 17459,
+            "pairedMedianRatio": 1.0675833130107264,
+            "ratio95PercentileBootstrap": [
+              1.0653375406018144,
+              1.0901480406386066
+            ]
+          },
+          "peakRssDelta": -163840,
+          "workspaceDelta": -112,
+          "wasmMemoryDelta": 0
+        },
+        {
+          "comparison": "c0→u0",
+          "fixture": "retained_loop",
+          "count": 32,
+          "invocationNs": {
+            "controlMedian": 399750,
+            "candidateMedian": 434041,
+            "pairedMedianDelta": 33542,
+            "pairedMedianRatio": 1.0839074421513446,
+            "ratio95PercentileBootstrap": [
+              1.0612711275531674,
+              1.103464433552836
+            ]
+          },
+          "peakRssDelta": -1228800,
+          "workspaceDelta": -112,
+          "wasmMemoryDelta": 0
+        },
+        {
+          "comparison": "c0→u0",
+          "fixture": "retained_loop",
+          "count": 64,
+          "invocationNs": {
+            "controlMedian": 658083,
+            "candidateMedian": 722917,
+            "pairedMedianDelta": 61625,
+            "pairedMedianRatio": 1.093815413891532,
+            "ratio95PercentileBootstrap": [
+              1.0897819879863178,
+              1.1110555201099173
+            ]
+          },
+          "peakRssDelta": -917504,
+          "workspaceDelta": -112,
+          "wasmMemoryDelta": 0
+        },
+        {
+          "comparison": "c0→u0",
+          "fixture": "mixed",
+          "count": 16,
+          "invocationNs": {
+            "controlMedian": 1552793,
+            "candidateMedian": 1591208,
+            "pairedMedianDelta": 48249,
+            "pairedMedianRatio": 1.031072396642695,
+            "ratio95PercentileBootstrap": [
+              0.9419227503650155,
+              1.1177606098986352
+            ]
+          },
+          "peakRssDelta": -933888,
+          "workspaceDelta": -32,
+          "wasmMemoryDelta": 0
+        },
+        {
+          "comparison": "c0→u0",
+          "fixture": "mixed",
+          "count": 32,
+          "invocationNs": {
+            "controlMedian": 3616661,
+            "candidateMedian": 3573626,
+            "pairedMedianDelta": -57451,
+            "pairedMedianRatio": 0.9841149059864887,
+            "ratio95PercentileBootstrap": [
+              0.9705759044775331,
+              1.0079726294070808
+            ]
+          },
+          "peakRssDelta": -737280,
+          "workspaceDelta": -32,
+          "wasmMemoryDelta": 0
+        },
+        {
+          "comparison": "c0→u0",
+          "fixture": "mixed",
+          "count": 64,
+          "invocationNs": {
+            "controlMedian": 11936710,
+            "candidateMedian": 11676292,
+            "pairedMedianDelta": -259716,
+            "pairedMedianRatio": 0.9782422459790009,
+            "ratio95PercentileBootstrap": [
+              0.974479230824955,
+              0.9908475113208851
+            ]
+          },
+          "peakRssDelta": -622592,
+          "workspaceDelta": 0,
+          "wasmMemoryDelta": 0
+        },
+        {
+          "comparison": "c0→u0",
+          "fixture": "irregular",
+          "count": 16,
+          "invocationNs": {
+            "controlMedian": 1490792,
+            "candidateMedian": 1505624,
+            "pairedMedianDelta": 14832,
+            "pairedMedianRatio": 1.0099490740492303,
+            "ratio95PercentileBootstrap": [
+              0.9085853721579282,
+              1.0294069698567012
+            ]
+          },
+          "peakRssDelta": 458752,
+          "workspaceDelta": -32,
+          "wasmMemoryDelta": 0
+        },
+        {
+          "comparison": "c0→u0",
+          "fixture": "irregular",
+          "count": 32,
+          "invocationNs": {
+            "controlMedian": 3568999,
+            "candidateMedian": 3567045,
+            "pairedMedianDelta": -5750,
+            "pairedMedianRatio": 0.9983889040036156,
+            "ratio95PercentileBootstrap": [
+              0.9931286981591385,
+              0.9996855528342704
+            ]
+          },
+          "peakRssDelta": -229376,
+          "workspaceDelta": -32,
+          "wasmMemoryDelta": 0
+        },
+        {
+          "comparison": "c0→u0",
+          "fixture": "irregular",
+          "count": 64,
+          "invocationNs": {
+            "controlMedian": 11718379,
+            "candidateMedian": 11528748,
+            "pairedMedianDelta": -134513,
+            "pairedMedianRatio": 0.9884437434803668,
+            "ratio95PercentileBootstrap": [
+              0.9804920427364057,
+              0.9915783958445223
+            ]
+          },
+          "peakRssDelta": -819200,
+          "workspaceDelta": 0,
+          "wasmMemoryDelta": 0
+        },
+        {
+          "comparison": "u0→u1",
+          "fixture": "scalar",
+          "count": 0,
+          "invocationNs": {
+            "controlMedian": 24250,
+            "candidateMedian": 25000,
+            "pairedMedianDelta": 83,
+            "pairedMedianRatio": 1.003331059116266,
+            "ratio95PercentileBootstrap": [
+              0.917610111662531,
+              1.1570419789455444
+            ]
+          },
+          "peakRssDelta": 65536,
+          "workspaceDelta": 0,
+          "wasmMemoryDelta": 0
+        },
+        {
+          "comparison": "u0→u1",
+          "fixture": "deep",
+          "count": 0,
+          "invocationNs": {
+            "controlMedian": 74625,
+            "candidateMedian": 76292,
+            "pairedMedianDelta": 2624,
+            "pairedMedianRatio": 1.0344677966101694,
+            "ratio95PercentileBootstrap": [
+              1.0178163606010018,
+              1.0403365469843044
+            ]
+          },
+          "peakRssDelta": -671744,
+          "workspaceDelta": 0,
+          "wasmMemoryDelta": 0
+        },
+        {
+          "comparison": "u0→u1",
+          "fixture": "residual",
+          "count": 0,
+          "invocationNs": {
+            "controlMedian": 101999,
+            "candidateMedian": 114000,
+            "pairedMedianDelta": 13333,
+            "pairedMedianRatio": 1.1378686354800016,
+            "ratio95PercentileBootstrap": [
+              1.0630454022058753,
+              1.1572858557436838
+            ]
+          },
+          "peakRssDelta": -589824,
+          "workspaceDelta": 0,
+          "wasmMemoryDelta": 0
+        },
+        {
+          "comparison": "u0→u1",
+          "fixture": "reentrant",
+          "count": 0,
+          "invocationNs": {
+            "controlMedian": 405541,
+            "candidateMedian": 435667,
+            "pairedMedianDelta": 34250,
+            "pairedMedianRatio": 1.084455085922262,
+            "ratio95PercentileBootstrap": [
+              1.0459255097164892,
+              1.1309915681917302
+            ]
+          },
+          "peakRssDelta": 65536,
+          "workspaceDelta": 0,
+          "wasmMemoryDelta": 0
+        },
+        {
+          "comparison": "u0→u1",
+          "fixture": "shallow",
+          "count": 0,
+          "invocationNs": {
+            "controlMedian": 694041,
+            "candidateMedian": 777584,
+            "pairedMedianDelta": 83375,
+            "pairedMedianRatio": 1.1199712788398724,
+            "ratio95PercentileBootstrap": [
+              1.1179699758371624,
+              1.1846642544277282
+            ]
+          },
+          "peakRssDelta": 1933312,
+          "workspaceDelta": 0,
+          "wasmMemoryDelta": 0
+        },
+        {
+          "comparison": "u0→u1",
+          "fixture": "generator",
+          "count": 0,
+          "invocationNs": {
+            "controlMedian": 705957,
+            "candidateMedian": 825958,
+            "pairedMedianDelta": 121373,
+            "pairedMedianRatio": 1.1723025249212826,
+            "ratio95PercentileBootstrap": [
+              1.1166619573402625,
+              1.2093516809927851
+            ]
+          },
+          "peakRssDelta": -180224,
+          "workspaceDelta": 0,
+          "wasmMemoryDelta": 0
+        },
+        {
+          "comparison": "u0→u1",
+          "fixture": "scheduler",
+          "count": 0,
+          "invocationNs": {
+            "controlMedian": 966333,
+            "candidateMedian": 1125834,
+            "pairedMedianDelta": 159501,
+            "pairedMedianRatio": 1.16505800795378,
+            "ratio95PercentileBootstrap": [
+              1.1519851238524093,
+              1.2211330871901973
+            ]
+          },
+          "peakRssDelta": -1048576,
+          "workspaceDelta": 0,
+          "wasmMemoryDelta": 0
+        },
+        {
+          "comparison": "u0→u1",
+          "fixture": "queens_dfs",
+          "count": 0,
+          "invocationNs": {
+            "controlMedian": 6914498,
+            "candidateMedian": 7221123,
+            "pairedMedianDelta": 324792,
+            "pairedMedianRatio": 1.0467178130001558,
+            "ratio95PercentileBootstrap": [
+              1.0340412275771864,
+              1.059099541314027
+            ]
+          },
+          "peakRssDelta": -770048,
+          "workspaceDelta": 0,
+          "wasmMemoryDelta": 0
+        },
+        {
+          "comparison": "u0→u1",
+          "fixture": "queens_bfs",
+          "count": 0,
+          "invocationNs": {
+            "controlMedian": 6913750,
+            "candidateMedian": 7372832,
+            "pairedMedianDelta": 461541,
+            "pairedMedianRatio": 1.0668838184776712,
+            "ratio95PercentileBootstrap": [
+              1.051359354630607,
+              1.1087734198886399
+            ]
+          },
+          "peakRssDelta": -1572864,
+          "workspaceDelta": 0,
+          "wasmMemoryDelta": 0
+        },
+        {
+          "comparison": "u0→u1",
+          "fixture": "cleanup",
+          "count": 0,
+          "invocationNs": {
+            "controlMedian": 808251,
+            "candidateMedian": 885126,
+            "pairedMedianDelta": 61917,
+            "pairedMedianRatio": 1.0752141922646619,
+            "ratio95PercentileBootstrap": [
+              1.0352513584778142,
+              1.1506635712855737
+            ]
+          },
+          "peakRssDelta": -1294336,
+          "workspaceDelta": 0,
+          "wasmMemoryDelta": 0
+        },
+        {
+          "comparison": "u0→u1",
+          "fixture": "install",
+          "count": 16,
+          "invocationNs": {
+            "controlMedian": 295250,
+            "candidateMedian": 353125,
+            "pairedMedianDelta": 58709,
+            "pairedMedianRatio": 1.199974112942507,
+            "ratio95PercentileBootstrap": [
+              1.1816666498975406,
+              1.212968538311004
+            ]
+          },
+          "peakRssDelta": 1179648,
+          "workspaceDelta": 0,
+          "wasmMemoryDelta": 0
+        },
+        {
+          "comparison": "u0→u1",
+          "fixture": "install",
+          "count": 32,
+          "invocationNs": {
+            "controlMedian": 590833,
+            "candidateMedian": 649667,
+            "pairedMedianDelta": 58667,
+            "pairedMedianRatio": 1.0992954015770955,
+            "ratio95PercentileBootstrap": [
+              1.0980561642586784,
+              1.1047690612844436
+            ]
+          },
+          "peakRssDelta": -229376,
+          "workspaceDelta": 0,
+          "wasmMemoryDelta": 0
+        },
+        {
+          "comparison": "u0→u1",
+          "fixture": "install",
+          "count": 64,
+          "invocationNs": {
+            "controlMedian": 1129083,
+            "candidateMedian": 1236084,
+            "pairedMedianDelta": 106709,
+            "pairedMedianRatio": 1.0945094381901064,
+            "ratio95PercentileBootstrap": [
+              1.0871131624239248,
+              1.0987622682467448
+            ]
+          },
+          "peakRssDelta": -1245184,
+          "workspaceDelta": 0,
+          "wasmMemoryDelta": 0
+        },
+        {
+          "comparison": "u0→u1",
+          "fixture": "retained_loop",
+          "count": 16,
+          "invocationNs": {
+            "controlMedian": 275834,
+            "candidateMedian": 308000,
+            "pairedMedianDelta": 30916,
+            "pairedMedianRatio": 1.112081904333766,
+            "ratio95PercentileBootstrap": [
+              1.0946720773111511,
+              1.1411063410106166
+            ]
+          },
+          "peakRssDelta": -5554176,
+          "workspaceDelta": 0,
+          "wasmMemoryDelta": 0
+        },
+        {
+          "comparison": "u0→u1",
+          "fixture": "retained_loop",
+          "count": 32,
+          "invocationNs": {
+            "controlMedian": 434041,
+            "candidateMedian": 476500,
+            "pairedMedianDelta": 42459,
+            "pairedMedianRatio": 1.097822555933656,
+            "ratio95PercentileBootstrap": [
+              1.0505802091891843,
+              1.1370822010401005
+            ]
+          },
+          "peakRssDelta": 622592,
+          "workspaceDelta": 0,
+          "wasmMemoryDelta": 0
+        },
+        {
+          "comparison": "u0→u1",
+          "fixture": "retained_loop",
+          "count": 64,
+          "invocationNs": {
+            "controlMedian": 722917,
+            "candidateMedian": 752000,
+            "pairedMedianDelta": 29875,
+            "pairedMedianRatio": 1.0411501203797453,
+            "ratio95PercentileBootstrap": [
+              1.0357343927449485,
+              1.048570277215767
+            ]
+          },
+          "peakRssDelta": 0,
+          "workspaceDelta": 0,
+          "wasmMemoryDelta": 0
+        },
+        {
+          "comparison": "u0→u1",
+          "fixture": "mixed",
+          "count": 16,
+          "invocationNs": {
+            "controlMedian": 1591208,
+            "candidateMedian": 1610709,
+            "pairedMedianDelta": 74623,
+            "pairedMedianRatio": 1.0471464051205686,
+            "ratio95PercentileBootstrap": [
+              0.9610403724574371,
+              1.0635084011926232
+            ]
+          },
+          "peakRssDelta": -1327104,
+          "workspaceDelta": 0,
+          "wasmMemoryDelta": 0
+        },
+        {
+          "comparison": "u0→u1",
+          "fixture": "mixed",
+          "count": 32,
+          "invocationNs": {
+            "controlMedian": 3573626,
+            "candidateMedian": 3873875,
+            "pairedMedianDelta": 293499,
+            "pairedMedianRatio": 1.0815832258756746,
+            "ratio95PercentileBootstrap": [
+              1.0730904338700027,
+              1.1075350358431464
+            ]
+          },
+          "peakRssDelta": -2588672,
+          "workspaceDelta": 0,
+          "wasmMemoryDelta": 0
+        },
+        {
+          "comparison": "u0→u1",
+          "fixture": "mixed",
+          "count": 64,
+          "invocationNs": {
+            "controlMedian": 11676292,
+            "candidateMedian": 12823831,
+            "pairedMedianDelta": 1149873,
+            "pairedMedianRatio": 1.0984792946253827,
+            "ratio95PercentileBootstrap": [
+              1.091672185531988,
+              1.1100323021670164
+            ]
+          },
+          "peakRssDelta": -311296,
+          "workspaceDelta": 0,
+          "wasmMemoryDelta": 0
+        },
+        {
+          "comparison": "u0→u1",
+          "fixture": "irregular",
+          "count": 16,
+          "invocationNs": {
+            "controlMedian": 1505624,
+            "candidateMedian": 1592415,
+            "pairedMedianDelta": 98666,
+            "pairedMedianRatio": 1.0661466521411214,
+            "ratio95PercentileBootstrap": [
+              0.9652689764078181,
+              1.1082896339274466
+            ]
+          },
+          "peakRssDelta": -5668864,
+          "workspaceDelta": 0,
+          "wasmMemoryDelta": 0
+        },
+        {
+          "comparison": "u0→u1",
+          "fixture": "irregular",
+          "count": 32,
+          "invocationNs": {
+            "controlMedian": 3567045,
+            "candidateMedian": 3791376,
+            "pairedMedianDelta": 234919,
+            "pairedMedianRatio": 1.0662381227226319,
+            "ratio95PercentileBootstrap": [
+              1.0598697986023429,
+              1.0874314733904393
+            ]
+          },
+          "peakRssDelta": -5406720,
+          "workspaceDelta": 0,
+          "wasmMemoryDelta": 0
+        },
+        {
+          "comparison": "u0→u1",
+          "fixture": "irregular",
+          "count": 64,
+          "invocationNs": {
+            "controlMedian": 11528748,
+            "candidateMedian": 12678958,
+            "pairedMedianDelta": 1081547,
+            "pairedMedianRatio": 1.093813048910428,
+            "ratio95PercentileBootstrap": [
+              1.0844440599965315,
+              1.102654086521356
+            ]
+          },
+          "peakRssDelta": -425984,
+          "workspaceDelta": 0,
+          "wasmMemoryDelta": 0
+        }
+      ]
+    },
+    {
+      "id": "E01-kernel-build",
+      "bootstrap": [
+        {
+          "metric": "wallSeconds",
+          "pairs": [
+            {
+              "u0": 11.64,
+              "u1": 49.76
+            },
+            {
+              "u0": 11.19,
+              "u1": 49.54
+            },
+            {
+              "u0": 11.15,
+              "u1": 49.51
+            }
+          ],
+          "u0Median": 11.19,
+          "u1Median": 49.54,
+          "pairedMedianDelta": 38.35,
+          "pairedMedianRatio": 4.427167113494192
+        },
+        {
+          "metric": "cpuSeconds",
+          "pairs": [
+            {
+              "u0": 10.97,
+              "u1": 49.739999999999995
+            },
+            {
+              "u0": 10.84,
+              "u1": 49.540000000000006
+            },
+            {
+              "u0": 10.879999999999999,
+              "u1": 49.51
+            }
+          ],
+          "u0Median": 10.879999999999999,
+          "u1Median": 49.540000000000006,
+          "pairedMedianDelta": 38.7,
+          "pairedMedianRatio": 4.5505514705882355
+        },
+        {
+          "metric": "peakRssBytes",
+          "pairs": [
+            {
+              "u0": 623280128,
+              "u1": 488357888
+            },
+            {
+              "u0": 655835136,
+              "u1": 484098048
+            },
+            {
+              "u0": 610566144,
+              "u1": 480886784
+            }
+          ],
+          "u0Median": 623280128,
+          "u1Median": 484098048,
+          "pairedMedianDelta": -134922240,
+          "pairedMedianRatio": 0.7835287314021345
+        },
+        {
+          "metric": "cacheBytes",
+          "pairs": [
+            {
+              "u0": 69694564,
+              "u1": 79737737
+            },
+            {
+              "u0": 69694564,
+              "u1": 79737737
+            },
+            {
+              "u0": 69694564,
+              "u1": 79737737
+            }
+          ],
+          "u0Median": 69694564,
+          "u1Median": 79737737,
+          "pairedMedianDelta": 10043173,
+          "pairedMedianRatio": 1.1441026734882795
+        },
+        {
+          "metric": "artifactBytes",
+          "pairs": [
+            {
+              "u0": 477875,
+              "u1": 451779
+            },
+            {
+              "u0": 477875,
+              "u1": 451779
+            },
+            {
+              "u0": 477875,
+              "u1": 451779
+            }
+          ],
+          "u0Median": 477875,
+          "u1Median": 451779,
+          "pairedMedianDelta": -26096,
+          "pairedMedianRatio": 0.9453915772953179
+        }
+      ],
+      "supportWarm": [
+        {
+          "metric": "wallSeconds",
+          "pairs": [
+            {
+              "u0": 9.4,
+              "u1": 7.89
+            },
+            {
+              "u0": 9.27,
+              "u1": 7.78
+            },
+            {
+              "u0": 9.2,
+              "u1": 7.78
+            }
+          ],
+          "u0Median": 9.27,
+          "u1Median": 7.78,
+          "pairedMedianDelta": -1.4899999999999993,
+          "pairedMedianRatio": 0.8393617021276595
+        },
+        {
+          "metric": "cpuSeconds",
+          "pairs": [
+            {
+              "u0": 8.9,
+              "u1": 7.73
+            },
+            {
+              "u0": 8.829999999999998,
+              "u1": 7.6899999999999995
+            },
+            {
+              "u0": 8.84,
+              "u1": 7.7
+            }
+          ],
+          "u0Median": 8.84,
+          "u1Median": 7.7,
+          "pairedMedianDelta": -1.1399999999999997,
+          "pairedMedianRatio": 0.8708946772366932
+        },
+        {
+          "metric": "peakRssBytes",
+          "pairs": [
+            {
+              "u0": 639909888,
+              "u1": 492077056
+            },
+            {
+              "u0": 637026304,
+              "u1": 486768640
+            },
+            {
+              "u0": 631586816,
+              "u1": 488652800
+            }
+          ],
+          "u0Median": 637026304,
+          "u1Median": 488652800,
+          "pairedMedianDelta": -147832832,
+          "pairedMedianRatio": 0.7689786721970453
+        },
+        {
+          "metric": "cacheBytes",
+          "pairs": [
+            {
+              "u0": 67744212,
+              "u1": 75059703
+            },
+            {
+              "u0": 67744212,
+              "u1": 75059703
+            },
+            {
+              "u0": 67744212,
+              "u1": 75059703
+            }
+          ],
+          "u0Median": 67744212,
+          "u1Median": 75059703,
+          "pairedMedianDelta": 7315491,
+          "pairedMedianRatio": 1.1079869524499009
+        },
+        {
+          "metric": "artifactBytes",
+          "pairs": [
+            {
+              "u0": 477875,
+              "u1": 451779
+            },
+            {
+              "u0": 477875,
+              "u1": 451779
+            },
+            {
+              "u0": 477875,
+              "u1": 451779
+            }
+          ],
+          "u0Median": 477875,
+          "u1Median": 451779,
+          "pairedMedianDelta": -26096,
+          "pairedMedianRatio": 0.9453915772953179
+        }
+      ],
+      "measurement": "e01KernelBuild in zig17-samples.json.gz"
     }
   ],
   "reverse_census": {
@@ -16174,13 +18881,19 @@
   "measurements": {
     "path": "zig17-samples.json.gz",
     "format": "gzip-compressed JSON",
-    "sha256": "1b5e9725bfc1de40e0836c95aadffc5155a355be60507a4234d455845dc679a1",
+    "sha256": "28ed645ea34301791b811664606734c8c24f902b7f1299f528946fd871f5b99e",
     "method": "Median of paired window ratios and deltas. 20,000 independent-window bootstrap resamples with replacement, percentile 95% interval, xorshift32 initial seed 0x20261003. Three cold build pairs and five runtime/phase windows; no inner sample is treated as an independent window. OS page cache was not flushed. RSS is the maximum reported by /usr/bin/time, not a sum over concurrent children.",
     "conditions": "Serialized local experiments on macOS arm64 with ordinary desktop background activity; CPU/load observations retained. No dedicated-machine or uncontended-host claim.",
-    "scope": "E01 native phase attribution, E03 build and fresh emitter costs, E04 isolated reflection candidate, E06 native allocator attribution. Remaining dimensions and experiments are open. E02 repaired warm configuration caching, mutation checks and retained failure evidence. E05 Linux correctness pilot and E10 finite protocol cost/cancellation qualification."
+    "scope": "E01 native phase attribution, E03 build and fresh emitter costs, E04 isolated reflection candidate, E06 native allocator attribution. Remaining dimensions and experiments are open. E02 repaired warm configuration caching, mutation checks and retained failure evidence. E05 Linux correctness pilot and E10 finite protocol cost/cancellation qualification. E01 native build/runtime, E06 N/2N/4N, executed E07 backend rejection and E09 actual Agent lifecycle/rejection. Five E05 windows; E01 production-WASM cross matrix, source reconciliation, kernel bootstrap and verified support-warm builds; E08 semantic repricing."
   },
   "editor": {
     "observed": "zls not found on host PATH; no tracked .vscode/.zed/zls.json configuration found",
     "workingPath": "The selected Zig 0.17 executable runs build/check and compiler diagnostics directly. No editor files or Zig skill were changed."
+  },
+  "cost_acceptance": {
+    "status": "pending explicit user decision under Z17-D05/M09",
+    "requested": "Measured native diagnostic/compiler setup and production-WASM regressions; final tuple must add no new regression/capacity failure.",
+    "kernelTradeoff": "U0 477875 bytes; U1 451779 bytes. All 22 frozen inputs and outputs match, and U0/U1 requested workspace/WASM memory are equal. Individual latency/RSS regressions remain visible.",
+    "sourceReconciliation": "C0→U0 retained-loop invocation medians rise 6.8–9.4%; this is separately attributed to predecessor source reconciliation, not Zig."
   }
 }
