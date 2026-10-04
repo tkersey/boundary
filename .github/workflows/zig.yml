@@ -30,12 +30,15 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: tkersey/agent
-          ref: c4d1d956d3f9bfb95435f11918dfbd942176b8a3
+          ref: 6c6a0675d833d5f31bcfb1f2b9910e39af66fb68
           path: lock-agent
           persist-credentials: false
       - name: Actual Agent dependency-lock mutation
         if: inputs.mode == 'lock'
         run: node test/experiments/zig17/lock_watch.mjs "$PWD/lock-agent"
+      - name: Permanent external-consumer watcher regression
+        if: inputs.mode == 'lock'
+        run: AGENT_ZIG_EXE="$(command -v zig)" node --test --test-name-pattern='all source-override' lock-agent/test/agent4/consumer_build.test.mjs
       - name: Linux incremental correctness pilot
         if: inputs.mode != 'lock'
         run: node test/experiments/zig17/incremental.mjs
