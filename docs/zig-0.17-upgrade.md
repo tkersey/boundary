@@ -13,18 +13,18 @@ all experiments, acceptance cases, or final reviews have passed.
 
 | Order | Draft PR | Executed source snapshot | Current evidence |
 |---|---|---|---|
-| 1 | [Boundary #164](https://github.com/tkersey/boundary/pull/164) | `024fca985a881ffa25529f9b149d1cd5d72afa52` | macOS aggregate: 317 steps; Linux: 317 steps and 857 tests; independent authoring package passed |
+| 1 | [Boundary #164](https://github.com/tkersey/boundary/pull/164) | `f98914c17924926dfed96d719026fd2238097a65` | Linux: 317 steps and 857 tests; independent public-package authoring passed; affected macOS checks passed after the predecessor's 317-step aggregate |
 | 2 | [World #62](https://github.com/tkersey/world/pull/62) | `50cc310d2027a1392ad1c864506300c3ab55f442` | macOS aggregate: 48 steps, with native/storage suites; Linux delivered runtime independently acquired and smoked |
-| 3 | [Agent #42](https://github.com/tkersey/agent/pull/42) | `f7fe530ec170290b40dd52bdfabc0b7266990690` | Linux: 430 steps and 218 tests passed; matching implementation passed 528 macOS steps and 218 Zig tests, including consumer/browser/mobility checks |
+| 3 | [Agent #42](https://github.com/tkersey/agent/pull/42) | `c4d1d956d3f9bfb95435f11918dfbd942176b8a3` | Linux: 430 steps and 218 tests; affected macOS consumer checks passed after the predecessor's 528-step aggregate |
 
 These are tested snapshots, not a final immutable F tuple. Subsequent source
 changes require the specification's final rebinding and affected qualification.
 No merge or release has been performed.
 
-The macOS Agent run started at `3a0676f`; its successor changes only the CI
-dependency setup and one documentation command. The Linux rerun qualifies
-`f7fe530` directly. The earlier Linux failure was a missing `rg` executable in
-the source-registry check, not a passed qualification.
+The original macOS Agent aggregate started at `3a0676f`; `f7fe530` changed only
+CI setup and one documentation command. The later cache-environment repair at
+`c4d1d95` passed fresh Linux qualification and affected macOS consumer checks.
+An earlier Linux run failed because `rg` was missing from the runner.
 
 The additional representation witness passes all nine native tests and compiles
 to a big-endian PowerPC64 ELF. It covers logical narrow-integer array/vector and
@@ -75,6 +75,18 @@ without changing the installed executable bytes or modification time.
   about 19 KB smaller. Three cold pairs instead show about 1% higher complete
   authoring/probe build costs; compiler-phase time is broadly unchanged.
   The shipping traversal remains unchanged.
+- **E05, Linux incremental development: correctness pilot passed.** A persistent
+  native debug build of the maintained economy workload handles a private
+  optimizer edit, an authoring-helper body edit, an exported-type edit, and a
+  build-configuration edit. All four images match fresh builds of the same
+  edited tree after every edit and restoration. Compiler processes remain live
+  across source edits and restart after configuration changes; recorded retained
+  process RSS ranges from about 389 to 426 MB. The first pilot exposed an event
+  attribution error in the harness; its failure and incidental watcher cycles
+  are retained. This is correctness evidence, not a speedup result. The real
+  Agent lock edit then failed to wake authentication, although a fresh invocation
+  rejected it and the restored lock passed. Declaring the lock as an explicit
+  Run input is being qualified; controlled repeated sampling also remains open.
 - **E06, diagnostics:** real grow/shift fault injection and valid failure,
   retirement, and owner-move paths pass in the existing World diagnostic lane.
   An isolated removal of lock calls passes native/Node/Wasmtime transfer and
@@ -89,12 +101,21 @@ without changing the installed executable bytes or modification time.
   Pairing the self-hosted backend with LLD is explicitly unsupported by the
   compiler. Production retains LLVM/LLD. No alternate engine agreement,
   lifecycle cost, or promotion is claimed.
-- **E10, build protocol:** the isolated finite adapter discovers the real
-  configured graph, executes a named step, and verifies reported artifacts.
-  Eleven prototype tests cover framing, version rejection, terminal status,
-  configuration edits, diagnostic bounds, deadlines, and process-group
-  cancellation. Maintenance/cost evaluation and retained-tool disposition
-  are outstanding.
+- **E10, build protocol: evaluated.** Retain the bounded adapter as an archived
+  qualification witness and reuse it for E05. Ordinary build/CI entrypoints
+  remain unchanged. It discovers 392 configured steps, requests the maintained
+  capacity emitter, observes four completed steps, and verifies both generated
+  artifacts. Twelve tests cover framing, version rejection, terminal status,
+  configuration edits, diagnostic bounds, deadlines, process-group cancellation,
+  and finite-process exit. Measurement exposed a one-second delay from losing
+  cleanup timers; the repair passes the new regression. Five fresh paired
+  windows then show no clear elapsed-time, CPU, or peak-RSS difference from the
+  ordinary CLI with equal compiler authentication. The measured additional
+  Node heap is about 293 KB. The prebuilt native decoder occupies about 0.55 MB;
+  three bootstrap-cold builds take about eight seconds each. That setup cost,
+  bounded diagnostic cost, and about 20 KB of adapter/reader/test source are
+  accepted for the qualification witness; no
+  production runtime cost or general IDE/service is introduced.
 
 On macOS, the pinned 0.16 startup selected libc's allocator for the native safe
 profile; 0.17 selects `SafeAllocator`. A safety-enabled `ArrayList(u8)` also

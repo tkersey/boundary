@@ -1012,6 +1012,28 @@
         }
       },
       "limitation": "Full final-head and cross-platform qualification is still required; this is affected-check proof."
+    },
+    {
+      "subject": "Boundary f98914c17924926dfed96d719026fd2238097a65",
+      "result": "Linux aggregate and independent public-package authoring passed",
+      "steps": 317,
+      "tests": 857,
+      "workflow": "https://github.com/tkersey/boundary/actions/runs/37172245161",
+      "log": {
+        "path": "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/boundary-f989-linux.log",
+        "sha256": "933ff7641b4e5eb56e7574b487e0cc1aea7d434685dd17807de5d08859149507"
+      }
+    },
+    {
+      "subject": "Agent c4d1d956d3f9bfb95435f11918dfbd942176b8a3",
+      "result": "Linux qualification passed",
+      "steps": 430,
+      "tests": 218,
+      "workflow": "https://github.com/tkersey/agent/actions/runs/37172258579",
+      "log": {
+        "path": ".tmp/bwa-z17/agent-c4d-linux.log",
+        "sha256": "5e56f040e475e0eea992dcdecdc0e9d3564d7a7fb3b59e8bcb5dbf21c9a25e44"
+      }
     }
   ],
   "census": {
@@ -15790,16 +15812,6 @@
       ]
     },
     {
-      "id": "E10",
-      "status": "prototype semantic/lifecycle checks passed; maintenance and economic decision pending",
-      "evidence": [
-        {
-          "path": "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/protocol-probe-tests-terminal.log",
-          "sha256": "71c177136ba7b55937215bc5172e5755c20dee1d505904388e3c83765139d275"
-        }
-      ]
-    },
-    {
       "id": "E02",
       "status": "retain main-graph caching with launch-time environment repair; evaluated on macOS; final cross-platform qualification remains open",
       "decision": {
@@ -15924,6 +15936,208 @@
           "sha256": "5c5e8c49ac2bfc587211ccb7026e2a92abe59591f64cec47fd80c9e352bbe0a2"
         }
       ]
+    },
+    {
+      "id": "E05",
+      "status": "Four Linux source/configuration edit classes pass. The actual Agent lock edit failed to wake authentication; fresh rejection and restored success pass. Explicit Run file-input repair is in progress; repeated sampling remains open.",
+      "conditions": "One correctness pilot, not a deciding speedup result. Initial compilation and fresh comparison warm different compiler caches. Incidental no-compile watcher cycles are retained separately instead of being mistaken for the next edit. Canonical outputs are compared after every credited cycle.",
+      "workflows": [
+        "https://github.com/tkersey/boundary/actions/runs/37172817642",
+        "https://github.com/tkersey/boundary/actions/runs/37173174696"
+      ],
+      "lockCase": "https://github.com/tkersey/boundary/actions/runs/37174051662"
+    },
+    {
+      "id": "E10",
+      "status": "evaluated; retain bounded adapter as an archived qualification witness, with reuse in E05; no normal build/CI entrypoint changes",
+      "decision": {
+        "status": "evaluated; retain bounded adapter as an archived qualification witness, with reuse in E05; no normal build/CI entrypoint changes",
+        "reason": "Discovers 392 configured steps, requests the maintained capacity emitter, receives four successful step events and verifies both generated artifacts. Twelve tests include framing/version/terminal status, real configuration edits, cancellation and finite-process exit. After repairing cleanup timers, five paired windows show no clear elapsed-time, CPU or peak-RSS difference from the ordinary CLI with equal compiler authentication.",
+        "acceptedCost": "About 293 KB more Node heap after the probe in this workload. Adapter, pinned Zig reader and tests occupy about 20 KB of source. This bounded experiment cost is accepted for structured observations; it is not a production runtime cost or a reason to replace semantic qualification. Three bootstrap-cold native reader builds took 8.33/8.07/8.05 seconds; their binaries are about 0.55 MB. The decoder is prebuilt in the warm comparison.",
+        "limits": "Finite Boundary native/safe emission is the cost workload. This is not a general IDE/service, a throughput/tail claim, or proof of every configured step."
+      },
+      "metrics": {
+        "method": "Five paired window medians; 20,000 bootstrap resamples of independent windows, xorshift32 seed 0x20261003; inner samples are not independent windows.",
+        "metrics": {
+          "elapsedMs": {
+            "pairs": [
+              {
+                "cli": 1976.1238330000015,
+                "protocol": 1955.3072079999984
+              },
+              {
+                "cli": 2009.8119589999988,
+                "protocol": 1955.5663329999952
+              },
+              {
+                "cli": 1991.6342080000031,
+                "protocol": 1942.166957999987
+              },
+              {
+                "cli": 1957.2721669999883,
+                "protocol": 1965.6294159999816
+              },
+              {
+                "cli": 1925.143958999979,
+                "protocol": 1951.716167000006
+              }
+            ],
+            "pairedMedianRatio": 0.9894659309035301,
+            "pairedMedianDelta": -20.816625000003114,
+            "ratio95PercentileBootstrap": [
+              0.9730096013425087,
+              1.0138027121950037
+            ]
+          },
+          "cpuSeconds": {
+            "pairs": [
+              {
+                "cli": 2.04,
+                "protocol": 2.02
+              },
+              {
+                "cli": 2.06,
+                "protocol": 2.01
+              },
+              {
+                "cli": 2.05,
+                "protocol": 2.01
+              },
+              {
+                "cli": 2.01,
+                "protocol": 2.02
+              },
+              {
+                "cli": 1.98,
+                "protocol": 2.01
+              }
+            ],
+            "pairedMedianRatio": 0.9901960784313726,
+            "pairedMedianDelta": -0.020000000000000018,
+            "ratio95PercentileBootstrap": [
+              0.9757281553398057,
+              1.0151515151515151
+            ]
+          },
+          "peakRssBytes": {
+            "pairs": [
+              {
+                "cli": 383598592,
+                "protocol": 380633088
+              },
+              {
+                "cli": 385056768,
+                "protocol": 384024576
+              },
+              {
+                "cli": 384417792,
+                "protocol": 382943232
+              },
+              {
+                "cli": 384434176,
+                "protocol": 381337600
+              },
+              {
+                "cli": 380551168,
+                "protocol": 382107648
+              }
+            ],
+            "pairedMedianRatio": 0.9961641733793632,
+            "pairedMedianDelta": -1474560,
+            "ratio95PercentileBootstrap": [
+              0.991945107398568,
+              1.0040900675937487
+            ]
+          },
+          "nodeHeapBytes": {
+            "pairs": [
+              {
+                "cli": 15069200,
+                "protocol": 15362152
+              },
+              {
+                "cli": 15069128,
+                "protocol": 15362080
+              },
+              {
+                "cli": 15069128,
+                "protocol": 15362080
+              },
+              {
+                "cli": 15069128,
+                "protocol": 15362080
+              },
+              {
+                "cli": 15069128,
+                "protocol": 15362976
+              }
+            ],
+            "pairedMedianRatio": 1.0194405409523364,
+            "pairedMedianDelta": 292952,
+            "ratio95PercentileBootstrap": [
+              1.0194404480662544,
+              1.0195000002654433
+            ]
+          }
+        },
+        "hostIdleRange": [
+          0.7150233500748965,
+          0.7766424129243671
+        ],
+        "sourceSizes": {
+          "adapter": 10091,
+          "reader": 2423,
+          "tests": 7507
+        }
+      },
+      "evidence": [
+        {
+          "path": "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/e10-measurement-1791083619419/samples.json",
+          "sha256": "c3bed09cd26abf12defc68d1e7c4cde937e1856a0debfc8dd8303c70dfac3d41"
+        },
+        {
+          "path": "/Users/tk/workspace/tk/boundary/.tmp/bwa-z17/e10-protocol-tests-fixed.log",
+          "sha256": "a0c93aec3c15e4a8e1081a753c94fdf2e135e6ee82a8f7adfb99095f996db71c"
+        }
+      ],
+      "readerBuild": [
+        {
+          "time": {
+            "wallSeconds": 8.33,
+            "userSeconds": 8.02,
+            "systemSeconds": 0.37
+          },
+          "peakRssBytes": 478674944,
+          "artifact": {
+            "bytes": 547896,
+            "sha256": "93fb8fa0118d22b2f67c873e3e69340ee023774bc5003dc725265753bd5748e5"
+          }
+        },
+        {
+          "time": {
+            "wallSeconds": 8.07,
+            "userSeconds": 8.01,
+            "systemSeconds": 0.35
+          },
+          "peakRssBytes": 472383488,
+          "artifact": {
+            "bytes": 547896,
+            "sha256": "3549b868fc07f438d6f8592e36e62936385a540a9d77becb98d9a60f64227283"
+          }
+        },
+        {
+          "time": {
+            "wallSeconds": 8.05,
+            "userSeconds": 7.97,
+            "systemSeconds": 0.34
+          },
+          "peakRssBytes": 474480640,
+          "artifact": {
+            "bytes": 547896,
+            "sha256": "c45a3871a2c751999972ec9870ff41394397300cc32e7c7585befef8654bdb28"
+          }
+        }
+      ]
     }
   ],
   "reverse_census": {
@@ -15960,10 +16174,10 @@
   "measurements": {
     "path": "zig17-samples.json.gz",
     "format": "gzip-compressed JSON",
-    "sha256": "4d0783aa87b8ad933eba045c25661d6e232a79bcc004859c79c5cd084dde5e10",
+    "sha256": "1b5e9725bfc1de40e0836c95aadffc5155a355be60507a4234d455845dc679a1",
     "method": "Median of paired window ratios and deltas. 20,000 independent-window bootstrap resamples with replacement, percentile 95% interval, xorshift32 initial seed 0x20261003. Three cold build pairs and five runtime/phase windows; no inner sample is treated as an independent window. OS page cache was not flushed. RSS is the maximum reported by /usr/bin/time, not a sum over concurrent children.",
     "conditions": "Serialized local experiments on macOS arm64 with ordinary desktop background activity; CPU/load observations retained. No dedicated-machine or uncontended-host claim.",
-    "scope": "E01 native phase attribution, E03 build and fresh emitter costs, E04 isolated reflection candidate, E06 native allocator attribution. Remaining dimensions and experiments are open. E02 repaired warm configuration caching, mutation checks and retained failure evidence."
+    "scope": "E01 native phase attribution, E03 build and fresh emitter costs, E04 isolated reflection candidate, E06 native allocator attribution. Remaining dimensions and experiments are open. E02 repaired warm configuration caching, mutation checks and retained failure evidence. E05 Linux correctness pilot and E10 finite protocol cost/cancellation qualification."
   },
   "editor": {
     "observed": "zls not found on host PATH; no tracked .vscode/.zed/zls.json configuration found",
