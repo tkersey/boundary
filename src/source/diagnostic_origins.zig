@@ -50,7 +50,8 @@ test "capture diagnostics prefer the actual producer over an earlier metadata us
     var first = [_]p.Id{17};
     var second = [_]p.Id{29};
     const captures = [_]std.ArrayList(p.Id){
-        .{ .items = &first, .capacity = 1 }, .{ .items = &second, .capacity = 1 },
+        .{ .items = &first, .capacity = 1, .pointer_stability = .{} },
+        .{ .items = &second, .capacity = 1, .pointer_stability = .{} },
     };
     const program: data.activation.Program = .{
         .roots = .{ .entry = 0, .result = 0, .failure = 0 },

@@ -9,7 +9,7 @@ const Observation = struct { profile: ?Profile.Owned, steps: usize };
 fn execute(allocator: std.mem.Allocator, bytes: []const u8, collect: bool) !Observation {
     var collector: ?Profile.Collector = if (collect) try Profile.Collector.init(allocator, original) else null;
     defer if (collector) |*value| value.deinit();
-    var input = [_]u8{0} ** 18;
+    var input = @as([18]u8, @splat(0));
     input[0] = 5;
     input[8] = 3;
     var session = try world.Session.initImage(allocator, bytes, &input);
@@ -38,7 +38,7 @@ fn save(init: std.process.Init, directory: []const u8, name: []const u8, program
     const bytes = try init.gpa.alloc(u8, try data.program_image.encodedLength(program));
     defer init.gpa.free(bytes);
     _ = try data.program_image.encode(init.gpa, program, bytes);
-    const path = try std.fmt.allocPrint(init.gpa, "{s}/{s}.bpi3", .{ directory, name });
+    const path = try init.gpa.print("{s}/{s}.bpi3", .{ directory, name });
     defer init.gpa.free(path);
     try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = path, .data = bytes });
 }
@@ -88,7 +88,7 @@ pub fn main(init: std.process.Init) !void {
     const record = observed.profile.?.record;
     const encoded = try init.gpa.alloc(u8, try Profile.encodedLength(record));
     defer init.gpa.free(encoded);
-    const path = try std.fmt.allocPrint(init.gpa, "{s}/training.bpf1", .{argument});
+    const path = try init.gpa.print("{s}/training.bpf1", .{argument});
     defer init.gpa.free(path);
     try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = path, .data = try Profile.encode(record, encoded) });
     var structural = try data.coalescing.run(init.gpa, original, .{});

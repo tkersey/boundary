@@ -7,11 +7,11 @@ const Stages = struct {
     io: std.Io,
     last: ?std.Io.Timestamp = null,
     previous: ?Stage = null,
-    ns: [@typeInfo(Stage).@"enum".fields.len]u64 = @splat(0),
+    ns: [@typeInfo(Stage).@"enum".field_names.len]u64 = @splat(0),
     fn enter(raw: *anyopaque, stage: Stage) void {
         const self: *@This() = @ptrCast(@alignCast(raw));
         const now = std.Io.Clock.awake.now(self.io);
-        if (self.previous) |before| self.ns[@intFromEnum(before)] += @intCast(self.last.?.durationTo(now).nanoseconds);
+        if (self.previous) |before| self.ns[@backingInt(before)] += @intCast(self.last.?.durationTo(now).nanoseconds);
         self.last = now;
         self.previous = stage;
     }

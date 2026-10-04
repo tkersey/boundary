@@ -73,7 +73,7 @@ test "coalescing candidate owns selected storage after source and scratch releas
 }
 
 test "coalescing candidate allocation failures leave no partially published owner" {
-    try testing.checkAllAllocationFailures(testing.allocator, candidateCase, .{});
+    try @import("allocation_testing.zig").check(testing.allocator, candidateCase, .{});
 }
 
 test "coalescing candidate keeps pinned authority functions separate" {
@@ -105,7 +105,7 @@ test "coalescing candidate keeps pinned authority functions separate" {
     try testing.expectEqualSlices(
         ir.Id,
         &.{ 0, 1, 2 },
-        map.representatives[@intFromEnum(r.Kind.function)],
+        map.representatives[@backingInt(r.Kind.function)],
     );
 }
 

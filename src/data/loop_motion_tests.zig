@@ -83,14 +83,14 @@ fn allocationAttempt(allocator: std.mem.Allocator, program: ir.Program) !void {
     defer result.deinit();
 }
 test "loop motion releases every allocation failure and rolls back exact work exhaustion" {
-    try std.testing.checkAllAllocationFailures(a, allocationAttempt, .{counted});
-    try std.testing.checkAllAllocationFailures(a, allocationAttempt, .{guarded});
+    try @import("allocation_testing.zig").check(a, allocationAttempt, .{counted});
+    try @import("allocation_testing.zig").check(a, allocationAttempt, .{guarded});
     var entry_program = counted;
     var entry_functions = counted.functions[0..1].*;
     entry_functions[0].entry = 1;
     entry_functions[0].inputs = &.{ 0, 1, 2, 3, 4, 7 };
     entry_program.functions = &entry_functions;
-    try std.testing.checkAllAllocationFailures(a, allocationAttempt, .{entry_program});
+    try @import("allocation_testing.zig").check(a, allocationAttempt, .{entry_program});
     var stats: motion.Statistics = .{};
     var limited = try motion.run(a, counted, &stats, .{ .work_limit = 0 });
     defer limited.deinit();

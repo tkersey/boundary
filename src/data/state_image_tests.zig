@@ -33,7 +33,7 @@ test "PST3 capacity accounts for canonical reference widths before output mutati
     defer testing.allocator.free(bytes);
     // 982 predecessor graph bytes plus one activation-option tag per node.
     try testing.expectEqual(1112, bytes.len);
-    var output = [_]u8{0xaa} ** 1112;
+    var output = @as([1112]u8, @splat(0xaa));
     try testing.expectError(error.Capacity, codec.encode(testing.allocator, state, output[0 .. output.len - 1]));
     try testing.expect(std.mem.allEqual(u8, &output, 0xaa));
     try testing.expectEqualSlices(u8, bytes, try codec.encode(testing.allocator, state, &output));
@@ -48,7 +48,7 @@ fn ref(id: u64) g.Value {
     return .{ .schema = 0, .body = .{ .reference = .{ .id = id } } };
 }
 const fixture: s.State = .{
-    .program_identity = .{7} ** 32,
+    .program_identity = @as([32]u8, @splat(7)),
     .status = .active,
     .roots = .{ .current = .{ .id = 1 } },
     .nodes = &.{
@@ -127,7 +127,7 @@ test "PST3 graph shape rejects missing frames and forged owner lists atomically"
     var state = fixture;
     state.nodes = &nodes;
     nodes[1].activation = null;
-    var output = [_]u8{0xa5} ** 1024;
+    var output = @as([1024]u8, @splat(0xa5));
     try testing.expectError(error.InvalidState, codec.encode(testing.allocator, state, &output));
     for (output) |byte| try testing.expectEqual(0xa5, byte);
     nodes[1] = fixture.nodes[1];
@@ -146,7 +146,7 @@ fn allocationFailure(allocator: std.mem.Allocator) !void {
     try testing.expectEqual(3, decoded.state.nodes.len);
 }
 test "PST3 allocation failures release partial graph owners" {
-    try testing.checkAllAllocationFailures(testing.allocator, allocationFailure, .{});
+    try @import("allocation_testing.zig").check(testing.allocator, allocationFailure, .{});
 }
 
 test "PST3 framing and decoded allocation budget reject malformed input" {
@@ -171,16 +171,16 @@ test "PST3 framing and decoded allocation budget reject malformed input" {
 
 test "PST3 terminal unit golden is independently specified" {
     const state: s.State = .{
-        .program_identity = .{0} ** 32,
+        .program_identity = @as([32]u8, @splat(0)),
         .status = .completed,
         .roots = .{ .exit = .{ .id = 0 } },
-        .nodes = &.{.{ .record = .{ .exit = .{ .reason = .{ .normal = .{ .schema = 0, .body = .{ .scalar = .{0} ** 8 } } } } } }},
+        .nodes = &.{.{ .record = .{ .exit = .{ .reason = .{ .normal = .{ .schema = 0, .body = .{ .scalar = @as([8]u8, @splat(0)) } } } } } }},
     };
     const golden = "ABL_PST3".* ++ [_]u8{ 3, 0, 0, 0, 59, 0, 0, 0, 0, 0, 0, 0 } ++
-        [_]u8{0} ** 32 ++ // Program identity
+        @as([32]u8, @splat(0)) ++ // Program identity
         [_]u8{ 4, 0, 0, 0, 1, 0, 0 } ++ // status and roots
         [_]u8{ 1, 23, 0, 0, 0 } ++ // node count, exit, normal, schema, scalar
-        [_]u8{0} ** 8 ++ // scalar padding
+        @as([8]u8, @splat(0)) ++ // scalar padding
         [_]u8{ 0, 0, 0, 0, 0, 0, 0 }; // exit fields, absent activation, blobs
     const bytes = try codec.emit(testing.allocator, state);
     defer testing.allocator.free(bytes);

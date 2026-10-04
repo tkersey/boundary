@@ -8,7 +8,7 @@ fn save(init: std.process.Init, directory: []const u8, name: []const u8, arm: []
     const bytes = try init.gpa.alloc(u8, try data.program_image.encodedLength(program));
     defer init.gpa.free(bytes);
     _ = try data.program_image.encode(init.gpa, program, bytes);
-    const path = try std.fmt.allocPrint(init.gpa, "{s}/{s}-{s}.bpi3", .{ directory, name, arm });
+    const path = try init.gpa.print("{s}/{s}-{s}.bpi3", .{ directory, name, arm });
     defer init.gpa.free(path);
     try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = path, .data = bytes });
 }
@@ -43,9 +43,9 @@ pub fn main(init: std.process.Init) !void {
         @memset(encoded, 0xff);
         try save(init, directory, name, "linked", linked.program);
     }
-    inline for (@typeInfo(arguments.Case).@"enum".fields) |field| {
-        const original = try arguments.fixture(arena.allocator(), @enumFromInt(field.value));
-        const name = "argument-" ++ field.name;
+    inline for (@typeInfo(arguments.Case).@"enum".field_names, @typeInfo(arguments.Case).@"enum".field_values) |field_name, field_value| {
+        const original = try arguments.fixture(arena.allocator(), @fromBackingInt(@intCast(field_value)));
+        const name = "argument-" ++ field_name;
         var baseline = try data.closed_compilation.run(init.gpa, original, .{});
         defer baseline.deinit();
         try save(init, directory, name, "structural", baseline.program);

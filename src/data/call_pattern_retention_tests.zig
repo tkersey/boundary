@@ -115,8 +115,8 @@ fn limitedAllocationAttempt(allocator: std.mem.Allocator) !void {
 }
 
 test "retained call-pattern observation allocation failure and work limits remain explicit" {
-    try std.testing.checkAllAllocationFailures(a, allocationAttempt, .{});
-    try std.testing.checkAllAllocationFailures(a, limitedAllocationAttempt, .{});
+    try @import("allocation_testing.zig").check(a, allocationAttempt, .{});
+    try @import("allocation_testing.zig").check(a, limitedAllocationAttempt, .{});
     var baseline = try @import("coalescing.zig").run(a, callable, .{});
     defer baseline.deinit();
     for ([_]u64{ 0, 1, 4 }) |limit| {

@@ -47,7 +47,7 @@ pub const readers: ir.Program = .{
 pub fn reverseReaderEffects(allocator: std.mem.Allocator, original: ir.Program) !ir.Program {
     std.debug.assert(original.effects.len == 2);
     var maps = try data.relocation.identityMaps(allocator, try data.relocation.sizes(original));
-    maps[@intFromEnum(data.relocation.Kind.effect)] = &.{ 1, 0 };
+    maps[@backingInt(data.relocation.Kind.effect)] = &.{ 1, 0 };
     const mapper: data.relocation.Mapper = .{ .allocator = allocator, .maps = maps };
     var result = original;
     const schemas = try allocator.alloc(data.program.Schema, original.schemas.len);

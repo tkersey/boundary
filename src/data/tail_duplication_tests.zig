@@ -6,7 +6,7 @@ const a = std.testing.allocator;
 
 test "a profile spends one tail copy on the hot proved incoming edge" {
     const profiles = @import("optimization_profile.zig");
-    var counts = [_]u64{0} ** split.blocks.len;
+    var counts = @as([split.blocks.len]u64, @splat(0));
     counts[2] = 100;
     const record: profiles.Record = .{ .image_identity = try @import("program_image.zig").identity(a, split), .block_counts = &counts, .total = 100 };
     var candidate = (try duplicate.construct(a, split, .{ .profile = record, .max_copies = 1 })).?;
@@ -82,7 +82,7 @@ fn allocationAttempt(allocator: std.mem.Allocator) !void {
     defer result.deinit();
 }
 test "duplication budgets and allocation failures retain P01" {
-    try std.testing.checkAllAllocationFailures(a, allocationAttempt, .{});
+    try @import("allocation_testing.zig").check(a, allocationAttempt, .{});
     var baseline = try @import("coalescing.zig").run(a, split, .{});
     defer baseline.deinit();
     for ([_]duplicate.Options{ .{ .work_limit = 0 }, .{ .max_copies = 0 }, .{ .max_added_bytes = 0 } }) |options| {

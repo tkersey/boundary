@@ -394,7 +394,7 @@ test "variant possibilities widen to explicit unknown without dropping tags" {
 test "parallel fact transfer is linear and reads every source before writes" {
     const a = std.testing.allocator;
     const n = 96;
-    const slots = [_]p.Id{0} ** n;
+    const slots = @as([n]p.Id, @splat(0));
     var instructions: [n]ir.Instruction = undefined;
     var assignments: [n]ir.Assignment = undefined;
     for (&instructions, &assignments, 0..) |*op, *assignment, index| {

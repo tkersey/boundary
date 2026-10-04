@@ -87,7 +87,7 @@ fn allocationAttempt(allocator: std.mem.Allocator) !void {
     defer result.deinit();
 }
 test "capture reduction releases all partial owners on allocation failure" {
-    try std.testing.checkAllAllocationFailures(a, allocationAttempt, .{});
+    try @import("allocation_testing.zig").check(a, allocationAttempt, .{});
 }
 
 test "direct worker calls drop the same capture prefix operand" {

@@ -297,8 +297,8 @@ test "coalescing rejects changed nominal effect use and forged many-to-one effec
     var scratch = std.heap.ArenaAllocator.init(testing.allocator);
     defer scratch.deinit();
     var forged = try identity(scratch.allocator(), program);
-    forged.representatives[@intFromEnum(r.Kind.effect)] = &.{ 0, 0 };
-    forged.final[@intFromEnum(r.Kind.effect)] = &.{ 0, 0 };
+    forged.representatives[@backingInt(r.Kind.effect)] = &.{ 0, 0 };
+    forged.final[@backingInt(r.Kind.effect)] = &.{ 0, 0 };
     try testing.expectError(error.InvalidCorrespondence, validator.validate(testing.allocator, program, program, forged));
     var optimized = try pass.run(testing.allocator, program, .{});
     defer optimized.deinit();

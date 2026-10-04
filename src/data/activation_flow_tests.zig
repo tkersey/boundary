@@ -178,7 +178,7 @@ fn allocationCase(allocator: std.mem.Allocator) !void {
 }
 
 test "activation flow owns all analysis storage and frees partial owners on failure" {
-    try testing.checkAllAllocationFailures(testing.allocator, allocationCase, .{});
+    try @import("allocation_testing.zig").check(testing.allocator, allocationCase, .{});
 }
 
 fn cyclicParentsCase(allocator: std.mem.Allocator) !void {
@@ -209,7 +209,7 @@ fn cyclicParentsCase(allocator: std.mem.Allocator) !void {
 }
 
 test "duplicate and cyclic predecessors preserve liveness and release partial scratch" {
-    try testing.checkAllAllocationFailures(testing.allocator, cyclicParentsCase, .{});
+    try @import("allocation_testing.zig").check(testing.allocator, cyclicParentsCase, .{});
 }
 
 test "activation liveness drops irrelevant data but retains required disposition" {
@@ -308,7 +308,7 @@ test "activation flow keeps its allocator alive for later derived-set allocation
         .instructions = &.{},
         .terminator = .{ .return_value = 0 },
     }};
-    var facts = try flow.analyze(testing.allocator, program(&blocks, &([_]p.Id{0} ** 257), &.{0}, &definition));
+    var facts = try flow.analyze(testing.allocator, program(&blocks, &(@as([257]p.Id, @splat(0))), &.{0}, &definition));
     defer facts.deinit();
     var root = facts.entries[0].?.initialized;
     for (1..257) |slot| root = try facts.pool.insert(root, slot);

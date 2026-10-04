@@ -84,7 +84,7 @@ test "coalescing witness domains cover separately admitted original and shared c
     defer after.deinit();
     try domainCase(testing.allocator);
     try validation.validate(testing.allocator, original, candidate, witness);
-    try testing.checkAllAllocationFailures(testing.allocator, domainCase, .{});
+    try @import("allocation_testing.zig").check(testing.allocator, domainCase, .{});
 }
 
 test "coalescing raw validator rejects separately admissible wrong output" {
@@ -132,7 +132,7 @@ fn validationCase(allocator: std.mem.Allocator) !void {
 }
 
 test "coalescing raw validation releases temporary storage on allocation failure" {
-    try testing.checkAllAllocationFailures(testing.allocator, validationCase, .{});
+    try @import("allocation_testing.zig").check(testing.allocator, validationCase, .{});
 }
 
 test "coalescing raw validator rejects mutated control and a code merge in description profile" {
@@ -196,7 +196,7 @@ fn identityCase(allocator: std.mem.Allocator) !void {
 }
 
 test "coalescing shared identity maps clean up each allocation failure" {
-    try testing.checkAllAllocationFailures(testing.allocator, identityCase, .{});
+    try @import("allocation_testing.zig").check(testing.allocator, identityCase, .{});
 }
 
 test "coalescing witness domains reject missing cyclic foreign and uncovered mappings" {
@@ -205,20 +205,20 @@ test "coalescing witness domains reject missing cyclic foreign and uncovered map
     };
     for (bad_maps) |map| {
         var changed = witness;
-        changed.final[@intFromEnum(r.Kind.function)] = map;
+        changed.final[@backingInt(r.Kind.function)] = map;
         try testing.expectError(
             error.InvalidCorrespondence,
             w.checkDomains(testing.allocator, original, candidate, changed),
         );
     }
     var changed = witness;
-    changed.representatives[@intFromEnum(r.Kind.function)] = &.{ 1, 0, 2 };
+    changed.representatives[@backingInt(r.Kind.function)] = &.{ 1, 0, 2 };
     try testing.expectError(
         error.InvalidCorrespondence,
         w.checkDomains(testing.allocator, original, candidate, changed),
     );
     changed = witness;
-    changed.final[@intFromEnum(r.Kind.block)] = &.{ 0, 0, 1, 1, 3 };
+    changed.final[@backingInt(r.Kind.block)] = &.{ 0, 0, 1, 1, 3 };
     try testing.expectError(
         error.InvalidCorrespondence,
         w.checkDomains(testing.allocator, original, candidate, changed),
@@ -254,8 +254,8 @@ test "coalescing witness domains reject local nonbijections and authority merges
             .eliminators = &.{},
         }};
         changed = witness;
-        changed.representatives[@intFromEnum(r.Kind.resource)] = &.{0};
-        changed.final[@intFromEnum(r.Kind.resource)] = &.{0};
+        changed.representatives[@backingInt(r.Kind.resource)] = &.{0};
+        changed.final[@backingInt(r.Kind.resource)] = &.{0};
         try testing.expectError(
             error.InvalidCorrespondence,
             w.checkDomains(testing.allocator, before, after, changed),

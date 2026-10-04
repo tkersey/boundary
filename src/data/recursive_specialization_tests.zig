@@ -91,7 +91,7 @@ fn allocationAttempt(allocator: std.mem.Allocator) !void {
     defer result.deinit();
 }
 test "recursive worker generation and certificate clean allocation failures" {
-    try std.testing.checkAllAllocationFailures(a, allocationAttempt, .{});
+    try @import("allocation_testing.zig").check(a, allocationAttempt, .{});
 }
 test "recursive specialization folds an invariant constructor and generalizes a growing known argument" {
     var candidate = (try patterns.construct(a, countdown, .{})).?;

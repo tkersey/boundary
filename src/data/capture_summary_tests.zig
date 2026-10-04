@@ -89,7 +89,7 @@ fn allocationAttempt(allocator: std.mem.Allocator) !void {
     defer result.deinit();
 }
 test "XOR summary releases all partial owners on allocation failure" {
-    try std.testing.checkAllAllocationFailures(a, allocationAttempt, .{});
+    try @import("allocation_testing.zig").check(a, allocationAttempt, .{});
 }
 
 test "u64 XOR summary law follows every bit and native scalar semantics" {

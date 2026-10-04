@@ -51,7 +51,7 @@ fn allocationAttempt(allocator: std.mem.Allocator) !void {
     defer plan.deinit();
 }
 test "affine capture census releases every partial owner" {
-    try std.testing.checkAllAllocationFailures(a, allocationAttempt, .{});
+    try @import("allocation_testing.zig").check(a, allocationAttempt, .{});
     try std.testing.expectError(error.WorkLimit, affine.analyze(a, rotating, 0, 0));
 }
 
@@ -125,7 +125,7 @@ test "checked affine transformation owns output and rolls back deterministic lim
     defer baseline.deinit();
     try std.testing.expectEqual(.work_limit, stats.outcome);
     try std.testing.expectEqual(try @import("program_image.zig").identity(a, baseline.program), try @import("program_image.zig").identity(a, limited.program));
-    try std.testing.checkAllAllocationFailures(a, checkedAllocationAttempt, .{});
+    try @import("allocation_testing.zig").check(a, checkedAllocationAttempt, .{});
 }
 
 test "semantic closed compilation consumes affine state while structural preserves it" {
@@ -496,7 +496,7 @@ test "direct parameter synthesis owns every partial allocation and rolls back wo
     var arena = std.heap.ArenaAllocator.init(a);
     defer arena.deinit();
     const program = try directFixture(arena.allocator());
-    try std.testing.checkAllAllocationFailures(a, directAllocationAttempt, .{program});
+    try @import("allocation_testing.zig").check(a, directAllocationAttempt, .{program});
     const pass = @import("affine_state.zig");
     var stats: pass.Statistics = .{};
     var limited = try pass.runTarget(a, program, pass.directTarget(program, 1).?, &stats, 0, .{});

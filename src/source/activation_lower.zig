@@ -66,9 +66,19 @@ fn lowerInternal(
     options: source.CompileOptions,
 ) Error!Construction {
     options.resetObservations();
-    errdefer |err| if (options.diagnostic) |diagnostic| {
-        diagnostic.code = err;
+    return lowerBody(allocator, input, imports, component, borrows, options) catch |err| {
+        if (options.diagnostic) |diagnostic| diagnostic.code = err;
+        return err;
     };
+}
+fn lowerBody(
+    allocator: std.mem.Allocator,
+    input: ast.Module,
+    imports: []const p.Id,
+    component: bool,
+    borrows: []const data.borrow_contract.Summary,
+    options: source.CompileOptions,
+) Error!Construction {
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     const a = arena.allocator();

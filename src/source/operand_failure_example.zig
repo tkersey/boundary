@@ -21,7 +21,7 @@ const Kind = enum {
 pub const count = std.enums.values(Kind).len;
 
 pub fn build(b: *source.Builder, fixtures: Fixtures, index: usize) source.Error!p.Id {
-    const kind: Kind = @enumFromInt(index);
+    const kind: Kind = @fromBackingInt(@intCast(index));
     const integer = try b.scalar(u64);
     const failed = try b.term(.{ .fail = try b.constant(u64, 8) });
     const helper = try b.declare(

@@ -21,7 +21,7 @@ fn charge(comptime T: type, value: T, budget: ?*Budget) Error!void {
     if (budget == null) return;
     try take(budget, 1);
     switch (@typeInfo(T)) {
-        .@"struct" => |info| inline for (info.fields) |field| try charge(field.type, @field(value, field.name), budget),
+        .@"struct" => |info| inline for (info.field_names, info.field_types) |field_name, FieldType| try charge(FieldType, @field(value, field_name), budget),
         .@"union" => switch (value) {
             inline else => |payload| try charge(@TypeOf(payload), payload, budget),
         },
@@ -620,7 +620,7 @@ test "a general resumption with an administrative join becomes a checked tail cl
             defer result.deinit();
         }
     };
-    try std.testing.checkAllAllocationFailures(a, AllocationProbe.execute, .{original});
+    try @import("allocation_testing.zig").check(a, AllocationProbe.execute, .{original});
     var arena = std.heap.ArenaAllocator.init(a);
     defer arena.deinit();
     const scratch = arena.allocator();

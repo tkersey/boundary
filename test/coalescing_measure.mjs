@@ -23,7 +23,7 @@ for(const fixture of fixtures) {
       arms[mode]=JSON.parse(execFileSync(mode==='off'?priorExecutable:resolve(executable),mode==='off'?[fixture,'off']:[fixture],
         {encoding:'utf8',maxBuffer:16<<20}));
       assert.equal(arms[mode].warmups,3);assert.equal(arms[mode].samples.length,9);
-      assert.equal(arms[mode].optimization,'ReleaseSafe');
+      assert.equal(arms[mode].optimization,mode==='off'?'ReleaseSafe':'safe');
       for(const row of arms[mode].samples)assert.equal(row.sha256,arms[mode].samples[0].sha256);
     }
     assert.ok(arms.safe.samples[0].bytes<=arms.off.samples[0].bytes);

@@ -416,7 +416,7 @@ test "public staged emit compiles independently and frees every failed allocatio
         }
     };
     try Application.attempt(std.testing.allocator);
-    try std.testing.checkAllAllocationFailures(std.testing.allocator, Application.attempt, .{});
+    try @import("../allocation_testing.zig").check(std.testing.allocator, Application.attempt, .{});
 }
 
 test "lexical lambda conversion derives captures and owns emitted data independently" {

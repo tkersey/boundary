@@ -47,7 +47,7 @@ pub const readers: ir.Program = .{
     .scopes = .{ .captures = &.{ .{ .fields = &.{ 0, 0, 0 }, .use = .reusable }, .{ .fields = &.{ 3, 0, 0 }, .use = .reusable } } },
 };
 test "Reader law is recognized from admitted records and actual capability bindings" {
-    try std.testing.checkAllAllocationFailures(a, allocationAttempt, .{});
+    try @import("allocation_testing.zig").check(a, allocationAttempt, .{});
     var admitted = try @import("activation_ownership.zig").analyze(a, readers);
     admitted.deinit();
     var arena = std.heap.ArenaAllocator.init(a);

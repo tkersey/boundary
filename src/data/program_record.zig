@@ -24,8 +24,8 @@ pub const Context = struct { previous_function: p.Id = 0 };
 /// records still belong to its arena; the out allocation is owned on failure too.
 pub fn readProgram(reader: *wire.Reader, arena: std.mem.Allocator, catalog: std.mem.Allocator, blocks: *[]ir.Block, budget: *Budget, context: *Context) Error!ir.Program {
     var result: ir.Program = undefined;
-    inline for (std.meta.fields(ir.Program)) |field| {
-        if (comptime std.mem.eql(u8, field.name, "blocks")) {
+    inline for (@typeInfo(ir.Program).@"struct".field_names, @typeInfo(ir.Program).@"struct".field_types) |field_name, FieldType| {
+        if (comptime std.mem.eql(u8, field_name, "blocks")) {
             const count = try reader.count();
             if (count > reader.input.len - reader.position) return error.Truncated;
             try budget.account(ir.Block, count);
@@ -34,7 +34,7 @@ pub fn readProgram(reader: *wire.Reader, arena: std.mem.Allocator, catalog: std.
             if (exact) blocks.* = output;
             for (output) |*block| block.* = try read(ir.Block, reader, arena, budget, context);
             result.blocks = output;
-        } else @field(result, field.name) = try read(field.type, reader, arena, budget, context);
+        } else @field(result, field_name) = try read(FieldType, reader, arena, budget, context);
     }
     return result;
 }
@@ -48,12 +48,12 @@ comptime {
     fields(ir.Edge, &.{ "block", "assignments" });
     fields(ir.Assignment, &.{ "destination", "source" });
     fields(p.Literal, &.{ "schema", "bytes" });
-    for (std.meta.fields(p.Opcode)) |field| std.debug.assert(field.value < 64);
+    for (@typeInfo(p.Opcode).@"enum".field_values) |field_value| std.debug.assert(field_value < 64);
 }
 fn fields(comptime T: type, comptime names: []const []const u8) void {
-    const declared = std.meta.fields(T);
+    const declared = @typeInfo(T).@"struct".field_names;
     std.debug.assert(declared.len == names.len);
-    for (declared, names) |field, name| std.debug.assert(std.mem.eql(u8, field.name, name));
+    for (declared, names) |field_name, name| std.debug.assert(std.mem.eql(u8, field_name, name));
 }
 
 pub fn write(comptime T: type, value: T, writer: *wire.Writer, context: *Context) Error!void {
@@ -69,14 +69,14 @@ pub fn write(comptime T: type, value: T, writer: *wire.Writer, context: *Context
             if (info.child == u8) return writer.put(value);
             for (value) |element| try write(info.child, element, writer, context);
         },
-        .@"struct" => |info| inline for (info.fields) |field| {
+        .@"struct" => |info| inline for (info.field_names, info.field_types) |field_name, FieldType| {
             // Retired optional forwarding field: accepted images always encoded zero.
-            if (T == ir.Handler and comptime std.mem.eql(u8, field.name, "state"))
+            if (T == ir.Handler and comptime std.mem.eql(u8, field_name, "state"))
                 try writer.byte(0);
-            try write(field.type, @field(value, field.name), writer, context);
+            try write(FieldType, @field(value, field_name), writer, context);
         },
         .@"union" => {
-            try writer.natural(@intFromEnum(std.meta.activeTag(value)));
+            try writer.natural(@backingInt(std.meta.activeTag(value)));
             switch (value) {
                 inline else => |payload| try write(@TypeOf(payload), payload, writer, context),
             }
@@ -113,18 +113,18 @@ pub fn read(comptime T: type, reader: *wire.Reader, allocator: std.mem.Allocator
         },
         .@"struct" => |info| blk: {
             var result: T = undefined;
-            inline for (info.fields) |field| {
-                if (T == ir.Handler and comptime std.mem.eql(u8, field.name, "state"))
+            inline for (info.field_names, info.field_types) |field_name, FieldType| {
+                if (T == ir.Handler and comptime std.mem.eql(u8, field_name, "state"))
                     if (try reader.byte() != 0) return error.InvalidFlags;
-                @field(result, field.name) = try read(field.type, reader, allocator, budget, context);
+                @field(result, field_name) = try read(FieldType, reader, allocator, budget, context);
             }
             break :blk result;
         },
         .@"union" => |info| blk: {
             const tag = try reader.natural();
-            inline for (info.fields) |field| {
-                if (tag == @intFromEnum(@field(info.tag_type.?, field.name)))
-                    break :blk @unionInit(T, field.name, try read(field.type, reader, allocator, budget, context));
+            inline for (info.field_names, info.field_types) |field_name, FieldType| {
+                if (tag == @backingInt(@field(info.tag_type.?, field_name)))
+                    break :blk @unionInit(T, field_name, try read(FieldType, reader, allocator, budget, context));
             }
             break :blk error.InvalidTag;
         },
@@ -233,7 +233,7 @@ fn faultKind(opcode: p.Opcode, index: usize) Error!p.Fault {
     return if (index < kinds.len) kinds[index] else error.InvalidTag;
 }
 fn writeInstruction(value: ir.Instruction, writer: *wire.Writer) Error!void {
-    const header: u8 = @intFromEnum(value.opcode) |
+    const header: u8 = @backingInt(value.opcode) |
         @as(u8, if (value.immediate != 0) 64 else 0) |
         @as(u8, if (value.failures.len != 0) 128 else 0);
     try writer.byte(header);

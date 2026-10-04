@@ -5,7 +5,7 @@ const p = @import("program.zig");
 const ir = @import("activation.zig");
 pub const Kind = enum(u8) { schema, constant, effect, function, block, handler, capture, region, resource, constructor };
 pub const Reference = struct { kind: Kind, id: p.Id };
-pub const kind_count = std.meta.fields(Kind).len;
+pub const kind_count = @typeInfo(Kind).@"enum".field_names.len;
 pub const missing = std.math.maxInt(p.Id);
 pub const Error = @import("admission.zig").Error;
 pub const Maps = [kind_count][]const p.Id;
@@ -50,7 +50,7 @@ pub const Mapper = struct {
     pub fn id(self: Mapper, kind: Kind, value: p.Id) Error!p.Id {
         if (self.references) |found| try found.append(self.allocator, .{ .kind = kind, .id = value });
         if (kind == .region) if (self.region_names) |names| return names.id(value);
-        const map = self.maps[@intFromEnum(kind)];
+        const map = self.maps[@backingInt(kind)];
         if (value >= map.len or map[@intCast(value)] == missing) return error.InvalidReference;
         return map[@intCast(value)];
     }
@@ -190,7 +190,7 @@ pub const Projection = struct {
     pub fn mapped(self: Projection, kind: Kind, old: p.Id) Error!p.Id {
         if (kind == .region) return self.regions.get(old) orelse error.InvalidReference;
         const maps = self.maps orelse return error.InvalidReference;
-        const map = maps[@intFromEnum(kind)];
+        const map = maps[@backingInt(kind)];
         if (old >= map.len or map[@intCast(old)] == missing) return error.InvalidReference;
         return map[@intCast(old)];
     }
@@ -218,7 +218,7 @@ pub fn ownReachable(output: std.mem.Allocator, scratch: std.mem.Allocator, input
     }
     const mapper: Mapper = .{ .allocator = output, .maps = selection.maps, .region_names = &selection.regions };
     const result = try copySelected(mapper, input, orders, selection.regions.ids.count());
-    return .{ .program = result, .function_origins = orders[@intFromEnum(Kind.function)], .maps = selection.maps, .regions = selection.regions.ids };
+    return .{ .program = result, .function_origins = orders[@backingInt(Kind.function)], .maps = selection.maps, .regions = selection.regions.ids };
 }
 
 /// Materialize selected whole records using the same typed field rewriter as
@@ -241,7 +241,7 @@ pub fn ownQuotient(output: std.mem.Allocator, scratch: std.mem.Allocator, input:
         };
     }
     const mapper: Mapper = .{ .allocator = output, .maps = final };
-    return copySelected(mapper, input, orders, orders[@intFromEnum(Kind.region)].len);
+    return copySelected(mapper, input, orders, orders[@backingInt(Kind.region)].len);
 }
 
 fn copySelected(mapper: Mapper, input: ir.Program, orders: [kind_count][]p.Id, regions: p.Id) Error!ir.Program {
@@ -250,16 +250,16 @@ fn copySelected(mapper: Mapper, input: ir.Program, orders: [kind_count][]p.Id, r
     result.roots = .{ .entry = try mapper.id(.function, input.roots.entry), .result = try mapper.id(.schema, input.roots.result), .failure = try mapper.id(.schema, input.roots.failure) };
     inline for (.{ .{ Kind.schema, "schemas", Mapper.schema }, .{ Kind.constant, "constants", Mapper.literal }, .{ Kind.effect, "effects", Mapper.effect }, .{ Kind.function, "functions", Mapper.function }, .{ Kind.block, "blocks", Mapper.block }, .{ Kind.handler, "handlers", Mapper.handler }, .{ Kind.constructor, "constructors", Mapper.constructor } }) |item| {
         const T = std.meta.Elem(@TypeOf(@field(input, item[1])));
-        const order = orders[@intFromEnum(item[0])];
+        const order = orders[@backingInt(item[0])];
         const values = try output.alloc(T, order.len);
         for (values, order) |*target, old| target.* = try item[2](mapper, @field(input, item[1])[@intCast(old)]);
         @field(result, item[1]) = values;
     }
-    const captures = try output.alloc(p.Capture, orders[@intFromEnum(Kind.capture)].len);
-    for (captures, orders[@intFromEnum(Kind.capture)]) |*target, old|
+    const captures = try output.alloc(p.Capture, orders[@backingInt(Kind.capture)].len);
+    for (captures, orders[@backingInt(Kind.capture)]) |*target, old|
         target.* = try mapper.capture(input.scopes.captures[@intCast(old)]);
-    const resources = try output.alloc(p.Resource, orders[@intFromEnum(Kind.resource)].len);
-    for (resources, orders[@intFromEnum(Kind.resource)]) |*target, old|
+    const resources = try output.alloc(p.Resource, orders[@backingInt(Kind.resource)].len);
+    for (resources, orders[@backingInt(Kind.resource)]) |*target, old|
         target.* = try mapper.resource(input.scopes.resources[@intCast(old)]);
     result.scopes = .{ .captures = captures, .resources = resources, .region_count = regions };
     return result;
@@ -292,7 +292,7 @@ const Selection = struct {
                 _ = try self.regions.id(reference.id);
                 continue;
             }
-            const kind = @intFromEnum(reference.kind);
+            const kind = @backingInt(reference.kind);
             if (reference.id >= self.seen[kind].len) return error.InvalidReference;
             const id: usize = @intCast(reference.id);
             if (self.seen[kind][id]) continue;

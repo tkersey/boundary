@@ -106,7 +106,7 @@ fn allocationAttempt(allocator: std.mem.Allocator) !void {
     defer result.deinit();
 }
 test "specialization releases every partial owner on allocation failure" {
-    try std.testing.checkAllAllocationFailures(a, allocationAttempt, .{});
+    try @import("allocation_testing.zig").check(a, allocationAttempt, .{});
 }
 
 test "parallel edge assignments read one predecessor view and loops widen constants" {
@@ -238,7 +238,7 @@ fn branchAllocationAttempt(allocator: std.mem.Allocator) !void {
     defer result.deinit();
 }
 test "branch proof and candidate owners release on every allocation failure" {
-    try std.testing.checkAllAllocationFailures(a, branchAllocationAttempt, .{});
+    try @import("allocation_testing.zig").check(a, branchAllocationAttempt, .{});
 }
 
 test "dead computation removes the closed constructor left by direct specialization" {
@@ -290,7 +290,7 @@ fn deadAllocationAttempt(allocator: std.mem.Allocator) !void {
     defer result.deinit();
 }
 test "dead computation releases all partial owners on allocation failure" {
-    try std.testing.checkAllAllocationFailures(a, deadAllocationAttempt, .{});
+    try @import("allocation_testing.zig").check(a, deadAllocationAttempt, .{});
 }
 
 test "independent dead checker rejects erasing a live overwrite despite valid candidate admission" {
@@ -445,7 +445,7 @@ fn callerAllocationAttempt(allocator: std.mem.Allocator) !void {
     defer result.deinit();
 }
 test "call-context propagation and independent caller proof release allocation failures" {
-    try std.testing.checkAllAllocationFailures(a, callerAllocationAttempt, .{});
+    try @import("allocation_testing.zig").check(a, callerAllocationAttempt, .{});
 }
 
 test "private dead callable argument removal unlocks constructor elimination" {
@@ -500,7 +500,7 @@ fn deadArgumentAllocationAttempt(allocator: std.mem.Allocator) !void {
     defer result.deinit();
 }
 test "dead argument transformation releases all partial owners" {
-    try std.testing.checkAllAllocationFailures(a, deadArgumentAllocationAttempt, .{});
+    try @import("allocation_testing.zig").check(a, deadArgumentAllocationAttempt, .{});
 }
 
 test "a computation reused as a handler body retains its construction" {
@@ -735,5 +735,5 @@ fn variantAllocationAttempt(allocator: std.mem.Allocator) !void {
     defer result.deinit();
 }
 test "variant facts and branch proofs release partial allocation owners" {
-    try std.testing.checkAllAllocationFailures(a, variantAllocationAttempt, .{});
+    try @import("allocation_testing.zig").check(a, variantAllocationAttempt, .{});
 }

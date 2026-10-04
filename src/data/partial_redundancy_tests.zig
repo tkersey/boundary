@@ -85,7 +85,7 @@ fn allocationAttempt(allocator: std.mem.Allocator) !void {
     defer result.deinit();
 }
 test "PRE allocation failures and work exhaustion preserve original ownership" {
-    try std.testing.checkAllAllocationFailures(a, allocationAttempt, .{});
+    try @import("allocation_testing.zig").check(a, allocationAttempt, .{});
     var stats: pre.Statistics = .{};
     var limited = try pre.run(a, diamond, &stats, .{ .work_limit = 0 });
     defer limited.deinit();

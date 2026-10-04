@@ -79,7 +79,7 @@ fn segments(comptime T: type, values: []const T, writer: *wire.Writer) Error!voi
     var offset: usize = 0;
     while (offset < values.len) {
         const segment = next(T, values[offset..]);
-        try writer.byte(@intFromEnum(segment.mode));
+        try writer.byte(@backingInt(segment.mode));
         try writer.natural(segment.count);
         if (segment.mode == .literal) {
             for (values[offset..][0..segment.count]) |value| try record.write(T, value, writer);

@@ -164,10 +164,10 @@ pub fn references(comptime T: type, value: T, list: *std.ArrayList(Reference), a
         .optional => |info| {
             if (value) |present| try references(info.child, present, list, allocator);
         },
-        .@"struct" => |info| inline for (info.fields) |field| try references(field.type, @field(value, field.name), list, allocator),
-        .@"union" => |info| inline for (info.fields) |field| {
-            if (std.mem.eql(u8, @tagName(value), field.name)) {
-                try references(field.type, @field(value, field.name), list, allocator);
+        .@"struct" => |info| inline for (info.field_names, info.field_types) |field_name, FieldType| try references(FieldType, @field(value, field_name), list, allocator),
+        .@"union" => |info| inline for (info.field_names, info.field_types) |field_name, FieldType| {
+            if (std.mem.eql(u8, @tagName(value), field_name)) {
+                try references(FieldType, @field(value, field_name), list, allocator);
                 return;
             }
         },
@@ -192,13 +192,13 @@ pub fn remap(comptime T: type, value: T, nodes: []const u64, blobs: []const u64,
         },
         .@"struct" => |info| blk: {
             var result: T = undefined;
-            inline for (info.fields) |field| @field(result, field.name) = try remap(field.type, @field(value, field.name), nodes, blobs, allocator);
+            inline for (info.field_names, info.field_types) |field_name, FieldType| @field(result, field_name) = try remap(FieldType, @field(value, field_name), nodes, blobs, allocator);
             break :blk result;
         },
         .@"union" => |info| blk: {
-            inline for (info.fields) |field| {
-                if (std.mem.eql(u8, @tagName(value), field.name))
-                    break :blk @unionInit(T, field.name, try remap(field.type, @field(value, field.name), nodes, blobs, allocator));
+            inline for (info.field_names, info.field_types) |field_name, FieldType| {
+                if (std.mem.eql(u8, @tagName(value), field_name))
+                    break :blk @unionInit(T, field_name, try remap(FieldType, @field(value, field_name), nodes, blobs, allocator));
             }
             unreachable; // The active tag is one of this closed native union's fields.
         },

@@ -30,7 +30,7 @@ const Budget = struct {
 fn charge(comptime T: type, value: T, budget: *Budget) Error!void {
     try budget.tick();
     switch (@typeInfo(T)) {
-        .@"struct" => |info| inline for (info.fields) |field| try charge(field.type, @field(value, field.name), budget),
+        .@"struct" => |info| inline for (info.field_names, info.field_types) |field_name, FieldType| try charge(FieldType, @field(value, field_name), budget),
         .@"union" => switch (value) {
             inline else => |payload| try charge(@TypeOf(payload), payload, budget),
         },

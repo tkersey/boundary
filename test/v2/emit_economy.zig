@@ -1,11 +1,18 @@
 const std = @import("std");
 const boundary = @import("boundary");
-const options = @import("economy_options");
 
 pub fn main(init: std.process.Init) !void {
+    var args = std.process.Args.Iterator.init(init.minimal.args);
+    _ = args.next();
+    const count = try std.fmt.parseInt(usize, args.next() orelse return error.MissingCount, 10);
+    if (args.next() != null) return error.InvalidArguments;
+    switch (count) {
+        0, 1, 8, 64 => {},
+        else => return error.InvalidCount,
+    }
     var builder = boundary.source.Builder.init(init.gpa);
     defer builder.deinit();
-    const module = if (options.installations == 0) try boundary.source.examples.blobCapture(&builder) else try boundary.source.examples.installations(&builder, options.installations);
+    const module = if (count == 0) try boundary.source.examples.blobCapture(&builder) else try boundary.source.examples.installations(&builder, count);
     var compiled = try boundary.program.compile(init.gpa, module);
     defer compiled.deinit();
     const bytes = try init.gpa.alloc(u8, try boundary.data.program_image.encodedLength(compiled.program));

@@ -1,5 +1,44 @@
 # Optimization acceptance
 
+## Zig 0.17 upgrade in progress
+
+The [accepted upgrade specification](zig-0.17-upgrade-spec.md) governs the
+coordinated successor. The [upgrade record](performance/zig17-upgrade.json)
+separates its source census, compiler identities and current observations from
+the historical optimization results below. Full compatibility, experiment and
+landing qualification remain open. The maintained successor in each repository
+supports **Zig 0.17.0 only**. References to 0.16 below describe frozen measurement
+and rollback evidence, never supported successor builds or dual-version CI.
+
+Boundary's first compatibility candidate passed the native aggregate and kept
+all 114 emitted program/component/JSON artifacts byte-identical to its 0.16
+baseline. Captured error cleanup was checked on 0.16 before migrating reflection.
+Allocation-failure sweeps retain their OOM/leak assertions with deterministic
+growth: the 0.17 safety allocator's successful remaps otherwise change the number
+of allocation sites between identical executions. Ordinary tests still exercise
+the real safety allocator.
+
+World's [draft upgrade PR](https://github.com/tkersey/world/pull/62) first binds
+current Boundary source under 0.16. Its authenticated Linux delivery and local
+macOS delivery passed; Agent's reconciled consumer baseline is being qualified.
+These are preparation and compatibility observations, not performance claims or
+completion of E01–E10 and T01–T70.
+
+### Zig 0.17 standalone configuration-cache witness
+
+Switching `--build-file` between sibling scripts while reusing a local cache
+selected the preceding script's graph on the official 0.17.0 distribution.
+A two-file step-list reproducer confirmed the behavior independently of project
+code. The maintained standalone authoring/hyper helpers therefore call
+`b.graph.poisonCache()`; their compiled artifacts remain cached, while configuration
+is recomputed. The normal build keeps configuration caching. A regression test
+alternates the actual helper scripts using one cache and checks their distinct
+step sets. This necessary workaround's configuration cost belongs in E02; no
+performance improvement is claimed for it. World applies the same scoped remedy
+to its sibling source/benchmark helpers.
+
+## Historical optimization acceptance
+
 **State:** repository cleanup is retained. Boundary `65f4613` and Agent `20362f1`
 qualify the retained-argument repair; current results are below. Fresh final serial
 reviews remain open. This is the consolidated acceptance report for

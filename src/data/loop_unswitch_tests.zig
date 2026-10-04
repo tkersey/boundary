@@ -115,7 +115,7 @@ fn allocationAttempt(allocator: std.mem.Allocator) !void {
     defer result.deinit();
 }
 test "unswitching retains exact P01 on exhausted work or insufficient final code budget" {
-    try std.testing.checkAllAllocationFailures(a, allocationAttempt, .{});
+    try @import("allocation_testing.zig").check(a, allocationAttempt, .{});
     var baseline = try @import("coalescing.zig").run(a, selectable, .{});
     defer baseline.deinit();
     var stats: unswitch.Statistics = .{};
@@ -169,7 +169,7 @@ fn cellAllocationAttempt(allocator: std.mem.Allocator) !void {
     defer result.deinit();
 }
 test "copied region-local loops clean up allocation failures" {
-    try std.testing.checkAllAllocationFailures(a, cellAllocationAttempt, .{});
+    try @import("allocation_testing.zig").check(a, cellAllocationAttempt, .{});
 }
 
 pub fn branchCells(allocator: std.mem.Allocator) !ir.Program {

@@ -71,7 +71,7 @@ test "a locally collected hot-path profile preserves held-out reachable alternat
     const original_bytes = try a.alloc(u8, try data.program_image.encodedLength(repeated));
     defer a.free(original_bytes);
     _ = try data.program_image.encode(a, repeated, original_bytes);
-    var input = [_]u8{0} ** 18;
+    var input = @as([18]u8, @splat(0));
     input[0] = 5;
     input[8] = 3;
     var training = try world.Session.initImage(a, original_bytes, &input);

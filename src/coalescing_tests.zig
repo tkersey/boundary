@@ -29,7 +29,7 @@ fn buildClosures(
     const unit = try context.scalar(void);
     const fields = try a.alloc(authoring.Field, count);
     for (fields, 0..) |*field, id| field.* = .{
-        .name = try std.fmt.allocPrint(a, "value-{d}", .{id}),
+        .name = try a.print("value-{d}", .{id}),
         .schema = integer,
     };
     const result_schema = try context.record(fields);
@@ -376,8 +376,8 @@ test "coalescing folds fresh hyper helper emissions but retains Step configurati
         selected_functions[index] = safe.program.functions.len;
     }
     // The near case changes only the second Step's actual emitted arithmetic.
-    try testing.expect(selected_functions[@intFromEnum(cases.Kind.configured)] >
-        selected_functions[@intFromEnum(cases.Kind.duplicate)]);
+    try testing.expect(selected_functions[@backingInt(cases.Kind.configured)] >
+        selected_functions[@backingInt(cases.Kind.duplicate)]);
 }
 
 test "coalescing preserves reversed equal-type capture operands at distinct construction sites" {
@@ -505,7 +505,7 @@ test "coalescing allocation failures cover handlers constructors regions resourc
         var baseline = try frozen.kind(testing.allocator, "", kind);
         defer baseline.deinit();
         const before = try data.program_image.identity(testing.allocator, baseline.program);
-        try testing.checkAllAllocationFailures(testing.allocator, richAllocationCase, .{baseline.program});
+        try @import("allocation_testing.zig").check(testing.allocator, richAllocationCase, .{baseline.program});
         try testing.expectEqual(before, try data.program_image.identity(testing.allocator, baseline.program));
     }
 }
