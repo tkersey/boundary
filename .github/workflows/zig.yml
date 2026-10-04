@@ -4,15 +4,49 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
-# Superseded PR heads cannot qualify their successors. Preserve every main and
-# manually requested run by giving non-PR events their own concurrency group.
+    inputs:
+      lane:
+        description: 'Focused check (only all can qualify the whole change)'
+        type: choice
+        default: all
+        options: [all, source, installation, contracts]
+      collect_all:
+        description: 'Diagnostic only: continue independent lanes after failures'
+        type: boolean
+        default: false
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
 jobs:
-  native:
+  source:
+    name: Source preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '26.9.0'
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: '0.17.0'
+          use-cache: false
+      - name: Check source syntax and formatting before compilation
+        run: zig fmt --check build.zig src
+      - name: Check non-destructive cache admission
+        run: node --test .github/scripts/zig-cache.test.mjs
+  qualify:
+    name: Qualification / ${{ matrix.lane }}
+    needs: source
+    if: ${{ !cancelled() && inputs.lane != 'source' && (needs.source.result == 'success' || (github.event_name == 'workflow_dispatch' && inputs.collect_all)) }}
+    strategy:
+      fail-fast: ${{ !inputs.collect_all }}
+      matrix:
+        lane: ${{ fromJSON((inputs.lane == '' || inputs.lane == 'all') && '["installation","contracts"]' || format('["{0}"]', inputs.lane)) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -25,9 +59,66 @@ jobs:
       - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
         with:
           version: '0.17.0'
-          # The observed qualification cache exceeds the action's 2 GiB purge limit.
-          cache-size-limit: 4096
-      - name: Native and portable contracts
-        run: zig build check -Doptimize=safe --summary all
-      - name: Independent public package authoring
-        run: node test/package_authoring.mjs --zig-exe "$(command -v zig)" --authoring-only
+          # Its post hook clears the entire cache above its cap. Save explicitly below.
+          use-cache: false
+      - name: Restore this lane's compiler cache
+        id: cache
+        if: matrix.lane != 'installation'
+        continue-on-error: true
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: .zig-cache
+          key: zig-feedback-v1-${{ runner.os }}-${{ runner.arch }}-0.17.0-${{ matrix.lane }}-${{ hashFiles('build.zig.zon') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            zig-feedback-v1-${{ runner.os }}-${{ runner.arch }}-0.17.0-${{ matrix.lane }}-${{ hashFiles('build.zig.zon') }}-
+      - name: Record restored cache contents and matched key
+        if: matrix.lane != 'installation'
+        continue-on-error: true
+        env:
+          RESTORED_CACHE_KEY: ${{ steps.cache.outputs.cache-matched-key }}
+        run: node .github/scripts/zig-cache.mjs .zig-cache restored
+      - name: Run only the selected check
+        env:
+          LANE: ${{ matrix.lane }}
+        run: |
+          case "$LANE" in
+            installation)
+              # The external consumer deliberately owns fresh package/compiler caches.
+              node test/package_authoring.mjs --zig-exe "$(command -v zig)" --authoring-only ;;
+            contracts) zig build check -Doptimize=safe --summary all ;;
+            *) exit 2 ;;
+          esac
+      - name: Measure cache before deciding whether to upload
+        id: cache_size
+        if: ${{ !cancelled() && matrix.lane != 'installation' }}
+        continue-on-error: true
+        env:
+          RESTORED_CACHE_KEY: ${{ steps.cache.outputs.cache-matched-key }}
+        run: node .github/scripts/zig-cache.mjs .zig-cache final
+      - name: Save useful bounded cache, including after a failed check
+        if: ${{ !cancelled() && steps.cache_size.outputs.save == 'true' }}
+        continue-on-error: true
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: .zig-cache
+          key: zig-feedback-v1-${{ runner.os }}-${{ runner.arch }}-0.17.0-${{ matrix.lane }}-${{ hashFiles('build.zig.zon') }}-${{ github.run_id }}-${{ github.run_attempt }}
+  # Preserve the old check name as a strict all-lanes gate; a focused run is not full qualification.
+  native:
+    name: ${{ (inputs.lane == '' || inputs.lane == 'all') && 'native' || format('Focused result / {0}', inputs.lane) }}
+    needs: [source, qualify]
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require source preflight and every qualification lane
+        env:
+          LANE: ${{ inputs.lane }}
+          SOURCE: ${{ needs.source.result }}
+          QUALIFICATION: ${{ needs.qualify.result }}
+        run: |
+          test "$SOURCE" = success
+          if [ "$LANE" = source ]; then
+            test "$QUALIFICATION" = skipped
+          else
+            test "$QUALIFICATION" = success
+          fi
