@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      mode:
+        type: choice
+        options: [pilot, lock]
+        default: lock
 permissions:
   contents: read
 jobs:
@@ -20,7 +25,19 @@ jobs:
       - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
         with:
           version: '0.17.0'
+      - name: Acquire exact Agent lock subject
+        if: inputs.mode == 'lock'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: tkersey/agent
+          ref: c4d1d956d3f9bfb95435f11918dfbd942176b8a3
+          path: lock-agent
+          persist-credentials: false
+      - name: Actual Agent dependency-lock mutation
+        if: inputs.mode == 'lock'
+        run: node test/experiments/zig17/lock_watch.mjs "$PWD/lock-agent"
       - name: Linux incremental correctness pilot
+        if: inputs.mode != 'lock'
         run: node test/experiments/zig17/incremental.mjs
       - name: Retain experiment evidence
         if: always()
@@ -31,4 +48,7 @@ jobs:
             ${{ runner.temp }}/zig17-incremental-*/result.json
             ${{ runner.temp }}/zig17-incremental-*/*.log
             ${{ runner.temp }}/zig17-incremental-*/incremental.stderr
+            ${{ runner.temp }}/zig17-lock-*/result.json
+            ${{ runner.temp }}/zig17-lock-*/*.log
+            ${{ runner.temp }}/zig17-lock-*/watch.stderr
           if-no-files-found: error
