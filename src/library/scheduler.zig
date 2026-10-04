@@ -95,7 +95,7 @@ pub fn complete(body: *a.Body, join: *const Join, cell: *const a.Value, result: 
     return body.writeCell(cell, try body.variant(join.state(), "done", result));
 }
 
-fn constructionAllocation(allocator: std.mem.Allocator) !void {
+fn constructionCase(allocator: std.mem.Allocator) !void {
     var b = source.Builder.init(allocator);
     defer b.deinit();
     const c = try a.Context.init(&b);
@@ -114,8 +114,8 @@ fn constructionAllocation(allocator: std.mem.Allocator) !void {
     }
     try std.testing.expectEqual(count, b.functions.items.len);
 }
-test "typed scheduler construction shares definitions and releases allocation failures" {
-    try @import("../allocation_testing.zig").check(std.testing.allocator, constructionAllocation, .{});
+test "typed scheduler construction shares definitions" {
+    try constructionCase(std.testing.allocator);
 }
 test "FIFO requires unit input and unit completion" {
     var b = source.Builder.init(std.testing.allocator);

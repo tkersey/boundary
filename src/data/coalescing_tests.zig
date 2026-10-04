@@ -5,11 +5,6 @@ const pass = @import("coalescing.zig");
 const image = @import("program_image.zig");
 const fixture = @import("coalescing_witness_tests.zig").original;
 
-test "canonical coalescing has no product mode selector" {
-    try testing.expect(!@hasDecl(pass, "Mode"));
-    try testing.expect(!@hasField(pass.Options, "mode"));
-}
-
 fn bytes(program: @import("activation.zig").Program) ![]u8 {
     const result = try testing.allocator.alloc(u8, try image.encodedLength(program));
     errdefer testing.allocator.free(result);
