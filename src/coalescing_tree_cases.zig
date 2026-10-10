@@ -2,7 +2,7 @@
 //! Two independent depth-eight helper chains, alternating calls and computations.
 const std = @import("std");
 const source = @import("source.zig");
-const data = @import("boundary_data");
+const data = @import("horos_data");
 const Id = data.program.Id;
 pub const Kind = enum { tree, tree_near };
 const depth = 8;

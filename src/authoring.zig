@@ -2,7 +2,7 @@
 //! Keep the source Builder at a stable address until all handles are discarded.
 const std = @import("std");
 const source = @import("source.zig");
-const p = @import("boundary_data").program;
+const p = @import("horos_data").program;
 pub const Error = source.Error || error{
     ForeignHandle,
     OutOfScope,
@@ -1129,7 +1129,7 @@ pub const Context = opaque {
         allocator: std.mem.Allocator,
         entry: *const Function,
         failure: *const Schema,
-        coalescing: @import("boundary_data").coalescing.Options,
+        coalescing: @import("horos_data").coalescing.Options,
     ) Error!source.Compiled {
         return self.compileWithCompilation(allocator, entry, failure, .{ .coalescing = coalescing });
     }
@@ -1140,7 +1140,7 @@ pub const Context = opaque {
         allocator: std.mem.Allocator,
         entry: *const Function,
         failure: *const Schema,
-        compilation: @import("boundary_data").closed_compilation.Options,
+        compilation: @import("horos_data").closed_compilation.Options,
     ) Error!source.Compiled {
         compilation.resetObservations();
         return self.lowerNamedWithCompilation(allocator, try self.publish(entry, failure, false), compilation);
@@ -1152,7 +1152,7 @@ pub const Context = opaque {
         self: *Context,
         allocator: std.mem.Allocator,
         module_value: source.Module,
-        coalescing: @import("boundary_data").coalescing.Options,
+        coalescing: @import("horos_data").coalescing.Options,
     ) Error!source.Compiled {
         return self.lowerNamedWithCompilation(allocator, module_value, .{ .coalescing = coalescing });
     }
@@ -1160,7 +1160,7 @@ pub const Context = opaque {
         self: *Context,
         allocator: std.mem.Allocator,
         module_value: source.Module,
-        compilation: @import("boundary_data").closed_compilation.Options,
+        compilation: @import("horos_data").closed_compilation.Options,
     ) Error!source.Compiled {
         var diagnostic: source.Diagnostic = .{};
         var result = source.lowerObserved(allocator, module_value, .{

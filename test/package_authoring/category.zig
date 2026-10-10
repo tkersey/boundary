@@ -1,5 +1,5 @@
 const std = @import("std");
-const b = @import("boundary");
+const b = @import("horos");
 pub fn main(init: std.process.Init) !void {
     var raw = b.source.Builder.init(init.gpa);
     defer raw.deinit();

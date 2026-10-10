@@ -4,7 +4,7 @@ const std = @import("std");
 const source = @import("../source.zig");
 const a = @import("../authoring.zig");
 const generator = @import("generator.zig");
-const p = @import("boundary_data").program;
+const p = @import("horos_data").program;
 pub const Scheduler = struct { queue: *const a.Schema, enqueue: *const a.Function, drain: *const a.Function };
 const CachedScheduler = struct { enqueue: p.Id, drain: p.Id };
 

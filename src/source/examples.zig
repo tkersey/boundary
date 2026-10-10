@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
 //! Public source construction examples; no target blocks or runtime callbacks.
 const source = @import("../source.zig");
-const data = @import("boundary_data");
+const data = @import("horos_data");
 const p = data.program;
 const Error = source.Error;
 

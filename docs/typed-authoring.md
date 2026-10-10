@@ -1,10 +1,10 @@
 # Typed, structured authoring
 
-Import `boundary.authoring`. It stages ordinary Boundary source; the existing
-source checker, lowering, target admission and unchanged World interpreter remain
-authoritative. `boundary.source` is the single low-level IR interface for source
+Import `horos.authoring`. It stages ordinary Horos source; the existing
+source checker, lowering, target admission and unchanged Kronos interpreter remain
+authoritative. `horos.source` is the single low-level IR interface for source
 inspection, negative fixtures, component construction and internal generation.
-The duplicate `boundary.computation` export is removed. Ordinary construction
+The duplicate `horos.computation` export is removed. Ordinary construction
 uses the typed frontend; IR access does not select another compiler or checker.
 
 Handlers may declare `return_effects` separately from their residual row. Omit it
@@ -28,12 +28,12 @@ the original product or an owned part twice. Parts retain their lexical scope.
 `append` and `equal` complete ordinary forward sequence-search construction.
 
 Construct handlers and regions through `authoring.Context.handler` and
-`authoring.Context.region`. The former top-level `boundary.handler` and
-`boundary.region` aliases are removed. Expert record inspection uses
-`boundary.data.program` types; it does not require those construction facades.
+`authoring.Context.region`. The former top-level `horos.handler` and
+`horos.region` aliases are removed. Expert record inspection uses
+`horos.data.program` types; it does not require those construction facades.
 
 Declare operations with `Context.external`, `local`, or `scoped`. The raw-ID
-`boundary.effect` facade and its indexed-declaration wrapper are removed. A finite
+`horos.effect` facade and its indexed-declaration wrapper are removed. A finite
 native collection of typed operation handles retains each operation's result
 schema. The independent indexed source-IR fixture keeps its explicit source terms
 to test row-polymorphic composition, using checked operation declarations.
@@ -60,9 +60,9 @@ The canonical route is:
    results in forward order. `parameter` and `field` use declared names.
 4. Finish with `ret`, then `Context.define`. `Context.compile` checks and lowers
    while retaining source-oriented diagnostics. Alternatively return `module`
-   from `Application.emit` and call `boundary.program.lower`.
+   from `Application.emit` and call `horos.program.lower`.
 5. Encode the returned owning `Compiled` with `encode`; deinitialize it afterward.
-6. Use the separately verified World package to prepare/start or invoke the image.
+6. Use the separately verified Kronos package to prepare/start or invoke the image.
    Supply only environmental replies and transfer actual State; host code does
    not reconstruct authored branches, handlers or continuations.
 
@@ -80,7 +80,7 @@ request, including after restoration.
 | Zig `if` selects code to construct | `conditional` selects runtime work |
 | Zig `try` propagates construction/allocation failure | `checkedAdd` emits an authored failure edge |
 | Zig `defer` releases native resources | `protect` installs portable cleanup |
-| Calling a staging function constructs source | `apply` executes an authored callable in World |
+| Calling a staging function constructs source | `apply` executes an authored callable in Kronos |
 | `lambda` constructs and binds a callable value | `apply` forces a zero-argument delay when demanded |
 
 No native callback enters the Program. Inspecting schemas or diagnostics does not
@@ -263,7 +263,7 @@ foreign-owner and lifecycle rejection. Its native driver is shared with componen
 CLI checks; it requires a clean committed candidate.
 
 `zig build check -Doptimize=safe` additionally runs the independent source oracle
-and small wasm32 byte/identity checks. Kronos/World owns the comparison between
+and small wasm32 byte/identity checks. Kronos owns the comparison between
 source meaning and actual native/WASM evaluation.
 
 Historical paired timing, platform, search and experimental application campaigns

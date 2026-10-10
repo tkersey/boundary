@@ -1,15 +1,15 @@
 # Defunctionalized hyperfunctions and recursive interaction
 
 Implementation of the complete user specification v1.1 (September 19, 2026).
-The milestone remains incomplete. Boundary draft:
-https://github.com/tkersey/boundary/pull/153. Agent companion:
+The milestone was recorded as incomplete in the original Boundary draft:
+https://github.com/tkersey/boundary/pull/153 and Agent companion:
 https://github.com/tkersey/agent/pull/33.
 
 ## Pure meaning and public operations
 
 The pure core uses explicit call-by-name delays, including endpoint values.
-The rest of Boundary remains strict. Native Zig builders construct source; no
-native closure is serialized or called by World. Runtime recursion may remain
+The rest of Horos remains strict. Native Zig builders construct source; no
+native closure is serialized or called by Kronos. Runtime recursion may remain
 nonproductive, and work-quantum exhaustion is never an authored result.
 
 In lazy semantic notation:
@@ -62,7 +62,7 @@ and repeated interactions are runtime values.
 The `ana_config` and `ana_capture` regressions construct two definitions using
 the same step type, selecting constants and captured bindings respectively. The
 former reproduced the old type-only cache returning 38 instead of 42. Both now
-return 42 through fresh World transfers (33 and 31 transfers). The unit regression
+returned 42 through fresh World transfers (33 and 31 transfers). The unit regression
 also starts each retained definition 100 times without adding function bodies.
 
 ## Composition and capture contracts
@@ -90,7 +90,7 @@ and then forces its answer; push constructs an argument thunk without demanding
 it; lift ties its tail through code references; composition's three functions
 implement the same reciprocal rotation; ana's query thunk defers both counterpart
 lookup and successor construction. Normal selective lowering turns these closures
-into code IDs and checked environments. World retains actual non-tail callers and
+into code IDs and checked environments. Kronos retains actual non-tail callers and
 serializes their reachable finite state without executing delayed code.
 
 The intended pure identity, associativity and lifting laws are scoped to the
@@ -104,7 +104,7 @@ commutativity is claimed.
 ## Verification
 
 The native authoring/data roots retain the construction and ownership contracts.
-The independent higher-order source oracle and World source agreement retain
+The independent higher-order source oracle and Kronos source agreement retain
 execution semantics. Historical hyperfunction experiment emitters, duplicate
 reference implementations, timing/measurement collectors and optional campaigns
 are retired; their prior results remain in Git history.

@@ -1,10 +1,10 @@
 //! Compile a typed residual effect into portable data; no evaluator is linked.
 const std = @import("std");
-const boundary = @import("boundary");
+const horos = @import("horos");
 
 pub const Application = struct {
-    pub fn emit(b: *boundary.source.Builder) !boundary.source.Module {
-        const c = try boundary.authoring.Context.init(b);
+    pub fn emit(b: *horos.source.Builder) !horos.source.Module {
+        const c = try horos.authoring.Context.init(b);
         const integer = try c.scalar(u32);
         const lookup = try c.external("example.lookup.v2", integer, integer);
         const entry = try c.function("lookup", &.{.{ .name = "key", .schema = integer }}, integer, &.{lookup});
@@ -16,15 +16,15 @@ pub const Application = struct {
 };
 
 pub fn main(init: std.process.Init) !void {
-    var compiled = try boundary.program.lower(init.gpa, Application);
+    var compiled = try horos.program.lower(init.gpa, Application);
     defer compiled.deinit();
-    const bytes = try init.gpa.alloc(u8, try boundary.data.program_image.encodedLength(compiled.program));
+    const bytes = try init.gpa.alloc(u8, try horos.data.program_image.encodedLength(compiled.program));
     defer init.gpa.free(bytes);
     _ = try compiled.encode(init.gpa, bytes);
     // A compiler-only consumer can decode, inspect and admit the emitted image.
-    var decoded = try boundary.data.program_image.decode(init.gpa, bytes);
+    var decoded = try horos.data.program_image.decode(init.gpa, bytes);
     defer decoded.deinit();
-    var checked = try boundary.data.activation_ownership.analyze(init.gpa, decoded.program);
+    var checked = try horos.data.activation_ownership.analyze(init.gpa, decoded.program);
     defer checked.deinit();
     var buffer: [4096]u8 = undefined;
     var output = std.Io.File.stdout().writer(init.io, &buffer);

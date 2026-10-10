@@ -4,7 +4,7 @@
 const std = @import("std");
 pub const component = @import("source/component.zig");
 pub const component_examples = @import("source/component_examples.zig");
-const data = @import("boundary_data");
+const data = @import("horos_data");
 const p = data.program;
 pub const ast = @import("source/ast.zig");
 pub const Id = p.Id;

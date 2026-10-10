@@ -1,9 +1,9 @@
 const std = @import("std");
-const boundary = @import("boundary");
+const horos = @import("horos");
 pub fn main(init: std.process.Init) !void {
-    var raw = boundary.source.Builder.init(init.gpa);
+    var raw = horos.source.Builder.init(init.gpa);
     defer raw.deinit();
-    const c = try boundary.authoring.Context.init(&raw);
+    const c = try horos.authoring.Context.init(&raw);
     const integer = try c.scalar(u64);
     const entry = try c.function("bad failure category", &.{}, integer, &.{});
     const body = try c.body(entry);

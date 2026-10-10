@@ -2,7 +2,7 @@
 //! Cleanup schema construction for explicit source-IR fixtures and generators.
 //! Typed authors use Context.cleanupInfo and Body.protect/bracket.
 const source = @import("../source.zig");
-const p = @import("boundary_data").program;
+const p = @import("horos_data").program;
 
 pub fn exitInfo(builder: *source.Builder, failure: p.Id) source.Error!p.Id {
     const unit = try builder.scalar(void);

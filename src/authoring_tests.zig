@@ -251,7 +251,7 @@ fn labelBytes(allocator: std.mem.Allocator, name: []const u8) ![]u8 {
     try c.define(entry, try body.ret(try body.constant(u64, 42)));
     var compiled = try c.compile(allocator, entry, try c.scalar(void));
     defer compiled.deinit();
-    const bytes = try allocator.alloc(u8, try @import("boundary_data").program_image.encodedLength(compiled.program));
+    const bytes = try allocator.alloc(u8, try @import("horos_data").program_image.encodedLength(compiled.program));
     errdefer allocator.free(bytes);
     _ = try compiled.encode(allocator, bytes);
     return bytes;
@@ -1086,7 +1086,7 @@ fn snapshotGrowth(allocator: std.mem.Allocator) !void {
     const count = first.functions.len;
     var before = try source.lower(allocator, first);
     defer before.deinit();
-    const length = try @import("boundary_data").program_image.encodedLength(before.program);
+    const length = try @import("horos_data").program_image.encodedLength(before.program);
     const expected = try allocator.alloc(u8, length);
     defer allocator.free(expected);
     _ = try before.encode(allocator, expected);
@@ -1799,7 +1799,7 @@ test "typed byte and indexed container queries preserve categories and optional 
     const unit = try c.scalar(void);
     const integer = try c.scalar(u64);
     const byte_id = try raw.scalar(u8);
-    const shapes = [_]@import("boundary_data").program.Schema{
+    const shapes = [_]@import("horos_data").program.Schema{
         .bytes,                                             .text,                                                .{ .bounded_bytes = 16 }, .{ .bounded_text = 16 },
         .{ .array = .{ .element = byte_id, .length = 2 } }, .{ .vector = .{ .element = byte_id, .maximum = 2 } },
     };
@@ -1876,7 +1876,7 @@ test "typed eager selection checks the condition and both value contracts" {
 }
 
 test "typed and direct compilation share explicit contracts and mandatory P01" {
-    const data = @import("boundary_data");
+    const data = @import("horos_data");
     for ([_]bool{ false, true }) |typed| for ([_]data.closed_compilation.Contract{ .structural, .semantic }) |contract| {
         var raw = source.Builder.init(testing.allocator);
         defer raw.deinit();
@@ -1907,7 +1907,7 @@ test "typed and direct compilation share explicit contracts and mandatory P01" {
 }
 
 test "semantic compilation reports unmapped origins explicitly after rewriting" {
-    const data = @import("boundary_data");
+    const data = @import("horos_data");
     var raw = source.Builder.init(testing.allocator);
     defer raw.deinit();
     const c = try a.Context.init(&raw);
@@ -1962,7 +1962,7 @@ test "semantic typed compilation cannot erase an original named capture violatio
 }
 
 test "typed publication resets reused compilation observations before rejection" {
-    const data = @import("boundary_data");
+    const data = @import("horos_data");
     for ([_]data.closed_compilation.Contract{ .structural, .semantic }) |contract| {
         var raw = source.Builder.init(testing.allocator);
         defer raw.deinit();
@@ -2034,7 +2034,7 @@ test "indexed field declarations check schema authority before a duplicate name"
 }
 
 test "typed and source compilation preserve supplied profile validation and use" {
-    const data = @import("boundary_data");
+    const data = @import("horos_data");
     var raw = source.Builder.init(testing.allocator);
     defer raw.deinit();
     const c = try a.Context.init(&raw);

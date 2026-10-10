@@ -1,9 +1,9 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
 //! Return-clause writes must preserve the selected reference's lexical owner.
 const std = @import("std");
-const boundary = @import("boundary");
-const Builder = boundary.source.Builder;
-const Id = boundary.data.program.Id;
+const horos = @import("horos");
+const Builder = horos.source.Builder;
+const Id = horos.data.program.Id;
 pub const ResultFrom = enum { state, body, pair };
 const Types = struct {
     unit: Id,
@@ -180,7 +180,7 @@ fn handlers(b: *Builder, t: Types, from: ResultFrom, younger: bool, delegated: b
     };
 }
 
-fn finish(b: *Builder, t: Types, owner: Id, middle: Id) !boundary.source.Module {
+fn finish(b: *Builder, t: Types, owner: Id, middle: Id) !horos.source.Module {
     const middle_type = try b.schema(.{ .internal = .{ .computation = .{
         .parameters = &.{ t.cap, t.cap, t.cell },
         .result = t.unit,
@@ -234,7 +234,7 @@ pub fn scenario(
     initial: bool,
     younger: bool,
     delegated: bool,
-) !boundary.source.Module {
+) !horos.source.Module {
     const t = try types(b);
     const owner = try ownerHandler(b, t);
     const h = try handlers(b, t, from, younger, delegated);
@@ -279,7 +279,7 @@ pub fn main(init: std.process.Init) !void {
                     var b = Builder.init(init.gpa);
                     defer b.deinit();
                     const source = try scenario(&b, from, initial, younger, delegated);
-                    if (boundary.program.compile(init.gpa, source)) |result| {
+                    if (horos.program.compile(init.gpa, source)) |result| {
                         var compiled = result;
                         defer compiled.deinit();
                         if (younger) return error.ExpectedBorrowRejection;

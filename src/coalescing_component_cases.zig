@@ -2,7 +2,7 @@
 //! Independently emitted object witnesses, with no emitter cache or shared builder.
 const std = @import("std");
 const source = @import("source.zig");
-const data = @import("boundary_data");
+const data = @import("horos_data");
 const Id = data.program.Id;
 pub const Kind = enum { leaf, client, region_leaf, resource_leaf, effect_leaf, effect_import_leaf, effect_client };
 

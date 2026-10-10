@@ -76,7 +76,7 @@ pub fn pairWith(b: *source.Builder, a: Id, z: Id, captures: []const Id) source.E
 }
 
 /// A staged body takes the complementary delayed participant and returns a
-/// delayed answer. Boundary checks the actual body against this callable schema.
+/// delayed answer. Horos checks the actual body against this callable schema.
 pub fn make(b: *source.Builder, body: Id, interface: Id) source.Error!Id {
     return b.lambda(body, interface);
 }
@@ -300,11 +300,11 @@ pub fn group(b: *source.Builder, endpoints: []const Id, captures: []const Id) so
     const count = std.math.mul(usize, endpoints.len, endpoints.len) catch return error.Capacity;
     const doubled = std.math.mul(usize, count, 2) catch return error.Capacity;
     const nodes = std.math.add(usize, doubled, endpoints.len) catch return error.Capacity;
-    if (nodes > @import("boundary_data").component.max_catalog_entries) return error.Capacity;
+    if (nodes > @import("horos_data").component.max_catalog_entries) return error.Capacity;
     const with_endpoints = std.math.add(usize, nodes, endpoints.len) catch return error.Capacity;
     const bound_length = std.math.add(usize, with_endpoints, captures.len) catch return error.Capacity;
     const references = std.math.mul(usize, nodes, bound_length) catch return error.Capacity;
-    if (references > @import("boundary_data").component.max_catalog_entries) return error.Capacity;
+    if (references > @import("horos_data").component.max_catalog_entries) return error.Capacity;
     const ids = try b.allocator().alloc(Id, nodes);
     for (ids) |*id| id.* = try b.reserveSchema();
     const bound = try b.allocator().alloc(Id, bound_length);

@@ -2,7 +2,7 @@
 //! Independent recursive groups with role-specific base values and request traces.
 const std = @import("std");
 const source = @import("source.zig");
-const data = @import("boundary_data");
+const data = @import("horos_data");
 const Id = source.Id;
 pub const Kind = enum { recursive, recursive_near, recursive_infinite };
 

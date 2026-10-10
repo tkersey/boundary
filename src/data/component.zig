@@ -1,5 +1,5 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
-//! Relocatable first-order component records. Objects cannot execute in World.
+//! Relocatable first-order component records. Objects cannot execute in Kronos.
 const std = @import("std");
 const ir = @import("activation.zig");
 const p = @import("program.zig");

@@ -1,6 +1,6 @@
 //! Generic pure-codec wasm32 agreement probe. No evaluator or authored code is linked.
 const std = @import("std");
-const data = @import("boundary_data");
+const data = @import("horos_data");
 var input: [1 << 20]u8 = undefined;
 var output: [1 << 20]u8 = undefined;
 var scratch: [8 << 20]u8 = undefined;

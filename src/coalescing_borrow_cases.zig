@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
 //! Equivalent helpers reached through two separately established resource loans.
 const source = @import("source.zig");
-const Id = @import("boundary_data").program.Id;
+const Id = @import("horos_data").program.Id;
 
 pub fn build(b: *source.Builder, escape: bool) !source.Module {
     const original = try source.examples.resourceScalar(b);

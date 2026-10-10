@@ -1,5 +1,5 @@
 const std = @import("std");
-const b = @import("boundary");
+const b = @import("horos");
 test "foreign effect rejects in public package while local binding succeeds" {
     var first = b.source.Builder.init(std.testing.allocator);
     defer first.deinit();

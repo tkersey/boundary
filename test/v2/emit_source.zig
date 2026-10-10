@@ -1,6 +1,6 @@
 //! Emit one source term tree or its compiled data, without linking an evaluator.
 const std = @import("std");
-const boundary = @import("boundary");
+const horos = @import("horos");
 
 pub fn main(init: std.process.Init) !void {
     var args = std.process.Args.Iterator.init(init.minimal.args);
@@ -10,51 +10,51 @@ pub fn main(init: std.process.Init) !void {
     const emit_source = std.mem.eql(u8, format, "json");
     if (args.next() != null or (!emit_source and !std.mem.eql(u8, format, "bpi3")))
         return error.InvalidArguments;
-    var builder = boundary.source.Builder.init(init.gpa);
+    var builder = horos.source.Builder.init(init.gpa);
     defer builder.deinit();
     const module = try switch (example) {
-        0 => boundary.source.examples.lexical(&builder),
-        1 => boundary.source.examples.deep(&builder),
-        2 => boundary.source.examples.recursive(&builder),
-        3 => boundary.source.examples.choicesAll(&builder),
-        4 => boundary.source.examples.choicesFirst(&builder),
-        5 => boundary.source.examples.generator(&builder),
-        6 => boundary.source.examples.stateLocal(&builder),
-        7 => boundary.source.examples.stateShared(&builder),
-        8 => boundary.source.examples.resourceScalar(&builder),
-        9 => boundary.source.examples.resourcePair(&builder),
-        10 => boundary.source.examples.answers(&builder),
-        11 => boundary.source.examples.scopedReader(&builder),
-        12 => boundary.source.examples.writerRaise(&builder),
-        13 => boundary.source.examples.schedulerFifo(&builder),
-        14 => boundary.source.examples.queensDfs(&builder),
-        15 => boundary.source.examples.queensBfs(&builder),
-        16 => boundary.source.examples.cellOrder(&builder),
-        17 => boundary.source.examples.nested(&builder),
-        18 => boundary.source.examples.shallow(&builder),
-        19 => boundary.source.examples.injection(&builder),
-        20 => boundary.source.examples.indexed(&builder),
-        21 => boundary.source.examples.abortCustody(&builder),
-        22 => boundary.source.examples.unwind(&builder),
-        23 => boundary.source.examples.reentrant(&builder),
-        24 => boundary.source.examples.cloned(&builder),
-        25 => boundary.source.examples.clauseAbort(&builder),
-        26 => boundary.source.examples.boundedValues(&builder),
-        27 => boundary.source.examples.scalarContracts(&builder),
-        28 => boundary.source.examples.ownership(&builder),
-        29 => boundary.source.examples.shallowResumptions(&builder),
-        30 => boundary.source.examples.shallowInjection(&builder),
-        31 => boundary.source.examples.handleOperandOrder(&builder),
-        32 => boundary.source.examples.protectOperandOrder(&builder),
-        33 => boundary.source.examples.successorState(&builder),
-        34 => boundary.source.examples.clausePayload(&builder),
-        35 => boundary.source.examples.yieldingCleanup(&builder),
-        36 => boundary.source.examples.borrowOperands(&builder),
+        0 => horos.source.examples.lexical(&builder),
+        1 => horos.source.examples.deep(&builder),
+        2 => horos.source.examples.recursive(&builder),
+        3 => horos.source.examples.choicesAll(&builder),
+        4 => horos.source.examples.choicesFirst(&builder),
+        5 => horos.source.examples.generator(&builder),
+        6 => horos.source.examples.stateLocal(&builder),
+        7 => horos.source.examples.stateShared(&builder),
+        8 => horos.source.examples.resourceScalar(&builder),
+        9 => horos.source.examples.resourcePair(&builder),
+        10 => horos.source.examples.answers(&builder),
+        11 => horos.source.examples.scopedReader(&builder),
+        12 => horos.source.examples.writerRaise(&builder),
+        13 => horos.source.examples.schedulerFifo(&builder),
+        14 => horos.source.examples.queensDfs(&builder),
+        15 => horos.source.examples.queensBfs(&builder),
+        16 => horos.source.examples.cellOrder(&builder),
+        17 => horos.source.examples.nested(&builder),
+        18 => horos.source.examples.shallow(&builder),
+        19 => horos.source.examples.injection(&builder),
+        20 => horos.source.examples.indexed(&builder),
+        21 => horos.source.examples.abortCustody(&builder),
+        22 => horos.source.examples.unwind(&builder),
+        23 => horos.source.examples.reentrant(&builder),
+        24 => horos.source.examples.cloned(&builder),
+        25 => horos.source.examples.clauseAbort(&builder),
+        26 => horos.source.examples.boundedValues(&builder),
+        27 => horos.source.examples.scalarContracts(&builder),
+        28 => horos.source.examples.ownership(&builder),
+        29 => horos.source.examples.shallowResumptions(&builder),
+        30 => horos.source.examples.shallowInjection(&builder),
+        31 => horos.source.examples.handleOperandOrder(&builder),
+        32 => horos.source.examples.protectOperandOrder(&builder),
+        33 => horos.source.examples.successorState(&builder),
+        34 => horos.source.examples.clausePayload(&builder),
+        35 => horos.source.examples.yieldingCleanup(&builder),
+        36 => horos.source.examples.borrowOperands(&builder),
         37 => CleanupDisposal.build(&builder, .always),
         38 => CleanupDisposal.build(&builder, .running),
         39 => CleanupDisposal.build(&builder, .failure),
         40 => CleanupDisposal.ownedResult(&builder),
-        41 => boundary.source.examples.productProjection(&builder),
+        41 => horos.source.examples.productProjection(&builder),
         else => error.UnknownExample,
     };
     var buffer: [4096]u8 = undefined;
@@ -63,9 +63,9 @@ pub fn main(init: std.process.Init) !void {
         try std.json.Stringify.value(module, .{ .emit_strings_as_arrays = true }, &output.interface);
         try output.interface.writeByte('\n');
     } else {
-        var compiled = try boundary.program.compile(init.gpa, module);
+        var compiled = try horos.program.compile(init.gpa, module);
         defer compiled.deinit();
-        const bytes = try init.gpa.alloc(u8, try boundary.data.program_image.encodedLength(compiled.program));
+        const bytes = try init.gpa.alloc(u8, try horos.data.program_image.encodedLength(compiled.program));
         defer init.gpa.free(bytes);
         _ = try compiled.encode(init.gpa, bytes);
         try output.interface.writeAll(bytes);
@@ -75,8 +75,8 @@ pub fn main(init: std.process.Init) !void {
 
 // Kept in the shipped emitter so its archive has no unlisted source dependency.
 const CleanupDisposal = struct {
-    const source = boundary.source;
-    const p = boundary.data.program;
+    const source = horos.source;
+    const p = horos.data.program;
 
     pub const Mode = enum { always, running, failure };
 
@@ -160,14 +160,14 @@ const CleanupDisposal = struct {
     /// The protected body returns an owned generator. Abandoning its cleanup must
     /// close that generator and execute its pending finalizer before the clause ends.
     pub fn ownedResult(b: *source.Builder) source.Error!source.ast.Module {
-        return ownedResultTyped(b) catch |err| return boundary.authoring.sourceError(err);
+        return ownedResultTyped(b) catch |err| return horos.authoring.sourceError(err);
     }
-    fn ownedResultTyped(b: *source.Builder) boundary.authoring.Error!source.ast.Module {
-        const a = boundary.authoring;
+    fn ownedResultTyped(b: *source.Builder) horos.authoring.Error!source.ast.Module {
+        const a = horos.authoring;
         const c = try a.Context.init(b);
-        const writer = boundary.library.writer;
-        const generator = boundary.library.generator;
-        const cleanup = boundary.library.cleanup;
+        const writer = horos.library.writer;
+        const generator = horos.library.generator;
+        const cleanup = horos.library.cleanup;
         const unit = try b.scalar(void);
         const integer = try b.scalar(u64);
         const region = b.region();
@@ -189,7 +189,7 @@ const CleanupDisposal = struct {
             .package = try a.interop.schemaId(c, definition.package()),
             .resumption = try a.interop.schemaId(c, definition.resumption()),
         };
-        const capture_ids = [_]boundary.data.program.Id{ unit, integer, g.capability, g.answer, g.resumption, g.package, g.yielded };
+        const capture_ids = [_]horos.data.program.Id{ unit, integer, g.capability, g.answer, g.resumption, g.package, g.yielded };
         var captures: [capture_ids.len]*const a.Schema = undefined;
         for (capture_ids, &captures) |id, *schema| schema.* = try a.interop.schema(c, id);
         const logging_handler = try writer.interpret(c, logging_family, try c.scalar(u64), try a.interop.region(c, region), .{ .continuation = &captures }, &.{});

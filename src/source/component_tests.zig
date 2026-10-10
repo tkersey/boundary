@@ -1,6 +1,6 @@
 const std = @import("std");
 const source = @import("../source.zig");
-const data = @import("boundary_data");
+const data = @import("horos_data");
 const testing = std.testing;
 
 test "component emission defers coalescing and observation preserves object bytes" {

@@ -3,7 +3,7 @@
 const std = @import("std");
 const source = @import("../source.zig");
 const authoring = @import("../authoring.zig");
-const data = @import("boundary_data");
+const data = @import("horos_data");
 const p = data.program;
 const gen = @import("../library/generator.zig");
 pub const Kind = enum { call, state, suspended, double, even, odd };

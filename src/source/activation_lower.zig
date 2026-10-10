@@ -3,7 +3,7 @@
 //! is built. The returned construction owns admitted records and flow facts;
 //! encoding checks the current records again before producing canonical BPI3.
 const std = @import("std");
-const data = @import("boundary_data");
+const data = @import("horos_data");
 const p = data.program;
 const ir = data.activation;
 const ast = @import("ast.zig");
