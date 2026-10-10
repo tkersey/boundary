@@ -1,30 +1,29 @@
-# CI feedback and focused qualification
+# Qualification
 
-`Zig 0.17 qualification` has a cheap formatting/source preflight followed by
-separate `installation` and `contracts` jobs. The complete native/portable
-contract command and independent public-package consumer remain unchanged.
-No test deletion is part of this feedback change.
-
-Routine PR/push runs gate compilation on the source result and use matrix
-fail-fast between the two jobs. A manual `lane` selects `source`, `installation`,
-`contracts`, or `all`; `collect_all=true` explicitly permits independent evidence
-collection after failures. Failures still fail. The old `native` status name is
-an all-lanes gate and is not reported as a passing full check by focused runs.
-Existing branch protections are not changed.
-
-Use GitHub's Re-run job for the same commit. To test a fix at a new commit,
-start a new run for that ref. Local focused commands remain:
+Source syntax/formatting and the tracked Zig source inventory are checked before
+compilation. The existing installation and contracts jobs remain independent:
 
 ```sh
-node test/package_authoring.mjs --zig-exe "$(command -v zig)" --authoring-only
+zig build check-package -Doptimize=safe --summary all
 zig build check -Doptimize=safe --summary all
 ```
 
-The compiler setup action no longer owns compilation-cache save/pruning.
-Explicit cache restore/save uses a namespace per OS/architecture, Zig version,
-qualification lane and package manifest. `zig-cache.mjs` reports restored keys,
-logical bytes and top-level contents before and after the build. Empty or
-metadata-only caches are not saved. Above the existing four-GiB budget, skip
-upload without deleting local objects or replacing the prior remote cache.
-The external consumer retains its deliberately isolated caches. Authentication
-and correctness checks do not use cache existence as evidence of qualification.
+The package check requires a clean committed candidate. One native driver
+exports that commit, uses Zig to construct its package, then compiles the public
+authoring and data-only APIs in a fresh consumer. Native category/owner/lifecycle
+rejections and actual linker CLI behavior remain checked. There is no Node/Python
+setup or source/package checker in the native path.
+
+`check-native` is the interpreter-free subset. `check` additionally selects the
+independent source oracle and wasm32 ABI byte/identity observations. The oracle
+has only its exact-value helper and actual semantic cases; optional historical
+experiments and their collectors are removed.
+
+Compiler cache retention uses ordinary CI filesystem operations. Only a complete
+regular-file/directory tree containing compiler objects and within four GiB is
+saved. Over-budget or unsupported caches are left in place and not uploaded;
+local data is never deleted to meet the upload bound. Package qualification owns
+fresh caches; a cache hit never establishes source or execution qualification.
+
+Rerun only the affected check after a change. Results apply to their actual
+candidate and selected inputs; prior release qualification is not new-head proof.

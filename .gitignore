@@ -12,3 +12,5 @@ test/compile_fail_inputs/.compile_fail_escape_helper_link.zig
 .step/st-plan.jsonl.lock
 .step/actuation
 .step/proof
+
+/.zig-cache-upload/

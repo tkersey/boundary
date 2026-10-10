@@ -8,7 +8,7 @@ Boundary `3.0.0` requires Zig `0.17.0`. The public modules are `boundary` for
 authoring and `boundary_data` for data-only admission and linking. This version
 uses BMO1 components, BPI3 programs, PST3 states and ABI 3; the major package
 version does not introduce another wire format. See the
-[current results and limits](docs/compositional-execution.md).
+[current verification](.github/CI.md).
 
 ## Author and compile
 
@@ -88,8 +88,7 @@ declarations in the [scoped forwarding example](src/source/scoped_reader_example
 
 Owned generators and bidirectional child exchanges share one Boundary constructor.
 Its recursive answer, linear package and handler use checked typed declarations.
-Agent's inquiry and child-dialogue consumers use this same mechanism. The remaining
-raw Generator call surface and its consumers are still undergoing typed migration.
+Reusable child-dialogue constructions use this same mechanism.
 Exchange composition now uses typed matching, package consumption and recursive
 calls. A terminal identity binding is normalized by `Body.ret` without moving
 intervening work.
@@ -113,44 +112,24 @@ interfaces and checked borrow contracts. The data-only `boundary-link` tool
 resolves instance bindings and emits an independently admitted closed BPI3 image,
 without component source or emitters.
 
-## Validation
+## Validation and native dependencies
 
-```sh
-zig build check -Doptimize=safe
-zig build check-authoring check-data check-components
-zig build check-semantics
-zig build emit-examples
-zig build build-compiler
-```
+`zig build check-native -Doptimize=safe` runs authoring/data tests and native CLI
+checks. `zig build check-package -Doptimize=safe` checks the real exported package
+and public modules from a fresh external consumer. Neither path needs an
+interpreter. Ordinary imports and `build-compiler` use only Zig's package/build
+mechanisms and the standard library.
 
-`check-zig17` collects the migration-specific record and toolchain witnesses and
-is included in `check`. To check an independently extracted package from the
-committed source, without a World runtime or browser tools:
+`zig build check -Doptimize=safe` adds the independent source oracle and focused
+wasm32 byte/identity checks. These are the only JavaScript responsibilities kept:
+higher-order interpretation and its exact-value helper/cases, plus foreign-ABI
+observations. They are explicit verification dependencies, never native import,
+authoring, or data-only linker prerequisites.
 
-```sh
-node test/package_authoring.mjs --zig-exe /absolute/path/to/zig --authoring-only
-```
+The old timing/platform/economy/search/report campaigns and exclusive generators
+are removed. Native language and optimizer tests remain; removing a campaign does
+not redefine language semantics or establish a performance improvement. Published
+release artifacts are unchanged. The next coordinated consumers use the actual
+successor source/package hash, not a relabeled release.
 
-The package and compiler-economy scripts select the compiler once, require
-0.17.0, and record and recheck its executable and library identities. Nested
-invocations use that selection even when `PATH` contains a different `zig`.
-
-The current aggregate retains the independent higher-order source oracle,
-current authoring/data checks, and native/wasm32 codec agreement. It needs Node for
-those checks; ordinary authoring/data consumers need only Zig. The historical
-compact model and unfinished generalized-effects study live in the
-[Boundary Semantics research repository](https://github.com/tkersey/boundary-semantics).
-Their Lean checks validate the retained models; they do not establish a checked
-refinement of this compiler or runtime. Production confidence comes from the
-implementation checks above. No build command publishes a release or merges a PR.
-
-Recompile applications for the successor. Old saved executions require their old
-pinned image/runtime pair or explicit completion/abandonment under that pair.
-There is no automatic migration of old live State. Legacy data/runtime paths have
-been retired with current regression coverage. Selected-tuple confirmation and
-accepted milestone tradeoffs are documented in the current results. The linked
-draft PRs carry live serial-review and readiness status.
-
-The old image, compact-image, snapshot and protocol codecs are removed.
-Use `data.program_image`, `data.state_image` and `data.invocation` for current
-wire artifacts, and `data.graph_order` for pure graph traversal/normalization.
+See [.github/CI.md](.github/CI.md) for source preflight, package checks and caching.
