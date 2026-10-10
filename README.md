@@ -4,9 +4,11 @@ Boundary checks staged Zig computations and handlers and compiles them into
 portable BPI3 program data. World 6 executes that data with one generic native/WASM
 interpreter. Boundary contains no production evaluator.
 
-This `3.0.0-dev.0` branch uses Zig `0.17.0`. See the
-[current results and limits](docs/compositional-execution.md) and linked draft PRs
-for qualification and live review/readiness status.
+Boundary `3.0.0` requires Zig `0.17.0`. The public modules are `boundary` for
+authoring and `boundary_data` for data-only admission and linking. This version
+uses BMO1 components, BPI3 programs, PST3 states and ABI 3; the major package
+version does not introduce another wire format. See the
+[current results and limits](docs/compositional-execution.md).
 
 ## Author and compile
 
