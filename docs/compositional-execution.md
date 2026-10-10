@@ -1,8 +1,9 @@
-# Boundary 3 successor status
+# Boundary 3 contracts and recorded results
 
-Boundary 3.0.0-dev.0 provides stable-slot authoring, checked BMO1 component linking,
+Boundary 3.0.0 provides stable-slot authoring, checked BMO1 component linking,
 and current BPI3/PST3/invocation contracts. World interprets these records; Agent
-is the required consumer. All PRs remain drafts; current review/readiness is recorded in the linked PRs.
+is the required consumer. The measurements and check counts below describe their
+recorded subjects; current CI establishes qualification of a release candidate.
 
 Current contracts: [components](bmo1-components.md), [Program images](bpi3-wire.md),
 [State](pst3-wire.md), and [invocations](invocation-wire.md).
