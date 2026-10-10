@@ -161,23 +161,8 @@ JSON manifest; instance paths are relative to its working directory:
 }
 ```
 
-`test/components.mjs` compiles four objects in separate emitter invocations,
-transports only objects and the data-only linker into a temporary directory,
-and runs three links without invoking an emitter again. Three components combine
-an effectful reusable callable, a private counter interpretation and an owned
-suspension with cleanup. The fourth wraps that same composition. Their current
-object sizes are 147/375/612/195 bytes; the two closed images are 839/875 bytes.
-These sizes are fixture observations, not the required full performance report.
-
-World's current kernel suite executes both images using native, fresh WASM and
-resident WASM operations. The private counter supplies 41 then 42; the first
-Program returns 83 and the wrapper returns 166. Each yields once and performs
-one external release carrying 83. It also runs a separately compiled mutually
-recursive even/odd pair. Agent tool integration and the required real-file
-browser transfer have their own consumer checks and authenticated dependency pins.
-
-`authoring.Context.twice` authors a definition once per checked callable and specializes from its
-declared signature. Tests instantiate it for one-effect and two-effect residual
-contexts and verify specialization reuse; callers do not rewrite its body or
-copy residual rows. The raw-ID `library/combinators.zig` wrapper is removed.
-This is staged specialization, not runtime polymorphism.
+`zig build check-components` uses one native driver to construct objects, transport
+the data-only linker, check deterministic binding order, admit its BPI3 output
+through the canonical consumer, and reject obsolete coalescing selectors.
+The linker process receives only objects and a manifest; it never runs a source
+compiler. Full component semantics remain in the shared native test roots.

@@ -42,38 +42,6 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .imports = &.{.{ .name = "boundary_data", .module = data }},
     });
-    const coalescing_emit = b.addExecutable(.{
-        .name = "coalescing-fixture",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/coalescing_emit.zig"),
-            .target = b.graph.host,
-            .optimize = optimize,
-            .imports = &.{.{ .name = "boundary_data", .module = data }},
-        }),
-    });
-    const coalescing_fixtures = b.step("build-coalescing-fixtures", "Build independently authored coalescing witnesses");
-    coalescing_fixtures.dependOn(&b.addInstallArtifact(coalescing_emit, .{}).step);
-    const coalescing_inspect = b.addExecutable(.{
-        .name = "coalescing-inspect",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("tools/authoring_stats.zig"),
-            .target = b.graph.host,
-            .optimize = optimize,
-            .imports = &.{.{ .name = "boundary_data", .module = data }},
-        }),
-    });
-    coalescing_fixtures.dependOn(&b.addInstallArtifact(coalescing_inspect, .{}).step);
-    const coalescing_bench = b.addExecutable(.{
-        .name = "coalescing-bench",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/coalescing_bench.zig"),
-            .target = b.graph.host,
-            .optimize = optimize,
-            .imports = &.{.{ .name = "boundary_data", .module = data }},
-        }),
-    });
-    b.step("build-coalescing-bench", "Build the paired compiler/admission measurement probe")
-        .dependOn(&b.addInstallArtifact(coalescing_bench, .{}).step);
     const linker = b.addExecutable(.{ .name = "boundary-link", .root_module = b.createModule(.{
         .root_source_file = b.path("tools/component_link.zig"),
         .target = target,
@@ -89,29 +57,30 @@ pub fn build(b: *std.Build) void {
             .imports = &.{.{ .name = "boundary_data", .module = data }},
         }),
     });
+
     const installed_linker = b.addInstallArtifact(linker, .{});
-    coalescing_fixtures.dependOn(&installed_linker.step);
-    b.step("build-compiler", "Build the source-independent BMO1 linker")
-        .dependOn(&installed_linker.step);
-    const component_example = b.addExecutable(.{ .name = "component-example", .root_module = b.createModule(.{
+    b.getInstallStep().dependOn(&installed_linker.step);
+    b.step("build-compiler", "Build the source-independent BMO1 linker").dependOn(&installed_linker.step);
+    const helper = b.addExecutable(.{ .name = "boundary-checks", .root_module = b.createModule(.{
         .root_source_file = b.path("tools/component_example.zig"),
         .target = b.graph.host,
         .optimize = optimize,
         .imports = &.{.{ .name = "boundary", .module = boundary }},
     }) });
-    const component_checks = b.addSystemCommand(&.{"node"});
-    component_checks.addFileArg2(b.path("test/components.mjs"), .{});
-    component_checks.addArtifactArg2(native_linker, .{});
-    component_checks.addArtifactArg2(component_example, .{});
+    const component_checks = b.addRunArtifact(helper);
+    component_checks.addArg("check-components");
+    component_checks.addArtifactArg2(native_linker, .{ .make_absolute = true });
+    _ = component_checks.addOutputDirectoryArg2("components", .{});
     component_checks.has_side_effects = true;
-    const component_step = b.step("check-components", "Check object admission and source-independent composition");
+    const component_step = b.step("check-components", "Check actual data-only linker admission and composition");
     component_step.dependOn(&component_checks.step);
-    const coalescing_components = b.addSystemCommand(&.{ "node", "test/coalescing_components.mjs" });
-    coalescing_components.addArtifactArg2(coalescing_emit, .{});
-    coalescing_components.addArtifactArg2(native_linker, .{});
-    coalescing_components.addArtifactArg2(coalescing_inspect, .{});
-    coalescing_components.has_side_effects = true;
-    component_step.dependOn(&coalescing_components.step);
+    const package = b.addRunArtifact(helper);
+    package.addArg("check-package");
+    package.addFileArg2(.zig_exe, .{ .make_absolute = true });
+    package.addDirectoryArg2(b.path("."), .{ .make_absolute = true });
+    _ = package.addOutputDirectoryArg2("package", .{});
+    package.has_side_effects = true;
+    b.step("check-package", "Build a clean public source package through Zig").dependOn(&package.step);
     const authoring = b.addTest(.{ .root_module = b.createModule(.{
         .root_source_file = b.path("src/test_root.zig"),
         .target = b.graph.host,
@@ -121,36 +90,18 @@ pub fn build(b: *std.Build) void {
     // Both complete test roots already include the component cases. Share their
     // runners instead of compiling and executing two subset-only test binaries.
     const run_authoring_tests = b.addRunArtifact(authoring);
-    component_step.dependOn(&run_data_tests.step);
-    component_step.dependOn(&run_authoring_tests.step);
-    const stable_lowering = b.addTest(.{ .root_module = b.createModule(.{
-        .root_source_file = b.path("src/test_root.zig"),
-        .target = b.graph.host,
-        .optimize = optimize,
-        .imports = &.{.{ .name = "boundary_data", .module = data }},
-    }), .filters = &.{
-        "installation lowering", "stable join",   "stable bindings", "construction owns",
-        "staged examples lower", "lexical scope", "stable lowering", "stable source analysis",
-        "stable admission",
-    } });
-    b.step("check-stable-lowering", "Check direct stable-slot construction")
-        .dependOn(&b.addRunArtifact(stable_lowering).step);
-    const facts_profile = b.addExecutable(.{ .name = "source-facts-profile", .root_module = b.createModule(.{
-        .root_source_file = b.path("src/facts_profile.zig"),
-        .target = b.graph.host,
-        .optimize = .safe,
-        .imports = &.{.{ .name = "boundary_data", .module = data }},
-    }) });
-    b.step("profile-source-facts", "Measure source checking with compact set counters")
-        .dependOn(&b.addRunArtifact(facts_profile).step);
-    const compact_fixtures = b.step("emit-program-images", "Emit current compact Program images");
+
+    b.step("check-authoring", "Check typed construction, ownership and optimization").dependOn(&run_authoring_tests.step);
+    const native = b.step("check-native", "Check native authoring, data and linker contracts without an interpreter");
+    native.dependOn(data_step);
+    native.dependOn(&run_authoring_tests.step);
+    native.dependOn(component_step);
     const compact_emit = b.addExecutable(.{ .name = "emit-compact-fixture", .root_module = b.createModule(.{
         .root_source_file = b.path("test/v2/emit_compact.zig"),
         .target = b.graph.host,
         .optimize = optimize,
         .imports = &.{.{ .name = "boundary", .module = boundary }},
     }) });
-    compact_fixtures.dependOn(&b.addInstallArtifact(compact_emit, .{}).step);
     const compact_target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding });
     const compact_wasm_data = b.createModule(.{
         .root_source_file = b.path("src/data/root.zig"),
@@ -183,82 +134,12 @@ pub fn build(b: *std.Build) void {
     invocation_wasm_run.addFileArg2(compact_wasm.getEmittedBin(), .{});
     b.step("check-invocation-wasm", "Check current envelope bytes and request identity on wasm32")
         .dependOn(&invocation_wasm_run.step);
-    for ([_][]const u8{ "install", "mixed", "irregular" }) |kind| {
-        for ([_]usize{ 8, 64, 128, 256 }) |count| {
-            const run = b.addRunArtifact(compact_emit);
-            run.addArgs(&.{ b.fmt("{d}", .{count}), kind });
-            compact_fixtures.dependOn(&b.addInstallFileWithDir(run.captureStdOut(.{}), .prefix, b.fmt("{s}-{d}.bpi3", .{ kind, count })).step);
-        }
-    }
     const authoring_cases = b.addExecutable(.{ .name = "authoring-cases", .root_module = b.createModule(.{
         .root_source_file = b.path("src/authoring_cases.zig"),
         .target = b.graph.host,
         .optimize = optimize,
         .imports = &.{.{ .name = "boundary_data", .module = data }},
     }) });
-    b.step("build-authoring-cases", "Build structured authoring execution cases")
-        .dependOn(&b.addInstallArtifact(authoring_cases, .{}).step);
-    const client = b.addExecutable(.{ .name = "authoring-client", .root_module = b.createModule(.{
-        .root_source_file = b.path("examples/authoring_client.zig"),
-        .target = b.graph.host,
-        .optimize = optimize,
-        .imports = &.{.{ .name = "boundary", .module = boundary }},
-    }) });
-    b.step("emit-authoring-client", "Emit the public authoring usability client")
-        .dependOn(&b.addRunArtifact(client).step);
-    const structured = b.addExecutable(.{ .name = "structured-branch", .root_module = b.createModule(.{
-        .root_source_file = b.path("examples/structured_branch.zig"),
-        .target = b.graph.host,
-        .optimize = optimize,
-        .imports = &.{.{ .name = "boundary", .module = boundary }},
-    }) });
-    b.step("emit-structured-branch", "Emit the public structured runtime branch")
-        .dependOn(&b.addRunArtifact(structured).step);
-    const one_effect = b.addExecutable(.{ .name = "one-effect", .root_module = b.createModule(.{
-        .root_source_file = b.path("examples/one_effect.zig"),
-        .target = b.graph.host,
-        .optimize = optimize,
-        .imports = &.{.{ .name = "boundary", .module = boundary }},
-    }) });
-    b.step("emit-one-effect", "Compile and inspect a complete public authoring example").dependOn(&b.addRunArtifact(one_effect).step);
-    b.step("check-authoring", "Check staged typed construction and lowering")
-        .dependOn(&run_authoring_tests.step);
-    const economy = b.step("check-economy", "Check code and constant sharing and emit executable economy workloads");
-    economy.dependOn(&run_authoring_tests.step);
-    const compiler_options = b.addOptions();
-    compiler_options.addOption(usize, "kind", b.option(usize, "economy-kind", "Matched compiler workload: 0 effect, 1 arithmetic") orelse 0);
-    const compiler_module = b.createModule(.{ .root_source_file = b.path("test/v2/economy_v2.zig"), .target = b.graph.host, .optimize = optimize, .imports = &.{.{ .name = "boundary", .module = boundary }} });
-    compiler_module.addOptions("economy_options", compiler_options);
-    const compiler_executable = b.addExecutable(.{ .name = "economy-compiler", .root_module = compiler_module });
-    b.step("emit-economy-compiler", "Compile a matched public authoring workload and emit its image").dependOn(&b.addRunArtifact(compiler_executable).step);
-    const economy_emitter = b.addExecutable(.{ .name = "emit-economy", .root_module = b.createModule(.{
-        .root_source_file = b.path("test/v2/emit_economy.zig"),
-        .target = b.graph.host,
-        .optimize = optimize,
-        .imports = &.{.{ .name = "boundary", .module = boundary }},
-    }) });
-    const economy_reuse = b.addSystemCommand(&.{"node"});
-    economy_reuse.addFileArg2(b.path("test/v2/economy_emitter.mjs"), .{});
-    economy_reuse.addArtifactArg2(economy_emitter, .{});
-    for ([_]usize{ 0, 1, 8, 64 }) |count| {
-        const run = b.addRunArtifact(economy_emitter);
-        run.addArg(b.fmt("{d}", .{count}));
-        const bytes = run.captureStdOut(.{});
-        economy_reuse.addFileArg2(bytes, .{});
-        economy.dependOn(&b.addInstallFileWithDir(bytes, .prefix, b.fmt("economy-{d}.bpi3", .{count})).step);
-    }
-    const options = b.addOptions();
-    options.addOption(u64, "value", b.option(u64, "example-value", "Authored scalar example value") orelse 42);
-    const example_module = b.createModule(.{
-        .root_source_file = b.path("test/v2/emit_scalar.zig"),
-        .target = b.graph.host,
-        .optimize = optimize,
-        .imports = &.{.{ .name = "boundary", .module = boundary }},
-    });
-    example_module.addOptions("example_options", options);
-    const example = b.addExecutable(.{ .name = "emit-v2-scalar", .root_module = example_module });
-    b.step("emit-scalar", "Emit a typed scalar BPI3 example to stdout")
-        .dependOn(&b.addRunArtifact(example).step);
     const source_fixtures = b.step("emit-examples", "Emit higher-order source examples and BPI3 images");
     const oracle = b.addSystemCommand(&.{"node"});
     oracle.addFileArg2(b.path("test/v2/source_oracle.mjs"), .{});
@@ -286,211 +167,28 @@ pub fn build(b: *std.Build) void {
     const exact_json = b.addSystemCommand(&.{ "node", "--test" });
     exact_json.addFileArg2(b.path("test/v2/exact_json.test.mjs"), .{});
     semantics.dependOn(&exact_json.step);
-    const aggregate = b.step("check", "Check current authoring, data, source semantics and component linking");
-    const zig17 = b.step("check-zig17", "Check Zig 0.17 record traversal and selected toolchain identity");
-    zig17.dependOn(&economy_reuse.step);
-    const zig17_records = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/data/zig17_tests.zig"),
-            .target = b.graph.host,
-            .optimize = optimize,
-        }),
-        .filters = &.{"Z17"},
-    });
-    zig17.dependOn(&b.addRunArtifact(zig17_records).step);
-    const toolchain_check = b.addSystemCommand(&.{ "env", "-u", "NODE_TEST_CONTEXT", "node", "test/v2/toolchain.test.mjs", "--zig-exe" });
-    toolchain_check.addFileArg2(.zig_exe, .{ .make_absolute = true });
-    toolchain_check.addArg("--zig-lib");
-    toolchain_check.addDirectoryArg2(.zig_lib, .{ .make_absolute = true });
-    toolchain_check.has_side_effects = true;
-    zig17.dependOn(&toolchain_check.step);
-    aggregate.dependOn(zig17);
-    const lazy_hyper = b.addExecutable(.{ .name = "lazy-hyper", .root_module = b.createModule(.{
-        .root_source_file = b.path("examples/lazy_hyper.zig"),
-        .target = b.graph.host,
-        .optimize = optimize,
-        .imports = &.{.{ .name = "boundary", .module = boundary }},
-    }) });
-    const lazy_run = b.addRunArtifact(lazy_hyper);
-    b.step("emit-lazy-hyper", "Emit the unused divergent hyperfunction peer witness")
-        .dependOn(&lazy_run.step);
-    const lazy_check = b.addRunArtifact(lazy_hyper);
-    _ = lazy_check.captureStdOut(.{});
-    aggregate.dependOn(&lazy_check.step);
-    const unused_invocation = b.addRunArtifact(lazy_hyper);
-    unused_invocation.addArg("unused-invocation");
-    b.step("emit-unused-hyper-invocation", "Emit an undemanded divergent invocation")
-        .dependOn(&unused_invocation.step);
-    const reciprocal = b.addExecutable(.{ .name = "reciprocal-hyper", .root_module = b.createModule(.{
-        .root_source_file = b.path("examples/reciprocal_hyper.zig"),
-        .target = b.graph.host,
-        .optimize = optimize,
-        .imports = &.{.{ .name = "boundary", .module = boundary }},
-    }) });
-    b.step("emit-reciprocal-hyper", "Emit state-based reciprocal non-tail calls")
-        .dependOn(&b.addRunArtifact(reciprocal).step);
-    const reciprocal_check = b.addRunArtifact(reciprocal);
-    _ = reciprocal_check.captureStdOut(.{});
-    aggregate.dependOn(&reciprocal_check.step);
-    const algebra = b.addExecutable(.{ .name = "hyper-algebra", .root_module = b.createModule(.{
-        .root_source_file = b.path("examples/hyper_algebra.zig"),
-        .target = b.graph.host,
-        .optimize = optimize,
-        .imports = &.{.{ .name = "boundary", .module = boundary }},
-    }) });
-    const algebra_images = b.step("emit-hyper-algebra", "Emit the public pure hyperfunction algebra cases");
-    for ([_][]const u8{
-        "constant",     "project", "identity",   "distinct",    "compose", "product", "sum", "stream",
-        "unused_fault", "fault",   "ana_config", "ana_capture",
-    }) |mode| {
-        const run = b.addRunArtifact(algebra);
-        run.addArg(mode);
-        algebra_images.dependOn(&b.addInstallFileWithDir(run.captureStdOut(.{}), .prefix, b.fmt("hyper/{s}.bpi3", .{mode})).step);
-    }
-    aggregate.dependOn(algebra_images);
-    const generated = b.addExecutable(.{ .name = "hyper-generated", .root_module = b.createModule(.{
-        .root_source_file = b.path("examples/hyper_generated.zig"),
-        .target = b.graph.host,
-        .optimize = optimize,
-        .imports = &.{.{ .name = "boundary", .module = boundary }},
-    }) });
-    const generated_install = b.addInstallArtifact(generated, .{});
-    b.step("build-hyper-generated", "Build bounded pure-construction test emitter")
-        .dependOn(&generated_install.step);
-    const generated_check = b.addRunArtifact(generated);
-    generated_check.addArgs(&.{ "193", "5" });
-    _ = generated_check.captureStdOut(.{});
-    aggregate.dependOn(&generated_check.step);
-    const fold = b.addExecutable(.{ .name = "hyper-fold", .root_module = b.createModule(.{
-        .root_source_file = b.path("examples/hyper_fold.zig"),
-        .target = b.graph.host,
-        .optimize = optimize,
-        .imports = &.{.{ .name = "boundary", .module = boundary }},
-    }) });
-    const fold_images = b.step("emit-hyper-fold", "Emit runtime two-input hyperfunction and direct folds");
-    for ([_][]const u8{ "hyper", "direct", "materialized", "stats", "stats-direct", "stats-materialized" }) |mode| {
-        const run = b.addRunArtifact(fold);
-        run.addArg(mode);
-        fold_images.dependOn(&b.addInstallFileWithDir(run.captureStdOut(.{}), .prefix, b.fmt("fold/{s}", .{mode})).step);
-    }
-    aggregate.dependOn(fold_images);
-    const tail = b.addExecutable(.{ .name = "hyper-tail", .root_module = b.createModule(.{
-        .root_source_file = b.path("examples/hyper_tail.zig"),
-        .target = b.graph.host,
-        .optimize = optimize,
-        .imports = &.{.{ .name = "boundary", .module = boundary }},
-    }) });
-    const tail_images = b.step("emit-hyper-tail", "Emit history-free reciprocal and direct countdowns");
-    for ([_][]const u8{ "hyper", "direct" }) |mode| {
-        const run = b.addRunArtifact(tail);
-        run.addArg(mode);
-        tail_images.dependOn(&b.addInstallFileWithDir(run.captureStdOut(.{}), .prefix, b.fmt("tail/{s}", .{mode})).step);
-    }
-    aggregate.dependOn(tail_images);
-    const adaptive = b.addExecutable(.{ .name = "hyper-adaptive", .root_module = b.createModule(.{
-        .root_source_file = b.path("examples/hyper_adaptive.zig"),
-        .target = b.graph.host,
-        .optimize = optimize,
-        .imports = &.{.{ .name = "boundary", .module = boundary }},
-    }) });
-    const adaptive_objects = b.step("emit-hyper-adaptive", "Emit independent adaptive hyperfunction objects");
-    adaptive_objects.dependOn(&installed_linker.step);
-    for ([_][]const u8{ "producer", "producer-reversed", "consumer", "consumer-invert", "support", "entry" }) |mode| {
-        const run = b.addRunArtifact(adaptive);
-        run.addArg(mode);
-        adaptive_objects.dependOn(&b.addInstallFileWithDir(run.captureStdOut(.{}), .prefix, b.fmt("adaptive/{s}.bmo1", .{mode})).step);
-    }
-    aggregate.dependOn(adaptive_objects);
-    const hyper_multi = b.addExecutable(.{ .name = "hyper-multishot", .root_module = b.createModule(.{
-        .root_source_file = b.path("examples/hyper_multishot.zig"),
-        .target = b.graph.host,
-        .optimize = optimize,
-        .imports = &.{.{ .name = "boundary", .module = boundary }},
-    }) });
-    const multi_images = b.step("emit-hyper-multishot", "Emit clone-safe recursive participant witness");
-    const multi_run = b.addRunArtifact(hyper_multi);
-    multi_images.dependOn(&b.addInstallFileWithDir(multi_run.captureStdOut(.{}), .prefix, "hyper-multishot.bpi3").step);
-    const multi_reentrant = b.addRunArtifact(hyper_multi);
-    multi_reentrant.addArg("reentrant");
-    multi_images.dependOn(&b.addInstallFileWithDir(multi_reentrant.captureStdOut(.{}), .prefix, "hyper-reentrant.bpi3").step);
-    aggregate.dependOn(multi_images);
-    const demand = b.addExecutable(.{ .name = "hyper-demand", .root_module = b.createModule(.{
-        .root_source_file = b.path("examples/hyper_demand.zig"),
-        .target = b.graph.host,
-        .optimize = optimize,
-        .imports = &.{.{ .name = "boundary", .module = boundary }},
-    }) });
-    b.step("emit-hyper-demand", "Emit lexical internal-demand interpretation")
-        .dependOn(&b.addRunArtifact(demand).step);
-    const demand_check = b.addRunArtifact(demand);
-    _ = demand_check.captureStdOut(.{});
-    aggregate.dependOn(&demand_check.step);
-    const exchange = b.addExecutable(.{ .name = "owned-exchange", .root_module = b.createModule(.{
-        .root_source_file = b.path("examples/owned_exchange.zig"),
-        .target = b.graph.host,
-        .optimize = optimize,
-        .imports = &.{.{ .name = "boundary", .module = boundary }},
-    }) });
-    const exchange_images = b.step("emit-owned-exchange", "Emit owned exchange and local disposal witnesses");
-    for ([_][]const u8{ "dispose", "normal" }) |mode| {
-        const run = b.addRunArtifact(exchange);
-        if (std.mem.eql(u8, mode, "normal")) run.addArg(mode);
-        exchange_images.dependOn(&b.addInstallFileWithDir(run.captureStdOut(.{}), .prefix, b.fmt("exchange/{s}.bpi3", .{mode})).step);
-    }
-    aggregate.dependOn(exchange_images);
-    const composed = b.addExecutable(.{ .name = "composed-exchange", .root_module = b.createModule(.{
-        .root_source_file = b.path("examples/composed_exchange.zig"),
-        .target = b.graph.host,
-        .optimize = optimize,
-        .imports = &.{.{ .name = "boundary", .module = boundary }},
-    }) });
-    const composed_images = b.step("emit-composed-exchange", "Emit owned three-part exchange composition");
-    for ([_][]const u8{ "dispose", "finish", "right-finish" }) |mode| {
-        const run = b.addRunArtifact(composed);
-        if (!std.mem.eql(u8, mode, "dispose")) run.addArg(mode);
-        composed_images.dependOn(&b.addInstallFileWithDir(run.captureStdOut(.{}), .prefix, b.fmt("composed/{s}.bpi3", .{mode})).step);
-    }
-    aggregate.dependOn(composed_images);
-    const composed_negative = b.addSystemCommand(&.{ "node", "test/composed_exchange_negative.mjs" });
-    composed_negative.addArtifactArg2(composed, .{});
-    composed_images.dependOn(&composed_negative.step);
-    const exchange_negative = b.addSystemCommand(&.{"node"});
-    exchange_negative.addFileArg2(b.path("test/owned_exchange_negative.mjs"), .{});
-    exchange_negative.addArtifactArg2(exchange, .{});
-    aggregate.dependOn(&exchange_negative.step);
-    const hyper_reference = b.addSystemCommand(&.{ "node", "--test" });
-    hyper_reference.addFileArg2(b.path("test/hyperfunction_reference.test.mjs"), .{});
-    aggregate.dependOn(&hyper_reference.step);
-    aggregate.dependOn(data_step);
-    aggregate.dependOn(component_step);
+
+    const aggregate = b.step("check", "Check native contracts and independent source/wasm observations");
+    aggregate.dependOn(native);
+    aggregate.dependOn(semantics);
     aggregate.dependOn(&program_wasm_run.step);
     aggregate.dependOn(&state_wasm_run.step);
     aggregate.dependOn(&invocation_wasm_run.step);
-    aggregate.dependOn(semantics);
-    aggregate.dependOn(economy);
-    aggregate.dependOn(source_fixtures);
-    const client_check = b.addRunArtifact(client);
-    _ = client_check.captureStdOut(.{});
-    aggregate.dependOn(&client_check.step);
-    const public_example_check = b.addRunArtifact(one_effect);
-    _ = public_example_check.captureStdOut(.{});
-    aggregate.dependOn(&public_example_check.step);
-    const assets_tests = b.addSystemCommand(&.{ "node", "--test" });
-    assets_tests.addFileArg2(b.path("test/v2/assets.test.mjs"), .{});
-    assets_tests.has_side_effects = true;
-    b.step("check-assets", "Check source identity and bounded archive/container integrity")
-        .dependOn(&assets_tests.step);
-    aggregate.dependOn(&assets_tests.step);
-    const capacity_example = b.addExecutable(.{ .name = "emit-capacity", .root_module = b.createModule(.{
-        .root_source_file = b.path("test/v2/emit_capacity.zig"),
+    const client = b.addExecutable(.{ .name = "authoring-client", .root_module = b.createModule(.{
+        .root_source_file = b.path("examples/authoring_client.zig"),
         .target = b.graph.host,
         .optimize = optimize,
         .imports = &.{.{ .name = "boundary", .module = boundary }},
     }) });
-    const capacity_bytes = b.addRunArtifact(capacity_example).captureStdOut(.{});
-    const capacity_install = b.addInstallFileWithDir(capacity_bytes, .prefix, "capacity.bpi3");
-    b.step("emit-capacity-fixture", "Emit the public typed arena-exhaustion program").dependOn(&capacity_install.step);
-    aggregate.dependOn(&capacity_install.step);
+    const public_example = b.addRunArtifact(client);
+    _ = public_example.captureStdOut(.{});
+    native.dependOn(&public_example.step);
+    b.step("emit-authoring-client", "Emit the public authoring client").dependOn(&b.addRunArtifact(client).step);
+    inline for (.{ .{ "one_effect", "emit-one-effect" }, .{ "structured_branch", "emit-structured-branch" } }) |entry| {
+        const example = b.addExecutable(.{ .name = entry[0], .root_module = b.createModule(.{ .root_source_file = b.path("examples/" ++ entry[0] ++ ".zig"), .target = b.graph.host, .optimize = optimize, .imports = &.{.{ .name = "boundary", .module = boundary }} }) });
+        b.step(entry[1], "Emit a public typed-authoring example").dependOn(&b.addRunArtifact(example).step);
+    }
+    b.default_step = aggregate;
 }
 
 fn oracleScopeChecks(
