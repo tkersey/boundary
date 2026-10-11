@@ -1,9 +1,9 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
 //! Checked source inputs for cleanup crossing a suspended handler scope.
 const std = @import("std");
-const boundary = @import("boundary");
-const Builder = boundary.source.Builder;
-const Id = boundary.data.program.Id;
+const horos = @import("horos");
+const Builder = horos.source.Builder;
+const Id = horos.data.program.Id;
 const Mode = enum { yielding, requesting, disposing };
 const Handler = struct { id: Id, capability: Id };
 
@@ -44,7 +44,7 @@ fn handler(b: *Builder, unit: Id, boolean: Id, effect: Id, pause: Id) !Handler {
     return .{ .id = id, .capability = cap };
 }
 
-fn scenario(b: *Builder, mode: Mode) !boundary.source.Module {
+fn scenario(b: *Builder, mode: Mode) !horos.source.Module {
     const unit = try b.scalar(void);
     const boolean = try b.scalar(bool);
     const effect = try b.effect(.{
@@ -74,7 +74,7 @@ fn scenario(b: *Builder, mode: Mode) !boundary.source.Module {
         } }),
     };
     try b.define(body, position);
-    const info = try boundary.library.cleanup.exitInfo(b, unit);
+    const info = try horos.library.cleanup.exitInfo(b, unit);
     const cleanup = try b.declare(&.{info}, unit, &.{effect}, &.{});
     try b.define(cleanup, try b.term(.{ .perform = .{
         .effect = effect,
@@ -118,7 +118,7 @@ pub fn main(init: std.process.Init) !void {
         var b = Builder.init(init.gpa);
         defer b.deinit();
         const source = try scenario(&b, mode);
-        var compiled = try boundary.program.compile(init.gpa, source);
+        var compiled = try horos.program.compile(init.gpa, source);
         defer compiled.deinit();
         if (index != 0) try output.interface.writeByte(',');
         try std.json.Stringify.value(.{ .mode = mode, .source = source }, .{

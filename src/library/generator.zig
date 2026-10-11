@@ -3,7 +3,7 @@
 const std = @import("std");
 const source = @import("../source.zig");
 const a = @import("../authoring.zig");
-const p = @import("boundary_data").program;
+const p = @import("horos_data").program;
 const Error = source.Error;
 pub const Generator = struct { input: p.Id, result: p.Id, effect: p.Id, capability: p.Id, element: p.Id, answer: p.Id, yielded: p.Id, package: p.Id, resumption: p.Id, handler: p.Id };
 pub const Scope = struct {

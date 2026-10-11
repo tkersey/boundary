@@ -1,6 +1,6 @@
 const std = @import("std");
-const boundary = @import("../root.zig");
-const source = boundary.source;
+const horos = @import("../root.zig");
+const source = horos.source;
 const Mode = enum { same, distinct, bound, borrowed };
 
 fn program(b: *source.Builder, mode: Mode) !source.Module {
@@ -20,7 +20,7 @@ fn program(b: *source.Builder, mode: Mode) !source.Module {
     const output = try b.schema(.{ .product = &.{ integer, integer } });
     const variable = try b.variable(pair);
     const reference = try b.reference(variable);
-    const opcode: boundary.data.program.Opcode = if (mode == .borrowed)
+    const opcode: horos.data.program.Opcode = if (mode == .borrowed)
         .sequence_length
     else
         .field;
@@ -50,7 +50,7 @@ test "consuming projections cannot hide repeated owned uses behind an expression
         defer b.deinit();
         const module = try program(&b, mode);
         {
-            try std.testing.expectError(error.UnavailableSlot, boundary.program.compileObserved(std.testing.allocator, module, .{}));
+            try std.testing.expectError(error.UnavailableSlot, horos.program.compileObserved(std.testing.allocator, module, .{}));
         }
     }
 }
@@ -60,7 +60,7 @@ test "binding a projected result and reusing borrowing observers remain valid" {
         var b = source.Builder.init(std.testing.allocator);
         defer b.deinit();
         const module = try program(&b, mode);
-        var result = try boundary.program.compile(std.testing.allocator, module);
+        var result = try horos.program.compile(std.testing.allocator, module);
         defer result.deinit();
     }
 }
@@ -111,7 +111,7 @@ test "borrow expression sharing cannot conceal use after consumption" {
         defer b.deinit();
         const module = try borrowProgram(&b, mode);
         {
-            try std.testing.expectError(error.UnavailableSlot, boundary.program.compileObserved(std.testing.allocator, module, .{}));
+            try std.testing.expectError(error.UnavailableSlot, horos.program.compileObserved(std.testing.allocator, module, .{}));
         }
     }
 }
@@ -121,7 +121,7 @@ test "bound observer results and observations of live owners remain valid" {
         var b = source.Builder.init(std.testing.allocator);
         defer b.deinit();
         const module = try borrowProgram(&b, mode);
-        var result = try boundary.program.compile(std.testing.allocator, module);
+        var result = try horos.program.compile(std.testing.allocator, module);
         defer result.deinit();
     }
 }

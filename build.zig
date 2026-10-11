@@ -7,13 +7,13 @@ pub fn build(b: *std.Build) void {
     }
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
-    const public_data = b.addModule("boundary_data", .{
+    const public_data = b.addModule("horos_data", .{
         .root_source_file = b.path("src/data/root.zig"),
         .target = target,
         .optimize = optimize,
     });
     // This exit constructs only the separately importable pure contract module.
-    if (b.option(bool, "data-only", "Construct only boundary_data") orelse false) return;
+    if (b.option(bool, "data-only", "Construct only horos_data") orelse false) return;
     // Build-host generators must not inherit an exported consumer's target.
     const data = b.createModule(.{
         .root_source_file = b.path("src/data/root.zig"),
@@ -30,42 +30,42 @@ pub fn build(b: *std.Build) void {
     const data_step = b.step("check-data", "Check canonical records and pure admission");
     const run_data_tests = b.addRunArtifact(tests);
     data_step.dependOn(&run_data_tests.step);
-    _ = b.addModule("boundary", .{
+    _ = b.addModule("horos", .{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
-        .imports = &.{.{ .name = "boundary_data", .module = public_data }},
+        .imports = &.{.{ .name = "horos_data", .module = public_data }},
     });
-    const boundary = b.createModule(.{
+    const horos = b.createModule(.{
         .root_source_file = b.path("src/root.zig"),
         .target = b.graph.host,
         .optimize = optimize,
-        .imports = &.{.{ .name = "boundary_data", .module = data }},
+        .imports = &.{.{ .name = "horos_data", .module = data }},
     });
-    const linker = b.addExecutable(.{ .name = "boundary-link", .root_module = b.createModule(.{
+    const linker = b.addExecutable(.{ .name = "horos-link", .root_module = b.createModule(.{
         .root_source_file = b.path("tools/component_link.zig"),
         .target = target,
         .optimize = optimize,
-        .imports = &.{.{ .name = "boundary_data", .module = public_data }},
+        .imports = &.{.{ .name = "horos_data", .module = public_data }},
     }) });
     const native_linker = if (target.query.isNative()) linker else b.addExecutable(.{
-        .name = "boundary-link-host",
+        .name = "horos-link-host",
         .root_module = b.createModule(.{
             .root_source_file = b.path("tools/component_link.zig"),
             .target = b.graph.host,
             .optimize = optimize,
-            .imports = &.{.{ .name = "boundary_data", .module = data }},
+            .imports = &.{.{ .name = "horos_data", .module = data }},
         }),
     });
 
     const installed_linker = b.addInstallArtifact(linker, .{});
     b.getInstallStep().dependOn(&installed_linker.step);
     b.step("build-compiler", "Build the source-independent BMO1 linker").dependOn(&installed_linker.step);
-    const helper = b.addExecutable(.{ .name = "boundary-checks", .root_module = b.createModule(.{
+    const helper = b.addExecutable(.{ .name = "horos-checks", .root_module = b.createModule(.{
         .root_source_file = b.path("tools/component_example.zig"),
         .target = b.graph.host,
         .optimize = optimize,
-        .imports = &.{.{ .name = "boundary", .module = boundary }},
+        .imports = &.{.{ .name = "horos", .module = horos }},
     }) });
     const component_checks = b.addRunArtifact(helper);
     component_checks.addArg("check-components");
@@ -85,7 +85,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/test_root.zig"),
         .target = b.graph.host,
         .optimize = optimize,
-        .imports = &.{.{ .name = "boundary_data", .module = data }},
+        .imports = &.{.{ .name = "horos_data", .module = data }},
     }) });
     // Both complete test roots already include the component cases. Share their
     // runners instead of compiling and executing two subset-only test binaries.
@@ -100,7 +100,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("test/v2/emit_compact.zig"),
         .target = b.graph.host,
         .optimize = optimize,
-        .imports = &.{.{ .name = "boundary", .module = boundary }},
+        .imports = &.{.{ .name = "horos", .module = horos }},
     }) });
     const compact_target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding });
     const compact_wasm_data = b.createModule(.{
@@ -112,7 +112,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("test/v2/compact_wasm.zig"),
         .target = compact_target,
         .optimize = .small,
-        .imports = &.{.{ .name = "boundary_data", .module = compact_wasm_data }},
+        .imports = &.{.{ .name = "horos_data", .module = compact_wasm_data }},
     }) });
     compact_wasm.entry = .disabled;
     compact_wasm.rdynamic = true;
@@ -138,7 +138,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/authoring_cases.zig"),
         .target = b.graph.host,
         .optimize = optimize,
-        .imports = &.{.{ .name = "boundary_data", .module = data }},
+        .imports = &.{.{ .name = "horos_data", .module = data }},
     }) });
     const source_fixtures = b.step("emit-examples", "Emit higher-order source examples and BPI3 images");
     const oracle = b.addSystemCommand(&.{"node"});
@@ -147,7 +147,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("test/v2/emit_source.zig"),
         .target = b.graph.host,
         .optimize = optimize,
-        .imports = &.{.{ .name = "boundary", .module = boundary }},
+        .imports = &.{.{ .name = "horos", .module = horos }},
     }) });
     for ([_][]const u8{ "lexical", "deep", "recursive", "choices-all", "choices-first", "generator", "state-local", "state-shared", "resource-scalar", "resource-pair", "answers", "scoped-reader", "writer-raise", "scheduler", "queens-dfs", "queens-bfs", "cell-order", "nested", "shallow", "injection", "indexed", "abort-custody", "unwind", "reentrant", "cloned", "clause-abort", "bounded-values", "scalar-contracts", "ownership", "shallow-resumptions", "shallow-injection", "handle-operand-order", "protect-operand-order", "successor-state", "clause-payload", "yielding-cleanup", "borrow-operands", "cleanup-disposal", "cleanup-disposal-running", "cleanup-disposal-failure", "cleanup-disposal-owned", "product-projection" }, 0..) |name, index| {
         for ([_][]const u8{ "json", "bpi3" }) |format| {
@@ -159,10 +159,10 @@ pub fn build(b: *std.Build) void {
         }
     }
     oracle.has_side_effects = true;
-    const semantics = b.step("check-semantics", "Check higher-order source semantics without World");
+    const semantics = b.step("check-semantics", "Check higher-order source semantics without Kronos");
     semantics.dependOn(&oracle.step);
-    semantics.dependOn(&oracleScopeChecks(b, boundary, optimize, authoring_cases).step);
-    semantics.dependOn(&borrowReturnChecks(b, boundary, optimize).step);
+    semantics.dependOn(&oracleScopeChecks(b, horos, optimize, authoring_cases).step);
+    semantics.dependOn(&borrowReturnChecks(b, horos, optimize).step);
     semantics.dependOn(&run_authoring_tests.step);
     const exact_json = b.addSystemCommand(&.{ "node", "--test" });
     exact_json.addFileArg2(b.path("test/v2/exact_json.test.mjs"), .{});
@@ -178,14 +178,14 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("examples/authoring_client.zig"),
         .target = b.graph.host,
         .optimize = optimize,
-        .imports = &.{.{ .name = "boundary", .module = boundary }},
+        .imports = &.{.{ .name = "horos", .module = horos }},
     }) });
     const public_example = b.addRunArtifact(client);
     _ = public_example.captureStdOut(.{});
     native.dependOn(&public_example.step);
     b.step("emit-authoring-client", "Emit the public authoring client").dependOn(&b.addRunArtifact(client).step);
     inline for (.{ .{ "one_effect", "emit-one-effect" }, .{ "structured_branch", "emit-structured-branch" } }) |entry| {
-        const example = b.addExecutable(.{ .name = entry[0], .root_module = b.createModule(.{ .root_source_file = b.path("examples/" ++ entry[0] ++ ".zig"), .target = b.graph.host, .optimize = optimize, .imports = &.{.{ .name = "boundary", .module = boundary }} }) });
+        const example = b.addExecutable(.{ .name = entry[0], .root_module = b.createModule(.{ .root_source_file = b.path("examples/" ++ entry[0] ++ ".zig"), .target = b.graph.host, .optimize = optimize, .imports = &.{.{ .name = "horos", .module = horos }} }) });
         b.step(entry[1], "Emit a public typed-authoring example").dependOn(&b.addRunArtifact(example).step);
     }
     b.default_step = aggregate;
@@ -193,7 +193,7 @@ pub fn build(b: *std.Build) void {
 
 fn oracleScopeChecks(
     b: *std.Build,
-    boundary: *std.Build.Module,
+    horos: *std.Build.Module,
     optimize: std.lang.Optimize,
     authoring_cases: *std.Build.Step.Compile,
 ) *std.Build.Step.Run {
@@ -203,7 +203,7 @@ fn oracleScopeChecks(
             .root_source_file = b.path("test/v2/oracle_scopes.zig"),
             .target = b.graph.host,
             .optimize = optimize,
-            .imports = &.{.{ .name = "boundary", .module = boundary }},
+            .imports = &.{.{ .name = "horos", .module = horos }},
         }),
     });
     const check = b.addSystemCommand(&.{"node"});
@@ -216,7 +216,7 @@ fn oracleScopeChecks(
 
 fn borrowReturnChecks(
     b: *std.Build,
-    boundary: *std.Build.Module,
+    horos: *std.Build.Module,
     optimize: std.lang.Optimize,
 ) *std.Build.Step.Run {
     const tests = b.addExecutable(.{
@@ -225,7 +225,7 @@ fn borrowReturnChecks(
             .root_source_file = b.path("test/v2/borrow_returns.zig"),
             .target = b.graph.host,
             .optimize = optimize,
-            .imports = &.{.{ .name = "boundary", .module = boundary }},
+            .imports = &.{.{ .name = "horos", .module = horos }},
         }),
     });
     return b.addRunArtifact(tests);

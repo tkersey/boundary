@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
 //! This executable imports pure data only: no source compiler or emitter.
 const std = @import("std");
-const data = @import("boundary_data");
+const data = @import("horos_data");
 const compilation_defaults: data.closed_compilation.Options = .{};
 const Manifest = struct {
     instances: []const struct { key: []const u8, path: []const u8 },
@@ -24,7 +24,7 @@ pub fn main(init: std.process.Init) !void {
     var buffer: [4096]u8 = undefined;
     var output = std.Io.File.stdout().writer(init.io, &buffer);
     if (std.mem.eql(u8, path, "--help")) {
-        try output.interface.writeAll("Usage: boundary-link MANIFEST.json > PROGRAM.bpi3\nBMO1 instance paths are relative to the current directory.\nOptional manifest contract: structural (default) or semantic. Both invoke checked P01.\nOptional objective, work_limit, round_limit, image_growth_bytes, max_image_bytes and profile use shared compilation policy.\n");
+        try output.interface.writeAll("Usage: horos-link MANIFEST.json > PROGRAM.bpi3\nBMO1 instance paths are relative to the current directory.\nOptional manifest contract: structural (default) or semantic. Both invoke checked P01.\nOptional objective, work_limit, round_limit, image_growth_bytes, max_image_bytes and profile use shared compilation policy.\n");
         try output.interface.flush();
         return;
     }

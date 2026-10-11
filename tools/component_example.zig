@@ -2,7 +2,7 @@
 //! One native driver shares component construction and public-consumer checks.
 //! The transported linker imports data only; package consumers use Zig's package.
 const std = @import("std");
-const boundary = @import("boundary");
+const horos = @import("horos");
 const Dir = std.Io.Dir;
 const Runner = struct {
     a: std.mem.Allocator,
@@ -31,16 +31,16 @@ fn require(value: bool) !void {
     if (!value) return error.ContractMismatch;
 }
 fn components(r: Runner, linker: []const u8, output: []const u8) !void {
-    const transported = try r.path(&.{ output, "boundary-link" });
+    const transported = try r.path(&.{ output, "horos-link" });
     try r.write(transported, try r.read(linker));
     var executable = try Dir.cwd().openFile(r.io, transported, .{});
     defer executable.close(r.io);
     try executable.setPermissions(r.io, .fromMode(0o755));
     inline for (.{ .{ "call", .call }, .{ "state", .state }, .{ "suspend", .suspended }, .{ "double", .double } }) |item| {
-        const bytes = try boundary.source.component_examples.emit(r.a, item[1]);
+        const bytes = try horos.source.component_examples.emit(r.a, item[1]);
         try r.write(try r.path(&.{ output, item[0] ++ ".bmo1" }), bytes);
     }
-    const bindings: []const boundary.data.linker.Binding = &.{
+    const bindings: []const horos.data.linker.Binding = &.{
         .{ .required = .{ .instance = "call", .symbol = "read" }, .supplied = .{ .instance = "state", .symbol = "read" } },
         .{ .required = .{ .instance = "state", .symbol = "twice" }, .supplied = .{ .instance = "call", .symbol = "twice" } },
         .{ .required = .{ .instance = "suspend", .symbol = "compute" }, .supplied = .{ .instance = "state", .symbol = "compute" } },
@@ -53,16 +53,16 @@ fn components(r: Runner, linker: []const u8, output: []const u8) !void {
     const bytes = try std.json.Stringify.valueAlloc(r.a, manifest, .{});
     try r.write(manifest_path, bytes);
     const first = try r.run(&.{ transported, "link.json" }, output, true);
-    var admitted = try boundary.data.program_image.Admitted.decode(r.a, first.stdout);
+    var admitted = try horos.data.program_image.Admitted.decode(r.a, first.stdout);
     defer admitted.deinit();
     const reverse_instances = try r.a.dupe(Instance, instances);
-    const reverse_bindings = try r.a.dupe(boundary.data.linker.Binding, bindings);
+    const reverse_bindings = try r.a.dupe(horos.data.linker.Binding, bindings);
     std.mem.reverse(Instance, reverse_instances);
-    std.mem.reverse(boundary.data.linker.Binding, reverse_bindings);
+    std.mem.reverse(horos.data.linker.Binding, reverse_bindings);
     try r.write(manifest_path, try std.json.Stringify.valueAlloc(r.a, .{ .instances = reverse_instances, .bindings = reverse_bindings, .entry = manifest.entry }, .{}));
     const reversed = try r.run(&.{ transported, "link.json" }, output, true);
     try require(std.mem.eql(u8, first.stdout, reversed.stdout));
-    var extended: std.ArrayList(boundary.data.linker.Binding) = .empty;
+    var extended: std.ArrayList(horos.data.linker.Binding) = .empty;
     try extended.appendSlice(r.a, bindings);
     for ([_][]const u8{ "main", "read", "release" }) |name| try extended.append(r.a, .{ .required = .{ .instance = "double", .symbol = name }, .supplied = .{ .instance = "suspend", .symbol = name } });
     var additional: std.ArrayList(Instance) = .empty;
@@ -70,7 +70,7 @@ fn components(r: Runner, linker: []const u8, output: []const u8) !void {
     try additional.append(r.a, .{ .key = "double", .path = "double.bmo1" });
     try r.write(manifest_path, try std.json.Stringify.valueAlloc(r.a, .{ .instances = additional.items, .bindings = extended.items, .entry = .{ .instance = "double", .symbol = "main" } }, .{}));
     const second = try r.run(&.{ transported, "link.json" }, output, true);
-    var second_admitted = try boundary.data.program_image.Admitted.decode(r.a, second.stdout);
+    var second_admitted = try horos.data.program_image.Admitted.decode(r.a, second.stdout);
     defer second_admitted.deinit();
     try require(!std.mem.eql(u8, first.stdout, second.stdout));
     for ([_][]const u8{ "off", "safe" }) |retired| {
@@ -103,11 +103,11 @@ fn package(r: Runner, zig: []const u8, repository: []const u8, output: []const u
     _ = try selected.run(&.{ "tar", "-xzf", try std.fmt.allocPrint(r.a, "{s}/p/{s}.tar.gz", .{ global, hash }), "--strip-components=1", "-C", consumed }, output, true);
     const consumer = try r.path(&.{ output, "consumer" });
     try Dir.cwd().createDirPath(r.io, consumer);
-    try r.write(try r.path(&.{ consumer, "build.zig.zon" }), ".{ .name=.consumer, .version=\"0.0.0\", .fingerprint=0x705b3727bb03dcc2, .dependencies=.{ .boundary=.{.path=\"../package\"}}, .paths=.{\"\"} }");
+    try r.write(try r.path(&.{ consumer, "build.zig.zon" }), ".{ .name=.consumer, .version=\"0.0.0\", .fingerprint=0x705b3727bb03dcc2, .dependencies=.{ .horos=.{.path=\"../package\"}}, .paths=.{\"\"} }");
     inline for (.{ "build.zig", "rejection.zig", "category.zig", "failure_literal_category.zig", "lifecycle.zig", "data.zig" }) |file| try r.write(try r.path(&.{ consumer, file }), try r.read(try r.path(&.{ source, "test/package_authoring", file })));
     try r.write(try r.path(&.{ consumer, "client.zig" }), try r.read(try r.path(&.{ source, "examples/authoring_client.zig" })));
     const image = try selected.run(&.{ zig, "build", "emit", "reject", "data" }, consumer, true);
-    var admitted = try boundary.data.program_image.Admitted.decode(r.a, image.stdout);
+    var admitted = try horos.data.program_image.Admitted.decode(r.a, image.stdout);
     defer admitted.deinit();
     inline for (.{ .{ "category", "Schema", "Operation" }, .{ "failure_literal_category", "FailureLiteral", "Value" }, .{ "lifecycle", "Body", "does not support field access" } }) |item| {
         const rejected = try selected.run(&.{ zig, "build", "-D" ++ item[0] ++ "=true" }, consumer, false);
@@ -145,8 +145,8 @@ pub fn main(init: std.process.Init) !void {
         return package(r, zig, repository, output);
     }
     if (args.next() != null) return error.UnexpectedArgument;
-    const kind = std.meta.stringToEnum(boundary.source.component_examples.Kind, name) orelse return error.InvalidComponent;
-    const bytes = try boundary.source.component_examples.emit(init.gpa, kind);
+    const kind = std.meta.stringToEnum(horos.source.component_examples.Kind, name) orelse return error.InvalidComponent;
+    const bytes = try horos.source.component_examples.emit(init.gpa, kind);
     defer init.gpa.free(bytes);
     try std.Io.File.stdout().writeStreamingAll(init.io, bytes);
 }

@@ -1,7 +1,7 @@
 //! Alpha-rename function-local slots so control bindings precede temporaries.
 //! Input is admitted. No value, instruction, edge assignment or scope is removed.
 const std = @import("std");
-const data = @import("boundary_data");
+const data = @import("horos_data");
 const ir = data.activation;
 const Id = data.program.Id;
 const Error = std.mem.Allocator.Error;

@@ -1,11 +1,12 @@
 .{
-    .name = .boundary,
+    .name = .horos,
     .version = "3.0.0",
     .dependencies = .{},
     .minimum_zig_version = "0.17.0",
     .paths = .{
         "LICENSE",
         "README.md",
+        "docs/rename.md",
         "build.zig",
         "build.zig.zon",
         "docs/typed-authoring.md",
@@ -20,5 +21,5 @@
         "test",
         "tools",
     },
-    .fingerprint = 0x3e7e02526825577e,
+    .fingerprint = 0x7039c7146825577e,
 }

@@ -1,11 +1,11 @@
 const std = @import("std");
-const boundary = @import("../root.zig");
-const source = boundary.source;
-const choice = boundary.library.choice;
-const typed = boundary.authoring;
+const horos = @import("../root.zig");
+const source = horos.source;
+const choice = horos.library.choice;
+const typed = horos.authoring;
 const ChoiceOperation = struct { effect: Id, capability: Id };
-const cleanup = boundary.library.cleanup;
-const Id = boundary.data.program.Id;
+const cleanup = horos.library.cleanup;
+const Id = horos.data.program.Id;
 const Mode = enum { handler_state, edge, unit_state };
 const Resource = struct { owned: Id, borrowed: Id, loan: Id, acquire: Id, finalizer: Id, info: Id };
 
@@ -130,7 +130,7 @@ test "multi capture checks protected borrows in handler state and continuation e
         const module = try program(&b, mode);
         try std.testing.expectError(
             error.InvalidOwnership,
-            boundary.program.compile(std.testing.allocator, module),
+            horos.program.compile(std.testing.allocator, module),
         );
     }
 }
@@ -139,6 +139,6 @@ test "multi capture permits safe handler state inside a protected resource scope
     var b = source.Builder.init(std.testing.allocator);
     defer b.deinit();
     const module = try program(&b, .unit_state);
-    var compiled = try boundary.program.compile(std.testing.allocator, module);
+    var compiled = try horos.program.compile(std.testing.allocator, module);
     defer compiled.deinit();
 }

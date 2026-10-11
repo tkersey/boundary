@@ -1,7 +1,7 @@
 # Checked whole-program coalescing
 
 Closed compilation and final linking always run P01. Typed/direct compilation,
-standalone linking and Agent's compiled-tool path share the same mandatory
+standalone linking and Protean's compiled-tool path share the same mandatory
 checked pipeline. There is no public off/safe selector. Open components defer
 whole-program coalescing until closed linking.
 
@@ -19,7 +19,7 @@ diagnostics do not bypass those checks.
 
 Structural compilation preserves its declared cross-build logical-step relation.
 Additional semantic passes require the semantic contract and preserve specified
-external behavior. World always preserves the exact same-image stepping and
+external behavior. Kronos always preserves the exact same-image stepping and
 interruption contract. A changed image has a changed identity: old checkpoints and
 reply envelopes cannot be transplanted. Ordinary codecs retain valid duplicate
 records and do not silently optimize images.

@@ -1,5 +1,5 @@
 //! Caller-owned diagnostics and optional compilation phase observations.
-const data = @import("boundary_data");
+const data = @import("horos_data");
 const p = data.program;
 pub const Stage = enum {
     source_copy,

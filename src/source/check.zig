@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
 //! Source scopes and result types, including mutually recursive lexical captures.
 const std = @import("std");
-const data = @import("boundary_data");
+const data = @import("horos_data");
 const p = data.program;
 const ast = @import("ast.zig");
 const Error = @import("../source.zig").Error;

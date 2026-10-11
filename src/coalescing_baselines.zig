@@ -1,6 +1,6 @@
-//! Frozen Program data from accepted Boundary 6313768, never compiled by the candidate.
+//! Frozen Program data from accepted Horos 6313768, never compiled by the candidate.
 const std = @import("std");
-const data = @import("boundary_data");
+const data = @import("horos_data");
 
 pub fn get(allocator: std.mem.Allocator, name: []const u8) !data.program_image.Decoded {
     const parsed = try std.json.parseFromSlice(std.json.Value, allocator, @embedFile("coalescing_predecessors.json"), .{});

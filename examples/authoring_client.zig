@@ -1,10 +1,10 @@
 //! Public-package client: all generated branching and interpretation is Program code.
 const std = @import("std");
-const boundary = @import("boundary");
-const a = boundary.authoring;
+const horos = @import("horos");
+const a = horos.authoring;
 
 pub const Application = struct {
-    pub fn emit(raw: *boundary.source.Builder) !boundary.source.Module {
+    pub fn emit(raw: *horos.source.Builder) !horos.source.Module {
         const c = try a.Context.init(raw);
         const integer = try c.scalar(u64);
         const boolean = try c.scalar(bool);
@@ -53,9 +53,9 @@ pub const Application = struct {
     }
 };
 pub fn main(init: std.process.Init) !void {
-    var compiled = try boundary.program.lower(init.gpa, Application);
+    var compiled = try horos.program.lower(init.gpa, Application);
     defer compiled.deinit();
-    const bytes = try init.gpa.alloc(u8, try boundary.data.program_image.encodedLength(compiled.program));
+    const bytes = try init.gpa.alloc(u8, try horos.data.program_image.encodedLength(compiled.program));
     defer init.gpa.free(bytes);
     _ = try compiled.encode(init.gpa, bytes);
     var buffer: [4096]u8 = undefined;

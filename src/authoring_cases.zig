@@ -2,7 +2,7 @@
 const std = @import("std");
 const source = @import("source.zig");
 const a = @import("authoring.zig");
-const data = @import("boundary_data");
+const data = @import("horos_data");
 const p = data.program;
 pub const Kind = enum {
     deep,

@@ -1,7 +1,7 @@
 const std = @import("std");
 const source = @import("../source.zig");
 const examples = @import("examples.zig");
-const data = @import("boundary_data");
+const data = @import("horos_data");
 
 fn requireAdmitted(program: data.activation.Program) !void {
     var facts = try data.activation_ownership.analyze(std.testing.allocator, program);

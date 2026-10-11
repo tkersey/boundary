@@ -1,27 +1,29 @@
-# Boundary 3
+# Horos 3
 
-Boundary checks staged Zig computations and handlers and compiles them into
-portable BPI3 program data. World 6 executes that data with one generic native/WASM
-interpreter. Boundary contains no production evaluator.
+Formerly Boundary; see the [rename notes](docs/rename.md).
 
-Boundary `3.0.0` requires Zig `0.17.0`. The public modules are `boundary` for
-authoring and `boundary_data` for data-only admission and linking. This version
+Horos checks staged Zig computations and handlers and compiles them into
+portable BPI3 program data. Kronos 6 executes that data with one generic native/WASM
+interpreter. Horos contains no production evaluator.
+
+Horos `3.0.0` requires Zig `0.17.0`. The public modules are `horos` for
+authoring and `horos_data` for data-only admission and linking. This version
 uses BMO1 components, BPI3 programs, PST3 states and ABI 3; the major package
 version does not introduce another wire format. See the
-[current verification](.github/CI.md).
+[current verification](.github/workflows/zig.yml).
 
 ## Author and compile
 
-Import the Zig build module `boundary`. Use `authoring` for ordinary construction,
+Import the Zig build module `horos`. Use `authoring` for ordinary construction,
 `program` for compilation, `data` for portable records, and `library` for reusable
 compositions. The `effect`, `handler`, and `region` raw-Builder facades have been removed.
 
 Start with the [typed structured authoring guide](docs/typed-authoring.md) and
-`boundary.authoring` for named values, forward sequencing and derived handlers.
+`horos.authoring` for named values, forward sequencing and derived handlers.
 
 An application implements `emit(builder)` using the checked staged builder.
-`boundary.program.lower(allocator, Application)` compiles that application;
-`boundary.program.compile(allocator, module)` compiles an already constructed
+`horos.program.lower(allocator, Application)` compiles that application;
+`horos.program.compile(allocator, module)` compiles an already constructed
 source module. Both use the same stable-slot compiler. The returned owner must
 be deinitialized; it owns the emitted records and derived flow facts independently
 of the source builder. `compiled.encode(allocator, destination)` emits BPI3 into
@@ -42,7 +44,7 @@ The [public example](examples/one_effect.zig) compiles without a runtime:
 zig build emit-one-effect -Doptimize=safe > example.bpi3
 ```
 
-Its initial argument and result are canonical little-endian `u32` values. World
+Its initial argument and result are canonical little-endian `u32` values. Kronos
 returns a typed `example.lookup.v2` request, and the environment supplies its
 result. Application handlers, search, scheduling and cleanup remain Program code.
 
@@ -86,7 +88,7 @@ module publication. `HandlerOptions.resumption_slots` lets handler construction
 complete declared tokens for mutually retaining clauses. Reader/local uses these
 declarations in the [scoped forwarding example](src/source/scoped_reader_example.zig).
 
-Owned generators and bidirectional child exchanges share one Boundary constructor.
+Owned generators and bidirectional child exchanges share one Horos constructor.
 Its recursive answer, linear package and handler use checked typed declarations.
 Reusable child-dialogue constructions use this same mechanism.
 Exchange composition now uses typed matching, package consumption and recursive
@@ -101,14 +103,14 @@ owned custody boundaries, named provenance and statement-level evaluation order.
 
 ## Pure data and components
 
-Use the separate build module `boundary_data` for schemas, stable Program/State
+Use the separate build module `horos_data` for schemas, stable Program/State
 records, codecs and admission. A dependency selecting `.@"data-only" = true`
 constructs only that module; it does not build authoring, oracle or formal targets.
 Current formats are [BPI3](docs/bpi3-wire.md), PST3 and the ABI 3 interaction
 contracts. Versioned facade aliases have been removed.
 
 [Separately compiled BMO1 components](docs/bmo1-components.md) carry explicit
-interfaces and checked borrow contracts. The data-only `boundary-link` tool
+interfaces and checked borrow contracts. The data-only `horos-link` tool
 resolves instance bindings and emits an independently admitted closed BPI3 image,
 without component source or emitters.
 

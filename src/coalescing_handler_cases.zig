@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
 //! Independently described handlers retain distinct installation state.
 const source = @import("source.zig");
-const p = @import("boundary_data").program;
+const p = @import("horos_data").program;
 pub const Kind = enum { duplicate, mixed_mode, effect_duplicate };
 
 pub fn build(b: *source.Builder, kind: Kind) !source.Module {

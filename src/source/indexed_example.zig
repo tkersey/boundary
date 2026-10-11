@@ -4,7 +4,7 @@
 const source = @import("../source.zig");
 const a = @import("../authoring.zig");
 const choice = @import("../library/choice.zig");
-const p = @import("boundary_data").program;
+const p = @import("horos_data").program;
 
 pub fn build(b: *source.Builder) source.Error!source.Module {
     return buildTypedDeclarations(b) catch |err| return a.sourceError(err);

@@ -5,7 +5,7 @@ const frozen = @import("coalescing_baselines.zig");
 const testing = std.testing;
 const source = @import("source.zig");
 const authoring = @import("authoring.zig");
-const data = @import("boundary_data");
+const data = @import("horos_data");
 
 pub fn closures(
     allocator: std.mem.Allocator,

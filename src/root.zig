@@ -22,7 +22,7 @@ pub const program = struct {
     pub const Diagnostic = source.Diagnostic;
     pub const CompileOptions = source.CompileOptions;
 };
-pub const data = @import("boundary_data");
+pub const data = @import("horos_data");
 
 test {
     _ = source;

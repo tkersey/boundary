@@ -3,7 +3,7 @@
 const source = @import("../source.zig");
 const gen = @import("../library/generator.zig");
 const a = @import("../authoring.zig");
-const p = @import("boundary_data").program;
+const p = @import("horos_data").program;
 
 pub const count = 10;
 pub const Fixtures = struct { package: p.Id, queue: p.Id, factory: p.Id, release: p.Id };

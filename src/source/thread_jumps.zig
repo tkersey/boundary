@@ -1,7 +1,7 @@
 //! Eliminate administrative paths without moving values or crossing custody.
 //! Input has passed target admission. Cycles retain their original blocks.
 const std = @import("std");
-const data = @import("boundary_data");
+const data = @import("horos_data");
 const ir = data.activation;
 const Id = data.program.Id;
 

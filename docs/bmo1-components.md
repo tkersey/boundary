@@ -1,10 +1,10 @@
 # BMO1 components and source-independent linking
 
 `source.component.compile` uses the stable-activation compiler to produce a
-relocatable object. `boundary_data.component.decode` checks its first-order
-records. `boundary_data.linker.link` binds objects and independently admits a
+relocatable object. `horos_data.component.decode` checks its first-order
+records. `horos_data.linker.link` binds objects and independently admits a
 closed BPI3 Program. The linker neither runs source emitters nor executes code.
-The current namespaces are `boundary` for authoring and `boundary_data` for
+The current namespaces are `horos` for authoring and `horos_data` for
 object admission and linking.
 
 ## Format
@@ -138,11 +138,11 @@ in the emitted program or state image.
 
 ```
 zig build build-compiler
-zig-out/bin/boundary-link link.json > application.bpi3
+zig-out/bin/horos-link link.json > application.bpi3
 zig build check-components
 ```
 
-The linker executable imports only Boundary's pure data module. It accepts one
+The linker executable imports only Horos's pure data module. It accepts one
 JSON manifest; instance paths are relative to its working directory:
 
 ```json

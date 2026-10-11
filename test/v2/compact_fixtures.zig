@@ -1,14 +1,14 @@
 //! Synthetic heterogeneous live interfaces, authored through the public builder.
-const boundary = @import("boundary");
+const horos = @import("horos");
 const std = @import("std");
-const p = boundary.data.program;
+const p = horos.data.program;
 
 pub fn mixed(
-    b: *boundary.source.Builder,
+    b: *horos.source.Builder,
     count: usize,
     rotation: usize,
     reverse: bool,
-) !boundary.source.Module {
+) !horos.source.Module {
     return variedMixed(b, count, .{ .rotation = rotation, .reverse_operands = reverse });
 }
 
@@ -21,10 +21,10 @@ pub const MixedVariation = struct {
 };
 
 pub fn variedMixed(
-    b: *boundary.source.Builder,
+    b: *horos.source.Builder,
     count: usize,
     variation: MixedVariation,
-) !boundary.source.Module {
+) !horos.source.Module {
     const unit = try b.scalar(void);
     const kinds = [_]p.Id{ try b.scalar(bool), try b.scalar(u64), try b.scalar(u32) };
     var effects: [3]p.Id = undefined;
@@ -74,16 +74,16 @@ fn kindIndex(index: usize, variation: MixedVariation) usize {
 }
 
 /// The existing stored-constant workload: one 64 KiB payload referenced twice.
-pub fn storedConstant(b: *boundary.source.Builder, length: usize) !boundary.source.Module {
+pub fn storedConstant(b: *horos.source.Builder, length: usize) !horos.source.Module {
     const bytes_type = try b.schema(.bytes);
     const unit = try b.scalar(void);
     const pair = try b.schema(.{ .product = &.{ bytes_type, bytes_type } });
-    var measured: boundary.data.wire.Writer = .{};
+    var measured: horos.data.wire.Writer = .{};
     try measured.natural(length);
     const total = std.math.add(usize, measured.position, length) catch return error.InvalidLength;
     const bytes = try b.allocator().alloc(u8, total);
     @memset(bytes, 0x5a);
-    var writer: boundary.data.wire.Writer = .{ .output = bytes };
+    var writer: horos.data.wire.Writer = .{ .output = bytes };
     try writer.natural(length);
     const first = try b.literal(.{ .schema = bytes_type, .bytes = bytes });
     const second = try b.literal(.{ .schema = bytes_type, .bytes = bytes });

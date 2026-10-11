@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Boundary contributors. MIT license.
 //! Raw admitted stable-slot cases: source lets do not expose simultaneous cycles.
 const std = @import("std");
-const data = @import("boundary_data");
+const data = @import("horos_data");
 const source = @import("source.zig");
 const ir = data.activation;
 pub const Kind = enum { swap, cycle };

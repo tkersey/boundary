@@ -1,6 +1,6 @@
 //! Reproducible synthetic size witnesses; stdout remains a portable image.
 const std = @import("std");
-const boundary = @import("boundary");
+const horos = @import("horos");
 
 pub fn main(init: std.process.Init) !void {
     var args = std.process.Args.Iterator.init(init.minimal.args);
@@ -13,7 +13,7 @@ pub fn main(init: std.process.Init) !void {
     const constant = std.mem.eql(u8, kind, "constant");
     if (!mixed and !irregular and !constant and !std.mem.eql(u8, kind, "install"))
         return error.InvalidKind;
-    var builder = boundary.source.Builder.init(init.gpa);
+    var builder = horos.source.Builder.init(init.gpa);
     defer builder.deinit();
     const module = if (constant)
         try @import("compact_fixtures.zig").storedConstant(&builder, std.math.mul(usize, count, 1024) catch return error.InvalidLength)
@@ -22,11 +22,11 @@ pub fn main(init: std.process.Init) !void {
     else if (mixed)
         try @import("compact_fixtures.zig").mixed(&builder, count, 0, false)
     else
-        try boundary.source.examples.installations(&builder, count);
-    var compiled = try boundary.program.compile(init.gpa, module);
+        try horos.source.examples.installations(&builder, count);
+    var compiled = try horos.program.compile(init.gpa, module);
     defer compiled.deinit();
     if (constant and compiled.program.constants.len != 1) return error.DuplicatedConstant;
-    const bytes = try init.gpa.alloc(u8, try boundary.data.program_image.encodedLength(compiled.program));
+    const bytes = try init.gpa.alloc(u8, try horos.data.program_image.encodedLength(compiled.program));
     defer init.gpa.free(bytes);
     _ = try compiled.encode(init.gpa, bytes);
     var buffer: [4096]u8 = undefined;
